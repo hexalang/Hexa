@@ -1,10 +1,9 @@
-# openhaxe
+# Hexa
 
-[![Join the chat at https://gitter.im/openhaxe/openhaxe](https://badges.gitter.im/openhaxe/openhaxe.svg)](https://gitter.im/openhaxe/openhaxe?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-[![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg)](https://telegram.me/openhaxe_talk)
+[![Join the Gitter chat](https://badges.gitter.im/hexalang/hexalang.svg)](https://gitter.im/hexalang?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg)](https://t.me/hexalang_talk)
 
-OpenHaxe is an alternative implementation of Haxe: a high level, strictly typed programming language.
+Hexa is a programming language in an early stage of development. Inspired by Haxe.
 
 WORK IN PROGRESS
 
-OpenHaxe compiler and basic standard lib with only LLVM backend built-in. Temporarely will contain JavaScript backend too.
