@@ -107,6 +107,7 @@ class Converter {
 					var sStatic = sStatic ? '$kwStatic ' : '';
 					out(tabs);
 					for (meta in f.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
+					if (f.name != camelCase(f.name)) out('@rename(\'${f.name}\')\n$tabs');
 					out(sPrivate + sStatic);
 
 					switch (f.kind) {
@@ -123,10 +124,7 @@ class Converter {
 
 						switch (f.type) {
 						case TFun(args, ret):
-							out('(');
-							out(stringOfArgs(args));
-							out('): ');
-							out(stringOfType(ret));
+							out(stringOfArgs(args) + ': ' + stringOfType(ret));
 						case _: throw 'Unreachable code ' + f.type;
 						}
 
@@ -146,7 +144,7 @@ class Converter {
 					out(tabs + sPrivate + kwNew);
 					switch (c.type) {
 					case TFun(args, ret):
-						out('(' + stringOfArgs(args) + ')');
+						out(stringOfArgs(args));
 					case _: throw 'Unreachable code ' + c.type;
 					}
 					if (c.expr() != null) out(' ' + stringOf(c.expr()));
@@ -154,7 +152,7 @@ class Converter {
 				}
 			}
 
-			// TODO doc
+			// Sets output file path depending on namespace
 			function setDestination(module: String, name: String) {
 				if (module != null) {
 					if (module == name) {
@@ -185,9 +183,7 @@ class Converter {
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
 				var sKind = c.isInterface ? '$kwInterface ' : '$kwClass ';
-				var params =
-					if (pa.length > 0) '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>'
-						else '';
+				var params = stringOfParams(pa);
 
 				out(sPrivate + sExternal + sKind + c.name + params + ' {\n');
 				pushTab();
@@ -225,10 +221,10 @@ class Converter {
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
 
 				out(tabs);
+				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				if (c.doc != null) out('$docBegin ${c.doc}$docEnd\n$tabs');
 				out(sPrivate + sExternal + kwType + ' ' + t.get().name);
-				if (pa.length > 0)
-					out('<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>');
+				out(stringOfParams(pa));
 				out(' : ' + stringOfType(t.get().type) + ' {\n');
 				pushTab();
 
@@ -254,10 +250,13 @@ class Converter {
 					pushTab();
 				}
 
-				// TODO private etc
-				out(tabs + '$kwType ' + t.get().name);
-				if (pa.length > 0)
-					out('<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>');
+				var sExternal = c.isExtern ? '$kwExtern ' : '';
+				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
+
+				out(tabs);
+				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
+				out(sPrivate + sExternal + '$kwType ' + t.get().name);
+				out(stringOfParams(pa));
 				out(' = ' + stringOfType(t.get().type));
 
 				if (module != null) {
@@ -276,16 +275,21 @@ class Converter {
 					pushTab();
 				}
 
-				// TODO private etc
-				out(tabs + '$kwEnum ' + t.get().name);
-				if (pa.length > 0)
-					out('<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>');
+				var sExternal = c.isExtern ? '$kwExtern ' : '';
+				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
+
+				out(tabs);
+				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
+				out(sPrivate + sExternal + '$kwEnum ' + t.get().name);
+				out(stringOfParams(pa));
 				out(' {\n');
 				pushTab();
 
 				for (n in c.names) {
 					var f = c.constructs[n];
-					out(tabs + n);
+					out(tabs);
+					for (meta in f.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
+					out(n);
 					switch (f.type) {
 					case TFun(args, retType):
 						out('(' + [for (arg in args) arg.name + ':' + stringOfType(arg.t)].join(', ') + ')');
@@ -388,8 +392,7 @@ class Converter {
 			for (e in el) r += tabs +
 				(switch (e.expr) {
 			// Make a safe postfix unop (coz Hexa has no semicolons)
-			// Todo: prefix-only ~ !
-			case TUnop(OpNot|OpNegBits, false, e): stringOf(e);
+			case TUnop(OpNot|OpNegBits|OpNeg, false, e): stringOf(e);
 				case TUnop(op, false, e): stringOf(e) + stringOfUnop(op);
 				case _: stringOf(e);
 				})
@@ -434,13 +437,9 @@ class Converter {
 				case [TEnum(_), TConst(TInt(1))]: stringOf(e1) + '.$enumIndex';
 					case _: stringOf(e1) + '[' + stringOf(e2) + ']';
 						}
-					//case TNew(c, [], []):
-					//'new ' + c.get().name + '()';
-					//case TNew(c, [], el):
-					//'new ' + c.get().name + '(' +([for(e in el) stringOf(e)].join(', '))+ ')';
 					case TNew(c, pa, el):
 			r = '$kwNew ' + c.get().name;
-			if (pa.length > 0) r += '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>';
+			r += stringOfParams(pa);
 			r += '(' + ([for(e in el) stringOf(e)].join(', ')) + ')';
 			r;
 
@@ -449,52 +448,26 @@ class Converter {
 			switch (e.expr) {
 			case TEnumParameter(e1, ef, index):
 				// Extractor
-				//var r = '\n$e\n$e1\n$ef\n$index';
-				//var r = 'var ' + e1;
-				//var name = v.name;
-				//r += 'var ' + name + ' ' ;
-				//r += stringOf(e1);
-				//r += stringOf(ef);
-
 				r = '$kwConst ' + stringOfType(e1.t) + '.' + ef.name + '(';
 				switch (ef.type) {
-				case TFun(args, retType): // EnumField(...);
+				case TFun(args, retType): // EnumField(...args)
 					for (i in 0...args.length) {
 						if (i > 0) r += ', ';
 						if (index == i) r += v.name;
 						if (index != i) r += '_';
 					}
-				default: throw 'Unreachable code';// EnumField;
+				default: throw 'Unreachable code'; // EnumField
 				}
 
 				r + ') = ' + stringOf(e1);
-			//r +=
-			//r;
-
-			//r = 'let ' + v.name + ': ' + stringOfType(v.t) + ' = ';
-			//r += stringOfType(e1.t) + '.' + ef.name;
-			//r +=
 			case _: '$kwVar ' + v.name + ': ' + stringOfType(v.t) + ' = ' + stringOf(e);
 			}
 
 		case TParenthesis(e): '(' + stringOf(e) + ')';
+		case TIf(econd, eif, null):
+			kwIf + stringOf(econd) + ' ' + stringOf(eif);
 		case TIf(econd, eif, eelse):
-			//var econd = econd.expr;
-			//if(econd.match(TParenthesis(_)) econd = TParenthesis(econd);
-			var parens = switch (econd.expr) {
-			case TParenthesis(_): false;
-			case _: true;
-			}
-			r = kwIf;
-			if (parens) r += '(';
-			r += stringOf(econd);
-			if (parens) r += ')';
-			r += ' ' + stringOf(eif);
-			if (eelse != null) r += ' $kwElse ' + stringOf(eelse);
-			r;
-		//case TIf(econd, eif, eelse):
-		//    'if(' + stringOf(econd) + ') ' + stringOf(eif) + ' else ' + stringOf(eelse);
-		//
+			kwIf + stringOf(econd) + ' ' + stringOf(eif) + ' $kwElse ' + stringOf(eelse);
 
 		// Pattern matcher
 		// Plain switch
@@ -510,8 +483,6 @@ class Converter {
 			r + '\n$tabs}';
 
 		case TThrow(e): '$kwThrow ' + stringOf(e);
-		//case TCast({expr:TCast(e, null)}, null): stringOf(e);
-		//case TCast(ex, null): 'cast(' + stringOf(ex) +':'+e.t+ ')';
 		case TCast(ex, null): '(' + stringOf(ex) + ' $kwAs! ' + stringOfType(e.t) + ')';
 		case TCast(e, m): '(' + stringOf(e) + ' $kwAs ' + m.getName() + ')';
 		case TWhile(econd, e, true): '$kwWhile' + stringOf(econd) + ' ' + stringOf(e);
@@ -527,7 +498,6 @@ class Converter {
 
 		// Lets try to extract an enum value and return from block
 		case TEnumParameter(e1, ef, index):
-			//stringOf(e1) + '.' + ef.name + '[$index]';
 			r = '{ $kwConst ';
 			r += stringOfType(e1.t);
 			r += '.' + ef.name;
@@ -572,11 +542,11 @@ class Converter {
 
 		// Parametric
 		case TType(t, pa), TAbstract(t, pa):
-			t.get().name + '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>';
+			t.get().name + stringOfParams(pa);
 		case TInst(t, pa):
-			t.get().name + '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>';
+			t.get().name + stringOfParams(pa);
 		case TEnum(t, pa):
-			t.get().name + '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>';
+			t.get().name + stringOfParams(pa);
 
 		// Empty structure
 		case TAnonymous(_.get().fields.length => 0): '{:}';
@@ -591,7 +561,7 @@ class Converter {
 			r + '}';
 
 		case TFun([arg], ret): '' + stringOfType(arg.t) + '=>' + stringOfType(ret);
-		case TFun(args, ret): '(' + stringOfArgs(args) + ')=>' + stringOfType(ret);
+		case TFun(args, ret): stringOfArgs(args) + '=>' + stringOfType(ret);
 		case TDynamic(null): typeDynamic;
 		case TMono(t) if (t.get() != null): stringOfType(t.get());
 		case TMono(t): typeDynamic;
@@ -608,11 +578,13 @@ class Converter {
 				r += a.name + ': ';
 			r += stringOfType(a.t);
 		}
-		return r;
+		return '(' + r + ')';
 	}
 
 	// Polymorphic <parameters>
-	static function stringOfParams(): String {
+	static function stringOfParams(pa: Array<Type>): String {
+		if (pa.length > 0)
+			return '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>';
 		return '';
 	}
 
