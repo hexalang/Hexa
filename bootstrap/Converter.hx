@@ -28,6 +28,7 @@ import sys.io.File;
 using Lambda;
 using StringTools;
 using haxe.macro.TypedExprTools;
+using haxe.macro.Tools;
 using Converter;
 
 class Converter {
@@ -207,7 +208,7 @@ class Converter {
 				out(tabs + '}');
 
 				if (c.init != null) {
-					out('\n\n// __init__\n' + c.init.stringOf());
+					out('\n\n$tabs// __init__\n$tabs' + c.init.stringOf());
 				}
 
 				if (module != null) {
