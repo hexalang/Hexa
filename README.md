@@ -8,3 +8,14 @@ Hexa is a programming language in an early stage of development. Inspired by Hax
 
 WORK IN PROGRESS
 
+## LICENSE
+
+See LICENSE files for full license texts and headers of each file
+(files in same directory may use different licensing models).
+
+If license is not mentioned in header then LICENSE file in upper directory level to be considered.
+
+**TL;DR**
+
+Compiler and some tools are under Lesser GPL 2.1 (feel free to include as a library in closed source projects),
+standard libraries are under MIT.
