@@ -666,6 +666,7 @@ class Converter {
 		return s;
 	}
 
+	// Prints untyped expression node
 	static function stringOfMetaExpr(e: ExprDef): String {
 		if (e == null) throw 'Unreachable code';
 		return switch (e) {
@@ -687,7 +688,7 @@ class Converter {
 		}
 	}
 
-	// Converts representation to Hexa syntax
+	// Converts representation to Hexa
 	static function stringOfFloat(s: String): String {
 		s = s.replace('E', 'e');
 		if (s.startsWith('.')) s = '0' + s;
@@ -695,7 +696,7 @@ class Converter {
 		return s;
 	}
 
-	// Converts representation to Hexa syntax
+	// Converts representation to Hexa
 	static function stringOfString(s: String): String {
 		return '\'' +
 		s
@@ -706,7 +707,7 @@ class Converter {
 		.replace('\'', '\\\'') + '\'';
 	}
 
-	// Converts representation to Hexa syntax
+	// Converts representation to Hexa
 	static function stringOfInt(s: String): String {
 		return s.toUpperCase().replace('X', 'x');
 	}
