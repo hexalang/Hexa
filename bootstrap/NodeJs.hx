@@ -15,9 +15,19 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
+@:native("Buffer")
+extern class Buffer implements ArrayAccess<Int> {
+	static function alloc(size:Int): Buffer;
+	var length:Int;
+	function readUInt16LE(offset:Int):Int;
+	function writeUInt16LE(value:Int, offset:Int):Int;
+	function readUInt32LE(offset:Int):Int;
+	function toString(?encoding:String, start:Int, end:Int):String;
+}
+
 @:jsRequire("fs")
 @:native("fs")
 extern class Fs {
 	public static function readdirSync(path: String): Array<String>;
-	public static function readFileSync(path: String, ?encoding:String): String;
+	public static function readFileSync(path: String): Buffer;
 }
