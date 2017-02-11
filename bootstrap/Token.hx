@@ -31,6 +31,7 @@
 	var KElse        = 10;
 	var KEnum        = 11;
 	var KExtends     = 12;
+	var KExtern      = 13;
 	var KFalse       = 14;
 	var KFor         = 15;
 	var KFunction    = 16;

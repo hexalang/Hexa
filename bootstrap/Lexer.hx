@@ -277,6 +277,7 @@ class Lexer {
 				"else" => KElse,
 				"enum" => KEnum,
 				"extends" => KExtends,
+				"declare" => KExtern,
 				"false" => KFalse,
 				"for" => KFor,
 				"function" => KFunction,
@@ -289,7 +290,7 @@ class Lexer {
 				"let" => KLet,
 				"new" => KNew,
 				"null" => KNull,
-				"package" => KPackage,
+				"module" => KPackage,
 				"private" => KPrivate,
 				"public" => KPublic,
 				"return" => KReturn,
@@ -408,6 +409,7 @@ class Lexer {
 		case KElse: "else";
 		case KEnum: "enum";
 		case KExtends: "extends";
+		case KExtern: "declare";
 		case KFalse: "false";
 		case KFor: "for";
 		case KFunction: "function";
@@ -420,7 +422,7 @@ class Lexer {
 		case KLet: "let";
 		case KNew: "new";
 		case KNull: "null";
-		case KPackage: "package";
+		case KPackage: "module";
 		case KPrivate: "private";
 		case KPublic: "public";
 		case KReturn: "return";
