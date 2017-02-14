@@ -15,26 +15,21 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-enum Constant {
-	CString(s: String);
-	CIdent(s: String);
-	CBool(b: Bool);
-	CThis;
-	CSuper;
-	CInt(s: String);
-	CFloat(s: String);
-	CNull;
-}
+enum Node {
+	TString(s: String);
+	TIdent(s: String);
+	TBool(b: Bool);
+	TThis;
+	TSuper;
+	TInt(s: String);
+	TFloat(s: String);
+	TNull;
 
-@demo
-enum NodeKind {
-	// var t:Type
 	TBinop(op: Token, a: Node, b: Node);
 	//TBinopAssign(op: Token, a: Node, b: Node);
 	TBlock(el: Array<Node>);
-	@demo(1) @demos TBreak;
-	TCall(/*@demo*/ e: /*@demo*/ Node, el: Array</*@demo*/ Node>);
-	TConst(c: Constant);
+	TBreak;
+	TCall(e: Node, el: Array<Node>);
 	TContinue;
 	TIf(econd: Node, eif: Node, eelse: Null<Node>);
 	TParenthesis(e: Node);
@@ -42,10 +37,31 @@ enum NodeKind {
 	TThrow(e: Node);
 	TUnop(op: Token, postfix: Bool, e: Node);
 	TWhile(econd: Node, e: Node, pre: Bool);
+	TFunction(name:String, expr: Node, vars:Array<String>, types:Array<NodeType>, values:Array<Node>);
+	TVar(name: String, t: NodeType, expr: Node);
+	TClass(/*name: String,*/ t: NodeType, ext: NodeType, impl: Array<NodeType>, fields: Array<Node>);
+	TTry(expr: Node, vars:Array<String>, t: Array<NodeType>, catches:Array<Node>);
+	TDot(expr: Node, name: String);
+	TNew(t: NodeType, args: Array<Node>);
+	TArray(el: Array<Node>);
+	TIndex(expr: Node, index: Node);
+	TSwitch(exprs: Array<Node>, cases: Array<Node> /*, conds: Array<Node>*/);
+	TModule(path: Array<String>, el: Array<Node>);
+	TObject(names: Array<String>, el: Array<Node>);
+	TEnum(t: NodeType, fields: Array<String>);
+	TType(name: String, t: NodeType);
+	TAs(expr: Node, kind: Token, t: NodeType);
 	// NUnderscore
+	TMeta(name: String, values: Array<Node>, node:Node);
 }
 
-typedef Node = NodeKind;
+
+enum NodeType {
+	Type(name:String);
+	ParamentricType(name:String, params:Array<NodeType>);
+	Function(args:Array<NodeType>, ret:NodeType);
+	Object(names:Array<String>, types:Array<NodeType>);
+}
 
 //typedef Node = {
 //	var kind: NodeKind;
