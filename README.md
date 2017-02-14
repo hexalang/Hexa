@@ -8,6 +8,19 @@ Hexa is a programming language in an early stage of development. Inspired by Hax
 
 WORK IN PROGRESS
 
+## ENJOY
+
+While compiler is in dev, here's some cool music to listen :headphones:
+
+* [Home Cooked](https://www.youtube.com/watch?v=EyLlOio4bUU)
+* [Drip](https://www.youtube.com/watch?v=Bm-q0v0ZYf4)
+* [Stay Here Tonight](https://soundcloud.com/just-portals/stay-here-tonight)
+* [Standing Over Here](https://soundcloud.com/just-portals/standing-over-herexx)
+* [Paranoid](https://soundcloud.com/pistutm/dansette-junior-paranoid-official-video)
+* [Gifted](https://soundcloud.com/josecfmarques/n-a-s-a-feat-kanye-west)
+
+:raised_hands:
+
 ## LICENSE
 
 See LICENSE files for full license texts and headers of each file
