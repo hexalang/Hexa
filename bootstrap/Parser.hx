@@ -282,7 +282,7 @@ class Parser {
 				step(PClose);
 				step(OpAssign);
 				parseExpr();
-				return null;
+				return TNull; // TODO
 			}
 			var t = null;
 			if (tok() == DblDot) {
@@ -291,7 +291,7 @@ class Parser {
 			}
 			if (tok() == OpAssign) {
 				i++;
-				parseExpr();
+				expr = parseExpr();
 			}
 			TVar(name, t, expr);
 
