@@ -92,6 +92,8 @@ class Converter {
 				'as' => 'convert',
 				'declare' => 'define',
 				'type' => 'kind',
+				'class' => 'clas',
+				'enum' => 'enums',
 			];
 
 	public static function use() Context.onGenerate(proceed);
@@ -178,7 +180,7 @@ class Converter {
 			// Classes and interfaces
 			case TInst(t, pa): {
 				var c: ClassType = t.get();
-				var module = c.module.toLowerCase();
+				var module = c.module.toLowerCase().renameModule();
 				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
@@ -228,7 +230,7 @@ class Converter {
 					continue ;
 				}
 
-				var module = c.module.toLowerCase();
+				var module = c.module.toLowerCase().renameModule();
 				if (c.module == c.name) module = null;
 
 				if (module != null) {
@@ -242,9 +244,10 @@ class Converter {
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				if (c.doc != null) out('$docBegin ${c.doc}$docEnd\n$tabs');
-				out(sPrivate + sExternal + kwType + ' ' + typeCase(t.get().name));
+				out('@wrapper' + '\n$tabs');
+				out(sPrivate + sExternal + kwClass + ' ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
-				out(' : ' + stringOfType(t.get().type) + ' {\n');
+				out(' {\n$tabs' + '\tvar value: ' + stringOfType(t.get().type) + '\n');
 				pushTab();
 
 				if (t.get().impl != null)
@@ -286,7 +289,7 @@ class Converter {
 			// Typedefs
 			case TType(t, pa): {
 				var c = t.get();
-				var module = c.module.toLowerCase();
+				var module = c.module.toLowerCase().renameModule();
 				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
@@ -312,7 +315,7 @@ class Converter {
 			// Enumeration
 			case TEnum(t, pa): {
 				var c = t.get();
-				var module = c.module.toLowerCase();
+				var module = c.module.toLowerCase().renameModule();
 				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
@@ -467,7 +470,7 @@ class Converter {
 			case FStatic(c, cf): cf.get().name.camelCase();
 			case FInstance(c, params, cf): cf.get().name.camelCase();
 			case FDynamic(s): s;
-			case FEnum(e, ef): '' + ef.name.camelCase();
+			case FEnum(e, ef): '' + ef.name.typeCase();
 			case _: throw fa;
 			}
 		case TArrayDecl(el):
@@ -508,9 +511,9 @@ class Converter {
 
 		case TParenthesis(e): '(' + stringOf(e) + ')';
 		case TIf(econd, eif, null):
-			kwIf + stringOf(econd) + ' ' + stringOf(eif);
+			kwIf + '(' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif);
 		case TIf(econd, eif, eelse):
-			kwIf + stringOf(econd) + ' ' + stringOf(eif) + ' $kwElse ' + stringOf(eelse);
+			kwIf + '(' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif) + ' $kwElse ' + stringOf(eelse);
 
 		// Pattern matcher
 		// Plain switch
@@ -533,8 +536,13 @@ class Converter {
 		case TTry(e, catches):
 			'$kwTry ' + stringOf(e) +
 			[for(c in catches) ' $kwCatch(' + c.v.name.camelCase() + ':' + stringOfType(c.v.t) + ') ' + stringOf(c.expr) ].join('\n');
-		case TMeta(m, e): stringOfMeta(m) + ' ' + stringOf(e);
 		case TTypeExpr(TEnumDecl(e)): '' + e;// TODO huh?
+		case TMeta(m, e): stringOfMeta(m) +
+			switch (e.expr) {
+				// Add empty () parens
+				case TCast(_), TParenthesis(_): '() ' + stringOf(e);
+				case _: ' ' + stringOf(e);
+			}
 		case TTypeExpr(TClassDecl(c)): c.get().name.typeCase();
 		case TTypeExpr(TAbstract(e)): '' + e;
 		case TTypeExpr(TTypeDecl(t)): '' + t.get();
@@ -618,7 +626,7 @@ class Converter {
 		for (a in args) {
 			if (r != '') r += ', ';
 			if (a.name != null && a.name != '')
-				r += a.name.camelCase() + ': ';
+				r += a.name.camelCase().renameThis() + ': ';
 			r += stringOfType(a.t);
 		}
 		return '(' + r + ')';
@@ -644,6 +652,7 @@ class Converter {
 		if (s.toUpperCase() == s) {
 			var s = s.split('_');
 			var r = s.shift().toLowerCase();
+			if(r.length == 0) r += '_';
 			while (s.length > 0) {
 				var s = s.shift().toLowerCase();
 				r += s.substr(0, 1).toUpperCase() + s.substr(1);
@@ -721,5 +730,22 @@ class Converter {
 		}
 	}
 
+	// Renames this to this1 for function arguments
+	static function renameThis(s: String): String {
+		return s == 'this'? 'this1' : s;
+	}
+
+	// Renames module to avoid name clashing
+	static function renameModule(s: String): String {
+		return [for(s in s.split('.')) s.rename()].join('.');
+	}
+
+	// Converts (expr) to expr
+	static function unwrapParens(e: TypedExpr): TypedExpr {
+		return switch(e.expr) {
+			case TParenthesis(e): e;
+			case _: e;
+		}
+	}
 #end
 }
