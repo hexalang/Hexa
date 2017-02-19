@@ -155,7 +155,6 @@ class Parser {
 	function parseExpr(): Node {
 		//untyped process.stdout.write(' [');
 		while (tok() == At) parseAttribute();
-		if (tok() == KPrivate) i++; // TODO
 		if (tok() == KExtern) i++;
 		if (tok() == KPrivate) i++;
 		if (tok() == KStatic) i++;
