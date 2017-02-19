@@ -15,7 +15,7 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-@:enum abstract Token(Int) to Int from Int {
+@:enum abstract Token(Int) {
 	// Default
 	var Eof          = 0;
 	var Default      = 123; // Simplifies some parsing
@@ -112,4 +112,93 @@
 	var OpIntDiv    = 110; // \
 	var OpAdd       = 111; // +
 	var OpAnd       = 112; // &
+
+	public function stringify(?param:String): String {
+		var token : Token = cast this;
+		return switch (token) {
+		case At: "@";
+		case BkClose: "]";
+		case BkOpen: "[";
+		case BrClose: "}";
+		case BrOpen: "{";
+		case Comma: ",";
+		case DblDot: ":";
+		case Default: "<!--default-->";
+		case Dot: ".";
+		case Eof: "<!--eof-->";
+		case Interval: "...";
+		case KAs: "as";
+		case KBreak: "break";
+		case KCase: "case";
+		case KCatch: "catch";
+		case KClass: "class";
+		case KContinue: "continue";
+		case KDo: "do";
+		case KElse: "else";
+		case KEnum: "enum";
+		case KExtends: "extends";
+		case KExtern: "declare";
+		case KFalse: "false";
+		case KFor: "for";
+		case KFunction: "function";
+		case KIf: "if";
+		case KImplements: "implements";
+		case KImport: "import";
+		case KIn: "in";
+		case KInline: "inline";
+		case KInterface: "interface";
+		case KLet: "let";
+		case KNew: "new";
+		case KNull: "null";
+		case KPackage: "module";
+		case KPrivate: "private";
+		case KPublic: "public";
+		case KReturn: "return";
+		case KStatic: "static";
+		case KSuper: "super";
+		case KSwitch: "switch";
+		case KThis: "this";
+		case KThrow: "throw";
+		case KTrue: "true";
+		case KTry: "try";
+		case KType: "type";
+		case KUsing: "using";
+		case KVar: "var";
+		case KWhile: "while";
+		case OpAdd: "+";
+		case OpAnd: "&";
+		case OpArrow: "=>";
+		case OpAssign: "=";
+		case OpBoolAnd: "&&";
+		case OpBoolOr: "||";
+		case OpDecrement: "--";
+		case OpDiv: "/";
+		case OpEq: "==";
+		case OpGt: ">";
+		case OpGte: ">=";
+		case OpIncrement: "++";
+		case OpIntDiv: "\\";
+		case OpLt: "<";
+		case OpLte: "<=";
+		case OpMod: "%";
+		case OpMult: "*";
+		case OpNegBits: "~";
+		case OpNot: "!";
+		case OpNotEq: "!=";
+		case OpOr: "|";
+		case OpShl: "<<";
+		case OpShr: ">>";
+		case OpSub: "-";
+		case OpUShr: ">>>";
+		case OpXor: "^";
+		case PClose: ")";
+		case POpen: "(";
+		case Question: "?";
+		case Semicolon: ";";
+		case Underscore: "_";
+		case LString: '\'$param\'';
+		case LIdent, LInt, LFloat: param;
+		case LDoc: '///$param';
+		}
+	}
 }

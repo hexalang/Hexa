@@ -63,7 +63,7 @@ class Parser {
 				if (tok() != BrClose)
 					parseExpr();
 			case _:
-				trace('\nerr ' + Lexer.str(tok()));
+				trace('\nerr ' + tok().stringify());
 				throw 'KClass';
 			}
 		}
@@ -96,7 +96,7 @@ class Parser {
 			trace("Please, issue a developer (with a code sample).");
 			throw "Parser Internal Error: Out of token space";
 		}
-		var t = lex.tokens[i];
+		var t = lex.token[i];
 		if (lasttok != i) {
 			lasttok = i; lasttokchecks = 40;
 		} else {
@@ -110,11 +110,11 @@ class Parser {
 
 	function print() return Lexer.print(lex, i);
 
-	function expect(t) if (t != tok()) expected(Lexer.str(t));
+	function expect(t) if (t != tok()) expected(t.stringify());
 
 	function getgo(t) : String {
 		expect(t);
-		return lex.params[i++];
+		return lex.value[i++];
 	}
 
 	function step(t) : Void {
@@ -178,7 +178,7 @@ class Parser {
 				step(BrClose);
 				TObject([], []);
 				// TODO [], [] => null, null? speedup! less memory!
-			} else if (tok() == LIdent && lex.tokens[i + 1] == DblDot) { // Object
+			} else if (tok() == LIdent && lex.token[i + 1] == DblDot) { // Object
 				var names: Array<String> = [], el: Array<Node> = [];
 				while (tok() != BrClose) {
 					names.push(getgo(LIdent));
@@ -777,7 +777,7 @@ class Parser {
 			step(OpArrow);
 			Function(args, parseType());
 		case _:
-			trace('\n' + Lexer.str(tok()));
+			trace('\n' + tok().stringify());
 			throw 'parseType';
 		}
 		if (tok() == Question) i++;
@@ -797,7 +797,7 @@ class Parser {
 		case OpBoolAnd : 7 + left;
 		case OpBoolOr : 8 + left;
 		case OpAssign : 10 + right;
-		case _: throw "No precedence for " + Lexer.str(op);
+		case _: throw "No precedence for " + op.stringify();
 		}
 	}
 

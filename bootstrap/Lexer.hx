@@ -19,19 +19,19 @@ import NodeJs;
 import Token;
 
 class Tokens {
-	public var tokens(default, null): Buffer;
-	public var params(default, null): Array<String>;
 	public var length(default, null): Int;
+	public var token(default, null): Buffer<Token>;
+	public var value(default, null): Array<String>;
 
-	public function new(tokens, length, params) {
-		this.tokens = tokens;
+	public function new(tokens, length, values) {
+		this.token = tokens;
 		this.length = length;
-		this.params = params;
+		this.value = values;
 	}
 }
 
 class Lexer {
-	public static function lexe(bytes : Buffer): Tokens {
+	public static function tokenize(bytes : Buffer<Int>): Tokens {
 		// Variables
 		var position = 0;
 		var len = bytes.length;
@@ -158,7 +158,7 @@ class Lexer {
 
 			// 8 bit ops
 			var found = ops8a[_8];
-			if (found != 0) {
+			if (found != Eof) {
 				add(found);
 				position++;
 				continue ;
@@ -375,102 +375,17 @@ class Lexer {
 	}
 
 	public static function print(tokens: Tokens, position: Int): String {
-		var s = tokens.params[position];
-		return switch (tokens.tokens[position]) {
+		var s = tokens.value[position];
+		return switch (tokens.token[position]) {
 		case LInt: s;
 		case LFloat: s;
 		case LString: '"$s"';
 		case LIdent: s;
 		case LDoc: '/**$s**/';
-		case t: str(t);
+		case t: t.stringify(tokens.value[position]);
 		}
 	}
 
-	public static function str(token: Token): String {
-		return switch (token) {
-		case At: "@";
-		case BkClose: "]";
-		case BkOpen: "[";
-		case BrClose: "}";
-		case BrOpen: "{";
-		case Comma: ",";
-		case DblDot: ":";
-		case Default: "<!--default-->";
-		case Dot: ".";
-		case Eof: "<!--eof-->";
-		case Interval: "...";
-		case KAs: "as";
-		case KBreak: "break";
-		case KCase: "case";
-		case KCatch: "catch";
-		case KClass: "class";
-		case KContinue: "continue";
-		case KDo: "do";
-		case KElse: "else";
-		case KEnum: "enum";
-		case KExtends: "extends";
-		case KExtern: "declare";
-		case KFalse: "false";
-		case KFor: "for";
-		case KFunction: "function";
-		case KIf: "if";
-		case KImplements: "implements";
-		case KImport: "import";
-		case KIn: "in";
-		case KInline: "inline";
-		case KInterface: "interface";
-		case KLet: "let";
-		case KNew: "new";
-		case KNull: "null";
-		case KPackage: "module";
-		case KPrivate: "private";
-		case KPublic: "public";
-		case KReturn: "return";
-		case KStatic: "static";
-		case KSuper: "super";
-		case KSwitch: "switch";
-		case KThis: "this";
-		case KThrow: "throw";
-		case KTrue: "true";
-		case KTry: "try";
-		case KType: "type";
-		case KUsing: "using";
-		case KVar: "var";
-		case KWhile: "while";
-		case OpAdd: "+";
-		case OpAnd: "&";
-		case OpArrow: "=>";
-		case OpAssign: "=";
-		case OpBoolAnd: "&&";
-		case OpBoolOr: "||";
-		case OpDecrement: "--";
-		case OpDiv: "/";
-		case OpEq: "==";
-		case OpGt: ">";
-		case OpGte: ">=";
-		case OpIncrement: "++";
-		case OpIntDiv: "\\";
-		case OpLt: "<";
-		case OpLte: "<=";
-		case OpMod: "%";
-		case OpMult: "*";
-		case OpNegBits: "~";
-		case OpNot: "!";
-		case OpNotEq: "!=";
-		case OpOr: "|";
-		case OpShl: "<<";
-		case OpShr: ">>";
-		case OpSub: "-";
-		case OpUShr: ">>>";
-		case OpXor: "^";
-		case PClose: ")";
-		case POpen: "(";
-		case Question: "?";
-		case Semicolon: ";";
-		case Underscore: "_";
-		case LDoc, LString, LInt, LIdent, LFloat: "<!--literal-->";
-		}
-	}
 
 	// Free of collisions for current set
 	static inline function simplehash(val: Int): Int {
