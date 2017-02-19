@@ -196,7 +196,7 @@ class Converter {
 				var sKind = c.isInterface ? '$kwInterface ' : '$kwClass ';
 				var params = stringOfParams(pa);
 
-				out(sPrivate + sExternal + sKind + typeCase(c.name) + params);
+				out(sExternal + sPrivate + sKind + typeCase(c.name) + params);
 				if (c.superClass != null) out(' $kwExtends ' + c.superClass.t.get().name.typeCase() + stringOfParams(c.superClass.params));
 				for (i in c.interfaces) {
 					out(' $kwImplements ' + i.t.get().name.typeCase() + stringOfParams(i.params));
@@ -245,7 +245,7 @@ class Converter {
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				if (c.doc != null) out('$docBegin ${c.doc}$docEnd\n$tabs');
 				out('@wrapper' + '\n$tabs');
-				out(sPrivate + sExternal + kwClass + ' ' + typeCase(t.get().name));
+				out(sExternal + sPrivate + kwClass + ' ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' {\n$tabs' + '\tvar value: ' + stringOfType(t.get().type) + '\n');
 				pushTab();
@@ -303,7 +303,7 @@ class Converter {
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
-				out(sPrivate + sExternal + '$kwType ' + typeCase(t.get().name));
+				out(sExternal + sPrivate + '$kwType ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' = ' + stringOfType(t.get().type));
 
@@ -329,7 +329,7 @@ class Converter {
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
-				out(sPrivate + sExternal + '$kwEnum ' + typeCase(t.get().name));
+				out(sExternal + sPrivate + '$kwEnum ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' {\n');
 				pushTab();
