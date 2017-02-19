@@ -16,18 +16,19 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 @:native("Buffer")
-extern class Buffer implements ArrayAccess<Int> {
-	static function alloc(size:Int): Buffer;
+extern class Buffer<T> implements ArrayAccess<T> {
+	static function alloc<T>(size:Int): Buffer<T>; // TODO allocUnsafe
 	var length:Int;
 	function readUInt16LE(offset:Int):Int;
 	function writeUInt16LE(value:Int, offset:Int):Int;
 	function readUInt32LE(offset:Int):Int;
 	function toString(?encoding:String, start:Int, end:Int):String;
+	static function from<T>(string:String, ?encoding:String):Buffer<T>;
 }
 
 @:jsRequire("fs")
 @:native("fs")
 extern class Fs {
 	public static function readdirSync(path: String): Array<String>;
-	public static function readFileSync(path: String): Buffer;
+	public static function readFileSync<T>(path: String): Buffer<T>;
 }
