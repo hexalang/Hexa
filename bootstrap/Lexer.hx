@@ -478,13 +478,13 @@ class Lexer {
 	}
 
 	// Pre-calculated array of is byte in A-z 0-9 _
-	static var isident: Buffer;
+	static var isident: Buffer<Int>;
 
 	// Single-byte operators and symbols
-	static var ops8a: Buffer;
+	static var ops8a: Buffer<Token>;
 
 	// Double-byte operators and symbols
-	static var op16token: Buffer;
+	static var op16token: Buffer<Token>;
 
 	// Keywords
 	static var kwd : Map<String, Token>;
