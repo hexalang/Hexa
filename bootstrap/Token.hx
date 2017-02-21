@@ -39,7 +39,6 @@
 	var KImplements  = 18;
 	var KImport      = 19;
 	var KIn          = 20;
-	var KInline      = 21;
 	var KInterface   = 22;
 	var KLet         = 23;
 	var KNew         = 25;
@@ -145,7 +144,6 @@
 		case KImplements: "implements";
 		case KImport: "import";
 		case KIn: "in";
-		case KInline: "inline";
 		case KInterface: "interface";
 		case KLet: "let";
 		case KNew: "new";

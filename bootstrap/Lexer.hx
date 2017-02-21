@@ -285,7 +285,6 @@ class Lexer {
 				"implements" => KImplements,
 				"import" => KImport,
 				"in" => KIn,
-				"inline" => KInline,
 				"interface" => KInterface,
 				"let" => KLet,
 				"new" => KNew,
