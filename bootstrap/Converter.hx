@@ -132,7 +132,7 @@ class Converter {
 						out('$kwFunction ');
 						out(name);
 
-						switch (f.type) {
+						switch unwrapLazy(f.type) {
 						case TFun(args, ret):
 							out(stringOfArgs(args) + ': ' + stringOfType(ret));
 						case _: throw 'Unreachable code ' + f.type;
@@ -152,7 +152,7 @@ class Converter {
 					var c = c.constructor.get();
 					var sPrivate = (!c.isPublic) ? '$kwPrivate ' : '';
 					out(tabs + sPrivate + kwNew);
-					switch (c.type) {
+					switch unwrapLazy(c.type) {
 					case TFun(args, ret):
 						out(stringOfArgs(args));
 					case _: throw 'Unreachable code ' + c.type;
@@ -470,8 +470,8 @@ class Converter {
 			case FStatic(c, cf): cf.get().name.camelCase();
 			case FInstance(c, params, cf): cf.get().name.camelCase();
 			case FDynamic(s): s;
-			case FEnum(e, ef): '' + ef.name.typeCase();
-			case _: throw fa;
+			case FEnum(e, ef): ef.name.typeCase();
+			case FClosure(_, cf): cf.get().name.camelCase();
 			}
 		case TArrayDecl(el):
 			'[' + [for(e in el) stringOf(e)].join(', ') + ']';
@@ -531,19 +531,19 @@ class Converter {
 		case TThrow(e): '$kwThrow ' + stringOf(e);
 		case TCast(ex, null): '(' + stringOf(ex) + ' $kwAs! ' + stringOfType(e.t) + ')';
 		case TCast(e, m): '(' + stringOf(e) + ' $kwAs ' + m.getName() + ')';
-		case TWhile(econd, e, true): '$kwWhile' + stringOf(econd) + ' ' + stringOf(e);
-		case TWhile(econd, e, false): '$kwDo ' + stringOf(e) + ' $kwWhile' + stringOf(econd) + '';
+		case TWhile(econd, e, true): '$kwWhile' + '(' + stringOf(econd.unwrapParens()) + ') ' + stringOf(e);
+		case TWhile(econd, e, false): '$kwDo ' + stringOf(e) + ' $kwWhile(' + stringOf(econd.unwrapParens()) + ')';
 		case TTry(e, catches):
 			'$kwTry ' + stringOf(e) +
 			[for(c in catches) ' $kwCatch(' + c.v.name.camelCase() + ':' + stringOfType(c.v.t) + ') ' + stringOf(c.expr) ].join('\n');
-		case TTypeExpr(TEnumDecl(e)): '' + e;// TODO huh?
 		case TMeta(m, e): stringOfMeta(m) +
 			switch (e.expr) {
-				// Add empty () parens
-				case TCast(_), TParenthesis(_): '() ' + stringOf(e);
-				case _: ' ' + stringOf(e);
+			// Add empty () parens
+			case TCast(_), TParenthesis(_): '() ' + stringOf(e);
+			case _: ' ' + stringOf(e);
 			}
 		case TTypeExpr(TClassDecl(c)): c.get().name.typeCase();
+		case TTypeExpr(TEnumDecl(e)): '' + e;
 		case TTypeExpr(TAbstract(e)): '' + e;
 		case TTypeExpr(TTypeDecl(t)): '' + t.get();
 
@@ -567,7 +567,7 @@ class Converter {
 			r += ' = ' + stringOf(e1);
 			r + ' value }';
 
-		case TFor(v, e1, e2): /*throw*/ '$kwFor($v $kwIn $e1) ' + stringOf(e2);
+		case TFor(v, e1, e2): '$kwFor(${v.name.camelCase()} $kwIn ${stringOf(e1)}) ' + stringOf(e2);
 		case e: throw e;
 		}
 	}
@@ -652,7 +652,7 @@ class Converter {
 		if (s.toUpperCase() == s) {
 			var s = s.split('_');
 			var r = s.shift().toLowerCase();
-			if(r.length == 0) r += '_';
+			if (r.length == 0) r += '_';
 			while (s.length > 0) {
 				var s = s.shift().toLowerCase();
 				r += s.substr(0, 1).toUpperCase() + s.substr(1);
@@ -732,7 +732,7 @@ class Converter {
 
 	// Renames this to this1 for function arguments
 	static function renameThis(s: String): String {
-		return s == 'this'? 'this1' : s;
+		return s == 'this' ? 'this1' : s;
 	}
 
 	// Renames module to avoid name clashing
@@ -742,9 +742,17 @@ class Converter {
 
 	// Converts (expr) to expr
 	static function unwrapParens(e: TypedExpr): TypedExpr {
-		return switch(e.expr) {
-			case TParenthesis(e): e;
-			case _: e;
+		return switch (e.expr) {
+		case TParenthesis(e): e;
+		case _: e;
+		}
+	}
+
+	// Unwraps deferred types
+	static function unwrapLazy(type: Type): Type {
+		return switch (type) {
+		case TLazy(t): unwrapLazy(t());
+		case _: type;
 		}
 	}
 #end
