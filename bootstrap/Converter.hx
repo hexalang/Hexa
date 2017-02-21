@@ -244,7 +244,7 @@ class Converter {
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				if (c.doc != null) out('$docBegin ${c.doc}$docEnd\n$tabs');
-				out('@wrapper' + '\n$tabs');
+				out('@inline' + '\n$tabs');
 				out(sExternal + sPrivate + kwClass + ' ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' {\n$tabs' + '\tvar value: ' + stringOfType(t.get().type) + '\n');
@@ -568,7 +568,6 @@ class Converter {
 			r + ' value }';
 
 		case TFor(v, e1, e2): '$kwFor(${v.name.camelCase()} $kwIn ${stringOf(e1)}) ' + stringOf(e2);
-		case e: throw e;
 		}
 	}
 
@@ -616,7 +615,7 @@ class Converter {
 		case TDynamic(null): typeDynamic;
 		case TMono(t) if (t.get() != null): stringOfType(t.get());
 		case TMono(t): typeDynamic;
-		case _: throw 'Unreachable code ' + t;
+		case TLazy(t): t().unwrapLazy().stringOfType();
 		}
 	}
 
@@ -635,7 +634,7 @@ class Converter {
 	// Polymorphic <parameters>
 	static function stringOfParams(pa: Array<Type>): String {
 		if (pa.length > 0)
-			return '<' + ([for(p in pa) stringOfType(p)].join(', ')) + '>';
+			return '< ' + ([for(p in pa) stringOfType(p)].join(', ')) + ' >';
 		return '';
 	}
 
@@ -695,6 +694,16 @@ class Converter {
 		case EMeta(s, e): stringOfMeta(s) + ' ' + stringOfMetaExpr(e.expr);
 		case EField(e, field): stringOfMetaExpr(e.expr) + '.' + field;
 		case e: throw e; // Gradually add printing features
+		case EBreak: 'break';
+		case EContinue: 'continue';
+		case EParenthesis(expr): '(' + stringOfMetaExpr(expr.expr) + ')';
+		case EReturn(null): 'return {}';
+		case EReturn(expr): 'return ' + stringOfMetaExpr(expr.expr);
+		case EThrow(expr): 'throw ' + stringOfMetaExpr(expr.expr);
+		case EArray(e, index): stringOfMetaExpr(e.expr) + '[' + stringOfMetaExpr(index.expr) + ']';
+		case EBlock([]): '{}';
+		case EBlock(el): '{ ' + [for(e in el) stringOfMetaExpr(e.expr)].join(' ') + ' }';
+		case EObjectDecl([]): '{:}';
 		}
 	}
 
