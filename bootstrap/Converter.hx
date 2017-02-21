@@ -94,6 +94,7 @@ class Converter {
 				'type' => 'kind',
 				'class' => 'clas',
 				'enum' => 'enums',
+				'`' => 'grave',
 			];
 
 	public static function use() Context.onGenerate(proceed);
@@ -474,7 +475,7 @@ class Converter {
 			case FClosure(_, cf): cf.get().name.camelCase();
 			}
 		case TArrayDecl(el):
-			'[' + [for(e in el) stringOf(e)].join(', ') + ']';
+			'{[' + [for(e in el) stringOf(e)].join(', ') + ']}';
 		case TObjectDecl([]): '{:}';
 		case TObjectDecl(el):
 			'{' + [for(e in el) e.name.camelCase() + ': ' + stringOf(e.expr)].join(', ') + '}';
@@ -700,10 +701,22 @@ class Converter {
 		case EReturn(null): 'return {}';
 		case EReturn(expr): 'return ' + stringOfMetaExpr(expr.expr);
 		case EThrow(expr): 'throw ' + stringOfMetaExpr(expr.expr);
+		case ETernary(econd, eif, eelse), EIf(econd, eif, eelse):
+			'if(' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(eif.expr) +
+			if (eelse != null) ' else ' + stringOfMetaExpr(eelse.expr) else '';
 		case EArray(e, index): stringOfMetaExpr(e.expr) + '[' + stringOfMetaExpr(index.expr) + ']';
+		case EDisplayNew(_), EDisplay(_): '';
 		case EBlock([]): '{}';
 		case EBlock(el): '{ ' + [for(e in el) stringOfMetaExpr(e.expr)].join(' ') + ' }';
+		case ECall(e, el): stringOfMetaExpr(e.expr) + '(' + [for(e in el) stringOfMetaExpr(e.expr)].join(', ') + ')';
+		case EFor(it, e): 'for(' + stringOfMetaExpr(it.expr) + ') ' + stringOfMetaExpr(e.expr);
 		case EObjectDecl([]): '{:}';
+		case EObjectDecl(el): '{' + [for(e in el) e.field.camelCase() + ':' + stringOfMetaExpr(e.expr.expr)].join(', ') + '}';
+		case EVars(el):
+			[for(e in el) 'var ' + e.name.camelCase() + ((e.expr != null) ? ' = ' + stringOfMetaExpr(e.expr.expr) : '')].join(' ');
+		case EWhile(econd, e, true): '$kwWhile' + '(' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(e.expr);
+		case EWhile(econd, e, false): '$kwDo ' + stringOfMetaExpr(e.expr) + ' $kwWhile(' + stringOfMetaExpr(econd.expr) + ')';
+		case EIn(e1, e2): stringOfMetaExpr(e1.expr).camelCase() + ' in ' + stringOfMetaExpr(e2.expr);
 		}
 	}
 
