@@ -177,6 +177,17 @@ class Converter {
 				} else destination += name.toLowerCase();
 			}
 
+			function moduleIntro(module) {
+				if(module != null) out('$kwPackage $module {\n');
+				if(module == null) out('$kwPackage {\n');
+				pushTab();
+			}
+
+			function moduleOutro() {
+				popTab();
+				out('\n}');
+			}
+
 			switch (type) {
 			// Classes and interfaces
 			case TInst(t, pa): {
@@ -185,10 +196,7 @@ class Converter {
 				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
-				if (module != null) {
-					out('$kwPackage $module {\n');
-					pushTab();
-				}
+				moduleIntro(module);
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
@@ -210,15 +218,11 @@ class Converter {
 				popTab();
 				out(tabs + '}');
 
+				moduleOutro();
+
 				if (c.init != null) {
 					out('\n\n$tabs// __init__\n$tabs' + c.init.stringOf());
 				}
-
-				if (module != null) {
-					popTab();
-					out('\n}');
-				}
-
 			}
 			// Wrappers
 			case TAbstract(t, pa): {
@@ -234,10 +238,7 @@ class Converter {
 				var module = c.module.toLowerCase().renameModule();
 				if (c.module == c.name) module = null;
 
-				if (module != null) {
-					out('$kwPackage $module {\n');
-					pushTab();
-				}
+				moduleIntro(module);
 
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
@@ -282,9 +283,11 @@ class Converter {
 				popTab();
 				out(tabs + '}');
 
-				if (module != null) {
-					popTab();
-					out('\n}');
+				moduleOutro();
+
+				if (t.get().impl != null)
+				if (t.get().impl.get().init != null) {
+					out('\n\n$tabs// __init__\n$tabs' + t.get().impl.get().init.stringOf());
 				}
 			}
 			// Typedefs
@@ -294,10 +297,7 @@ class Converter {
 				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
-				if (module != null) {
-					out('$kwPackage $module {\n');
-					pushTab();
-				}
+				moduleIntro(module);
 
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
@@ -308,10 +308,7 @@ class Converter {
 				out(stringOfParams(pa));
 				out(' = ' + stringOfType(t.get().type));
 
-				if (module != null) {
-					popTab();
-					out('\n}');
-				}
+				moduleOutro();
 			}
 			// Enumeration
 			case TEnum(t, pa): {
@@ -320,10 +317,7 @@ class Converter {
 				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
-				if (module != null) {
-					out('$kwPackage $module {\n');
-					pushTab();
-				}
+				moduleIntro(module);
 
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
@@ -351,10 +345,7 @@ class Converter {
 				popTab();
 				out(tabs + '}');
 
-				if (module != null) {
-					popTab();
-					out('\n}');
-				}
+				moduleOutro();
 			}
 			case TAnonymous(fields): throw 'Unreachable code';
 			case TLazy(f): throw 'Unreachable code';
