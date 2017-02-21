@@ -374,18 +374,6 @@ class Lexer {
 		return ;
 	}
 
-	public static function print(tokens: Tokens, position: Int): String {
-		var s = tokens.value[position];
-		return switch (tokens.token[position]) {
-		case LInt: s;
-		case LFloat: s;
-		case LString: '"$s"';
-		case LIdent: s;
-		case LDoc: '/**$s**/';
-		case t: t.stringify(tokens.value[position]);
-		}
-	}
-
 
 	// Free of collisions for current set
 	static inline function simplehash(val: Int): Int {

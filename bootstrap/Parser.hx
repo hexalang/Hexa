@@ -108,7 +108,7 @@ class Parser {
 		return t;
 	}
 
-	function print() return Lexer.print(lex, i);
+	function print() return lex.token[i].stringify(lex.value[i]);
 
 	function expect(t) if (t != tok()) expected(t.stringify());
 
@@ -127,7 +127,7 @@ class Parser {
 	//------------
 
 	function unexpected() {
-		var token = Lexer.print(lex, i);
+		var token = lex.token[i].stringify(lex.value[i]);
 		var pos = 0;
 		var line = 0;
 		var file = "frontend/Parser.hexa";
@@ -138,7 +138,7 @@ class Parser {
 	}
 
 	function expected(str : String) {
-		var token = Lexer.print(lex, i);
+		var token = lex.token[i].stringify(lex.value[i]);
 		var pos = 0;
 		var line = 0;
 		var file = "frontend/Parser.hexa";
