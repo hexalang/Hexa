@@ -584,7 +584,7 @@ class Converter {
 		for (a in args) {
 			if (r != '') r += ', ';
 			if (a.name != null && a.name != '')
-				r += a.name.camelCase().renameThis() + ': ';
+				r += a.name.camelCase().renameThis() + (a.opt?'?':'') + ': ';
 			r += stringOfType(a.t);
 		}
 		return '(' + r + ')';
