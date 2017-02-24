@@ -192,11 +192,9 @@ class Converter {
 			// Classes and interfaces
 			case TInst(t, pa): {
 				var c: ClassType = t.get();
-				var module = c.module.toLowerCase().renameModule();
-				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
-				moduleIntro(module);
+				moduleIntro(c.module.getModule(c.name));
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
@@ -206,9 +204,9 @@ class Converter {
 				var params = stringOfParams(pa);
 
 				out(sExternal + sPrivate + sKind + typeCase(c.name) + params);
-				if (c.superClass != null) out(' $kwExtends ' + c.superClass.t.get().name.typeCase() + stringOfParams(c.superClass.params));
+				if (c.superClass != null) out(' $kwExtends ' + c.superClass.t.get().pathTo() + stringOfParams(c.superClass.params));
 				for (i in c.interfaces) {
-					out(' $kwImplements ' + i.t.get().name.typeCase() + stringOfParams(i.params));
+					out(' $kwImplements ' + i.t.get().pathTo() + stringOfParams(i.params));
 				}
 				out(' {\n');
 				pushTab();
@@ -235,10 +233,7 @@ class Converter {
 					continue ;
 				}
 
-				var module = c.module.toLowerCase().renameModule();
-				if (c.module == c.name) module = null;
-
-				moduleIntro(module);
+				moduleIntro(c.module.getModule(c.name));
 
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
@@ -255,31 +250,6 @@ class Converter {
 				if (t.get().impl != null)
 					printClass(t.get().impl.get());
 
-				/*
-				array:Array<ClassField>
-				The defined array-access fields of the abstract.
-				binops:Array<{op:Binop, field:ClassField}>
-				The defined binary operators of the abstract.
-				from:Array<{t:Type, field:Null<ClassField>}>
-				The available implicit from-casts of the abstract.
-				See:
-				https://haxe.org/manual/types-abstract-implicit-casts.html
-				impl:Null<Ref<ClassType>>
-				The implementation class of the abstract, if available.
-				pack:Array<String>
-				The package of the type.
-				resolve:Null<ClassField>
-				The method used for resolving unknown field access, if available.
-				to:Array<{t:Type, field:Null<ClassField>}>
-				The available implicit to-casts of the abstract.
-				See:
-				https://haxe.org/manual/types-abstract-implicit-casts.html
-				type:Type
-				The underlying type of the abstract.
-				unops:Array<{postFix:Bool, op:Unop, field:ClassField}>
-				The defined unary operators of the abstract.
-				*/
-
 				popTab();
 				out(tabs + '}');
 
@@ -293,11 +263,9 @@ class Converter {
 			// Typedefs
 			case TType(t, pa): {
 				var c = t.get();
-				var module = c.module.toLowerCase().renameModule();
-				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
-				moduleIntro(module);
+				moduleIntro(c.module.getModule(c.name));
 
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
@@ -313,11 +281,9 @@ class Converter {
 			// Enumeration
 			case TEnum(t, pa): {
 				var c = t.get();
-				var module = c.module.toLowerCase().renameModule();
-				if (c.module == c.name) module = null;
 				setDestination(c.module, c.name);
 
-				moduleIntro(module);
+				moduleIntro(c.module.getModule(c.name));
 
 				var sExternal = c.isExtern ? '$kwExtern ' : '';
 				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
@@ -534,10 +500,10 @@ class Converter {
 			case TCast(_), TParenthesis(_): '() ' + stringOf(e);
 			case _: ' ' + stringOf(e);
 			}
-		case TTypeExpr(TClassDecl(c)): c.get().name.typeCase();
-		case TTypeExpr(TEnumDecl(e)): '' + e;
-		case TTypeExpr(TAbstract(e)): '' + e;
-		case TTypeExpr(TTypeDecl(t)): '' + t.get();
+		case TTypeExpr(TClassDecl(c)): c.get().pathTo();
+		case TTypeExpr(TEnumDecl(c)): c.get().pathTo();
+		case TTypeExpr(TAbstract(c)): c.get().pathTo();
+		case TTypeExpr(TTypeDecl(c)): c.get().pathTo();
 
 		// Lets try to extract an enum value and return from block
 		case TEnumParameter(e1, ef, index):
@@ -577,18 +543,18 @@ class Converter {
 		case TType(_.get().name => 'Null', [p]): stringOfType(p) + '?';
 
 		// Non-parametric
-		case TAbstract(t, []): t.get().name.typeCase();
-		case TType(t, []): t.get().name.typeCase();
-		case TEnum(t, []): t.get().name.typeCase();
-		case TInst(t, []): t.get().name.typeCase();
+		case TAbstract(t, []): t.get().pathTo();
+		case TType(t, []): t.get().pathTo();
+		case TEnum(t, []): t.get().pathTo();
+		case TInst(t, []): t.get().pathTo();
 
 		// Parametric
 		case TType(t, pa), TAbstract(t, pa):
-			t.get().name.typeCase() + stringOfParams(pa);
+			t.get().pathTo() + stringOfParams(pa);
 		case TInst(t, pa):
-			t.get().name.typeCase() + stringOfParams(pa);
+			t.get().pathTo() + stringOfParams(pa);
 		case TEnum(t, pa):
-			t.get().name.typeCase() + stringOfParams(pa);
+			t.get().pathTo() + stringOfParams(pa);
 
 		// Empty structure
 		case TAnonymous(_.get().fields.length => 0): '{:}';
@@ -605,6 +571,7 @@ class Converter {
 		case TFun([arg], ret): '' + stringOfType(arg.t) + '=>' + stringOfType(ret);
 		case TFun(args, ret): stringOfArgs(args) + '=>' + stringOfType(ret);
 		case TDynamic(null): typeDynamic;
+		case TDynamic(t): typeDynamic + '/*' + t + '*/';
 		case TMono(t) if (t.get() != null): stringOfType(t.get());
 		case TMono(t): typeDynamic;
 		case TLazy(t): t().unwrapLazy().stringOfType();
@@ -751,6 +718,20 @@ class Converter {
 	// Renames module to avoid name clashing
 	static function renameModule(s: String): String {
 		return [for(s in s.split('.')) s.rename()].join('.');
+	}
+
+	// Transforms module path
+	static function getModule(s: String, name: String): String {
+		var module = s.toLowerCase().renameModule();
+		if (s == name) module = null;
+		return module;
+	}
+
+	// Prints path.to.Type
+	static function pathTo(c: { name: String, module: String }): String {
+		var module = c.module.getModule(c.name);
+		if(module != null) return module + '.' + c.name.typeCase();
+		return c.name.typeCase();
 	}
 
 	// Converts (expr) to expr
