@@ -1,3 +1,5 @@
+<img align="left" width="64px" height="64px" src="https://avatars0.githubusercontent.com/u/19646737" />
+
 # Hexa
 
 [![Join the Gitter chat](https://badges.gitter.im/hexalang/hexalang.svg)](https://gitter.im/hexalang?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
