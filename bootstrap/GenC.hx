@@ -16,25 +16,19 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-import NodeJs;
 import Data;
 
-using GenJs;
+using GenC;
 
-class GenJs {
+class GenC {
+	static var nowrap = true;
 	static var id = 0;
 	static var tabs = '';
 
-	// Only non-Hexa keywords
-	static var reserved = ['with',
-	//'let','var','enum' reserved by hexa anyway
-	''];
-
 	static function rename(name:String) {
-		if(reserved.indexOf(name) != -1) {
+		if(name != 'WinMain')
 			return '$' +
 			name;
-		}
 		return name;
 	}
 
@@ -75,18 +69,28 @@ class GenJs {
 	static var parentNames:Map<Node, String> = new Map();
 
 	static var scopes:Array<Map<String, Bool>> = [new Map()];
-
 	static function pushScope() {
 		scopes.push(new Map());
 	}
-	static function popScope() {
-		scopes.pop();
+	static function popScope(): Map<String, Bool> {
+		return scopes.pop();
 	}
 	static function hasInScope(name:String) {
 		return scopes[scopes.length-1][name] != null;
 	}
 	static function addToScope(name:String) {
 		scopes[scopes.length-1][name] = true;
+	}
+
+	public static function stringifyMain(node: Node, target:Dynamic): String {
+		nowrap = true;
+		var r = '';
+		if(target.include.length > 0) r += '#include ' + target.include.join('\r\n#include ') + '\r\n\r\n';
+		r += '// Hexa declarations\r\n';
+		r += '#define Int int\r\n';
+		r += '\r\n';
+		r += node.stringify();
+		return r;
 	}
 
 	public static function stringify(node: Node): String {
@@ -105,12 +109,15 @@ class GenJs {
 		case TVars(e): [for(e in e) stringify(e)].join('; ');
 
 		// Have no sub-nodes
-		case TString(s): '\'' + s
-			.split('\n').join('\\n')
-			.split('\r').join('\\r')
-			.split('\'').join('\\\'') + '\'';
+		case TString(s): 'L\"'+
+		s
+		.split('\n').join('\\n')
+		.split('\r').join('\\r')
+		.split('\"').join('\\\"')
+		+'\"';
 		case TIdent(s):
 			trace('`$s`');
+
 			var source = Project.mapNames.get(node);
 			var n = switch(source) {
 				case null: throw 'Unmapped $node';
@@ -122,12 +129,12 @@ class GenJs {
 					if(n==null) throw 'TVar $name parentNames null == '+parentNames.get(source);
 					n;
 				case TStatic(f = TVar(name, _, _)):
-					var static_source = Project.mapNames.get(source);
-					switch (static_source) {
-						case TClass(t, _), TEnum(t,_):
-							t.extractTypeName().rename() + '.' + name.rename();
-						case _: throw 'static_source is $static_source';
-					}
+				var static_source = Project.mapNames.get(source);
+				switch (static_source) {
+					case TClass(t, _), TEnum(t,_):
+						t.extractTypeName().rename() + '.' + name.rename();
+					case _: throw 'static_source is $static_source';
+				}
 				case TFunction(name, _): name.rename();
 				case TClass(t, _):
 					var rename = getAtt(Project.mapAttributes.get(source), 'native');
@@ -141,29 +148,38 @@ class GenJs {
 				case _:
 				throw '$s '+source;
 			}
+			if(Project.isExternal.get(source) == true) n = parentNames[source];
+			if(s == 'BeginPaint') trace('BeginPaint --> $n, parent -> $source');
 			n;
-		case TBool(b): '$b';
+		case TBool(true): '1';
+		case TBool(false): '0';
 		case TThis: 'this';
 		case TSuper: 'super';
 		case TInt(s): s;
 		case TFloat(s): s;
-		case TNull: 'null';
+		case TNull: 'NULL';
 		case TBreak: 'break';
 		case TContinue: 'continue';
+
+		// Have sub-nodes
 		case TBinop(op, a, b):
 			a.stringify() + op.stringify() + b.stringify();
-		case TBlock([]): '{}';
-		case TBlock(elements):
-			r = '{\n';
+		case TBlock(el):
+			var wrap = !nowrap;
+			nowrap = false;
+			if(wrap) r = '{\n';
 			pushScope();
-			pushTab();
-			for (element in elements)
-				switch(element) {
-					case _: r += tabs + element.stringifyBlockExpression() + ';\n';
+			if(wrap) pushTab();
+			for (e in el)
+				switch(e) {
+
+					case _: r += tabs + e.stringifyBlockExpression() + ';\n';
 				}
-			popTab(); // This is nearest to pushTab for cache locality
+			if(wrap) popTab(); // This is nearest to pushTab for cache locality
 			popScope();
-			r + tabs + '}';
+			r += tabs;
+			if(wrap) r += '}';
+			r;
 
 		case TElvis(a, b): a.stringify() + '||' + b.stringify();
 		case TFor(n, a, b):
@@ -176,13 +192,15 @@ class GenJs {
 
 
 		case TCall(TIdent('__instanceof__'), [of, type]):
-		of.stringify() + ' instanceof ' + type.stringify();
+			of.stringify() + ' instanceof ' + type.stringify();
 		case TCall(TIdent('__typeof__'), [of]):
-		'typeof ' + of.stringify();
+			'typeof ' + of.stringify();
+		case TCall(TIdent('refof'), [of]):
+			'(&' + of.stringify() + ')';
 
 		case TCall(e, el): e.stringify() + '(' + [for (e in el) e.stringify()].join(',') + ')';
 		case TParenthesis(e): '(' + e.stringify() + ')';
-		case TReturn(null), TReturn(TBlock([])): 'return ';
+		case TReturn(null), TReturn(TBlock([])): 'return';
 		case TReturn(e): 'return ' + e.stringify();
 		case TThrow(e): 'throw ' + e.stringify() + '';
 		case TArray(el): '[' + [for (e in el) e.stringify()].join(',') + ']';
@@ -196,24 +214,39 @@ class GenJs {
 			r = 'if(' + [for(e in econd) e.stringify()].join(' && ') + ') ' +  eif.stringify();
 			if (eelse != null) r += ' else ' + eelse.stringify();
 			r;
-
 		case TUnop(op, postfix, e): postfix ? e.stringify() + op.stringify() : op.stringify() + e.stringify();
 		case TWhile(econd, e, true): 'while(' + econd.stringify() + ') ' + e.stringify();
 		case TWhile(econd, e, false): 'do{' + e.stringify() + '}while(' + econd.stringify() + ')';
 		case TDot(TString(s), 'length'): ''+s.length;
 		case TDot(expr, name):
-		trace('.`$name`');
-		expr.stringify() + '.' + name.rename();
-
+			trace('.`$name`');
+			var parent = Project.mapNames.get(expr);
+			switch(parent) {
+				case TEnum(_, fields):
+					var v = '';
+					for(f in fields) switch (f) {
+						case TBinop(OpAssign, TIdent(n), TInt(value)): if(name == n) v = '' + value;
+						case _: throw ''+f;
+					}
+					v;
+				case _: expr.stringify() + '.' + name;
+			}
 		case TIndex(expr, index): expr.stringify() + '[' + index.stringify() + ']';
-		case TAs(expr, kind, t): '(' + expr.stringify() + ')';
-		case TFunction(name, expr, vars, _):
-			r = 'function';
+		case TAs(expr, kind, t): '(('+t.extractTypeName()+')(' + expr.stringify() + '))';
+		case TFunction(name, expr, vars, rettype):
+			r += rettype.extractTypeName();
+			r += ' CALLBACK';
 			if(name != null) r += ' ' + name.rename();
 			r += '(' + [for(v in vars)
 				switch (v) {
-					case TVar(name, _, _), TIdent(name):
-						parentNames[v] = name.rename();
+					case TVar(name, t, _):
+						var name = name.rename();
+						parentNames[v] = name;
+						t.extractTypeName() + ' ' + name + " lol";
+					case TIdent(name):
+						var name = name.rename();
+						parentNames[v] = name;
+
 					case TParenthesis(null): '';
 					case _: throw v;
 				}
@@ -230,11 +263,15 @@ class GenJs {
 				}
 			}
 			else r += '{}';
-
 			r;
 		case TVar(oname, t, expr):
 			if(oname == null) throw 'name is null for $node';
 			var es = '';
+			switch(expr) {
+				case TVar(oname1, t1, exp1):
+					var a = 1;
+				case _:
+			}
 			if (expr != null) es = ' = ' + expr.stringify();
 			addToScope(oname);
 			var name = oname.rename();
@@ -242,8 +279,9 @@ class GenJs {
 			parentNames[node] = name;
 			if(name == null) throw 'name is null for $node';
 			if(parentNames[node] == null) throw 'parentNames[node] is null for $node';
-
-			r = 'let ' + name + es;
+			if(t != null) r = t.extractTypeName();
+			if(t == null) r = 'auto';
+			r += ' ' + name + es;
 			r;
 		case TTry(expr, vars, t, v, catches):
 			r = 'try {\n$tabs\t';
@@ -252,7 +290,6 @@ class GenJs {
 				case TBlock(el): r += [for(e in el) e.stringify()].join(';\n'+tabs);
 				case _:	r += expr.stringify();
 			}
-
 			popTab();
 			r += '\n' + tabs + '} catch('+vars[0]+') {\n$tabs\t';
 			pushTab();
@@ -272,11 +309,13 @@ class GenJs {
 			for (i in 0...cases.length) {
 				var c = cases[i];
 				r += tabs;
-				for(c in conds[i])
-					r += 'case ' + c.stringify() + ':';
+				for(c in conds[i]) switch (c) {
+					case TUnderscore: r += 'default:';
+					case _: r += 'case ' + c.stringify() + ':';
+				}
 				r += ' {\n';
 				r += tabs + '\t' + c.stringify() + ';\n';
-				r += tabs + '\t' + 'break;' + '\n' + '$tabs;}' + '\n';
+				r += tabs + '\tbreak;\n$tabs;}\n';
 			}
 			popTab();
 			r + tabs + '}';
@@ -311,14 +350,14 @@ class GenJs {
 					case TStatic(field): f = field; statics = true;
 					case _: {};
 				}
-
 				f = unmeta(f);
+
 				switch(f) {
-					case TFunction(name, expr, vars, _):
+					case TFunction(name, expr, vars, rettype):
 						{
 							if(name == 'new') name = 'constructor';
 							if(statics) code += cname + '.' + name.rename() + ' = function';
-							else code += '\t'+name.rename();
+							else code += '\t' + name.rename();
 							code += '(' + [for(v in vars)
 								switch (v) {
 									case TVar(name, _, _):
@@ -335,7 +374,7 @@ class GenJs {
 									popTab();
 									case _:
 										pushTab();
-										code += '{\n$tabs' + expr.stringify();
+										code += '{\n$tabs'+expr.stringify();
 										popTab();
 										code += '\n$tabs}';
 								}
@@ -343,11 +382,9 @@ class GenJs {
 							else code += '{}';
 						}
 					case TVar(name, t, expr): code += cname + '.' + name.rename() + ' = ' + expr.stringify();
-					case _: code += ''+f;
+					case _: code += '' + f;
 				}
-
 				if(statics) after.push(tabs + code) else r += '\t' + code;
-
 			}
 			r += '\n' + tabs + '}' + (external?' */':'');
 			r += '\n'+after.join(';\n');
@@ -368,7 +405,7 @@ class GenJs {
 
 		// Types
 		case TEnum(t, fields):
-			r = 'const ' + extractTypeName(t);
+			r = '/*const ' + extractTypeName(t);
 			r += ' = {\n';
 			pushTab();
 			for (f in fields) {
@@ -381,11 +418,12 @@ class GenJs {
 				}
 			}
 			popTab();
-			r + tabs + '}';
-		case TType(name, t): ''; // Don't print aliases for JavaScript
+			r + tabs + '}*/';
+		case TType(name, t): '';
 		case TUnderscore: '_';
 		case TDeclare(name, node):
 			parentNames[node] = name;
+			Project.isExternal.set(node, true);
 			'//declare $name';
 		}
 	}

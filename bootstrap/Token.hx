@@ -1,5 +1,6 @@
 // The Hexa Compiler
 // Copyright (C) 2017  Oleg Petrenko
+// Copyright (C) 2017  Bogdan Danylchenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -21,7 +22,7 @@
 	var Default      = 123; // Simplifies some parsing
 
 	// Keywords
-	var Underscore   = 1; // _
+	var Underscore   = 1;
 	var KBreak       = 3;
 	var KCase        = 4;
 	var KCatch       = 6;
@@ -64,7 +65,7 @@
 	var LFloat       = 60; // 0.123
 	var LIdent       = 61; // word
 	var LInt         = 62; // 123
-	var LString      = 64; // "", ''
+	var LString      = 64; // "", '', ``
 	var LDoc         = 65; // /** doc **/
 
 	// Symbols
@@ -75,11 +76,13 @@
 	var BrOpen       = 74; // {
 	var Comma        = 75; // ,
 	var DblDot       = 76; // :
+	var Dot          = 77; // .
+	var Sharp        = 78; // #
 	var PClose       = 79; // )
 	var POpen        = 80; // (
-	var Dot          = 77; // .
 	var Question     = 81; // ?
 	var Semicolon    = 82; // ;
+	var Query        = 83; // $
 	var Interval     = 98; // ...
 
 	// Unop
@@ -111,11 +114,14 @@
 	var OpIntDiv    = 110; // \
 	var OpAdd       = 111; // +
 	var OpAnd       = 112; // &
+	var OpChain     = 113; // ?.
 
 	public function stringify(?param:String): String {
 		var token : Token = cast this;
 		return switch (token) {
 		case At: "@";
+		case Query: "$";
+		case Sharp: "#";
 		case BkClose: "]";
 		case BkOpen: "[";
 		case BrClose: "}";
@@ -189,13 +195,16 @@
 		case OpSub: "-";
 		case OpUShr: ">>>";
 		case OpXor: "^";
+		case OpChain: "?.";
 		case PClose: ")";
 		case POpen: "(";
 		case Question: "?";
 		case Semicolon: ";";
 		case Underscore: "_";
-		case LString: '\'$param\'';
-		case LIdent, LInt, LFloat: param;
+		case LString: param == null? 'string' : '\'$param\'';
+		case LIdent: param == null? 'identifier' : param;
+		case LInt: param == null? 'integer' : param;
+		case LFloat: param == null? 'float' : param;
 		case LDoc: '///$param';
 		}
 	}
