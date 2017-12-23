@@ -1,5 +1,6 @@
 // The Hexa Compiler
 // Copyright (C) 2017  Oleg Petrenko
+// Copyright (C) 2017  Bogdan Danylchenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -16,58 +17,191 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 import Data;
-import Token;
-import Parser;
 
 class Typer {
-	public function new(node: Node) {
-		typing(node);
-	}
-	public var result: Any = null;
+	public static function fillScopes(node: Node) {
 
-	function typing(node: Node) {
-		switch (node) {
+		var scopes:Array<Map<String, Node>> = [new Map()];
+		var currentClass:Array<Node> = [];
+		function pushScope() scopes.push(new Map());
+		function popScope() scopes.pop();
+		function addScope(name, node)
+			scopes[scopes.length-1][name] = node;
+		var prevnode_s = null;
 
-		// Have no sub-nodes
-		case TString(s): {}
-		case TIdent(s): {}
-		case TBool(b): {}
-		case TThis: {}
-		case TSuper: {}
-		case TInt(s): {}
-		case TFloat(s): {}
-		case TNull: {}
-		case TBreak: {}
-		case TContinue: {}
+		function fill(node: Node) {
+			switch (node) {
+				case TBlock([]): {}
+				case TVars(e): for(e in e) fill(e);
+				case TIdent(null), TVar(null,_,_), TFor(null,_,_): throw ''+node;
 
-		// Have sub-nodes
-		case TBinop(op, a, b): typing(a); typing(b);
-		case TBlock(el): for (e in el) typing(e);
-		case TCall(e, el): typing(e); for (e in el) typing(e);
-		case TParenthesis(e): typing(e);
-		case TReturn(e): typing(e);
-		case TThrow(e): typing(e);
-		case TArray(el): for (e in el) typing(e);
-		case TIf(econd, eif, eelse): typing(econd); typing(eif);
-			if (eelse != null) typing(eelse);
-		case TUnop(op, postfix, e): typing(e);
-		case TWhile(econd, e, pre): typing(econd); typing(e);
-		case TDot(expr, name): typing(expr);
-		case TIndex(expr, index): typing(expr); typing(index);
-		case TAs(expr, kind, t): typing(expr);
-		case TMeta(name, values, node): typing(node);
-		case TFunction(name, expr, vars, types, values): if (expr != null) typing(expr);
-		case TVar(name, t, expr): if (expr != null) typing(expr);
-		case TTry(expr, vars, t, catches): typing(expr); for (c in catches) typing(c);
-		case TNew(t, args): for (a in args) typing(a);
-		case TSwitch(exprs, cases):
-			for (e in exprs) typing(e);
-			for (c in cases) typing(c);
-		case TClass(t, ext, impl, fields): for (f in fields) typing(f);
-		case TModule(path, el): for (e in el) typing(e);
-		case TObject(names, el): for (e in el) typing(e);
-		case TEnum(t, fields): for (f in fields) {}
-		case TType(name, t): {}
+				case TBlock(el):
+					pushScope();
+					for(e in el) fill(e);
+					trace(untyped JSON.stringify(scopes[scopes.length-1].keys()));
+					popScope();
+				case TIdent(name):
+					if(name == 's')
+						if (prevnode_s == null) {
+							prevnode_s = node;
+							trace('mapNames $node $name == ${Project.mapNames.get(node)}');
+						} else {
+							//throw('== ${prevnode_s == node} "$name" $prevnode_s $node, ${Project.mapNames[node]}');
+						}
+					var subj = null;
+					trace('SCOPESSSSSSSSSS '+scopes.length);
+					for(i in 0...scopes.length) {
+						subj = scopes[scopes.length-i-1][name];
+						if(subj != null) {
+							//Project.mapNames[node] = subj;
+							break;
+						}
+					}
+
+					if(subj == null) throw('Cannot find name `$name` for $node');
+					if(Project.mapNames.get(node) != null) throw('mapNames overwitten from ${Project.mapNames.get(node)} to $subj for node $node');
+					Project.mapNames.set(node, subj);
+							trace('mapNames $node $name == ${Project.mapNames.get(node)}');
+
+					switch (subj) {
+						case TVar(_):
+						trace('Found $subj => ${Project.mapNames.get(node)} == ${subj}');
+						case _:
+					}
+
+					//if(subj == null) trace('No scope subj for $node');
+					//if(name == 'Console') trace('----> scopes for Console: '+Project.mapNames[node]);
+					//Project.mapNames[node] = scopes[scopes.length-1][name];
+				case TUsing(names): {};
+
+				case TVar(name,_,null):
+					addScope(name, node);
+
+				case TVar(name,_,e):
+					fill(e);
+					addScope(name, node);
+
+				case TArray(el): for(e in el) fill(e);
+				case TMap(keys, values):
+					for(i in 0...keys.length) {
+						fill(keys[i]);
+						fill(values[i]);
+					}
+				case TAs(e, _, _): fill(e);
+				case TBinop(_,a,b): fill(a); fill(b);
+				case TBreak: {};
+				case TCall(e, el): fill(e); for(e in el) fill(e);
+				case TClass(t,ex,i,f,e):
+					var name = GenJs.extractTypeName(t);
+					addScope(name, node);
+					currentClass.push(node);
+					pushScope();
+					// Fill class scope, also check for existence of field
+					for(field in f) {
+						var name = switch (field) {
+							case TFunction(null,_): 'new';
+							case
+							TStatic(TVar(name,_)),
+							TVar(name,_),
+							TStatic(TFunction(name,_)),
+							TFunction(name,_):
+								trace('Class field fill $name');
+								name;
+							case _: throw 'Incorrect class field node: $field';
+						}
+						var map = scopes[scopes.length-1];
+						if(map.exists(name)) throw 'Class field $name already exists';
+						map[name] = field;
+
+						Project.mapNames.set(field, node);
+					}
+
+					// Fill expressions
+					for(field in f) {
+						switch (field) {
+							case
+							TFunction(_,null,_), TStatic(TFunction(_,null,_)),
+							TVar(_,_,null), TStatic(TVar(_,_,null)):
+								{};
+							case TFunction(_,e,v,r), TStatic(TFunction(_,e,v,r)):
+								fill(TFunction(null,e,v,r));
+							case TVar(_,_,e), TStatic(TVar(_,_,e)):
+								fill(e);
+							case _: {};
+						}
+					}
+
+					popScope();
+					currentClass.pop();
+				case TDeclare(name, t):
+					//Project.mapNames[node] = node;
+					addScope(name, node);
+					fill(t);
+
+				case TDot(e, n): fill(e);
+				case TElvis(a,b): fill(a); fill(b);
+				case TEnum(t,f):
+					var name = GenJs.extractTypeName(t);
+					addScope(name, node);
+				case TFor(name, over, by):
+					fill(over);
+					pushScope();
+					addScope(name, node);
+					fill(by);
+					popScope();
+
+				case TFunction(name, expr, vars, rettype):
+					trace('TFunction $name');
+					if(name != null) scopes[scopes.length-1][name] = node;
+					pushScope();
+					for(v in vars) {
+						switch (v) {
+							case TVar(vname, _, _): scopes[scopes.length-1][vname] = v;
+							case TIdent(vname): scopes[scopes.length-1][vname] = v;
+							case TParenthesis(null): {}
+							case _: throw v;
+						}
+					}
+					if(expr != null) fill(expr);
+					popScope();
+				case TIf(econd, eif, null):
+					for(e in econd) fill(e); fill(eif);
+				case TIf(econd, eif, eelse):
+					for(e in econd) fill(e); fill(eif); fill(eelse);
+				case TIndex(e,i): fill(e); fill(i);
+				case TModule(_): {};
+				case TNew(t,el): for(e in el) fill(e);
+				case TObject(names, el): for(e in el) fill(e);
+				case TParenthesis(e): fill(e);
+				case TReturn(null): {};
+				case TReturn(e):
+					fill(e);
+				case TStatic(e):
+					trace('TStatic $e');
+					fill(e); // throw! not in class!
+				case TSuper, TThis: Project.mapNames.set(node, currentClass[currentClass.length-1]);
+				case TSwitch(exprs, conds, cases): {
+					for (e in exprs) { pushScope(); fill(e); popScope(); }
+					for (e in conds) for (e in e) { pushScope(); fill(e); popScope(); }
+					for (e in cases) { pushScope(); fill(e); popScope(); }
+				};
+				case TThrow(e): fill(e);
+				case TTry(e, vars, t, v, ca):
+					fill(e);
+					for(e in 0...ca.length) {
+						pushScope();
+						scopes[scopes.length-1][vars[e]] = v[e];
+						fill(ca[e]);
+						popScope();
+					}
+				case TType(_): {};
+				case TUnop(_,_,e): fill(e);
+				case TWhile(econd, e, _): fill(econd); fill(e);
+
+				case TUnderscore, TNull, TContinue, TString(_), TBool(_), TInt(_), TFloat(_): {};
+			};
 		}
+
+		fill(node);
 	}
 }

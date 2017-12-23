@@ -1,5 +1,6 @@
 // The Hexa Compiler
 // Copyright (C) 2017  Oleg Petrenko
+// Copyright (C) 2017  Bogdan Danylchenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -18,8 +19,10 @@
 import Data;
 import Token;
 import Lexer;
+import NodeJs;
 
 class Parser {
+	public static var allCode:Node;
 	public function new(lexe: Tokens) {
 		lex = lexe;
 
@@ -27,43 +30,63 @@ class Parser {
 		while (i < lex.length && tok() != Eof) {
 			el.push(parseExpr());
 		}
+		// TODO return just expr if el.length == 1
+		// TODO what if no expr (el == 0)?
 		result = TBlock(el);
 		if (atts.length > 0) {
-			untyped process.stdout.write('\n');
+			Process.stdout.write('\n');
 			throw "Not all attributes conceived";
 		}
+		allCode = (result);
 	}
 
 	function parseFields() {
 		var fields = [];
 		while (tok() != BrClose) {
-			// TODO switch (let tk = tok()) {
+			var _static = false;
+			if(tok() == KStatic) {
+				_static = true;
+				i++;
+			}
+
 			switch (tok()) {
-			case At: parseExpr();
+			case At: fields.push(parseExpr());
 			case KPrivate:
-				i++;//parseExpr(); // TODO before-after!
-			case KStatic: i++;
-			case KVar, KFunction: fields.push(parseExpr());
+				i++;
+			case KVar, KFunction, KLet:
+				var f = parseExpr();
+				if(_static) f = TStatic(f);
+				fields.push(f);
 			case KNew:
 				i++;
+				var expr = null;
+				var vars = [];
+				var types = [];
+				var values = [];
 				step(POpen);
 				while (tok() != PClose) {
-					step(LIdent);
+					vars.push(getgo(LIdent));
 					if (tok() == DblDot) {
 						i++;
-						parseType();
+						types.push(parseType());
 					}
 					if (tok() == OpAssign) {
 						i++;
-						parseExpr();
+						values.push(parseExpr());
 					}
 					if (tok() == Comma) i++;
 				}
 				step(PClose);
 				if (tok() != BrClose)
-					parseExpr();
+					expr = parseExpr();
+
+				var v = [];
+				for(i in 0...vars.length) {
+					v.push(TVar(vars[i], types[i], values[i]));
+				}
+				fields.push(TFunction('new', expr, v, null));
 			case _:
-				trace('\nerr ' + tok().stringify());
+				Console.log('\n\nparseFields ' + tok().stringify());
 				throw 'KClass';
 			}
 		}
@@ -75,7 +98,6 @@ class Parser {
 	//------------------
 
 	// Lexemes input directly from lexer
-	// TODO wrap result into enum
 	@readonly public var result: Node = null;
 	var lex: Tokens;
 	var atts: Array < { name: String, values: Array<Node> } > = [];
@@ -88,6 +110,9 @@ class Parser {
 	//     HELPERS
 	//------------------
 
+	static var uuid = 0;
+	static function uid() return uuid++;
+
 	// Current token
 	function tok() {
 		if (i > lex.length) {
@@ -98,6 +123,7 @@ class Parser {
 		}
 		var t = lex.token[i];
 		if (lasttok != i) {
+			Process.stdout.write(lex.token[i].stringify(lex.value[i]));
 			lasttok = i; lasttokchecks = 40;
 		} else {
 			lasttokchecks--;
@@ -122,6 +148,14 @@ class Parser {
 		i++;
 	}
 
+	inline function next() : Void {
+		i++;
+	}
+
+	inline function offset(v): Token {
+		return lex.token[i+v];
+	}
+
 	//------------
 	//   ERRORS
 	//------------
@@ -131,10 +165,10 @@ class Parser {
 		var pos = 0;
 		var line = 0;
 		var file = "frontend/Parser.hexa";
-		trace(
-			'$file:$line: characters $pos-${token.length + pos} : Unexpected `$token`'
+		Console.log(
+			'\n$file:$line: characters $pos-${token.length + pos} : Unexpected `$token`'
 		);
-		throw 5;
+		throw 'unexpected';
 	}
 
 	function expected(str : String) {
@@ -142,32 +176,59 @@ class Parser {
 		var pos = 0;
 		var line = 0;
 		var file = "frontend/Parser.hexa";
-		trace(
-			'$file:$line: characters $pos-${token.length + pos} : Expected `$str` before `$token`'
+		Console.log(
+			'\n$file:$line: characters $pos-${token.length + pos} : Expected `$str` before `$token`'
 		);
-		throw 4;
+		throw 'expected';
 	}
 
 	//-----------------
 	//   EXPRESSIONS
 	//-----------------
 
+	// TODO переконвертировать всё это барахло в генератор таблицы переходов?
+	// TODO to separate functions result == => return expr + postfix
+	// TODO rename to just parse()
+	var class_external = false;
 	function parseExpr(): Node {
-		//untyped process.stdout.write(' [');
 		while (tok() == At) parseAttribute();
-		if (tok() == KExtern) i++;
-		if (tok() == KPrivate) i++;
-		if (tok() == KStatic) i++;
 		var node = tok();
-
 		//-------------
 		// PREFIX STEP
 		//-------------
 		var result: Node =
 		switch (node) {
-		//case At:
-		//	parseAttribute();
+		case KUsing:
+			next();
+			var names = [getgo(LIdent)];
+			while (tok() == Comma) {
+				step(Comma);
+				names.push(getgo(LIdent));
+			}
+			TUsing(names);
 
+		case KExtern:
+			i++;
+			switch(tok()) {
+				case LIdent:
+					var name = getgo(LIdent);
+					step(OpAssign);
+					TDeclare(name, parseExpr());
+				case KClass:
+				class_external = true;
+				var f = parseExpr();
+				class_external = false;
+				f;
+				case KFunction:
+				var name = lex.value[i+1];
+				TDeclare(name, parseExpr());
+				case KVar, KLet:
+				var name = lex.value[i+1];
+				if(name == null) throw 'TDeclare name null';
+				TDeclare(name, parseExpr());
+
+				case _: throw "declare expects name or type";
+			}
 		case BrOpen:
 			i++;
 			if (tok() == BrClose) { // Empty block
@@ -177,7 +238,6 @@ class Parser {
 				i++;
 				step(BrClose);
 				TObject([], []);
-				// TODO [], [] => null, null? speedup! less memory!
 			} else if (tok() == LIdent && lex.token[i + 1] == DblDot) { // Object
 				var names: Array<String> = [], el: Array<Node> = [];
 				while (tok() != BrClose) {
@@ -188,9 +248,7 @@ class Parser {
 				}
 				step(BrClose);
 				TObject(names, el);
-			} else
-				// Block
-			{
+			} else { // Block
 				var el = [];
 				while (tok() != BrClose) {
 					el.push(parseExpr());
@@ -198,25 +256,19 @@ class Parser {
 				step(BrClose);
 				TBlock(el);
 			}
-		//if (tok() != BrClose)
-		//{ // Not closed permamently
-		//	var exprs: Array<Node> = [];
-		//	while (tok() != BrClose) {
-		//		exprs.push(parseExpr() });
-		//		if (tok() == Semicolon) i++;
-		//	}
-		//	step(BrClose);
-		//	result = TBlock(exprs);
-		//} else {
-		//	step(BrClose);
-		//	result = TBlock([]);
-		//}
 		case KIf:
 			i++;
 			step(POpen);
-			var econd = parseExpr();
+			var econd = [parseExpr()];
+			while(tok() == Comma) {
+				next();
+				econd.push(parseExpr());
+			}
 			step(PClose);
-			var eif = parseExpr();
+			var eif = null;
+			if (tok() != DblDot) {
+				eif = parseExpr();
+			}
 			var eelse: Null<Node> = null;
 			if (tok() == KElse) {
 				i++;
@@ -239,16 +291,54 @@ class Parser {
 			step(PClose);
 			TWhile(econd, e, false);
 		case POpen:
-			i++;
-			var expr = parseExpr();
-			step(PClose);
-			TParenthesis(expr);
+			next();
+			if(
+				// () =>
+				(tok() == PClose && offset(1) == OpArrow) ||
+				// (a, ...) =>
+				(tok() == LIdent && offset(1) == Comma) ||
+				// (a: ...) =>
+				(tok() == LIdent && offset(1) == DblDot) ||
+				// (a) =>
+				(tok() == LIdent && offset(1) == PClose && offset(2) == OpArrow)
+			) {
+				var vars = [];
+				var types = [];
+				var values = [];
+				while (tok() != PClose) {
+					vars.push(getgo(LIdent));
+					if (tok() == DblDot) {
+						i++;
+						types.push(parseType());
+					}
+					if (tok() == OpAssign) {
+						i++;
+						values.push(parseExpr());
+					}
+					if (tok() == Comma) i++;
+				}
+				step(PClose);
+				step(OpArrow);
+				var v = [];
+				for(i in 0...vars.length) {
+					v.push(TVar(vars[i], types[i], values[i]));
+				}
+				TFunction(null, parseExpr(), v, null);
+			} else
+			{
+				var expr = parseExpr();
+				step(PClose);
+				TParenthesis(expr);
+			}
 		case KReturn: i++;
-			var expr = parseExpr();
-			TReturn(expr);
+			switch (tok()) {
+				case BrClose, KVar: TReturn(null);
+				case _: TReturn(parseExpr());
+			}
 		case KThrow: i++; TThrow(parseExpr());
 		case KContinue: i++; TContinue;
 		case KBreak: i++; TBreak;
+		case Underscore: i++; TUnderscore;
 		case OpNegBits: i++; TUnop(OpNegBits, false, parseExpr());
 		case OpSub: i++; TUnop(OpSub, false, parseExpr());
 		case OpNot: i++; TUnop(OpNot, false, parseExpr());
@@ -256,14 +346,20 @@ class Parser {
 		case OpDecrement: i++; TUnop(OpDecrement, false, parseExpr());
 		case LFloat: TFloat(getgo(LFloat));
 		case LInt: TInt(getgo(LInt));
-		case LIdent: TIdent(getgo(LIdent));
+		case LIdent:
+			var name = getgo(LIdent);
+			if(name.charAt(0) == name.charAt(0).toUpperCase() && lex.token[i+1] == OpLt) {
+				i++;
+				parseType();
+				step(OpGt);
+			}
+			TIdent(name);
 		case LString: TString(getgo(LString));
-		case KTrue:  i++; TBool(true); // TODO CTrue
+		case KTrue:  i++; TBool(true);
 		case KFalse: i++; TBool(false);
-		case KThis: i++; TThis; // TODO rename to TThis
+		case KThis: i++; TThis;
 		case KNull:  i++; TNull;
 		case KSuper:  i++; TSuper;
-
 		case KVar, KLet:
 			i++;
 			var name = getgo(LIdent);
@@ -274,14 +370,13 @@ class Parser {
 			}
 			// Enum extractor
 			if (tok() == POpen) {
-				// TODO to function parseCase
 				while (tok() != PClose) {
 					i++;
 				}
 				step(PClose);
 				step(OpAssign);
 				parseExpr();
-				return TNull; // TODO
+				return TNull;
 			}
 			var t = null;
 			if (tok() == DblDot) {
@@ -292,42 +387,60 @@ class Parser {
 				i++;
 				expr = parseExpr();
 			}
-			TVar(name, t, expr);
+			var vars = TVar(name, t, expr);
+			if(tok() == Comma && offset(1) == LIdent) {
+				var vars = [vars];
+
+				while (tok() == Comma && offset(1) == LIdent) {
+					next();
+					var name = getgo(LIdent);
+					var t = null;
+					if (tok() == DblDot) {
+						i++;
+						t = parseType();
+					}
+					if (tok() == OpAssign) {
+						i++;
+						expr = parseExpr();
+					}
+					vars.push(TVar(name, t, expr));
+				}
+
+				TVars(vars);
+			} else vars;
 
 		case KTry:
 			i++;
 			var expr = parseExpr();
 			var vars = [];
 			var t = [];
+			var v = [];
 			var catches = [];
 			while (tok() == KCatch) {
 				step(KCatch);
 				step(POpen);
-				//while (tok() != PClose) {
-				vars.push(getgo(LIdent));
-				//if (tok() == DblDot)
+				var name = getgo(LIdent);
+				vars.push(name);
 				step(DblDot);
+				var type = parseType();
 				{
-					//i++;
-					t.push(parseType());
+					t.push(type);
 				}
-				//if (tok() == OpAssign) {
-				//	i++;
-				//	parseExpr();
-				//}
-				//if (tok() == Comma) i++;
-				//}
+				v.push(TVar(name, type, null));
 				step(PClose);
 				catches.push(parseExpr());
 			}
-			TTry(expr, vars, t, catches);
+			TTry(expr, vars, t, v, catches);
 
 		case KPackage:
 			i++;
-			var path = [getgo(LIdent)];
-			while (tok() == Dot) {
-				i++;
+			var path = [];
+			if(tok() == LIdent) {
 				path.push(getgo(LIdent));
+				while (tok() == Dot) {
+					i++;
+					path.push(getgo(LIdent));
+				}
 			}
 			step(BrOpen);
 			var el = [];
@@ -339,71 +452,36 @@ class Parser {
 
 		case KEnum:
 			i++;
-			//var name = getgo(LIdent);
-			//if (tok() == OpLt) {
-			//	i++;
-			//	step(LIdent);//parseType();
-			//	while (tok() == Comma) {
-			//		i++;
-			//		step(LIdent);//parseType();
-			//	}
-			//	//while (tok() != OpGt && tok() == Comma) {
-			//	//	i++;
-			//	//	parseType();
-			//	//	//if (tok() == Comma) i++; // TODO [a,b,]
-			//	//}
-			//	step(OpGt);
-			//}
 			var t = parseType();
-			var names = [];
+			if(tok() == DblDot) {
+				i++;
+				parseType();
+			}
 			step(BrOpen);
+			var names = [];
 			while (tok() != BrClose) {
 				while (tok() == At) parseAttribute();
-				var name = getgo(LIdent);
-				if (tok() == POpen) {
-					step(POpen);
-					while (tok() != PClose) {
-						step(LIdent);
-						if (tok() == DblDot) {
-							i++;
-							parseType();
-						}
-						//if (tok() == OpAssign) {
-						//	i++;
-						//	parseExpr();
-						//}
-						if (tok() == Comma) i++;
-					}
-					step(PClose);
-				}
-				names.push(name);
+				atts = [];
+				names.push(parseExpr());
 			}
 			step(BrClose);
 			TEnum(t, names);
-
-		// TODO rename to Talias?
 		case KType:
 			i++;
 			var name = getgo(LIdent);
 			if (tok() == OpLt) {
 				i++;
-				step(LIdent);//parseType();
+				step(LIdent);
 				while (tok() == Comma) {
 					i++;
-					step(LIdent);//parseType();
+					step(LIdent);
 				}
-				//while (tok() != OpGt && tok() == Comma) {
-				//	i++;
-				//	parseType();
-				//	//if (tok() == Comma) i++; // TODO [a,b,]
-				//}
 				step(OpGt);
 			}
 			if (tok() == OpAssign) {
 				step(OpAssign);
-				//parseType();
 				TType(name, parseType());
-			} else { // TODO remove me
+			} else {
 				step(DblDot);
 				parseType();
 				step(BrOpen);
@@ -413,24 +491,9 @@ class Parser {
 			}
 
 		case KClass, KInterface:
-			// if tok KInterface ...
+			var att = atts;
+			atts = [];
 			i++;
-			//var name = getgo(LIdent);
-//
-			//if (tok() == OpLt) {
-			//	i++;
-			//	step(LIdent);//parseType();
-			//	while (tok() == Comma) {
-			//		i++;
-			//		step(LIdent);//parseType();
-			//	}
-			//	//while (tok() != OpGt && tok() == Comma) {
-			//	//	i++;
-			//	//	parseType();
-			//	//	//if (tok() == Comma) i++; // TODO [a,b,]
-			//	//}
-			//	step(OpGt);
-			//}
 			var t = parseType();
 
 			var ext = if (tok() == KExtends) {
@@ -447,9 +510,9 @@ class Parser {
 			step(BrOpen);
 			var fields = parseFields();
 			step(BrClose);
-			// TODO return coz no postfix op?
-			TClass(/*name*/t, ext, impl, fields);
-
+			var me = TClass(t, ext, impl, fields, class_external);
+			Project.mapAttributes.set(me, att);
+			me;
 		case KFunction:
 			i++;
 			var expr = null;
@@ -458,11 +521,14 @@ class Parser {
 			var types = [];
 			var values = [];
 			if (tok() == LIdent) name = getgo(LIdent);
-			if (tok() == POpen) {
-				i++;
+			step(POpen);
+			{
 				while (tok() != PClose) {
 					var expr = null;
 					var t = null;
+					if (tok() == Interval) {
+						i++;
+					}
 					var name = getgo(LIdent);
 					if (tok() == DblDot) {
 						i++;
@@ -479,73 +545,55 @@ class Parser {
 				}
 				step(PClose);
 			}
+			var rettype = null;
 			if (tok() == DblDot) {
 				i++;
-				parseType();
+				rettype = parseType();
 			}
-			//if (tok() != BrClose)
-			//	parseExpr();
 			switch (tok()) {
-			case BrClose, KStatic, KNew, KPrivate: {}
+			case KNew if(lex.token[i+1] == POpen): {}
+			case BrClose, KStatic, KPrivate, KFunction: {}
 			case _: expr = parseExpr();
 			}
-			TFunction(name, expr, vars, types, values);
 
-		//case Dot:
-		//	i++;
-		//	// TODO .<T>
-		//	step(LIdent);
 
+			var v = [];
+			for(i in 0...vars.length) {
+				v.push(TVar(vars[i], types[i], values[i]));
+			}
+			(TFunction(name, expr, v, rettype));
 		case BkOpen:
 			i++;
 			var el = [];
+			var values = [];
+			var isMap = false;
+
 			while (tok() != BkClose) {
+				if(tok() == DblDot) {
+					isMap = true;
+					next();
+					break;
+				}
 				el.push(parseExpr());
-				if (tok() == Comma) i++; // TODO [a,b,]
+				if (tok() == DblDot) {
+					i++;
+					values.push(parseExpr());
+					isMap = true;
+				}
+				if (tok() == Comma) i++;
 			}
 			step(BkClose);
-			TArray(el);
-		//if(tok() != POpen) {
-		//	i++;
-		//	while (tok() != PClose) {
-		//		parseExpr();
-		//		if (tok() == Semicolon) i++;
-		//	}
-		//	step(PClose);
-		//}
 
-		// --
-		//case KPrivate:
-		// --
-
-		//case KExtern: i++;
-		//case KPrivate: i++;
-		//case KStatic: i++;
-
+			if(isMap)
+				TMap(el, values) else TArray(el);
 		case KNew:
 			i++;
-			//var name = getgo(LIdent);
-			//if (tok() == OpLt) {
-			//	i++;
-			//	parseType();
-			//	while (tok() == Comma) {
-			//		i++;
-			//		parseType();
-			//	}
-			//	//while (tok() != OpGt && tok() == Comma) {
-			//	//	i++;
-			//	//	parseType();
-			//	//	//if (tok() == Comma) i++; // TODO [a,b,]
-			//	//}
-			//	step(OpGt);
-			//}
-
 			var t = parseType();
 			step(POpen);
 			var el = [];
 			while (tok() != PClose) {
 				el.push(parseExpr());
-				if (tok() == Comma) i++; // TODO [a,b,]
+				if (tok() == Comma) i++;
 			}
 			step(PClose);
 			TNew(t, el);
@@ -557,58 +605,71 @@ class Parser {
 			while (tok() != PClose) {
 				exprs.push(parseExpr());
 				if (tok() == Comma) i++;
-				/*
-				if (tok() == Comma) {i++; continue ;}
-				break;
-				to make: (a,b,,) -> (a,b)
-				*/
 			}
 			step(PClose);
 			step(BrOpen);
 
 			var cases = [];
+			var conds = [];
 
 			while (tok() != BrClose) {
 				step(KCase);
+				var cond = [];
 				while (tok() != DblDot) {
 					if (tok() == Underscore) {
 						i++;
-					} else parseExpr();
+						cond.push(TUnderscore);
+					} else cond.push(parseExpr());
 					if (tok() == Comma) i++;
 				}
+				conds.push(cond);
 				step(DblDot);
-				cases.push(parseExpr());
+				var exs = [];
+				while(tok()!=KCase && tok()!=BrClose) {
+					exs.push(parseExpr());
+				}
+				cases.push(TBlock(exs));
 			}
 
 			step(BrClose);
-			TSwitch(exprs, cases);
+			TSwitch(exprs, conds, cases);
 
+		case KFor:
+			i++;
+			step(POpen);
+			var n = getgo(LIdent);
+			step(KIn);
+			var a = parseExpr();
+			step(PClose);
+			var b = parseExpr();
+			TFor(n, a, b);
 		case _: unexpected(); null;
 		}
 
 		if (result == null) {
-			untyped process.stdout.write('\n');
+			Process.stdout.write('\n');
 			throw "Expression is incomplete";
+		}
+
+		if(atts.length > 0) {
+			Project.mapAttributes.set(result, atts);
+			atts = [];
 		}
 
 		//--------------
 		// POSTFIX STEP
 		//--------------
-		var done = false; // TODO [i]
+		var done = false;
 		while (!done) {
 			result = switch (tok()) {
-			case BkOpen: // []
+			case BkOpen:
 				i++;
-				//while (tok() != BkClose) {
-				//	parseExpr();
-				//	if (tok() == Comma) i++;
-				//}
 				var index = parseExpr();
 				step(BkClose);
 				TIndex(result, index);
 			case KAs:
 				i++;
-				var kind = tok(); // as? as!
+				var kind = tok();
 				if (tok() == OpNot) i++;
 				else if (tok() == Question) i++;
 				TAs(result, kind, parseType());
@@ -617,23 +678,45 @@ class Parser {
 				i++;
 				while (tok() != PClose) {
 					args.push(parseExpr());
-					if (tok() == Comma) i++;
+					if(tok() == DblDot) {
+						step(DblDot);
+						parseType();
+					}
+					if (tok() != PClose) step(Comma);
 				}
 				step(PClose);
 				TCall(result, args);
 			}
+			case OpArrow:
+				next();
+				TFunction(null, parseExpr(), [result], null);
+
 			case OpIncrement: i++; TUnop(OpIncrement, true, result);
-			// TODO done?
-			// TODO increment of a[i]++
 			case OpDecrement: i++; TUnop(OpDecrement, true, result);
 			case Dot: i++;
 				var name = getgo(LIdent);
 				TDot(result, name);
+
+			// a ? b : c
+			// a ?? b
+			// a ?. b
 			case Question: i++;
-				var eif = parseExpr();
-				step(DblDot);
-				var eelse = parseExpr();
-				TIf(result, eif, eelse);
+				if(tok() == Dot) {
+					var name = getgo(LIdent);
+					TDot(result, name);
+				} else
+
+				if(tok() == Question) {
+					i++;
+					TElvis(result, parseExpr());
+				} else {
+					var eif = parseExpr();
+					step(DblDot);
+					var eelse = parseExpr();
+					TIf([result], eif, eelse);
+				}
+			case OpChain: i++;
+				parseExpr();
 			case t if (isBinop(t)):
 				i++;
 				if (tok() == OpAssign) {
@@ -661,12 +744,13 @@ class Parser {
 			}
 		}
 		if (result == null) {
-			untyped process.stdout.write('\n');
+			Process.stdout.write('\n');
 			throw "Expression postfix is incomplete";
 		}
-		while (atts.length > 0) {
-			var meta = atts.pop();
-			result = TMeta(meta.name, meta.values, result);
+
+		if(atts.length > 0) {
+			Project.mapAttributes.set(result, atts);
+			atts = [];
 		}
 		return result;
 	}
@@ -686,37 +770,40 @@ class Parser {
 		atts.push({ name: name, values: values });
 	}
 
+	var parametricTypeNesting = 0;
+	var parametricTypeNestingToken = Eof;
 	function parseType(): NodeType {
-		// TODO parse meta
 		var result =
 		switch (tok()) {
 		case LIdent:
 			var name = getgo(LIdent);
-			//var result = Type(getgo(LIdent));
-			// TODO: parsing <T> to function
+			while (tok() == Dot) {
+				i++;
+				getgo(LIdent);
+			}
 			var result = if (tok() == OpLt) {
 				i++;
+				parametricTypeNesting++;
 				var params: Array<NodeType> = [parseType()];
 				while (tok() == Comma) {
 					i++;
 					parseType();
 				}
-				//while (tok() != OpGt && tok() == Comma) {
-				//	i++;
-				//	parseType();
-				//	//if (tok() == Comma) i++; // TODO [a,b,]
-				//}
-				step(OpGt);
+
+				if(parametricTypeNestingToken == Eof) parametricTypeNestingToken = tok();
+
+				switch(parametricTypeNestingToken) {
+					case OpGt: parametricTypeNesting-=1; parametricTypeNestingToken = Eof; i++;
+					case OpShr: parametricTypeNesting-=1; parametricTypeNestingToken = OpGt;
+					case OpUShr: parametricTypeNesting-=1; parametricTypeNestingToken = OpUShr;
+					case _: unexpected();
+				}
+				if(parametricTypeNesting < 0) throw "parametricTypeNesting < 0";
+
 				ParamentricType(name, params);
 			} else Type(name);
 
 			// A => B
-			// TODO:
-			/*
-			var a:A => B => C => D
-			var a:A => (B => (C => D))
-			var a:((A => B) => C) => D
-			*/
 			if (tok() == OpArrow) {
 				i++;
 				result = Function([result], parseType());
@@ -740,8 +827,7 @@ class Parser {
 			i++;
 			var result = if (tok() == DblDot) { // Empty
 				i++;
-				//step(BrClose);
-				Object([], []); // TODO null, null? EmtpyObject?
+				Object([], []);
 			} else {
 				var names: Array<String> = [];
 				var types: Array<NodeType> = [];
@@ -756,21 +842,20 @@ class Parser {
 				Object(names, types);
 			}
 			step(BrClose);
+			if (tok() == OpArrow) {
+				i++;
+				result = Function([result], parseType());
+			}
 			result;
 		case POpen: // ()
 			i++;
-			//var types = [];
 			var args = [];
 			while (tok() != PClose) {
-				step(LIdent); // TODO arg name
+				parseType();
 				if (tok() == DblDot) {
 					i++;
 					args.push(parseType());
 				}
-				//if (tok() == OpAssign) {
-				//	i++;
-				//	parseExpr();
-				//}
 				if (tok() == Comma) i++;
 			}
 			step(PClose);
@@ -780,7 +865,11 @@ class Parser {
 			trace('\n' + tok().stringify());
 			throw 'parseType';
 		}
-		if (tok() == Question) i++;
+		while (tok() == Question) i++;
+		if (tok() == OpArrow) {
+			i++;
+			result = Function([result], parseType());
+		}
 		return result;
 	}
 

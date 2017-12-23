@@ -1,5 +1,6 @@
 // The Hexa Compiler
 // Copyright (C) 2017  Oleg Petrenko
+// Copyright (C) 2017  Bogdan Danylchenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -19,14 +20,16 @@ import NodeJs;
 import Token;
 
 class Tokens {
-	public var length(default, null): Int;
 	public var token(default, null): Buffer<Token>;
 	public var value(default, null): Array<String>;
+	public var length(default, null): Int;
+	public var line(default, null): Array<Int>;
 
-	public function new(tokens, length, values) {
+	public function new(tokens, length, values, lines) {
 		this.token = tokens;
 		this.length = length;
 		this.value = values;
+		this.line = lines;
 	}
 }
 
@@ -38,27 +41,31 @@ class Lexer {
 		var to = 0;
 		var s = "";
 		var p = 0;
+		var line = 0;
 
 		// Prefetch
 		var params = new Array<String>(/*bytes.length*/);
 		var tokens = Buffer.alloc(bytes.length);
+		var lines = [];
 
 		// Helpers
 		// Just add plain token
 		inline function add(t: Token) {
 			tokens[to++] = t;
+			lines.push(line);
 		}
 		// Add parametrized token
 		inline function addn(t: Token, p: String) {
 			params[to] = p;
 			tokens[to++] = t;
+			lines.push(line);
 		}
 		// Getting bytes
 		inline function get_8(pos) return bytes[pos];
 		// Not out of length
 		inline function not_eof(): Bool return (position < len);
 		// Lines
-		inline function new_line() { }
+		inline function new_line() { line++; }
 
 		// UTF-8 with BOM
 		if (len > 2 && get_8(0) == 239 && get_8(1) == 187 && get_8(2) == 191) position += 3;
@@ -98,7 +105,7 @@ class Lexer {
 						position++;
 					}
 					if (!not_eof()) throw "Unclosed doc-comment";
-					addn(LDoc, bytes.toString(p, position));
+					addn(LDoc, bytes.toString('utf8', p, position));
 					position += 3;
 					continue ;
 				}
@@ -125,8 +132,8 @@ class Lexer {
 				p = position + 1;
 				_8 = get_8(p);
 				while (p < len && isident[_8] != 0) _8 = get_8(++p);
-				s = bytes.toString(position, p); // TODO encoding ascii?
-				var t = ((_16 & 0xFF) <= 90) ? null : kwd[s];
+				s = bytes.toString('ascii', position, p);
+				var t = ((_16 & 0xFF) <= 90) ? null : kwd.get(s);
 				if (t == null) addn(LIdent, s);
 				else add(t);
 				position = p;
@@ -171,11 +178,17 @@ class Lexer {
 				position++;
 				var pos = position;
 
+				// TODO we dont do string \() interpolation here,
+				// coz pretty printer
 				while (get_8(position) != p && not_eof()) {
+					if(get_8(position) == '\\'.code) {
+						position += 2;
+						continue ;
+					}
 					_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position);
 					position++;
 				}
-				addn(LString, bytes.toString(pos, position));
+				addn(LString, bytes.toString('utf8', pos, position));
 				position++;
 				continue ;
 			}
@@ -195,7 +208,7 @@ class Lexer {
 					_8 = get_8(++p);
 				}
 				if (p - position == 2) throw "Integer `0x` not allowed!";
-				addn(LInt, bytes.toString(position, p));
+				addn(LInt, bytes.toString('ascii', position, p));
 				position = p;
 				continue ;
 			}
@@ -234,7 +247,7 @@ class Lexer {
 					}
 					found = LFloat;
 				}
-				addn(found, bytes.toString(position, p));
+				addn(found, bytes.toString('ascii', position, p));
 				position = p;
 				continue ;
 			}
@@ -242,12 +255,12 @@ class Lexer {
 			// Error
 			if (position >= len) break;
 			trace('to=$to p=$p position=$position _8=$_8 len=$len');
-			throw  _8;
+			throw  'Unexpected character ' + _8 + ' ' + String.fromCharCode(_8);
 			break ;
 		}
 
 		add(Eof);
-		return new Tokens(tokens, to, params);
+		return new Tokens(tokens, to, params, lines);
 	}
 
 	public static function init() {
@@ -285,13 +298,14 @@ class Lexer {
 				"implements" => KImplements,
 				"import" => KImport,
 				"in" => KIn,
+				//"inline" => KInline,
 				"interface" => KInterface,
 				"let" => KLet,
 				"new" => KNew,
 				"null" => KNull,
 				"module" => KPackage,
 				"private" => KPrivate,
-				"public" => KPublic,
+				//"public" => KPublic,
 				"return" => KReturn,
 				"static" => KStatic,
 				"super" => KSuper,
@@ -300,7 +314,7 @@ class Lexer {
 				"throw" => KThrow,
 				"true" => KTrue,
 				"try" => KTry,
-				"type" => KType,
+				//"type" => KType,
 				"using" => KUsing,
 				"var" => KVar,
 				"while" => KWhile,
@@ -310,6 +324,8 @@ class Lexer {
 		var ops8 : Map<Int, Token> =
 			[
 				"@".code => At,
+				"$".code => Query,
+				"#".code => Sharp,
 				"!".code => OpNot,
 				"%".code => OpMod,
 				"&".code => OpAnd,
@@ -340,6 +356,7 @@ class Lexer {
 		for (key in ops8.keys()) ops8a[key] = ops8[key];
 
 		// 2-byte op
+		// Hash = charCodeAt(0) + charCodeAt(1)*256
 		var ops16 : Map<Int, Token> =
 			[
 				11051 => Token.OpIncrement, // ++
@@ -353,6 +370,7 @@ class Lexer {
 				31868 => Token.OpBoolOr,    // ||
 				9766  => Token.OpBoolAnd,   // &&
 				15933 => Token.OpArrow,     // =>
+				11839 => Token.OpChain,     // ?.
 			];
 		for (key1 in ops16.keys()) {
 			for (key2 in ops16.keys()) {
@@ -372,7 +390,6 @@ class Lexer {
 		}
 		return ;
 	}
-
 
 	// Free of collisions for current set
 	static inline function simplehash(val: Int): Int {

@@ -1,5 +1,6 @@
 // The Hexa Compiler
 // Copyright (C) 2017  Oleg Petrenko
+// Copyright (C) 2017  Bogdan Danylchenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -20,14 +21,54 @@ import Lexer;
 import Parser;
 import Typer;
 
-import TestLexer;
-import TestParser;
-import TestTyper;
-
 using StringTools;
 
+@:keep
+/**
+ * @author PeyTy
+ **/
 class Main {
 	function new() {
+		// Debug Information
+		untyped __js__("require('source-map-support').install()");
+		trace("Hexa", " Alpha");
+
+		if(Process.argv[2] == null) {
+			trace("Usage: hexa project.json");
+			Process.exit(1);
+		}
+
+		// Initialize compiler
+		Lexer.init();
+
+		// Get inputs
+		var json: String = Path.resolve(Process.argv[2]);
+		var input: { main: String, output: String, target:{} } =
+		haxe.Json.parse(Fs.readFileSync(json).toString('utf8'));
+		trace(input);
+
+		// Perform compilation
+		var target = Path.resolve(Process.argv[2] + '/../') + Path.sep + (input.main);
+		trace(target);
+
+		var content = Fs.readFileSync(target);
+		var tokens = Lexer.tokenize(content);
+		var parser = new Parser(tokens);
+
+		trace('\n\n');
+
+		Typer.fillScopes(Parser.allCode);
+
+		// Perform Codegeneration
+		if(input.output.endsWith('.js')) {
+			var outs = '"use strict"\r\n' + GenJs.stringify(Parser.allCode);
+			var target = Path.resolve(Process.argv[2] + '/../') + Path.sep + (input.output);
+			Fs.writeFileSync(target, outs);
+		} else {
+			var outs = '' + GenC.stringifyMain(Parser.allCode, input.target);
+			var target = Path.resolve(Process.argv[2] + '/../') + Path.sep + (input.output);
+			Fs.writeFileSync(target, outs);
+		}
 	}
 
 	static function main() new Main();
