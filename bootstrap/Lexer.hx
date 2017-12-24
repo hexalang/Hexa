@@ -24,12 +24,14 @@ class Tokens {
 	public var value(default, null): Array<String>;
 	public var length(default, null): Int;
 	public var line(default, null): Array<Int>;
+	public var column(default, null): Array<Int>;
 
-	public function new(tokens, length, values, lines) {
+	public function new(tokens, length, values, lines, columns) {
 		this.token = tokens;
 		this.length = length;
 		this.value = values;
 		this.line = lines;
+		this.column = columns;
 	}
 }
 
@@ -41,31 +43,36 @@ class Lexer {
 		var to = 0;
 		var s = "";
 		var p = 0;
-		var line = 0;
+		var line = 1;
+		var columnBase = 0;
 
 		// Prefetch
 		var params = new Array<String>(/*bytes.length*/);
 		var tokens = Buffer.alloc(bytes.length);
 		var lines = [];
+		var columns = [];
 
 		// Helpers
 		// Just add plain token
 		inline function add(t: Token) {
 			tokens[to++] = t;
 			lines.push(line);
+			columns.push(position - columnBase - 1);
 		}
 		// Add parametrized token
 		inline function addn(t: Token, p: String) {
 			params[to] = p;
-			tokens[to++] = t;
-			lines.push(line);
+			add(t);
 		}
 		// Getting bytes
 		inline function get_8(pos) return bytes[pos];
 		// Not out of length
 		inline function not_eof(): Bool return (position < len);
 		// Lines
-		inline function new_line() { line++; }
+		inline function new_line() {
+			line++;
+			columnBase = position;
+		}
 
 		// UTF-8 with BOM
 		if (len > 2 && get_8(0) == 239 && get_8(1) == 187 && get_8(2) == 191) position += 3;
@@ -79,6 +86,7 @@ class Lexer {
 				// \r\n case works fine, but we dont support \r-only case!
 				_8 = get_8(position);
 				if (_8 == "\n".code) {
+					new_line();
 				}
 			} while (_8 <= 32 && (++position < len));
 			if (!not_eof()) break ;
@@ -91,7 +99,6 @@ class Lexer {
 				// // Comment
 				if (_16 == 0x2f2f) {
 					while (get_8(position) != "\n".code && not_eof()) position++;
-					new_line();
 					continue ;
 				}
 				// /** Doc **/
@@ -181,6 +188,7 @@ class Lexer {
 				// TODO we dont do string \() interpolation here,
 				// coz pretty printer
 				while (get_8(position) != p && not_eof()) {
+					if (get_8(position) == "\n".code) new_line();
 					if(get_8(position) == '\\'.code) {
 						position += 2;
 						continue ;
@@ -254,13 +262,13 @@ class Lexer {
 
 			// Error
 			if (position >= len) break;
-			trace('to=$to p=$p position=$position _8=$_8 len=$len');
-			throw  'Unexpected character ' + _8 + ' ' + String.fromCharCode(_8);
+			Console.error('$fileName:$line:${position - columnBase - 1}: Unexpected character ' + String.fromCharCode(_8));
+			throw 'Stopped on errors.';
 			break ;
 		}
 
 		add(Eof);
-		return new Tokens(tokens, to, params, lines);
+		return new Tokens(tokens, to, params, lines, columns);
 	}
 
 	public static function init() {
