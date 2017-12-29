@@ -82,7 +82,7 @@ class Parser {
 
 				var v = [];
 				for(i in 0...vars.length) {
-					v.push(TVar(vars[i], types[i], values[i]));
+					v.push(TVar(vars[i], types[i], values[i], true));
 				}
 				fields.push(TFunction('new', expr, v, null));
 			case _:
@@ -321,7 +321,7 @@ class Parser {
 				step(OpArrow);
 				var v = [];
 				for(i in 0...vars.length) {
-					v.push(TVar(vars[i], types[i], values[i]));
+					v.push(TVar(vars[i], types[i], values[i], true));
 				}
 				TFunction(null, parseExpr(), v, null);
 			} else
@@ -361,6 +361,7 @@ class Parser {
 		case KNull:  i++; TNull;
 		case KSuper:  i++; TSuper;
 		case KVar, KLet:
+			var const = tok() == KLet;
 			i++;
 			var name = getgo(LIdent);
 			var expr = null;
@@ -387,8 +388,8 @@ class Parser {
 				i++;
 				expr = parseExpr();
 			}
-			var vars = TVar(name, t, expr);
 			if(tok() == Comma && offset(1) == LIdent) {
+			var vars = TVar(name, t, expr, const);
 				var vars = [vars];
 
 				while (tok() == Comma && offset(1) == LIdent) {
@@ -403,7 +404,7 @@ class Parser {
 						i++;
 						expr = parseExpr();
 					}
-					vars.push(TVar(name, t, expr));
+					vars.push(TVar(name, t, expr, const));
 				}
 
 				TVars(vars);
@@ -426,7 +427,7 @@ class Parser {
 				{
 					t.push(type);
 				}
-				v.push(TVar(name, type, null));
+				v.push(TVar(name, type, null, true));
 				step(PClose);
 				catches.push(parseExpr());
 			}
@@ -559,7 +560,7 @@ class Parser {
 
 			var v = [];
 			for(i in 0...vars.length) {
-				v.push(TVar(vars[i], types[i], values[i]));
+				v.push(TVar(vars[i], types[i], values[i], true));
 			}
 			(TFunction(name, expr, v, rettype));
 		case BkOpen:
