@@ -57,7 +57,7 @@ enum Node {
 	TUnop(op: Token, postfix: Bool, e: Node);
 	TWhile(econd: Node, e: Node, pre: Bool);
 	TFunction(name:String, expr: Node, vars:Array<Node>, rettype:NodeType);
-	TVar(name: String, t: NodeType, expr: Node);
+	TVar(name: String, t: NodeType, expr: Node, const:Bool);
 	TVars(vars:Array<Node>);
 	TClass(t: NodeType, ext: NodeType, impl: Array<NodeType>, fields: Array<Node>, external:Bool);
 	TTry(expr: Node, vars:Array<String>, t: Array<NodeType>, v:Array<Node>, catches:Array<Node>);

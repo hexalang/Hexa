@@ -232,7 +232,7 @@ class GenJs {
 			else r += '{}';
 
 			r;
-		case TVar(oname, t, expr):
+		case TVar(oname, t, expr, const):
 			if(oname == null) throw 'name is null for $node';
 			var es = '';
 			if (expr != null) es = ' = ' + expr.stringify();
@@ -243,7 +243,7 @@ class GenJs {
 			if(name == null) throw 'name is null for $node';
 			if(parentNames[node] == null) throw 'parentNames[node] is null for $node';
 
-			r = 'let ' + name + es;
+			r = (const?'const ':'let ') + name + es;
 			r;
 		case TTry(expr, vars, t, v, catches):
 			r = 'try {\n$tabs\t';

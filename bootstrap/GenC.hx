@@ -264,11 +264,11 @@ class GenC {
 			}
 			else r += '{}';
 			r;
-		case TVar(oname, t, expr):
+		case TVar(oname, t, expr, const):
 			if(oname == null) throw 'name is null for $node';
 			var es = '';
 			switch(expr) {
-				case TVar(oname1, t1, exp1):
+				case TVar(oname1, t1, exp1, _):
 					var a = 1;
 				case _:
 			}
@@ -381,7 +381,7 @@ class GenC {
 							}
 							else code += '{}';
 						}
-					case TVar(name, t, expr): code += cname + '.' + name.rename() + ' = ' + expr.stringify();
+					case TVar(name, t, expr, _): code += cname + '.' + name.rename() + ' = ' + expr.stringify();
 					case _: code += '' + f;
 				}
 				if(statics) after.push(tabs + code) else r += '\t' + code;

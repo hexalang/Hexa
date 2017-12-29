@@ -74,10 +74,11 @@ class Typer {
 					//Project.mapNames[node] = scopes[scopes.length-1][name];
 				case TUsing(names): {};
 
-				case TVar(name,_,null):
+				case TVar(name,_,null, true): throw 'Constant should have a value `let $name = value`';
+				case TVar(name,_,null, const):
 					addScope(name, node);
 
-				case TVar(name,_,e):
+				case TVar(name,_,e, const):
 					fill(e);
 					addScope(name, node);
 
@@ -89,6 +90,18 @@ class Typer {
 					}
 				case TAs(e, _, _): fill(e);
 				case TBinop(_,a,b): fill(a); fill(b);
+					switch (node) {
+						case TBinop(_,TDot(_),_): // Ok
+						case TBinop(OpAssign,TIdent(_),_):
+							var parent: Node = Project.mapNames.get(a);
+							switch (parent) {
+								case TVar(name,_,_,true): throw 'Cannot reassign a constant `$name`';
+								case _: // Ok
+							}
+						case TBinop(OpAssign,_,_):
+							throw 'Cannot assign value to `$a`';
+						case _: // Ok
+					}
 				case TBreak: {};
 				case TCall(e, el): fill(e); for(e in el) fill(e);
 				case TClass(t,ex,i,f,e):
@@ -121,11 +134,11 @@ class Typer {
 						switch (field) {
 							case
 							TFunction(_,null,_), TStatic(TFunction(_,null,_)),
-							TVar(_,_,null), TStatic(TVar(_,_,null)):
+							TVar(_,_,null,_), TStatic(TVar(_,_,null,_)):
 								{};
 							case TFunction(_,e,v,r), TStatic(TFunction(_,e,v,r)):
 								fill(TFunction(null,e,v,r));
-							case TVar(_,_,e), TStatic(TVar(_,_,e)):
+							case TVar(_,_,e,_), TStatic(TVar(_,_,e,_)):
 								fill(e);
 							case _: {};
 						}
