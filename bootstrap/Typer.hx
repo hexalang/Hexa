@@ -17,16 +17,17 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 import Data;
+import NodeJs;
 
 class Typer {
 	public static function fillScopes(node: Node) {
 
-		var scopes:Array<Map<String, Node>> = [new Map()];
+		var scopes:Array<JSMap<String, Node>> = [new JSMap()];
 		var currentClass:Array<Node> = [];
-		function pushScope() scopes.push(new Map());
+		function pushScope() scopes.push(new JSMap());
 		function popScope() scopes.pop();
 		function addScope(name, node)
-			scopes[scopes.length-1][name] = node;
+			scopes[scopes.length-1].set(name, node);
 		var prevnode_s = null;
 
 		function fill(node: Node) {
@@ -51,7 +52,7 @@ class Typer {
 					var subj = null;
 					trace('SCOPESSSSSSSSSS '+scopes.length);
 					for(i in 0...scopes.length) {
-						subj = scopes[scopes.length-i-1][name];
+						subj = scopes[scopes.length-i-1].get(name);
 						if(subj != null) {
 							//Project.mapNames[node] = subj;
 							break;
@@ -123,8 +124,8 @@ class Typer {
 							case _: throw 'Incorrect class field node: $field';
 						}
 						var map = scopes[scopes.length-1];
-						if(map.exists(name)) throw 'Class field $name already exists';
-						map[name] = field;
+						if(map.has(name)) throw 'Class field $name already exists';
+						map.set(name, field);
 
 						Project.mapNames.set(field, node);
 					}
@@ -165,12 +166,12 @@ class Typer {
 
 				case TFunction(name, expr, vars, rettype):
 					trace('TFunction $name');
-					if(name != null) scopes[scopes.length-1][name] = node;
+					if(name != null) scopes[scopes.length-1].set(name, node);
 					pushScope();
 					for(v in vars) {
 						switch (v) {
-							case TVar(vname, _, _): scopes[scopes.length-1][vname] = v;
-							case TIdent(vname): scopes[scopes.length-1][vname] = v;
+							case TVar(vname, _, _): scopes[scopes.length-1].set(vname, v);
+							case TIdent(vname): scopes[scopes.length-1].set(vname, v);
 							case TParenthesis(null): {}
 							case _: throw v;
 						}
@@ -203,7 +204,7 @@ class Typer {
 					fill(e);
 					for(e in 0...ca.length) {
 						pushScope();
-						scopes[scopes.length-1][vars[e]] = v[e];
+						scopes[scopes.length-1].set(vars[e], v[e]);
 						fill(ca[e]);
 						popScope();
 					}

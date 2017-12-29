@@ -72,21 +72,21 @@ class GenJs {
 		return null;
 	}
 
-	static var parentNames:Map<Node, String> = new Map();
+	static var parentNames: JSMap<Node, String> = new JSMap();
 
-	static var scopes:Array<Map<String, Bool>> = [new Map()];
+	static var scopes: Array<JSMap<String, Bool>> = [new JSMap()];
 
 	static function pushScope() {
-		scopes.push(new Map());
+		scopes.push(new JSMap());
 	}
 	static function popScope() {
 		scopes.pop();
 	}
 	static function hasInScope(name:String) {
-		return scopes[scopes.length-1][name] != null;
+		return scopes[scopes.length-1].get(name) != null;
 	}
 	static function addToScope(name:String) {
-		scopes[scopes.length-1][name] = true;
+		scopes[scopes.length-1].set(name, true);
 	}
 
 	public static function stringify(node: Node): String {
@@ -115,11 +115,11 @@ class GenJs {
 			var n = switch(source) {
 				case null: throw 'Unmapped $node';
 				case TEnum(Type(name), _): name;
-				case TFor(name, _, _): parentNames[source];
-				case TIdent(name): parentNames[source];
+				case TFor(name, _, _): parentNames.get(source);
+				case TIdent(name): parentNames.get(source);
 				case TVar(name, _, _):
-					var n = parentNames[source];
 					if(n==null) throw 'TVar $name parentNames null == '+parentNames.get(source);
+					var n = parentNames.get(source);
 					n;
 				case TStatic(f = TVar(name, _, _)):
 					var static_source = Project.mapNames.get(source);
@@ -170,10 +170,9 @@ class GenJs {
 			var name = n.rename();
 			if(hasInScope(name)) name += '$$' + (++id);
 			addToScope(name);
-			parentNames[node] = name;
+			parentNames.set(node, name);
 			'for(const ' + name.rename() + ' of ' + a.stringify() + ') '
 			+ b.stringify();
-
 
 		case TCall(TIdent('__instanceof__'), [of, type]):
 		of.stringify() + ' instanceof ' + type.stringify();
@@ -213,7 +212,8 @@ class GenJs {
 			r += '(' + [for(v in vars)
 				switch (v) {
 					case TVar(name, _, _), TIdent(name):
-						parentNames[v] = name.rename();
+						parentNames.set(v, name.rename());
+						parentNames.get(v);
 					case TParenthesis(null): '';
 					case _: throw v;
 				}
@@ -239,7 +239,7 @@ class GenJs {
 			addToScope(oname);
 			var name = oname.rename();
 			if(hasInScope(oname)) name += '$$' + (++id);
-			parentNames[node] = name;
+			parentNames.set(node, name);
 			if(name == null) throw 'name is null for $node';
 			if(parentNames[node] == null) throw 'parentNames[node] is null for $node';
 
@@ -256,7 +256,7 @@ class GenJs {
 			popTab();
 			r += '\n' + tabs + '} catch('+vars[0]+') {\n$tabs\t';
 			pushTab();
-			parentNames[v[0]] = vars[0];
+			parentNames.set(v[0], vars[0]);
 			switch(catches[0]) {
 				case TBlock(el): r += [for(e in el) e.stringify()].join(';\n'+tabs);
 				case _:	r += catches[0].stringify();
@@ -323,7 +323,8 @@ class GenJs {
 								switch (v) {
 									case TVar(name, _, _):
 									var name = name.rename();
-									parentNames[v] = name;
+									parentNames.set(v, name);
+									parentNames.get(v);
 									case _: throw v;
 								}
 							].join(', ') + ') ';
@@ -385,7 +386,7 @@ class GenJs {
 		case TType(name, t): ''; // Don't print aliases for JavaScript
 		case TUnderscore: '_';
 		case TDeclare(name, node):
-			parentNames[node] = name;
+			parentNames.set(node, name);
 			'//declare $name';
 		}
 	}
