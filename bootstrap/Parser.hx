@@ -119,16 +119,15 @@ class Parser {
 			trace("Parser is out of token space!");
 			trace("This should NOT happen.");
 			trace("Please, issue a developer (with a code sample).");
-			throw "Parser Internal Error: Out of token space";
+			throw lex.fileName + ": Parser Internal Error: Out of token space";
 		}
 		var t = lex.token[i];
 		if (lasttok != i) {
-			Process.stdout.write(lex.token[i].stringify(lex.value[i]));
 			lasttok = i; lasttokchecks = 40;
 		} else {
 			lasttokchecks--;
 			if (lasttokchecks < 0) {
-				throw "Parser Internal Error: Same token parsed too many times: " + '`${print()}`';
+				throw '${lex.fileName}:${lex.line[i]}:${lex.column[i]}' + ": Parser Internal Error: Same token parsed too many times: " + '`${print()}`';
 			}
 		}
 		return t;
@@ -162,24 +161,12 @@ class Parser {
 
 	function unexpected() {
 		var token = lex.token[i].stringify(lex.value[i]);
-		var pos = 0;
-		var line = 0;
-		var file = "frontend/Parser.hexa";
-		Console.log(
-			'\n$file:$line: characters $pos-${token.length + pos} : Unexpected `$token`'
-		);
-		throw 'unexpected';
+		throw '\n${lex.fileName}:${lex.line[i]}:${lex.column[i]}: Unexpected `$token`';
 	}
 
 	function expected(str : String) {
 		var token = lex.token[i].stringify(lex.value[i]);
-		var pos = 0;
-		var line = 0;
-		var file = "frontend/Parser.hexa";
-		Console.log(
-			'\n$file:$line: characters $pos-${token.length + pos} : Expected `$str` before `$token`'
-		);
-		throw 'expected';
+		throw '\n${lex.fileName}:${lex.line[i]}:${lex.column[i]}: Expected `$str` before `$token`';
 	}
 
 	//-----------------
@@ -556,7 +543,6 @@ class Parser {
 			case BrClose, KStatic, KPrivate, KFunction: {}
 			case _: expr = parseExpr();
 			}
-
 
 			var v = [];
 			for(i in 0...vars.length) {
