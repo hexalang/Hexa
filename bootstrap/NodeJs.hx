@@ -32,6 +32,7 @@ extern class JSMap<K, V> {
 	public function new();
 	public function get(k: K): V;
 	public function set(k: K, v: V): Void;
+	public function has(k: K): Bool;
 	public function keys(): Array<K>;
 }
 
