@@ -118,8 +118,8 @@ class GenJs {
 				case TFor(name, _, _): parentNames.get(source);
 				case TIdent(name): parentNames.get(source);
 				case TVar(name, _, _):
-					if(n==null) throw 'TVar $name parentNames null == '+parentNames.get(source);
 					var n = parentNames.get(source);
+					if(n==null) throw 'TVar `$name` parentNames null == '+parentNames.get(source);
 					n;
 				case TStatic(f = TVar(name, _, _)):
 					var static_source = Project.mapNames.get(source);
@@ -242,7 +242,6 @@ class GenJs {
 			parentNames.set(node, name);
 			if(name == null) throw 'name is null for $node';
 			if(parentNames[node] == null) throw 'parentNames[node] is null for $node';
-
 			r = (const?'const ':'let ') + name + es;
 			r;
 		case TTry(expr, vars, t, v, catches):

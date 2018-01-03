@@ -99,12 +99,12 @@ class Parser {
 
 	// Lexemes input directly from lexer
 	@readonly public var result: Node = null;
-	var lex: Tokens;
-	var atts: Array < { name: String, values: Array<Node> } > = [];
+	private var lex: Tokens;
+	private var atts: Array < { name: String, values: Array<Node> } > = [];
 	// The pointer
-	var i = 0;
-	var lasttok = -1;
-	var lasttokchecks = 10;
+	private var i = 0;
+	private var lasttok = -1;
+	private var lasttokchecks = 10;
 
 	//------------------
 	//     HELPERS
@@ -739,6 +739,7 @@ class Parser {
 			Project.mapAttributes.set(result, atts);
 			atts = [];
 		}
+
 		return result;
 	}
 
@@ -864,20 +865,20 @@ class Parser {
 		var left = 100;
 		var right = 0;
 		return switch (op) {
-		case OpMod : 0 + left;
-		case OpMult | OpDiv : 1 + left;
-		case OpAdd | OpSub : 2 + left;
-		case OpShl | OpShr | OpUShr : 3 + left;
-		case OpOr | OpAnd | OpXor : 4 + left;
-		case OpEq | OpNotEq | OpGt | OpLt | OpGte | OpLte : 5 + left;
-		case OpBoolAnd : 7 + left;
-		case OpBoolOr : 8 + left;
-		case OpAssign : 10 + right;
 		case _: throw "No precedence for " + op.stringify();
+			case OpMod : 0 + left;
+			case OpMult | OpDiv : 1 + left;
+			case OpAdd | OpSub : 2 + left;
+			case OpShl | OpShr | OpUShr : 3 + left;
+			case OpOr | OpAnd | OpXor : 4 + left;
+			case OpEq | OpNotEq | OpGt | OpLt | OpGte | OpLte : 5 + left;
+			case OpBoolAnd : 7 + left;
+			case OpBoolOr : 8 + left;
+			case OpAssign : 10 + right;
 		}
 	}
 
-	function isBinop(t: Token): Bool {
+	static function isBinop(t: Token): Bool {
 		return switch (t) {
 		case	OpAdd,
 				OpMult,
