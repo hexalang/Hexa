@@ -67,6 +67,8 @@
 	var LInt         = 62; // 123
 	var LString      = 64; // "", '', ``
 	var LDoc         = 65; // /** doc **/
+	var LCommentLine = 66;
+	var LComment	 = 67;
 
 	// Symbols
 	var At           = 70; // @
@@ -206,6 +208,8 @@
 		case LInt: param == null? 'integer' : param;
 		case LFloat: param == null? 'float' : param;
 		case LDoc: '///$param';
+		case LComment: '/*$param*/';
+		case LCommentLine: '//$param';
 		}
 	}
 }
