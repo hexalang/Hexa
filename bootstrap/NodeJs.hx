@@ -39,7 +39,7 @@ extern class JSMap<K, V> {
 @:native("console")
 extern class Console {
 	static function log(str: String): Void;
-	static function error(data: Any, message: String): Void;
+	static function error(data: Any, ?message: String): Void;
 }
 
 @:native("process")
@@ -51,11 +51,20 @@ extern class Process {
     public static function exit(errorCode: Int): Void;
 }
 
+class ParsedPath {
+	public var root: String;
+	public var dir: String;
+	public var base: String;
+	public var ext: String;
+	public var name: String;
+}
+
 @:jsRequire("path")
 @:native("path")
 extern class Path {
     public static var sep: String;
     public static function resolve(path: String): String;
+    public static function parse(path: String): ParsedPath;
 }
 
 @:jsRequire("fs")
@@ -64,4 +73,13 @@ extern class Fs {
 	public static function writeFileSync(path: String, data: String): Void;
 	public static function readdirSync(path: String): Array<String>;
 	public static function readFileSync<T>(path: String): Buffer<T>;
+	public static function lstatSync(path: String): Dynamic;
+	public static function existsSync(path: String): Bool;
+	public static function mkdirSync(path: String): Void;
+}
+
+@:jsRequire("readline-sync")
+@:native("readlinesync")
+extern class Readline {
+	static function question(query: String): String;
 }
