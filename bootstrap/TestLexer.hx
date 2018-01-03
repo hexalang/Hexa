@@ -19,6 +19,8 @@ import Token;
 import Lexer;
 import NodeJs;
 
+using TestLexer;
+
 class TestLexer {
 	public static function test() {
 		trace("TestLexer begin");
@@ -47,7 +49,7 @@ class TestLexer {
 		compare("0xFABCDEF", [LInt], ["0xFABCDEF"]);
 		compare("0x1F2A3B4C5D6E7F0", [LInt], ["0x1F2A3B4C5D6E7F0"]);
 
-//		// Float
+		// Float
 		compare("0.123", [LFloat], ["0.123"]);
 		compare("0.0", [LFloat], ["0.0"]);
 
