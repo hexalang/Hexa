@@ -33,6 +33,12 @@ class Main {
 		untyped __js__("require('source-map-support').install()");
 		trace("Hexa", " Alpha");
 
+		// Self-test
+		#if debug
+		TestLexer.test();
+		TestParser.test();
+		#end
+
 		if(Process.argv[2] == null) {
 			trace("Usage: hexa project.json");
 			Process.exit(1);
