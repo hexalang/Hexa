@@ -185,7 +185,7 @@ class Lexer {
 				position++;
 				var pos = position;
 
-				// TODO we dont do string \() interpolation here,
+				// We don't do string \() interpolation here,
 				// coz pretty printer
 				while (get_8(position) != p && not_eof()) {
 					if (get_8(position) == "\n".code) new_line();

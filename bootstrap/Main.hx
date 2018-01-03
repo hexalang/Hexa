@@ -29,7 +29,7 @@ using StringTools;
  **/
 class Main {
 	function new() {
-		// Debug Information
+		// Debug information
 		untyped __js__("require('source-map-support').install()");
 		trace("Hexa", " Alpha");
 

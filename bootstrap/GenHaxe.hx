@@ -197,14 +197,6 @@ class GenHaxe {
 	static function addToScope(name:String) {
 		scopes[scopes.length-1].set(name, true);
 	}
-	#if false
-	static function addVariable(variable: Node) {
-		addToScope(oname);
-		var name = oname.rename();
-		if(hasInScope(oname)) name += '$$' + (++id);
-		parentNames.set(node, name);
-	}
-	#end
 
 	public static function stringify(node: Node): String {
 		var r = '';
@@ -370,7 +362,6 @@ class GenHaxe {
 		case TDot(expr, name):
 		trace('.`$name`');
 		expr.stringify() + '.' + name.rename();
-
 		case TIndex(expr, index): expr.stringify() + '[' + index.stringify() + ']';
 		case TAs(expr, kind, t): '(' + expr.stringify() + ')';
 		case TFunction(name, expr, vars, _):
