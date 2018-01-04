@@ -22,7 +22,7 @@ import Lexer;
 import NodeJs;
 
 class Parser {
-	public static var allCode:Node;
+	public var allCode:Node;
 	public function new(lexe: Tokens) {
 		lex = lexe;
 

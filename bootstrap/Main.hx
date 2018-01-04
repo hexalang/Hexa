@@ -91,6 +91,14 @@ class Main {
 		Process.stdout.write("Hexa package initialized!\n");
 	}
 
+	function processFile(target: String): Parser {
+		var content = Fs.readFileSync(target);
+		var tokens = Lexer.tokenize(content, target);
+		var parser = new Parser(tokens);
+		Typer.fillScopes(parser.allCode);
+		return parser;
+	}
+
 	function new() {
 		// Debug information
 		untyped __js__("require('source-map-support').install()");
@@ -116,10 +124,16 @@ class Main {
 		Lexer.init();
 
 		// Get inputs
-		var json: String = Path.resolve(Process.argv[2]);
-		var input: { main: String, output: String, target:{} } =
-		haxe.Json.parse(Fs.readFileSync(json).toString('utf8'));
-		trace(input);
+		var currentFile = Path.resolve(Process.argv[2]);
+		var currentParsedFile: ParsedPath = Path.parse(currentFile);
+		// Build the selected project
+		if(currentParsedFile.ext == ".json") {
+		}
+		// Evaluate file directly
+		else if(currentParsedFile.ext == ".hexa") {
+			eval('"use strict"\r\n' + GenJs.stringify(processFile(currentFile).allCode));
+			return;
+		}
 
 		// Perform compilation
 		var target = Path.resolve(Process.argv[2] + '/../') + Path.sep + (input.main);
@@ -144,6 +158,8 @@ class Main {
 			Fs.writeFileSync(target, outs);
 		}
 	}
+
+	static function eval(code) js.Lib.eval(code);
 
 	static function main() new Main();
 }

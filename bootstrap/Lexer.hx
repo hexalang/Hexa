@@ -25,18 +25,20 @@ class Tokens {
 	public var length(default, null): Int;
 	public var line(default, null): Array<Int>;
 	public var column(default, null): Array<Int>;
+	public var fileName(default, null): String;
 
-	public function new(tokens, length, values, lines, columns) {
+	public function new(tokens, length, values, lines, columns, fileName) {
 		this.token = tokens;
 		this.length = length;
 		this.value = values;
 		this.line = lines;
 		this.column = columns;
+		this.fileName = fileName;
 	}
 }
 
 class Lexer {
-	public static function tokenize(bytes : Buffer<Int>): Tokens {
+	public static function tokenize(bytes : Buffer<Int>, fileName: String): Tokens {
 		// Variables
 		var position = 0;
 		var len = bytes.length;
@@ -268,7 +270,7 @@ class Lexer {
 		}
 
 		add(Eof);
-		return new Tokens(tokens, to, params, lines, columns);
+		return new Tokens(tokens, to, params, lines, columns, fileName);
 	}
 
 	public static function init() {
