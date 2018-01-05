@@ -45,39 +45,57 @@ enum Node {
 	TNull;
 
 	// Syntax Tree
+	// a op b
 	TBinop(op: Token, a: Node, b: Node);
+	// { el[0] ... el[n] }
 	TBlock(el: Array<Node>);
 	TBreak;
 	TCall(e: Node, el: Array<Node>);
 	TContinue;
+	// if(econd[0], ...econd[n]) { eif } [else { eelse }]
 	TIf(econd: Array<Node>, eif: Node, eelse: Null<Node>);
 	TParenthesis(e: Node);
 	TReturn(e: Null<Node>);
 	TThrow(e: Node);
+	// postfix ? e op : op e
 	TUnop(op: Token, postfix: Bool, e: Node);
+	// while(econd) { e } or if pre == true then do { e } while(econd)
 	TWhile(econd: Node, e: Node, pre: Bool);
 	TFunction(name:String, expr: Node, vars:Array<Node>, rettype:NodeType);
 	TVar(name: String, t: NodeType, expr: Node, const:Bool);
 	TVars(vars:Array<Node>);
 	TClass(t: NodeType, ext: NodeType, impl: Array<NodeType>, fields: Array<Node>, external:Bool);
+	// try { expr } catch(v[0]) { } ... catch(v[n]) { }
 	TTry(expr: Node, t: Array<NodeType>, v: Array<Node>, catches: Array<Node>); /*vars: Array<String>, */
+	// expr.name
 	TDot(expr: Node, name: String);
 	TNew(t: NodeType, args: Array<Node>);
 	TArray(el: Array<Node>);
 	TMap(keys: Array<Node>, values:Array<Node>);
+	// expr[index]
 	TIndex(expr: Node, index: Node);
+	// switch (exprs) {
+	//     case cases[0]: conds[0]
+	//     case cases[n]: conds[n]
+	// }
 	TSwitch(exprs: Array<Node>, conds: Array<Array<Node>>, cases: Array<Node>);
+	// module path[0].path[1]...path[n] { el }
 	TModule(path: Array<String>, el: Array<Node>);
+	// { name[0]: el[0], name[1]: el[1], ... name[n]: el[n] }
+	// NOTE: Do not use Map here
 	TObject(names: Array<String>, el: Array<Node>);
+	// enum t { fields[0], ..., fields[n] }
 	TEnum(t: NodeType, fields: Array<Node>);
 	TType(name: String, t: NodeType);
 	TDeclare(name: String, t: Node);
 	TUsing(names: Array<String>);
+	// expr as t
 	TAs(expr: Node, kind: Token, t: NodeType);
 	TUnderscore;
 	TStatic(field:Node);
 	TFor(name:String, over:Node, by:Node);
 	TElvis(original:Node, othewise:Node);
+}
 
 class DataHelper {
 	public static function varName(v:Node) {
