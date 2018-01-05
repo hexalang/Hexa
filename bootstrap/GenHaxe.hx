@@ -531,15 +531,15 @@ class GenHaxe {
 
 		// Types
 		case TEnum(t, fields):
-			r = 'const ' + extractTypeName(t);
-			r += ' = {\n';
+			r = '@:enum abstract ' + extractTypeName(t) + '(String)';
+			r += ' {\n';
 			pushTab();
 			for (f in fields) {
 				switch(f) {
 					case TBinop(OpAssign, TIdent(name), val):
-					r += tabs + name + ':' + val.stringify() + ',\n';
+					r += tabs + 'var ' + name + ' = ' + val.stringify() + ';\n';
 					case TIdent(name):
-					r += tabs + name + ':{},\n';
+					r += tabs + 'var ' + name + ' = {};\n';
 					case _: throw '!' + f;
 				}
 			}
