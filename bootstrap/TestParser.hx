@@ -42,7 +42,50 @@ class TestParser {
 		trace("TestParser done");
 	}
 
-	public static function stringify(node: Node): String {
+	//
+	// Helpers
+	//
+
+	// Parses `input` into AST and stringifies, checks by trimmed `test`
+	static function shouldEqual(input:String, test:String) {
+		test = test.deepTrim();
+		shouldEqualWithoutTrim(input, test);
+	}
+
+	// Same as `shouldEqual`, but does no trimming of `test`
+	static function shouldEqualWithoutTrim(input:String, test:String) {
+		test = "TBlock([" + test + "])";
+		var lexe = Lexer.tokenize(Buffer.from(input), "TEST");
+		var parser = new Parser(lexe);
+		var res = stringify(parser.result);
+		if (test != res) {
+			throw 'TestParser test fail: `$input` != `$test`\nwas parsed: `$res`';
+		}
+	}
+
+	// Operates `shouldEqual` on all key-vallue pairs of `input => test`
+	static function shouldAllEqual(map: Map<String, String>) {
+		for (input in map.keys()) {
+			var test = map.get(input);
+			shouldEqual(input, test);
+	    }
+	}
+
+	// Does `shouldEqual` without triming `=> test` parts
+	static function shouldAllEqualWithoutTrim(map: Map<String, String>) {
+		for (input in map.keys()) {
+			var test = map.get(input);
+			shouldEqualWithoutTrim(input, test);
+	    }
+	}
+
+	// Removes all internal and trailing whitespace and newlines
+	static function deepTrim(s:String) {
+		return s.replace('\n', '').replace('\r', '').replace('\t', '').replace(' ', '');
+	}
+
+	// Creates a testable consistent string representation of node
+	static function stringify(node: Node): String {
 		return switch (node) {
 
 		// Have no sub-nodes
@@ -67,4 +110,24 @@ class TestParser {
 		case e: '<!--' + e + '-->';
 		}
 	}
+
+	static function stringifyNodeArray(arr: Array<Node>) {
+		return "[" + [for (e in arr) e.stringify()].join(',') + "]";
+	}
+
+	static function stringifyNodeTypeArray(arr: Array<NodeType>) {
+		return "[" + [for (e in arr) e.stringifyType()].join(',') + "]";
+	}
+
+	// Creates a testable consistent string representation of type
+	static function stringifyType(node: NodeType): String {
+		return switch (node) {
+		case Type(s): 'Type($s)';
+		case ParamentricType(name, params): 'ParamentricType($name,[' + params.join(',') + "])";
+		case Function(args, rettype): 'Function(['+[for (e in args) e.stringifyType()].join(',')+"],"+rettype.stringifyType()+ ')';
+		case Object(names, types): 'Object(['+ names.join(',') +"],["+ [for (e in types) e.stringifyType()].join(',') +"])";
+		case e: '<!--' + e + '-->';
+		}
+	}
+
 }
