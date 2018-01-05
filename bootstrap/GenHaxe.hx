@@ -25,16 +25,15 @@ using GenHaxe;
 class GenHaxe {
 	static var id = 0;
 	static var tabs = '';
+	// Reserved for special names, because Haxe has no $ character allowed
+	static inline var postfix = '___';
 
-	// Only non-Hexa keywords
-	static var reserved = ['with',
-	//'let','var','enum' reserved by hexa anyway
-	''];
+	// Only non-Hexa keywords, because 'var','enum' reserved by hexa anyway
+	static var reserved = ['untyped', 'trace', 'abstract', 'public', 'extern'];
 
 	static function rename(name:String) {
 		if(reserved.indexOf(name) != -1) {
-			return '$' +
-			name;
+			return name + postfix;
 		}
 		return name;
 	}
@@ -86,8 +85,8 @@ class GenHaxe {
 				r += '{\n' + tabs;
 
 				if(eelse != null) {
-					addToScope("else$");
-					r += "const else$ = () => " + eelse.stringify() + "\n" + tabs;
+					addToScope('else$postfix');
+					r += 'var else$postfix = function() ' + eelse.stringify() + "\n" + tabs;
 				}
 
 				var depth = 0;
@@ -135,7 +134,7 @@ class GenHaxe {
 				while(depth > 0) {
 					popTab();
 					r += "\n" + tabs + '}';
-					if (eelse != null) r += ' else else$()';
+					if (eelse != null) r += ' else else$postfix();';
 					depth--;
 				}
 				popTab();
@@ -313,7 +312,7 @@ class GenHaxe {
 		case TElvis(a, b): a.stringify() + '||' + b.stringify();
 		case TFor(n, a, b):
 			var name = n.rename();
-			if(hasInScope(name)) name += '$$' + (++id);
+			if(hasInScope(name)) name += (++id) + postfix;
 			addToScope(name);
 			parentNames.set(node, name);
 			'for(' + name.rename() + ' in ' + a.stringify() + ') '
@@ -330,16 +329,16 @@ class GenHaxe {
 		case TReturn(e): 'return ' + e.stringify();
 		case TThrow(e): 'throw ' + e.stringify() + '';
 		case TArray([TFor(oname, array, expr)]):
-			r += 'const return$ = [];';
 			r += '((function(){';
+			r += 'var return$postfix = [];';
 			var name = oname.rename();
-			if(hasInScope(name)) name += '$$' + (++id);
+			if(hasInScope(name)) name += postfix + (++id);
 			addToScope(name);
 			parentNames.set(node, name);
-			r += 'return$.push(';
 			r += 'for(' + name + ' in ' + array.stringify() + ') ';
+			r += 'return$postfix.push(';
 			r += expr.stringify();
-			r += '); return$;';
+			r += '); return$postfix;';
 			r += '})())';
 
 		case TArray(el): '[' + [for (e in el) e.stringify()].join(',') + ']';
@@ -355,7 +354,7 @@ class GenHaxe {
 			if (eelse != null) r += ') : (' + eelse.stringify() + ')';
 			r;
 
-		case TUnop(op, postfix, e): postfix ? e.stringify() + op.stringify() : op.stringify() + e.stringify();
+		case TUnop(op, isPostfix, e): isPostfix ? e.stringify() + op.stringify() : op.stringify() + e.stringify();
 		case TWhile(econd, e, true): 'while(' + econd.stringify() + ') ' + e.stringify();
 		case TWhile(econd, e, false): 'do{' + e.stringify() + '}while(' + econd.stringify() + ')';
 		case TDot(TString(s), 'length'): ''+s.length;
@@ -397,7 +396,9 @@ class GenHaxe {
 			if (expr != null) es = ' = ' + expr.stringify();
 			addToScope(oname);
 			var name = oname.rename();
-			if(hasInScope(oname)) name += '$$' + (++id);
+			if(hasInScope(oname)) {
+				name += (++id) + postfix;
+			}
 			parentNames.set(node, name);
 			if(name == null) throw 'name is null for $node';
 			r = (const?'var ':'var ') + name + es;
