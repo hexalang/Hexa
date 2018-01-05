@@ -213,6 +213,7 @@ class GenHaxe {
 		case TVars(e): [for(e in e) stringify(e)].join('; ');
 
 		// Have no sub-nodes
+		// We print here in "doublequtes" to avoid Haxe' string interpolation
 		case TString(s): /*'\'' + s
 			.split('\\').join('\\\\')
 			.split('\n').join('\\n')
@@ -224,8 +225,8 @@ class GenHaxe {
 			while(s.length > 0)
 			{
 				switch(s[0]) {
-					case "'":
-					charsOut.push("\\'");
+					case '"':
+					charsOut.push('\\"');
 					s.shift();
 					case "\n":
 					charsOut.push("\\n");
@@ -235,8 +236,8 @@ class GenHaxe {
 					s.shift();
 					case "\\":
 					s.shift();
-					if(s[0] == "'") {
-						charsOut.push("\\'");
+					if(s[0] == '"') {
+						charsOut.push('\\"');
 						s.shift();
 					} else {
 						charsOut.push('\\');
@@ -247,7 +248,7 @@ class GenHaxe {
 				}
 			}
 
-			"'" + charsOut.join('') + "'";
+			'"' + charsOut.join('') + '"';
 		case TIdent(s):
 			trace('`$s`');
 			var source = Project.mapNames.get(node);
