@@ -19,6 +19,8 @@
 import Data;
 import NodeJs;
 
+using Data.DataHelper;
+
 class Typer {
 	public static function fillScopes(node: Node) {
 
@@ -200,11 +202,11 @@ class Typer {
 					for (e in cases) { pushScope(); fill(e); popScope(); }
 				};
 				case TThrow(e): fill(e);
-				case TTry(e, vars, t, v, ca):
+				case TTry(e, t, v, ca):
 					fill(e);
 					for(e in 0...ca.length) {
 						pushScope();
-						scopes[scopes.length-1].set(vars[e], v[e]);
+						scopes[scopes.length-1].set(v[e].varName(), v[e]);
 						fill(ca[e]);
 						popScope();
 					}
