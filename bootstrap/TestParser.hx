@@ -27,18 +27,113 @@ using StringTools;
 class TestParser {
 	public static function test() {
 		trace("TestParser begin");
-		var input = '1 2 3 trace("Hello!", "World!") + 5 * 6 / 3';
-		var test = 'TBlock([
-				   TInt(1),
-				   TInt(2),
-				   TInt(3),
-				   TBinop(+,
-				   TCall(TIdent(trace),[TString(Hello!),TString(World!)]),
-				   TBinop(*,TInt(5),TBinop(/,TInt(6),TInt(3))))
-				   ])'.replace('\n', '').replace('\r', '').replace('\t', '').replace(' ', '');
-		var lexe = Lexer.tokenize(Buffer.from(input));
-		var parser = new Parser(lexe);
-		if (test != stringify(parser.result)) throw "TestParser test fail";
+
+		// Basics and indentaion
+		shouldAllEqual([
+			''			=> '',
+			'  '		=> '',
+			'	'		=> '',
+			'   	'	=> '',
+
+			'\n'		=> '',
+			'\n\n'		=> '',
+			'\r\r\n\r\n\r\t' => '',
+
+			'0' 		=> 'TInt(0)',
+			' 0 '		=> 'TInt(0)',
+			'123'		=> 'TInt(123)',
+			'12'		=> 'TInt(12)',
+			"0x1"		=> 'TInt(0x1)',
+			"0x0"		=> 'TInt(0x0)',
+			"0xF"		=> 'TInt(0xF)',
+			"0xFA"		=> 'TInt(0xFA)',
+			"0xFABCDEF" => 'TInt(0xFABCDEF)',
+
+			"0.0"		=> 'TFloat(0.0)',
+			"0.123" 	=> 'TFloat(0.123)',
+
+			"'s'"		=> 'TString(s)',
+			"\"s\"" 	=> 'TString(s)'
+		]);
+
+		shouldAllEqual([
+			'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3' =>
+				'TInt(1),
+				TInt(2),
+				TInt(3),
+				TBinop(+,
+				TCall(TIdent(trace),[TString(Hello!),TString(World!)]),
+				TBinop(*,TInt(5),TBinop(/,TInt(6),TInt(3))))',
+
+			'enum Test { Demo } hello World' =>
+				'TEnum(Type(Test),[TIdent(Demo)]),
+				TIdent(hello),
+				TIdent(World)'
+			]);
+
+		// String interpolation
+		shouldAllEqual([
+			'"\\(v)"' 	=> 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(v)),TString())))',
+			'"\\(((v)))"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TParenthesis(TParenthesis(TIdent(v)))),TString())))',
+			'"\\( v )"'	=> 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(v)),TString())))',
+			'"\\(V)\\(v)"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(V)),TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(v)),TString())))))',
+			'"\\(V)\\(v)s\\(v)"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(V)),TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(v)),TBinop(+,TString(s),TBinop(+,TParenthesis(TIdent(v)),TString())))))))',
+			'"\\(V)s\\(v)s\\(v)"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(V)),TBinop(+,TString(s),TBinop(+,TParenthesis(TIdent(v)),TBinop(+,TString(s),TBinop(+,TParenthesis(TIdent(v)),TString())))))))'
+			]);
+
+		shouldAllEqualWithoutTrim([
+			'"\\( v )"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(v)),TString())))',
+			'"\\(V)\r\n\\(v)"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(V)),TBinop(+,TString(\r\n),TBinop(+,TParenthesis(TIdent(v)),TString())))))',
+			'"\\(V) \\(v) \\(v)"' => 'TParenthesis(TBinop(+,TString(),TBinop(+,TParenthesis(TIdent(V)),TBinop(+,TString( ),TBinop(+,TParenthesis(TIdent(v)),TBinop(+,TString( ),TBinop(+,TParenthesis(TIdent(v)),TString())))))))',
+			]);
+
+		// Usings
+		shouldAllEqual([
+			'using A' => 'TUsing(A)',
+			'using A, B, C' => 'TUsing(A,B,C)',
+			]);
+
+		// Modularity
+		shouldAllEqual([
+			'module { }' => 'TModule(, [])',
+			'code module { } code' => 'TIdent(code),TModule(,[]),TIdent(code)',
+			'code module { } module { } code' => 'TIdent(code),TModule(,[]),TModule(,[]),TIdent(code)',
+			'module a { }' => 'TModule(a, [])',
+			'module a.b { }' => 'TModule(a.b, [])',
+			'module a { module b { } }' => 'TModule(a,[TModule(b,[])])',
+			'module { class Inner {} }' => 'TModule(,[TClass(Type(Inner),null,[],[],false])',
+			'module { class InnerA {} class InnerB {} }' => 'TModule(,[TClass(Type(InnerA),null,[],[],false,TClass(Type(InnerB),null,[],[],false])',
+			'module m { class C {} enum E {} function f() {} var v }' => "TModule(m,[TClass(Type(C),null,[],[],false,TEnum(Type(E),[]),TFunction(f,TBlock([]),[],null),TVar(v,null,null,false)])",
+			]);
+
+		// Types parsing in expressions
+		shouldAllEqual([
+			'var a = new Array<A>()' => 'TVar(a,null,TNew(ParamentricType(Array,[Type(A)]),[],[]),false)',
+			'a = Array<A>.staticField()' => 'TBinop(=,TIdent(a),TCall(TDot(NodeTypeValue(ParamentricType(Array,[Type(A)])),staticField),[]))',
+			'a = EnumTest.EnumField' => 'TBinop(=,TIdent(a),TDot(TIdent(EnumTest),EnumField))',
+			'a = EnumTest.EnumField(arg)' => 'TBinop(=,TIdent(a),TCall(TDot(TIdent(EnumTest),EnumField),[TIdent(arg)]))',
+			'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' => 'TBinop(=,TIdent(a),TCall(TDot(TIdent(EnumTest),EnumField),[argName:TIdent(argValue),TIdent(arg2),arg3:TIdent(arg3)]))',
+			'a = EnumTest<A,B>.EnumField' => 'TBinop(=,TIdent(a),TDot(NodeTypeValue(ParamentricType(EnumTest,[Type(A),Type(B)])),EnumField))',
+			'var a = b as B, c = d as! B, e = f as? B' => 'TVars([TVar(a,null,TAs(TIdent(b),<!--default-->,Type(B)),false),TVar(c,null,TAs(TIdent(d),!,Type(B)),false),TVar(e,null,TAs(TIdent(f),?,Type(B)),false)])',
+			'var a = b is B, c = d is B, e = f is B' => 'TVars([TVar(a,null,TAs(TIdent(b),Type(B)),false),TVar(c,null,TAs(TIdent(d),Type(B)),false),TVar(e,null,TAs(TIdent(f),Type(B)),false)])',
+			]);
+
+		// Types parsing in declarations
+		shouldAllEqual([
+			'var x:[Array<T>]' => 'TVar(x,ParamentricType(Array,[ParamentricType(Array,[Type(T)])]),null,false)',
+			'var x:[Map<K,V> : Array<T>]' => 'TVar(x,ParamentricType(Map,[ParamentricType(Map,[Type(K),Type(V)]),ParamentricType(Array,[Type(T)])]),null,false)',
+			'var x:{:}, y:[], z:[:], w:()=>{:}' => 'TVars([TVar(x,Object([],[]),null,false),TVar(y,ParamentricType(Array,[Object([],[])]),null,false),TVar(z,ParamentricType(Map,[Object([],[]),Object([],[])]),null,false),TVar(w,Function([],Object([],[])),null,false)])',
+			'let x:()=>()=>()=>()=>Void' => 'TVar(x,Function([],Function([],Function([],Function([],Type(Void))))),null,true)',
+			]);
+
+		// Enumerations
+		shouldAllEqual([
+			'enum A {}' => 'TEnum(Type(A),[])',
+			'enum A { A B C }' => 'TEnum(Type(A),[TIdent(A),TIdent(B),TIdent(C)])',
+			'enum A { A(v:Int) B C(v:[K:V], a:Array<T>) }' =>
+				'TEnum(Type(A),[TCall(TIdent(A),[v:TIdent(Int)]),TIdent(B),TCall(TIdent(C),[v:TMap([TIdent(K)],[TIdent(V)]),a:NodeTypeValue(ParamentricType(Array,[Type(T)]))])])',
+			]);
+
 		trace("TestParser done");
 	}
 
