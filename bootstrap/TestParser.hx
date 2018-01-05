@@ -101,12 +101,48 @@ class TestParser {
 		case TContinue: 'TContinue';
 
 		// Have sub-nodes
+		case TIs(expr, type): 'TAs(' + expr.stringify() + "," + type.stringifyType() + ")";
+		case TAs(expr, kind, type): 'TAs(' + expr.stringify() + "," + kind.stringify() + "," + type.stringifyType() + ")";
 		case TBinop(op, a, b): 'TBinop(' + op.stringify() + ',' + a.stringify() + ',' + b.stringify() + ')';
-		case TBlock(el): 'TBlock([' + [for (e in el) e.stringify()].join(',') + '])';
-		case TCall(e, el): 'TCall(' + e.stringify() + ',[' + [for (e in el) e.stringify()].join(',') + '])';
+		case TBlock(els): 'TBlock(' + els.stringifyNodeArray() + ')';
+		case TVar(name, t, expr, const):
+		'TVar($name,' + ((t != null) ? t.stringifyType() : "null") +
+		"," + ((expr != null) ? expr.stringify() : "null") +',$const)';
+		case TVars(vars): 'TVars(' + vars.stringifyNodeArray() + ")";
+
+		case TFunction(name, expr, vars, rettype):
+			'TFunction($name,' + expr.stringify() + "," + vars.stringifyNodeArray() + ',' + ((rettype != null) ? rettype.stringifyType() : "null") + ")";
+
+		case TCall(e, el, argNames):
+			var res = 'TCall(' + e.stringify() + ',[';
+			for (i in 0...el.length) {
+				res += argNames[i] == null ? "" : argNames[i] + ":";
+				res += el[i] + ((i != el.length - 1) ? "," : "");
+			}
+			res + "])";
+
 		case TParenthesis(e): 'TParenthesis(' + e.stringify() + ')';
 		case TReturn(e): 'TReturn(' + e.stringify() + ')';
 		case TThrow(e): 'TThrow(' + e.stringify() + ')';
+		case TEnum(t, els): 'TEnum(' + t + ',' + els.stringifyNodeArray() + ')';
+		case TUsing(a): 'TUsing(' + a.join(',') + ")";
+		case TModule(paths, els):
+			"TModule(" + paths.join('.') + "," + els.stringifyNodeArray() + ")";
+
+		case TClass(type, extend, implement, fields, external):
+			var res = "TClass(" + type.stringifyType() + ",";
+			res += extend != null ? extend.stringifyType() : "null" + ",";
+			res += implement.stringifyNodeTypeArray() + ",";
+			res += fields.stringifyNodeArray() + ",";
+			res += external;
+			res;
+
+		case TNew(t, args, names, values):
+			'TNew(' + t.stringifyType() + ',[' + names.join(",") + "]," + values.stringifyNodeArray() + ")";
+
+		case NodeTypeValue(type): 'NodeTypeValue(' + type.stringifyType() + ")";
+		case TDot(l, r): "TDot(" + l.stringify() + "," + r + ")";
+
 		case e: '<!--' + e + '-->';
 		}
 	}
