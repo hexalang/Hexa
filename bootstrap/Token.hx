@@ -58,6 +58,7 @@
 	var KUsing       = 39;
 	var KVar         = 40;
 	var KWhile       = 41;
+	var KIs			 = 57;
 	var KAs          = 58;
 	var KSuper       = 59;
 
@@ -210,6 +211,7 @@
 		case LDoc: '///$param';
 		case LComment: '/*$param*/';
 		case LCommentLine: '//$param';
+		case KIs: "is";
 		}
 	}
 }
