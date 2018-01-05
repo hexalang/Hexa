@@ -59,13 +59,13 @@ class GenHaxe {
 				pushTab();
 				pushScope();
 				parentNames.set(cond, oname);
-				r += tabs + "const " + oname + " = " + expr.stringify() + '\n' + tabs;
+				r += tabs + "var " + oname + " = " + expr.stringify() + ';\n' + tabs;
 				r += 'if(' + oname + " != null) ";
 				r += switch(eif) {
 					case TBlock(_): eif.stringify();
 					case _: TBlock([eif]).stringify();
 				}
-				if (eelse != null) r += ' else ' + eelse.stringifyBlockExpression();
+				if (eelse != null) r += ' else ' + eelse.stringifyBlockExpression() + ';';
 				popTab();
 				popScope();
 				r + "\n" + tabs + '}';
@@ -111,7 +111,7 @@ class GenHaxe {
 								addToScope(oname);
 								var name = oname.rename();
 								parentNames.set(cond, name);
-								constsstr += "const " + name + " = " + expr.stringify() + ";\n" + tabs;
+								constsstr += "var " + name + " = " + expr.stringify() + ";\n" + tabs;
 								condsstr += addCond(name + " != null");
 							case _: condsstr += addCond(innercond.stringify());
 						}
@@ -166,7 +166,7 @@ class GenHaxe {
 					}
 				}
 				else funcbody = '{}';
-				'const $newname = ($vars) => $funcbody';
+				'var $newname = function($vars) $funcbody';
 			case _:
 				trace(node);
 				node.stringify();
@@ -291,7 +291,7 @@ class GenHaxe {
 		case TBreak: 'break';
 		case TContinue: 'continue';
 		case TBinop(op, a, b):
-			a.stringify() + op.stringify() + b.stringify();
+			a.stringify() + ' ' + op.stringify() + ' ' + b.stringify();
 		case TBlock([]): '{}';
 		case TBlock(elements):
 			r = '{\n';
@@ -316,7 +316,7 @@ class GenHaxe {
 			if(hasInScope(name)) name += '$$' + (++id);
 			addToScope(name);
 			parentNames.set(node, name);
-			'for(const ' + name.rename() + ' of ' + a.stringify() + ') '
+			'for(' + name.rename() + ' in ' + a.stringify() + ') '
 			+ b.stringify();
 
 		case TCall(TIdent('__instanceof__'), [of, type]):
@@ -330,14 +330,14 @@ class GenHaxe {
 		case TReturn(e): 'return ' + e.stringify();
 		case TThrow(e): 'throw ' + e.stringify() + '';
 		case TArray([TFor(oname, array, expr)]):
-			r += '((()=>{';
 			r += 'const return$ = [];';
+			r += '((function(){';
 			var name = oname.rename();
 			if(hasInScope(name)) name += '$$' + (++id);
 			addToScope(name);
 			parentNames.set(node, name);
-			r += 'for(const ' + name + ' of ' + array.stringify() + ') ';
 			r += 'return$.push(';
+			r += 'for(' + name + ' in ' + array.stringify() + ') ';
 			r += expr.stringify();
 			r += '); return$;';
 			r += '})())';
@@ -345,9 +345,9 @@ class GenHaxe {
 		case TArray(el): '[' + [for (e in el) e.stringify()].join(',') + ']';
 		case TMap([],_): 'new Map()';
 		case TMap(keys,values):
-			'new Map([' +
-			[for(i in 0...keys.length) '[' + keys[i].stringify()+ ',' + values[i].stringify() + ']'].join(',')
-			+ '])';
+			'[' +
+			[for(i in 0...keys.length) '' + keys[i].stringify()+ ' => ' + values[i].stringify() + ''].join(',')
+			+ ']';
 
 		case TIf(econd, eif, eelse):
 		//	throw '' + node;
@@ -400,7 +400,7 @@ class GenHaxe {
 			if(hasInScope(oname)) name += '$$' + (++id);
 			parentNames.set(node, name);
 			if(name == null) throw 'name is null for $node';
-			r = (const?'const ':'let ') + name + es;
+			r = (const?'var ':'var ') + name + es;
 			r;
 		case TTry(expr, vars, t, v, catches):
 			r = 'try {\n$tabs\t';
@@ -433,7 +433,7 @@ class GenHaxe {
 					r += 'case ' + c.stringify() + ':';
 				r += ' {\n';
 				r += tabs + '\t' + c.stringify() + ';\n';
-				r += tabs + '\t' + 'break;' + '\n' + '$tabs}' + '\n';
+				r += tabs + '\t' + '\n' + '$tabs}' + '\n';
 			}
 			popTab();
 			r + tabs + '}';
@@ -445,10 +445,10 @@ class GenHaxe {
 				case [TString(s), TString(f)]: r += 'const $cname = require("$s").$f;\n$tabs';
 				case _: throw '@require takes string as argument';
 			};
-			r += '/* declare class $cname */';
+			r += '/* extern class $cname */';
 		case TClass(t, ext, impl, fields, external):
 			var cname = extractTypeName(t);
-			r = (external?'/* declare class ' : 'class ') + cname;
+			r = (external?'/* extern class ' : 'class ') + cname;
 			if (ext != null) r += ' extends ' + extractTypeName(ext);
 			r += ' {\n';
 			var after = [];
@@ -495,7 +495,7 @@ class GenHaxe {
 										pushTab();
 										code += '{\n$tabs' + expr.stringify();
 										popTab();
-										code += '\n$tabs}';
+										code += ';\n$tabs}';
 								}
 							}
 							else code += '{}';
@@ -525,7 +525,7 @@ class GenHaxe {
 			popTab();
 			r + tabs + '}';
 		case TObject([], _): '{}';
-		case TObject(names, el): '{' + [for (i in 0...el.length) names[i].rename() + ':' + el[i].stringify()].join(',') + '}';
+		case TObject(names, el): '{' + [for (i in 0...el.length) names[i].rename() + ':' + el[i].stringify()].join(', ') + '}';
 
 		case TStatic(field): 'static ' + field.stringify();
 
