@@ -60,7 +60,7 @@ enum Node {
 	TVar(name: String, t: NodeType, expr: Node, const:Bool);
 	TVars(vars:Array<Node>);
 	TClass(t: NodeType, ext: NodeType, impl: Array<NodeType>, fields: Array<Node>, external:Bool);
-	TTry(expr: Node, vars:Array<String>, t: Array<NodeType>, v:Array<Node>, catches:Array<Node>);
+	TTry(expr: Node, t: Array<NodeType>, v: Array<Node>, catches: Array<Node>); /*vars: Array<String>, */
 	TDot(expr: Node, name: String);
 	TNew(t: NodeType, args: Array<Node>);
 	TArray(el: Array<Node>);
@@ -78,6 +78,14 @@ enum Node {
 	TStatic(field:Node);
 	TFor(name:String, over:Node, by:Node);
 	TElvis(original:Node, othewise:Node);
+
+class DataHelper {
+	public static function varName(v:Node) {
+		return switch (v) {
+			case TVar(name,_): name;
+			case _: throw 'varName got not a TVar, but `$v`';
+		}
+	}
 }
 
 enum NodeType {

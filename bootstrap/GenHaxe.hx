@@ -21,6 +21,7 @@ import Data;
 import Main;
 
 using GenHaxe;
+using Data.DataHelper;
 
 class GenHaxe {
 	static var id = 0;
@@ -404,7 +405,7 @@ class GenHaxe {
 			if(name == null) throw 'name is null for $node';
 			r = (const?'var ':'var ') + name + es;
 			r;
-		case TTry(expr, vars, t, v, catches):
+		case TTry(expr, t, v, catches):
 			r = 'try {\n$tabs\t';
 			pushTab();
 			switch(expr) {
@@ -413,9 +414,9 @@ class GenHaxe {
 			}
 
 			popTab();
-			r += '\n' + tabs + '} catch('+vars[0]+') {\n$tabs\t';
+			r += '\n' + tabs + '} catch('+v[0].varName()+': Any) {\n$tabs\t';
 			pushTab();
-			parentNames.set(v[0], vars[0]);
+			parentNames.set(v[0], v[0].varName());
 			switch(catches[0]) {
 				case TBlock(el): r += [for(e in el) e.stringify()].join(';\n'+tabs);
 				case _:	r += catches[0].stringify();

@@ -20,6 +20,7 @@ import NodeJs;
 import Data;
 
 using GenJs;
+using Data.DataHelper;
 
 class GenJs {
 	static var id = 0;
@@ -244,7 +245,7 @@ class GenJs {
 			if(parentNames[node] == null) throw 'parentNames[node] is null for $node';
 			r = (const?'const ':'let ') + name + es;
 			r;
-		case TTry(expr, vars, t, v, catches):
+		case TTry(expr, t, v, catches):
 			r = 'try {\n$tabs\t';
 			pushTab();
 			switch(expr) {
@@ -253,9 +254,9 @@ class GenJs {
 			}
 
 			popTab();
-			r += '\n' + tabs + '} catch('+vars[0]+') {\n$tabs\t';
+			r += '\n' + tabs + '} catch('+v[0].varName()+') {\n$tabs\t';
 			pushTab();
-			parentNames.set(v[0], vars[0]);
+			parentNames.set(v[0], v[0].varName());
 			switch(catches[0]) {
 				case TBlock(el): r += [for(e in el) e.stringify()].join(';\n'+tabs);
 				case _:	r += catches[0].stringify();

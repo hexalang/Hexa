@@ -418,7 +418,7 @@ class Parser {
 				step(PClose);
 				catches.push(parseExpr());
 			}
-			TTry(expr, vars, t, v, catches);
+			TTry(expr, t, v, catches);
 
 		case KPackage:
 			i++;
