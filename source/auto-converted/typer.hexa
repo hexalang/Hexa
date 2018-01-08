@@ -1,0 +1,665 @@
+module {
+	class Typer {
+		@has_untyped
+		static function fillScopes(allCode: data.Node): Void {
+			var scopes: [nodejs.JSMap< String, data.Node >] = {[new JSMap< String, data.Node >()]}
+			var currentClass: [data.Node] = {[]}
+			var pushScope: ()=>Void = function(): Void {
+				scopes.push(new JSMap< String, data.Node >())
+			}
+			var popScope: ()=>Void = function(): Void {
+				scopes.pop()
+			}
+			var addScope: (name: String, node: data.Node)=>Void = function(name: String, node: data.Node): Void {
+				scopes[scopes.length - 1].set(name, node)
+			}
+			var prevnode_s: data.Node = null
+			var fill: data.Node=>Void = null
+			fill = function(node1: data.Node): Void {
+				switch (@exhaustive node1.index) {
+					case 1: if({ let data.Node.TIdent(value) = node1 value } == null) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, '' + Std.string(node1))) else {
+						let data.Node.TIdent(name1) = node1
+						{
+							if(name1 == 's') {
+								if(prevnode_s == null) {
+									prevnode_s = node1
+									log.trace('mapNames ' + Std.string(node1) + ' ' + name1 + ' == ' + Std.string(data.Project.mapNames.get(node1)), {fileName: 'Typer.hx', lineNumber: 55, className: 'Typer', methodName: 'fillScopes'})
+								}
+							}
+							var subj: data.Node = null
+							{
+								var _g1: Int = 0
+								var _g: Int = scopes.length
+								while(_g1 < _g) {
+									var i: Int = _g1++
+									subj = scopes[scopes.length - i - 1].get(name1)
+									if(subj != null) break
+								}
+							}
+							if(subj == null) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Cannot find name `' + name1 + '` for ' + Std.string(node1)))
+							if(data.Project.mapNames.get(node1) != null && data.Project.mapNames.get(node1) != subj) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'mapNames overwitten from ' + Std.string(data.Project.mapNames.get(node1)) + ' to ' + Std.string(subj) + ' for node ' + Std.string(node1)))
+							data.Project.mapNames.set(node1, subj)
+							log.trace('mapNames ' + Std.string(node1) + ' ' + name1 + ' == ' + Std.string(data.Project.mapNames.get(node1)), {fileName: 'Typer.hx', lineNumber: 74, className: 'Typer', methodName: 'fillScopes'})
+							if(subj.index == 20) log.trace('Found ' + Std.string(subj) + ' => ' + Std.string(data.Project.mapNames.get(node1)) + ' == ' + Std.string(subj), {fileName: 'Typer.hx', lineNumber: 78, className: 'Typer', methodName: 'fillScopes'})
+						}
+					}
+
+					case 3, 4: data.Project.mapNames.set(node1, currentClass[currentClass.length - 1])
+
+					case 0, 2, 5, 6, 7, 16, 39: {}
+
+					case 8: {
+						let data.Node.TBinop(_, _, b) = node1
+						let data.Node.TBinop(_, a, _) = node1
+						{
+							fill(a)
+							fill(b)
+							if(node1.index == 8) switch ({ let data.Node.TBinop(_, value, _) = node1 value }.index) {
+								case 1: if({ let data.Node.TBinop(value, _, _) = node1 value } == 91) {
+									var parent: data.Node = data.Project.mapNames.get(a)
+									if(parent == null) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'null for node ' + Std.string(a)))
+									if(parent.index == 20) {
+										if({ let data.Node.TVar(_, _, _, value) = parent value } == true) {
+											let data.Node.TVar(name2, _, _, _) = parent
+											throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Cannot reassign a constant `' + name2 + '`'))
+										}
+									}
+								}
+
+								case 24: {}
+								
+								case _: if({ let data.Node.TBinop(value, _, _) = node1 value } == 91) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Cannot assign value to `' + Std.string(a) + '`'))
+							}
+						}
+					}
+
+					case 9: if({ let data.Node.TBlock(value) = node1 value }.length != 0) {
+						let data.Node.TBlock(el) = node1
+						{
+							pushScope()
+							{
+								var _g2: Int = 0
+								while(_g2 < el.length) {
+									var e: data.Node = el[_g2]
+									_g2++
+									fill(e)
+								}
+							}
+							log.trace(json.stringify(scopes[scopes.length - 1].keys()), {fileName: 'Typer.hx', lineNumber: 49, className: 'Typer', methodName: 'fillScopes'})
+							popScope()
+						}
+					}
+
+					case 10: {
+						let data.Node.TCall(_, _, elnames) = node1
+						let data.Node.TCall(_, el1, _) = node1
+						let data.Node.TCall(e1, _, _) = node1
+						{
+							fill(e1)
+							{
+								var _g3: Int = 0
+								while(_g3 < el1.length) {
+									var e2: data.Node = el1[_g3]
+									_g3++
+									fill(e2)
+								}
+							}
+						}
+					}
+
+					case 11: if({ let data.Node.TIf(_, _, value) = node1 value } == null) {
+						let data.Node.TIf(econd, _, _) = node1
+						let data.Node.TIf(_, eif, _) = node1
+						{
+							{
+								var _g4: Int = 0
+								while(_g4 < econd.length) {
+									var e3: data.Node = econd[_g4]
+									_g4++
+									fill(e3)
+								}
+							}
+							fill(eif)
+						}
+					} else {
+						let data.Node.TIf(econd1, _, _) = node1
+						let data.Node.TIf(_, eif1, _) = node1
+						let data.Node.TIf(_, _, eelse) = node1
+						{
+							{
+								var _g5: Int = 0
+								while(_g5 < econd1.length) {
+									var e4: data.Node = econd1[_g5]
+									_g5++
+									fill(e4)
+								}
+							}
+							fill(eif1)
+							fill(eelse)
+						}
+					}
+
+					case 12: {
+						let data.Node.TParenthesis(e5) = node1
+						fill(e5)
+					}
+
+					case 13: if({ let data.Node.TReturn(value) = node1 value } != null) {
+						let data.Node.TReturn(e6) = node1
+						fill(e6)
+					}
+
+					case 14: {
+						let data.Node.TThrow(e7) = node1
+						fill(e7)
+					}
+
+					case 15: {}
+
+					case 17: {
+						let data.Node.TUnop(_, _, e8) = node1
+						fill(e8)
+					}
+
+					case 18: {
+						let data.Node.TWhile(_, e9, _) = node1
+						let data.Node.TWhile(econd2, _, _) = node1
+						{
+							fill(econd2)
+							fill(e9)
+						}
+					}
+
+					case 19: {
+						let data.Node.TFunction(_, _, _, rettype) = node1
+						let data.Node.TFunction(_, _, vars, _) = node1
+						let data.Node.TFunction(_, expr, _, _) = node1
+						let data.Node.TFunction(name3, _, _, _) = node1
+						{
+							if(name3 != null) scopes[scopes.length - 1].set(name3, node1)
+							pushScope()
+							{
+								var _g6: Int = 0
+								while(_g6 < vars.length) {
+									var v: data.Node = vars[_g6]
+									_g6++
+									switch (v.index) {
+										case 1: {
+											let data.Node.TIdent(vname) = v
+											scopes[scopes.length - 1].set(vname, v)
+										}
+
+										case 12: if({ let data.Node.TParenthesis(value) = v value } != null) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, Std.string(v) + ''))
+
+										case 20: {
+											let data.Node.TVar(vname1, _, _, _) = v
+											scopes[scopes.length - 1].set(vname1, v)
+										}
+										
+										case _: throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, Std.string(v) + ''))
+									}
+								}
+							}
+							if(expr != null) fill(expr)
+							popScope()
+						}
+					}
+
+					case 20: if({ let data.Node.TVar(value, _, _, _) = node1 value } == null) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, '' + Std.string(node1))) else if({ let data.Node.TVar(_, _, value, _) = node1 value } == null) {
+						if({ let data.Node.TVar(_, _, _, value) = node1 value } == true) {
+							let data.Node.TVar(name4, _, _, _) = node1
+							throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Constant should have a value `let ' + name4 + ' = value`'))
+						} else {
+							let data.Node.TVar(name5, _, _, _) = node1
+							let data.Node.TVar(_, _, _, const) = node1
+							addScope(name5, node1)
+						}
+					} else {
+						let data.Node.TVar(_, _, _, const1) = node1
+						let data.Node.TVar(name6, _, _, _) = node1
+						let data.Node.TVar(_, _, e10, _) = node1
+						{
+							if(e10.index == 22) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Variable should not have class as a value'))
+							fill(e10)
+							addScope(name6, node1)
+						}
+					}
+
+					case 21: {
+						let data.Node.TVars(e11) = node1
+						{
+							var _g7: Int = 0
+							while(_g7 < e11.length) {
+								var e12: data.Node = e11[_g7]
+								_g7++
+								fill(e12)
+							}
+						}
+					}
+
+					case 22: {
+						let data.Node.TClass(_, _, _, f, _) = node1
+						let data.Node.TClass(_, _, i1, _, _) = node1
+						let data.Node.TClass(_, ex, _, _, _) = node1
+						let data.Node.TClass(t, _, _, _, _) = node1
+						{
+							var name7: String = Typer.extractTypeName(t)
+							addScope(name7, node1)
+							currentClass.push(node1)
+							pushScope()
+							{
+								var _g8: Int = 0
+								while(_g8 < f.length) {
+									var field: data.Node = f[_g8]
+									_g8++
+									var name8: String
+									switch (field.index) {
+										case 19: if({ let data.Node.TFunction(value, _, _, _) = field value } == null) name8 = 'new' else {
+											let data.Node.TFunction(name9, _, _, _) = field
+											name8 = name9
+										}
+
+										case 20: {
+											let data.Node.TVar(name10, _, _, _) = field
+											name8 = name10
+										}
+
+										case 40: switch ({ let data.Node.TStatic(value) = field value }.index) {
+											case 19: {
+												let data.Node.TFunction(name11, _, _, _) = { let data.Node.TStatic(value) = field value }
+												name8 = name11
+											}
+
+											case 20: {
+												let data.Node.TVar(name12, _, _, _) = { let data.Node.TStatic(value) = field value }
+												name8 = name12
+											}
+											
+											case _: throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Incorrect class field node: ' + Std.string(field)))
+										}
+										
+										case _: throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Incorrect class field node: ' + Std.string(field)))
+									}
+									var map: nodejs.JSMap< String, data.Node > = scopes[scopes.length - 1]
+									if(map.has(name8)) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, 'Class field ' + name8 + ' already exists'))
+									map.set(name8, field)
+									data.Project.mapNames.set(field, node1)
+								}
+							}
+							{
+								var _g9: Int = 0
+								while(_g9 < f.length) {
+									var field1: data.Node = f[_g9]
+									_g9++
+									switch (field1.index) {
+										case 19: if({ let data.Node.TFunction(_, value, _, _) = field1 value } != null) {
+											let data.Node.TFunction(_, _, _, r) = field1
+											let data.Node.TFunction(_, _, v1, _) = field1
+											let data.Node.TFunction(_, e13, _, _) = field1
+											fill(data.Node.TFunction(null, e13, v1, r))
+										}
+
+										case 20: if({ let data.Node.TVar(_, _, value, _) = field1 value } != null) {
+											let data.Node.TVar(_, _, e14, _) = field1
+											fill(e14)
+										}
+
+										case 40: switch ({ let data.Node.TStatic(value) = field1 value }.index) {
+											case 19: if({ let data.Node.TFunction(_, value, _, _) = { let data.Node.TStatic(value) = field1 value } value } != null) {
+												let data.Node.TFunction(_, _, _, r1) = { let data.Node.TStatic(value) = field1 value }
+												let data.Node.TFunction(_, _, v2, _) = { let data.Node.TStatic(value) = field1 value }
+												let data.Node.TFunction(_, e15, _, _) = { let data.Node.TStatic(value) = field1 value }
+												fill(data.Node.TFunction(null, e15, v2, r1))
+											}
+
+											case 20: if({ let data.Node.TVar(_, _, value, _) = { let data.Node.TStatic(value) = field1 value } value } != null) {
+												let data.Node.TVar(_, _, e16, _) = { let data.Node.TStatic(value) = field1 value }
+												fill(e16)
+											}
+											
+											case _: {}
+										}
+										
+										case _: {}
+									}
+								}
+							}
+							popScope()
+							currentClass.pop()
+						}
+					}
+
+					case 23: {
+						let data.Node.TTry(_, _, _, ca) = node1
+						let data.Node.TTry(_, _, v3, _) = node1
+						let data.Node.TTry(_, t1, _, _) = node1
+						let data.Node.TTry(e17, _, _, _) = node1
+						{
+							fill(e17)
+							{
+								var _g11: Int = 0
+								var _g10: Int = ca.length
+								while(_g11 < _g10) {
+									var e18: Int = _g11++
+									pushScope()
+									scopes[scopes.length - 1].set(data.DataHelper.varName(v3[e18]), v3[e18])
+									fill(ca[e18])
+									popScope()
+								}
+							}
+						}
+					}
+
+					case 24: {
+						let data.Node.TDot(_, n) = node1
+						let data.Node.TDot(e19, _) = node1
+						fill(e19)
+					}
+
+					case 25: {
+						let data.Node.TNew(_, _, _, values) = node1
+						let data.Node.TNew(_, _, names, _) = node1
+						let data.Node.TNew(_, el2, _, _) = node1
+						let data.Node.TNew(t2, _, _, _) = node1
+						{
+							var _g12: Int = 0
+							while(_g12 < el2.length) {
+								var e20: data.Node = el2[_g12]
+								_g12++
+								fill(e20)
+							}
+						}
+					}
+
+					case 26: {
+						let data.Node.TArray(el3) = node1
+						{
+							var _g13: Int = 0
+							while(_g13 < el3.length) {
+								var e21: data.Node = el3[_g13]
+								_g13++
+								fill(e21)
+							}
+						}
+					}
+
+					case 27: {
+						let data.Node.TMap(_, values1) = node1
+						let data.Node.TMap(keys, _) = node1
+						{
+							var _g14: Int = 0
+							var _g15: Int = keys.length
+							while(_g14 < _g15) {
+								var i2: Int = _g14++
+								fill(keys[i2])
+								fill(values1[i2])
+							}
+						}
+					}
+
+					case 28: {
+						let data.Node.TIndex(_, i3) = node1
+						let data.Node.TIndex(e22, _) = node1
+						{
+							fill(e22)
+							fill(i3)
+						}
+					}
+
+					case 29: {
+						let data.Node.TSwitch(_, _, cases) = node1
+						let data.Node.TSwitch(_, conds, _) = node1
+						let data.Node.TSwitch(exprs, _, _) = node1
+						{
+							{
+								var _g16: Int = 0
+								while(_g16 < exprs.length) {
+									var e23: data.Node = exprs[_g16]
+									_g16++
+									pushScope()
+									fill(e23)
+									popScope()
+								}
+							}
+							{
+								var _g17: Int = 0
+								while(_g17 < conds.length) {
+									var e24: [data.Node] = conds[_g17]
+									_g17++
+									{
+										var _g18: Int = 0
+										while(_g18 < e24.length) {
+											var e25: data.Node = e24[_g18]
+											_g18++
+											pushScope()
+											fill(e25)
+											popScope()
+										}
+									}
+								}
+							}
+							{
+								var _g19: Int = 0
+								while(_g19 < cases.length) {
+									var e26: data.Node = cases[_g19]
+									_g19++
+									pushScope()
+									fill(e26)
+									popScope()
+								}
+							}
+						}
+					}
+
+					case 30: throw new HaxeError('Modules should be at a file\' upper scope')
+
+					case 31: {
+						let data.Node.TObject(_, el4) = node1
+						let data.Node.TObject(names1, _) = node1
+						{
+							var _g20: Int = 0
+							while(_g20 < el4.length) {
+								var e27: data.Node = el4[_g20]
+								_g20++
+								fill(e27)
+							}
+						}
+					}
+
+					case 32: {
+						let data.Node.TEnum(_, f1) = node1
+						let data.Node.TEnum(t3, _) = node1
+						{
+							var name13: String = Typer.extractTypeName(t3)
+							addScope(name13, node1)
+						}
+					}
+
+					case 33: {
+						let data.Node.TEnumExtract(_, _, name14) = node1
+						let data.Node.TEnumExtract(_, extract, _) = node1
+						let data.Node.TEnumExtract(tenum, _, _) = node1
+					}
+
+					case 34: {}
+
+					case 35: if({ let data.Node.TDeclare(_, value) = node1 value }.index == 20) {
+						if({ let data.Node.TVar(_, _, value, _) = { let data.Node.TDeclare(_, value) = node1 value } value } == null) {
+							if({ let data.Node.TVar(_, _, _, value) = { let data.Node.TDeclare(_, value) = node1 value } value } == true) {
+								let data.Node.TDeclare(name15, _) = node1
+								let data.Node.TVar(_, t4, _, _) = { let data.Node.TDeclare(_, value) = node1 value }
+								let data.Node.TVar(vname2, _, _, _) = { let data.Node.TDeclare(_, value) = node1 value }
+								let data.Node.TDeclare(_, v4) = node1
+								{
+									addScope(name15, node1)
+									addScope(vname2, v4)
+								}
+							} else {
+								let data.Node.TDeclare(name16, _) = node1
+								let data.Node.TDeclare(_, t5) = node1
+								{
+									addScope(name16, node1)
+									fill(t5)
+								}
+							}
+						} else {
+							let data.Node.TDeclare(name17, _) = node1
+							let data.Node.TDeclare(_, t6) = node1
+							{
+								addScope(name17, node1)
+								fill(t6)
+							}
+						}
+					} else {
+						let data.Node.TDeclare(name18, _) = node1
+						let data.Node.TDeclare(_, t7) = node1
+						{
+							addScope(name18, node1)
+							fill(t7)
+						}
+					}
+
+					case 36: {
+						let data.Node.TUsing(names2) = node1
+					}
+
+					case 37: {
+						let data.Node.TIs(_, el21) = node1
+						let data.Node.TIs(el5, _) = node1
+					}
+
+					case 38: {
+						let data.Node.TAs(e28, _, _) = node1
+						fill(e28)
+					}
+
+					case 40: {
+						let data.Node.TStatic(e29) = node1
+						fill(e29)
+					}
+
+					case 41: if({ let data.Node.TFor(value, _, _) = node1 value } == null) throw new HaxeError(new CompilerError(compilererror.Fail.TyperError, '' + Std.string(node1))) else {
+						let data.Node.TFor(_, _, by) = node1
+						let data.Node.TFor(_, over, _) = node1
+						let data.Node.TFor(name19, _, _) = node1
+						{
+							fill(over)
+							pushScope()
+							addScope(name19, node1)
+							fill(by)
+							popScope()
+						}
+					}
+
+					case 42: {
+						let data.Node.TElvis(_, b1) = node1
+						let data.Node.TElvis(a1, _) = node1
+						{
+							fill(a1)
+							fill(b1)
+						}
+					}
+
+					case 43: {
+						let data.Node.NodeTypeValue(t8) = node1
+					}
+				}
+			}
+			var fill1: data.Node=>Void = fill
+			var fillFile: data.Node=>Void = function(file: data.Node): Void {
+				fill1(file)
+			}
+			var fillModule: data.Node=>Void = function(container: data.Node): Void {
+				if(container.index == 30) {
+					let data.Node.TModule(_, el6) = container
+					let data.Node.TModule(path, _) = container
+					{
+						log.trace('-------> fillModule ' + Std.string(path), {fileName: 'Typer.hx', lineNumber: 268, className: 'Typer', methodName: 'fillScopes'})
+						{
+							var _g21: Int = 0
+							while(_g21 < el6.length) {
+								var e30: data.Node = el6[_g21]
+								_g21++
+								fill1(e30)
+							}
+						}
+					}
+				} else log.trace('-------> fillModule ' + Std.string(container), {fileName: 'Typer.hx', lineNumber: 269, className: 'Typer', methodName: 'fillScopes'})
+			}
+			if(allCode.index == 9) {
+				let data.Node.TBlock(files) = allCode
+				{
+					pushScope()
+					{
+						var _g22: Int = 0
+						while(_g22 < files.length) {
+							var file1: data.Node = files[_g22]
+							_g22++
+							switch (file1.index) {
+								case 9: {
+									let data.Node.TBlock(el7) = file1
+									{
+										var _g110: Int = 0
+										while(_g110 < el7.length) {
+											var e31: data.Node = el7[_g110]
+											_g110++
+											if(e31.index == 30) fillModule(e31)
+										}
+									}
+								}
+
+								case 30: fillModule(file1)
+								
+								case _: {}
+							}
+						}
+					}
+					popScope()
+					{
+						var _g23: Int = 0
+						while(_g23 < files.length) {
+							var file2: data.Node = files[_g23]
+							_g23++
+							pushScope()
+							switch (file2.index) {
+								case 9: {
+									let data.Node.TBlock(el8) = file2
+									{
+										var _g111: Int = 0
+										while(_g111 < el8.length) {
+											var e32: data.Node = el8[_g111]
+											_g111++
+											if(e32.index != 30) fill1(e32)
+										}
+									}
+								}
+
+								case 30: {}
+								
+								case _: fill1(file2)
+							}
+							popScope()
+						}
+					}
+				}
+			} else throw new HaxeError('Typer expects all files to be collected into a block')
+		}
+
+		static function extractTypeName(t: data.NodeType): String {
+			switch (t.index) {
+				case 0: {
+					let data.NodeType.Type(name) = t
+					return name
+				}
+
+				case 1: {
+					let data.NodeType.ParamentricType(name1, _) = t
+					return name1
+				}
+				
+				case _: throw new HaxeError('Type has no name: ' + Std.string(t))
+			}
+		}
+
+	}
+}

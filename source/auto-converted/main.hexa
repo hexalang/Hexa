@@ -1,0 +1,140 @@
+module {
+	class Main {
+		private function init(): Void {
+			var currentDirTmp: [String] = nodejs.Process.argv[1].split(nodejs.Path.sep)
+			var packageFileName: String = currentDirTmp.splice(0, -1).join(nodejs.Path.sep) + nodejs.Path.sep + 'hexa.json'
+			var currentDir: String = currentDirTmp[currentDirTmp.length - 2]
+			var name: String = nodejs.Readline.question('Enter package name (' + currentDir + '): ')
+			if(name == '') name = currentDir
+			var version: String = nodejs.Readline.question('Enter package version (1.0.0): ')
+			if(version == '') version = '1.0.0'
+			var description: String = nodejs.Readline.question('Enter package description: ')
+			var main: String = nodejs.Readline.question('Enter main file (main.hexa): ')
+			if(main == '') main = 'main.hexa'
+			var target: main.Target = {generator: ('JavaScript' as! main.Generator), instance: ({generatePackageJson: false} as! Any)}
+			var generatorstr: String = nodejs.Readline.question('Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe')
+			if(generatorstr.toUpperCase() == 'C' || generatorstr == '2') target.generator = ('C' as! main.Generator) else if(generatorstr.toUpperCase() == 'HAXE' || generatorstr == '3') target.generator = ('Haxe' as! main.Generator)
+			while(!StringTools.endsWith(main, '.hexa')) {
+				nodejs.Process.stdout.write('Wrong file name. Must ends with \'.hexa\'.\n')
+				main = nodejs.Readline.question('Enter main file (main.hexa): ')
+			}
+			var author: String = nodejs.Readline.question('Enter package author name: ')
+			var license: String = nodejs.Readline.question('Enter license: ')
+			var pack: main.Package = {name: name, version: version, description: description, main: main, author: author, license: license, target: target, files: {[]}}
+			var packageStr: String = haxe.json.Json.stringify(pack, null, '\t')
+			var answ: String = nodejs.Readline.question('About to write to: ' + packageFileName + ':\n' + packageStr + '\nIs this ok? (yes)')
+			if(answ != '') nodejs.Process.exit(1)
+			nodejs.Fs.writeFileSync('hexa.json', packageStr)
+			nodejs.Process.stdout.write('Hexa package initialized!\n')
+		}
+
+		private function processFile(target: String): Parser {
+			var content: nodejs.Buffer< Int > = nodejs.Fs.readFileSync(target)
+			var tokens: lexer.Tokens = Lexer.tokenize(content, target)
+			var parser: Parser = new Parser(tokens)
+			return parser
+		}
+
+		private function loadPackage(filename: String): main.Package {
+			var pack: {author: String, description: String, files: [String], license: String, main: String, name: String, target: main.Target, version: String} = haxe.json.Json.parse(nodejs.Fs.readFileSync(nodejs.Path.resolve(filename)).toString('utf8'))
+			var incorrect: String=>Void = function(what: String): Void {
+				nodejs.Process.stdout.write('Incorrect package file! Field `$what` does not exists\n')
+				nodejs.Process.exit(1)
+			}
+			if(pack.target == null) incorrect('target')
+			if(pack.main == null) incorrect('main')
+			if(pack.name == null) incorrect('name')
+			return pack
+		}
+
+		private static function eval(code: String): Void {
+			__js__('eval')(code)
+		}
+
+		private static function main(): Void {
+			new Main()
+		}
+
+		private new() {
+			__js__('require(\'source-map-support\').install()')
+			haxe.log.Log.trace('Hexa', {fileName: 'Main.hx', lineNumber: 119, className: 'Main', methodName: 'new', customParams: {[' Alpha']}})
+			TestLexer.test()
+			TestParser.test()
+			if(nodejs.Process.argv[2] == null) {
+				log.trace('Usage: `node hexa.js project.json` or `node hexa.js init`', {fileName: 'Main.hx', lineNumber: 132, className: 'Main', methodName: 'new'})
+				nodejs.Process.exit(1)
+			} else if(nodejs.Process.argv[2] == 'init') {
+				this.init()
+				nodejs.Process.exit(0)
+			}
+			Lexer.init()
+			var currentFile: String = nodejs.Path.resolve(nodejs.Process.argv[2])
+			var currentParsedFile: nodejs.ParsedPath = nodejs.Path.parse(currentFile)
+			var input: main.Package = null
+			var target: String = null
+			var packageFolder: String = currentParsedFile.dir
+			if(currentParsedFile.ext == '.json') {
+				input = this.loadPackage(currentFile)
+				target = nodejs.Path.resolve(currentFile + '/../') + nodejs.Path.sep + input.main
+			} else if(nodejs.Fs.lstatSync(currentFile).isDirectory()) {
+				input = this.loadPackage(currentFile + nodejs.Path.sep + 'hexa.json')
+				packageFolder = currentFile
+				target = packageFolder + nodejs.Path.sep + input.main
+			} else if(currentParsedFile.ext == '.hexa') {
+				Main.eval('"use strict"\r\n' + GenJs.stringify(this.processFile(currentFile).node))
+				return {}
+			}
+			var codes: [data.Node] = {[]}
+			if(input.files != null) {
+				var files: [String] = input.files.map(function(file: String): String {
+					return nodejs.Path.resolve(packageFolder + nodejs.Path.sep + file)
+				})
+				{
+					var _g: Int = 0
+					while(_g < files.length) {
+						var file1: String = files[_g]
+						_g++
+						log.trace(file1, {fileName: 'Main.hx', lineNumber: 173, className: 'Main', methodName: 'new'})
+						codes.push(this.processFile(file1).node)
+					}
+				}
+			}
+			codes.push(this.processFile(target).node)
+			var collected: data.Node = data.Node.TBlock(codes)
+			Typer.fillScopes(collected)
+			var parsedMain: data.Node = collected
+			{
+				var _g1: main.Generator = input.target.generator
+				switch (_g1) {
+					case 'C': {
+						var outs: String = '' + GenC.stringifyMain(parsedMain, input.target.instance)
+						var target1: String = nodejs.Path.parse(input.main).name + '.c'
+						nodejs.Fs.writeFileSync(target1, outs)
+					}
+
+					case 'Haxe': {
+						log.trace('Generator is Haxe', {fileName: 'Main.hx', lineNumber: 204, className: 'Main', methodName: 'new'})
+						var outs1: String = '' + GenHaxe.stringifyMain(parsedMain)
+						var dir: String = packageFolder + nodejs.Path.sep + nodejs.Path.parse(input.main).name + '.haxe'
+						if(!nodejs.Fs.existsSync(dir)) nodejs.Fs.mkdirSync(dir)
+						var target2: String = dir + nodejs.Path.sep + 'Main.hx'
+						nodejs.Fs.writeFileSync(target2, outs1)
+						log.trace('Saved to ' + target2, {fileName: 'Main.hx', lineNumber: 214, className: 'Main', methodName: 'new'})
+						var hxml: String = '-cp /home/ubuntu/workspace/drafts/weztest/bot.haxe/\n-main Main\n-js main.js\n-dce full\n-debug'
+						nodejs.Fs.writeFileSync(dir + nodejs.Path.sep + 'build.hxml', hxml)
+					}
+
+					case 'JavaScript': {
+						var outs2: String = '"use strict"\r\n'
+						outs2 += GenJs.stringify(collected)
+						var target3: String = packageFolder + nodejs.Path.sep + nodejs.Path.parse(input.main).name + '.js'
+						nodejs.Fs.writeFileSync(target3, outs2)
+						if(input.target.instance.generatePackageJson) nodejs.Fs.writeFileSync(packageFolder + nodejs.Path.sep + 'package.json', GenJs.generatePackageJson(input))
+					}
+					
+					case _: throw new HaxeError('Generator is not defined or unknown, is there `target.generator` field in `hexa.json`?')
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,1179 @@
+module {
+	class Parser {
+		private function parseFields(): [data.Node] {
+			var fields: [data.Node] = {[]}
+			while(this.tok() != (73 as! Token)) {
+				while(this.tok() == (70 as! Token)) this.parseAttribute()
+				var _static: Bool = false
+				if(this.tok() == (32 as! Token)) {
+					_static = true
+					this.i++
+				}
+				{
+					var _g: Token = this.tok()
+					switch (_g) {
+						case 25: {
+							this.i++
+							var expr: data.Node = null
+							var vars: [String] = {[]}
+							var types: [data.NodeType] = {[]}
+							var values: [data.Node] = {[]}
+							this.step((80 as! Token))
+							while(this.tok() != (79 as! Token)) {
+								vars.push(this.getgo((62 as! Token)))
+								if(this.tok() == (76 as! Token)) {
+									this.i++
+									types.push(this.parseType())
+								}
+								if(this.tok() == (91 as! Token)) {
+									this.i++
+									values.push(this.parseExpr())
+								}
+								if(this.tok() == (75 as! Token)) this.i++
+							}
+							this.step((79 as! Token))
+							if(this.tok() != (73 as! Token)) expr = this.parseExpr()
+							var v: [data.Node] = {[]}
+							{
+								var _g1: Int = 0
+								var _g2: Int = vars.length
+								while(_g1 < _g2) {
+									var i: Int = _g1++
+									v.push(data.Node.TVar(vars[i], types[i], values[i], true))
+								}
+							}
+							fields.push(data.Node.TFunction('new', expr, v, null))
+						}
+
+						case 29: this.i++
+
+						case 16, 23, 40: {
+							var f: data.Node = this.parseExpr()
+							if(_static) f = data.Node.TStatic(f)
+							fields.push(f)
+						}
+						
+						case _: {
+							nodejs.Console.log('\n\nparseFields ' + token.Token_Impl_.stringify(this.tok()))
+							throw new HaxeError(this.fail('KClass'))
+						}
+					}
+				}
+			}
+			return fields
+		}
+
+		var node: data.Node
+		private var lex: lexer.Tokens
+		private var atts: [{name: String, values: [data.Node]}] = {[]}
+		private var i: Int = 0
+		private var lasttok: Int = -1
+		private var lasttokchecks: Int = 10
+		private function tok(): Token {
+			if(this.i > this.lex.length) {
+				log.trace('Parser is out of token space!', {fileName: 'Parser.hx', lineNumber: 124, className: 'Parser', methodName: 'tok'})
+				log.trace('This should NOT happen.', {fileName: 'Parser.hx', lineNumber: 125, className: 'Parser', methodName: 'tok'})
+				log.trace('Please, issue a developer (with a code sample).', {fileName: 'Parser.hx', lineNumber: 126, className: 'Parser', methodName: 'tok'})
+				throw new HaxeError(this.fail(this.lex.fileName + ': Parser Internal Error: Out of token space'))
+			}
+			var t: Token = this.lex.token[this.i]
+			if(this.lasttok != this.i) {
+				this.lasttok = this.i
+				this.lasttokchecks = 40
+			} else {
+				this.lasttokchecks--
+				if(this.lasttokchecks < 0) throw new HaxeError(this.fail('Parser Internal Error: Same token parsed too many times: ' + ('`' + this.print() + '`')))
+			}
+			return t
+		}
+
+		private function print(): String {
+			return token.Token_Impl_.stringify(this.lex.token[this.i], this.lex.value[this.i])
+		}
+
+		private function expect(t: Token): Void {
+			if(t != this.tok()) this.expected(token.Token_Impl_.stringify(t))
+		}
+
+		private function fail(message: String, line?: Int??, column?: Int??, filename?: String??): CompilerError {
+			if(line != null) line = line else line = this.lex.line[this.i]
+			if(column != null) column = column else column = this.lex.column[this.i]
+			if(filename != null) filename = filename else filename = this.lex.fileName
+			return new CompilerError(compilererror.Fail.ParserError, message, line, column, filename)
+		}
+
+		private function getgo(t: Token): String {
+			this.expect(t)
+			return this.lex.value[this.i++]
+		}
+
+		private function step(t: Token): Void {
+			this.expect(t)
+			this.i++
+		}
+
+		private function next(): Void {
+			this.i++
+		}
+
+		private function offset(v: Int): Token {
+			return this.lex.token[this.i + v]
+		}
+
+		private function unexpected(): Void {
+			var token: String = token.Token_Impl_.stringify(this.lex.token[this.i], this.lex.value[this.i])
+			if(this.tok() == (82 as! Token)) nodejs.Console.log('Note, that Hexa has no semicolons!')
+			throw new HaxeError(this.fail('Unexpected `' + token + '`'))
+		}
+
+		private function expected(str: String): Void {
+			var token: String = token.Token_Impl_.stringify(this.lex.token[this.i], this.lex.value[this.i])
+			throw new HaxeError(this.fail('Expected `' + str + '` before `' + token + '`'))
+		}
+
+		private var class_external: Bool = false
+		private function parseExpr(): data.Node {
+			while(this.tok() == (70 as! Token)) this.parseAttribute()
+			var node: Token = this.tok()
+			var result: data.Node
+			switch (node) {
+				case 1: {
+					this.i++
+					result = data.Node.TUnderscore
+				}
+
+				case 3: {
+					this.i++
+					result = data.Node.TBreak
+				}
+
+				case 7, 22: {
+					var att: [{name: String, values: [data.Node]}] = this.atts
+					this.atts = {[]}
+					this.i++
+					var t: data.NodeType = this.parseType()
+					var ext: data.NodeType?
+					if(this.tok() == (12 as! Token)) {
+						this.i++
+						ext = this.parseType()
+					} else ext = null
+					var impl: [data.NodeType] = {[]}
+					while(this.tok() == (18 as! Token)) {
+						this.i++
+						impl.push(this.parseType())
+					}
+					this.step((74 as! Token))
+					var fields: [data.Node] = this.parseFields()
+					this.step((73 as! Token))
+					var me: data.Node = data.Node.TClass(t, ext, impl, fields, this.class_external)
+					data.Project.mapAttributes.set(me, att)
+					result = me
+				}
+
+				case 8: {
+					this.i++
+					result = data.Node.TContinue
+				}
+
+				case 9: {
+					this.i++
+					var e: data.Node = this.parseExpr()
+					this.step((41 as! Token))
+					this.step((80 as! Token))
+					var econd: data.Node = this.parseExpr()
+					this.step((79 as! Token))
+					result = data.Node.TWhile(econd, e, false)
+				}
+
+				case 11: {
+					this.i++
+					var t1: data.NodeType = this.parseType()
+					if(this.tok() == (76 as! Token)) {
+						this.i++
+						this.parseType()
+					}
+					this.step((74 as! Token))
+					var names: [data.Node] = {[]}
+					while(this.tok() != (73 as! Token)) {
+						while(this.tok() == (70 as! Token)) this.parseAttribute()
+						this.atts = {[]}
+						names.push(this.parseExpr())
+					}
+					this.step((73 as! Token))
+					result = data.Node.TEnum(t1, names)
+				}
+
+				case 13: {
+					this.i++
+					var e1: data.Node
+					var _g: Token = this.tok()
+					if(_g == 16) e1 = this.parseFunction(false) else e1 = this.parseExpr()
+					var name: String = null
+					switch (e1.index) {
+						case 8: if({ let data.Node.TBinop(value, _, _) = e1 value } == 91) switch ({ let data.Node.TBinop(_, value, _) = e1 value }.index) {
+							case 1: {
+								let data.Node.TIdent(n) = { let data.Node.TBinop(_, value, _) = e1 value }
+								name = n
+							}
+
+							case 43: if({ let data.Node.NodeTypeValue(value) = { let data.Node.TBinop(_, value, _) = e1 value } value }.index == 0) {
+								let data.NodeType.Type(n1) = { let data.Node.NodeTypeValue(value) = { let data.Node.TBinop(_, value, _) = e1 value } value }
+								name = n1
+							} else {
+								log.trace('' + Std.string(e1), {fileName: 'Parser.hx', lineNumber: 254, className: 'Parser', methodName: 'parseExpr'})
+								throw new HaxeError(this.fail('Incorrect `declare` syntax! Use `declare let name:T` or `declare function name():T`'))
+							}
+							
+							case _: {
+								log.trace('' + Std.string(e1), {fileName: 'Parser.hx', lineNumber: 254, className: 'Parser', methodName: 'parseExpr'})
+								throw new HaxeError(this.fail('Incorrect `declare` syntax! Use `declare let name:T` or `declare function name():T`'))
+							}
+						} else {
+							log.trace('' + Std.string(e1), {fileName: 'Parser.hx', lineNumber: 254, className: 'Parser', methodName: 'parseExpr'})
+							throw new HaxeError(this.fail('Incorrect `declare` syntax! Use `declare let name:T` or `declare function name():T`'))
+						}
+
+						case 19: {
+							let data.Node.TFunction(_, e2, _, _) = e1
+							let data.Node.TFunction(n2, _, _, _) = e1
+							if(n2 == null) throw new HaxeError(this.fail('Function in `declare` should have a name')) else if(e2 == null) name = n2 else throw new HaxeError(this.fail('Functions in `declare` should *not* have a body'))
+						}
+
+						case 20: {
+							let data.Node.TVar(_, _, e3, _) = e1
+							let data.Node.TVar(_, t2, _, _) = e1
+							let data.Node.TVar(n3, _, _, _) = e1
+							if(t2 == null) throw new HaxeError(this.fail('Variable `' + n3 + '` in `declare` should have a type')) else if(e3 == null) name = n3 else throw new HaxeError(this.fail('Variable `' + n3 + '` in `declare` should *not* have a value'))
+						}
+
+						case 21: throw new HaxeError(this.fail('Place only one variable into `declare`'))
+
+						case 22: if({ let data.Node.TClass(value, _, _, _, _) = e1 value }.index == 0) {
+							let data.NodeType.Type(n4) = { let data.Node.TClass(value, _, _, _, _) = e1 value }
+							name = n4
+						} else {
+							log.trace('' + Std.string(e1), {fileName: 'Parser.hx', lineNumber: 254, className: 'Parser', methodName: 'parseExpr'})
+							throw new HaxeError(this.fail('Incorrect `declare` syntax! Use `declare let name:T` or `declare function name():T`'))
+						}
+						
+						case _: {
+							log.trace('' + Std.string(e1), {fileName: 'Parser.hx', lineNumber: 254, className: 'Parser', methodName: 'parseExpr'})
+							throw new HaxeError(this.fail('Incorrect `declare` syntax! Use `declare let name:T` or `declare function name():T`'))
+						}
+					}
+					result = data.Node.TDeclare(name, e1)
+				}
+
+				case 14: {
+					this.i++
+					result = data.Node.TBool(false)
+				}
+
+				case 15: {
+					this.i++
+					this.step((80 as! Token))
+					var n5: String = this.getgo((62 as! Token))
+					this.step((20 as! Token))
+					var a: data.Node = this.parseExpr()
+					this.step((79 as! Token))
+					var b: data.Node = this.parseExpr()
+					result = data.Node.TFor(n5, a, b)
+				}
+
+				case 16: result = this.parseFunction()
+
+				case 17: {
+					this.i++
+					this.step((80 as! Token))
+					var econd1: [data.Node] = {[this.parseExpr()]}
+					while(this.tok() == (75 as! Token)) {
+						this.i++
+						econd1.push(this.parseExpr())
+					}
+					this.step((79 as! Token))
+					var eif: data.Node = null
+					if(this.tok() != (76 as! Token)) eif = this.parseExpr()
+					var eelse: data.Node? = null
+					if(this.tok() == (10 as! Token)) {
+						this.i++
+						eelse = this.parseExpr()
+					}
+					result = data.Node.TIf(econd1, eif, eelse)
+				}
+
+				case 23, 40: {
+					var parsed: [data.Node] = this.parseVar()
+					if(parsed.length > 1) result = data.Node.TVars(parsed) else result = parsed[0]
+				}
+
+				case 25: {
+					this.i++
+					var t3: data.NodeType = this.parseType()
+					var names1: [String] = {[]}
+					var values: [data.Node] = {[]}
+					if(this.tok() == (74 as! Token)) {
+						this.i++
+						if(this.tok() == (76 as! Token)) {
+							this.i++
+							this.step((73 as! Token))
+						} else if(this.tok() == (62 as! Token) && this.lex.token[this.i + 1] == (76 as! Token)) {
+							while(this.tok() != (73 as! Token)) {
+								names1.push(this.getgo((62 as! Token)))
+								this.step((76 as! Token))
+								values.push(this.parseExpr())
+								if(this.tok() == (75 as! Token)) this.i++
+							}
+							this.step((73 as! Token))
+						} else if(this.tok() == (73 as! Token)) this.step((73 as! Token))
+					}
+					this.step((80 as! Token))
+					var args: [data.Node] = {[]}
+					while(this.tok() != (79 as! Token)) {
+						args.push(this.parseExpr())
+						if(this.tok() == (75 as! Token)) this.i++
+					}
+					this.step((79 as! Token))
+					result = data.Node.TNew(t3, args, names1, values)
+				}
+
+				case 26: {
+					this.i++
+					result = data.Node.TNull
+				}
+
+				case 28: {
+					this.i++
+					var path: [String] = {[]}
+					if(this.tok() == (62 as! Token)) {
+						path.push(this.getgo((62 as! Token)))
+						while(this.tok() == (77 as! Token)) {
+							this.i++
+							path.push(this.getgo((62 as! Token)))
+						}
+					}
+					this.step((74 as! Token))
+					var el: [data.Node] = {[]}
+					while(this.tok() != (73 as! Token)) el.push(this.parseExpr())
+					this.step((73 as! Token))
+					result = data.Node.TModule(path, el)
+				}
+
+				case 31: {
+					this.i++
+					var _g1: Token = this.tok()
+					switch (_g1) {
+						case 40, 73: result = data.Node.TReturn(null)
+						
+						case _: result = data.Node.TReturn(this.parseExpr())
+					}
+				}
+
+				case 33: {
+					this.i++
+					this.step((80 as! Token))
+					var exprs: [data.Node] = {[]}
+					while(this.tok() != (79 as! Token)) {
+						exprs.push(this.parseExpr())
+						if(this.tok() == (75 as! Token)) this.i++
+					}
+					this.step((79 as! Token))
+					this.step((74 as! Token))
+					var cases: [data.Node] = {[]}
+					var conds: [[data.Node]] = {[]}
+					while(this.tok() != (73 as! Token)) {
+						this.step((4 as! Token))
+						var cond: [data.Node] = {[]}
+						while(this.tok() != (76 as! Token)) {
+							if(this.tok() == (1 as! Token)) {
+								this.i++
+								cond.push(data.Node.TUnderscore)
+							} else cond.push(this.parseExpr())
+							if(this.tok() == (75 as! Token)) this.i++
+						}
+						conds.push(cond)
+						this.step((76 as! Token))
+						var exs: [data.Node] = {[]}
+						while(this.tok() != (4 as! Token) && this.tok() != (73 as! Token)) exs.push(this.parseExpr())
+						cases.push(data.Node.TBlock(exs))
+					}
+					this.step((73 as! Token))
+					result = data.Node.TSwitch(exprs, conds, cases)
+				}
+
+				case 34: {
+					this.i++
+					result = data.Node.TThis
+				}
+
+				case 35: {
+					this.i++
+					result = data.Node.TThrow(this.parseExpr())
+				}
+
+				case 36: {
+					this.i++
+					result = data.Node.TBool(true)
+				}
+
+				case 37: {
+					this.i++
+					var expr: data.Node = this.parseExpr()
+					var vars: [String] = {[]}
+					var t4: [data.NodeType] = {[]}
+					var v: [data.Node] = {[]}
+					var catches: [data.Node] = {[]}
+					while(this.tok() == (6 as! Token)) {
+						this.step((6 as! Token))
+						this.step((80 as! Token))
+						var name1: String = this.getgo((62 as! Token))
+						vars.push(name1)
+						this.step((76 as! Token))
+						var kind: data.NodeType = this.parseType()
+						t4.push(kind)
+						v.push(data.Node.TVar(name1, kind, null, true))
+						this.step((79 as! Token))
+						catches.push(this.parseExpr())
+					}
+					result = data.Node.TTry(expr, t4, v, catches)
+				}
+
+				case 38: {
+					this.i++
+					var name2: String
+					var _g2: Token = this.tok()
+					switch (_g2) {
+						case 61: name2 = this.getgo((61 as! Token))
+
+						case 62: throw new HaxeError(this.fail('Type names can\'t start with lowercase.'))
+						
+						case _: throw new HaxeError(this.fail('Unexpected token: ' + this.tok()))
+					}
+					if(this.tok() == (99 as! Token)) {
+						this.i++
+						this.step((62 as! Token))
+						while(this.tok() == (75 as! Token)) {
+							this.i++
+							this.step((62 as! Token))
+						}
+						this.step((96 as! Token))
+					}
+					if(this.tok() == (91 as! Token)) {
+						this.step((91 as! Token))
+						result = data.Node.TType(name2, this.parseType())
+					} else {
+						this.step((76 as! Token))
+						this.parseType()
+						this.step((74 as! Token))
+						this.parseFields()
+						this.step((73 as! Token))
+						result = data.Node.TType(name2, null)
+					}
+				}
+
+				case 39: {
+					this.i++
+					var names2: [String] = {[this.getgo((61 as! Token))]}
+					while(this.tok() == (75 as! Token)) {
+						this.step((75 as! Token))
+						names2.push(this.getgo((61 as! Token)))
+					}
+					result = data.Node.TUsing(names2)
+				}
+
+				case 41: {
+					this.i++
+					this.step((80 as! Token))
+					var econd2: data.Node = this.parseExpr()
+					this.step((79 as! Token))
+					var e4: data.Node = this.parseExpr()
+					result = data.Node.TWhile(econd2, e4, true)
+				}
+
+				case 59: {
+					this.i++
+					result = data.Node.TSuper
+				}
+
+				case 60: result = data.Node.TFloat(this.getgo((60 as! Token)))
+
+				case 61: if(this.lex.token[this.i + 1] == (99 as! Token)) {
+					var res: data.NodeType = this.parseType()
+					result = data.Node.NodeTypeValue(res)
+				} else {
+					var name3: String = this.getgo((61 as! Token))
+					result = data.Node.TIdent(name3)
+				}
+
+				case 62: {
+					var name4: String = this.getgo((62 as! Token))
+					result = data.Node.TIdent(name4)
+				}
+
+				case 63: result = data.Node.TInt(this.getgo((63 as! Token)))
+
+				case 64: {
+					var str: String = this.getgo((64 as! Token))
+					if(str.indexOf('\\(') != -1) result = data.Node.TParenthesis(Parser.parseInterpolations(str)) else result = data.Node.TString(str)
+				}
+
+				case 72: {
+					this.i++
+					var el1: [data.Node] = {[]}
+					var values1: [data.Node] = {[]}
+					var isMap: Bool = false
+					while(this.tok() != (71 as! Token)) {
+						if(this.tok() == (76 as! Token)) {
+							isMap = true
+							this.i++
+							break
+						}
+						el1.push(this.parseExpr())
+						if(this.tok() == (76 as! Token)) {
+							this.i++
+							values1.push(this.parseExpr())
+							isMap = true
+						}
+						if(this.tok() == (75 as! Token)) this.i++
+					}
+					this.step((71 as! Token))
+					if(isMap) result = data.Node.TMap(el1, values1) else result = data.Node.TArray(el1)
+				}
+
+				case 74: {
+					this.i++
+					if(this.tok() == (73 as! Token)) {
+						this.i++
+						result = data.Node.TBlock({[]})
+					} else if(this.tok() == (76 as! Token)) {
+						this.i++
+						this.step((73 as! Token))
+						result = data.Node.TObject({[]}, {[]})
+					} else if(this.tok() == (62 as! Token) && this.lex.token[this.i + 1] == (76 as! Token)) {
+						var names3: [String] = {[]}
+						var el2: [data.Node] = {[]}
+						while(this.tok() != (73 as! Token)) {
+							names3.push(this.getgo((62 as! Token)))
+							this.step((76 as! Token))
+							el2.push(this.parseExpr())
+							if(this.tok() == (75 as! Token)) this.i++
+						}
+						this.step((73 as! Token))
+						result = data.Node.TObject(names3, el2)
+					} else {
+						var el3: [data.Node] = {[]}
+						while(this.tok() != (73 as! Token)) el3.push(this.parseExpr())
+						this.step((73 as! Token))
+						result = data.Node.TBlock(el3)
+					}
+				}
+
+				case 80: {
+					this.i++
+					if(this.tok() == (79 as! Token) && this.lex.token[this.i + 1] == (90 as! Token) || this.tok() == (62 as! Token) && this.lex.token[this.i + 1] == (75 as! Token) || this.tok() == (62 as! Token) && this.lex.token[this.i + 1] == (76 as! Token) || this.tok() == (62 as! Token) && this.lex.token[this.i + 1] == (79 as! Token) && this.lex.token[this.i + 2] == (90 as! Token)) {
+						var vars1: [String] = {[]}
+						var types: [data.NodeType] = {[]}
+						var values2: [data.Node] = {[]}
+						while(this.tok() != (79 as! Token)) {
+							vars1.push(this.getgo((62 as! Token)))
+							if(this.tok() == (76 as! Token)) {
+								this.i++
+								types.push(this.parseType())
+							}
+							if(this.tok() == (91 as! Token)) {
+								this.i++
+								values2.push(this.parseExpr())
+							}
+							if(this.tok() == (75 as! Token)) this.i++
+						}
+						this.step((79 as! Token))
+						this.step((90 as! Token))
+						var v1: [data.Node] = {[]}
+						{
+							var _g11: Int = 0
+							var _g3: Int = vars1.length
+							while(_g11 < _g3) {
+								var i: Int = _g11++
+								v1.push(data.Node.TVar(vars1[i], types[i], values2[i], true))
+							}
+						}
+						result = data.Node.TFunction(null, this.parseExpr(), v1, null)
+					} else {
+						var expr1: data.Node = this.parseExpr()
+						this.step((79 as! Token))
+						result = data.Node.TParenthesis(expr1)
+					}
+				}
+
+				case 86: {
+					this.i++
+					result = data.Node.TUnop((86 as! Token), false, this.parseExpr())
+				}
+
+				case 87: {
+					this.i++
+					result = data.Node.TUnop((87 as! Token), false, this.parseExpr())
+				}
+
+				case 88: {
+					this.i++
+					result = data.Node.TUnop((88 as! Token), false, this.parseExpr())
+				}
+
+				case 89: {
+					this.i++
+					result = data.Node.TUnop((89 as! Token), false, this.parseExpr())
+				}
+
+				case 98: {
+					this.i++
+					result = data.Node.TUnop((98 as! Token), false, this.parseExpr())
+				}
+
+				case 107: {
+					this.i++
+					result = data.Node.TUnop((107 as! Token), false, this.parseExpr())
+				}
+				
+				case _: {
+					this.unexpected()
+					result = null
+				}
+			}
+			if(result == null) {
+				nodejs.Process.stdout.write('\n')
+				throw new HaxeError(this.fail('Expression is incomplete, current tokens is: ' + token.Token_Impl_.stringify(this.tok())))
+			}
+			if(this.atts.length > 0) {
+				data.Project.mapAttributes.set(result, this.atts)
+				this.atts = {[]}
+			}
+			var done: Bool = false
+			while(!done) {
+				var _g4: Token = this.tok()
+				switch (_g4) {
+					case 57: {
+						this.i++
+						var _g5: Token = this.tok()
+						if(_g5 == 61) result = data.Node.TIs(result, this.parseType()) else throw new HaxeError(this.fail('Cannot parse type `' + token.Token_Impl_.stringify(this.tok()) + '`'))
+					}
+
+					case 58: {
+						this.i++
+						var kind: Token = this.tok()
+						if(this.tok() == (89 as! Token)) this.i++ else if(this.tok() == (81 as! Token)) this.i++ else kind = (123 as! Token)
+						result = data.Node.TAs(result, kind, this.parseType())
+					}
+
+					case 72: {
+						this.i++
+						var index: data.Node = this.parseExpr()
+						this.step((71 as! Token))
+						result = data.Node.TIndex(result, index)
+					}
+
+					case 77: {
+						this.i++
+						var name5: String
+						var _g6: Token = this.tok()
+						if(_g6 == 61) name5 = this.getgo((61 as! Token)) else name5 = this.getgo((62 as! Token))
+						result = data.Node.TDot(result, name5)
+					}
+
+					case 80: {
+						var args1: [data.Node] = {[]}
+						var argNames: [String] = {[]}
+						this.i++
+						while(this.tok() != (79 as! Token)) {
+							var argname: Any = null
+							{
+								var _g7: Token = this.tok()
+								if(_g7 == 61) {
+									args1.push(this.parseExpr())
+									if(this.tok() == (76 as! Token)) {
+										this.step((76 as! Token))
+										this.parseType()
+									}
+								} else {
+									if(this.lex.token[this.i + 1] == (76 as! Token)) {
+										argNames.push(this.getgo((62 as! Token)))
+										this.step((76 as! Token))
+									} else argNames.push(null)
+									args1.push(this.parseExpr())
+								}
+							}
+							if(this.tok() != (79 as! Token)) this.step((75 as! Token))
+						}
+						this.step((79 as! Token))
+						result = data.Node.TCall(result, args1, argNames)
+					}
+
+					case 81: {
+						this.i++
+						if(this.tok() == (77 as! Token)) {
+							var name6: String = this.getgo((62 as! Token))
+							result = data.Node.TDot(result, name6)
+						} else if(this.tok() == (81 as! Token)) {
+							this.i++
+							result = data.Node.TElvis(result, this.parseExpr())
+						} else {
+							var eif1: data.Node = this.parseExpr()
+							this.step((76 as! Token))
+							var eelse1: data.Node = this.parseExpr()
+							result = data.Node.TIf({[result]}, eif1, eelse1)
+						}
+					}
+
+					case 86: {
+						this.i++
+						result = data.Node.TUnop((86 as! Token), true, result)
+					}
+
+					case 87: {
+						this.i++
+						result = data.Node.TUnop((87 as! Token), true, result)
+					}
+
+					case 90: {
+						this.i++
+						result = data.Node.TFunction(null, this.parseExpr(), {[result]}, null)
+					}
+
+					case 113: {
+						this.i++
+						result = this.parseExpr()
+					}
+					
+					case _: {
+						var t5: Token = _g4
+						if(Parser.isBinop(t5)) {
+							this.i++
+							if(this.tok() == (91 as! Token)) this.i++
+							var b1: data.Node = this.parseExpr()
+							var a1: data.Node = result
+							if(b1.index == 8) {
+								let data.Node.TBinop(_, _, bb) = b1
+								let data.Node.TBinop(_, aa, _) = b1
+								let data.Node.TBinop(op, _, _) = b1
+								var tp: Int = this.precedence(t5)
+								var tLeft: Bool = tp > 99
+								tp %= 100
+								var bp: Int = this.precedence(op)
+								var bLeft: Bool = bp > 99
+								bp %= 100
+								if(bp > tp) result = data.Node.TBinop(op, data.Node.TBinop(t5, result, aa), bb) else result = data.Node.TBinop(t5, result, b1)
+							} else result = data.Node.TBinop(t5, result, b1)
+						} else {
+							done = true
+							result = result
+						}
+					}
+				}
+			}
+			if(result == null) {
+				nodejs.Process.stdout.write('\n')
+				throw new HaxeError(this.fail('Expression postfix is incomplete'))
+			}
+			if(this.atts.length > 0) {
+				data.Project.mapAttributes.set(result, this.atts)
+				this.atts = {[]}
+			}
+			return result
+		}
+
+		private function parseVar(): [data.Node] {
+			var const: Bool = this.tok() == (23 as! Token)
+			this.i++
+			var vars: [data.Node] = {[]}
+			{
+				var _g: Token = this.tok()
+				switch (_g) {
+					case 61: if(this.lex.token[this.i + 1] != (77 as! Token)) throw new HaxeError(this.fail('Please use lowercase for variable')) else {
+						var left: data.Node = data.Node.TIdent(this.getgo((61 as! Token)))
+						var res: data.Node = left
+						while(this.tok() == (77 as! Token)) res = data.Node.TDot(res, this.getgo((61 as! Token)))
+						{
+							var _g1: Token = this.tok()
+							switch (_g1) {
+								case 80: {
+									var args: [String] = {[]}
+									while(this.tok() != (79 as! Token)) args.push(this.getgo((62 as! Token)))
+									this.step((91 as! Token))
+									var varname: String = this.getgo((62 as! Token))
+									vars.push(data.Node.TEnumExtract(res, args, varname))
+								}
+
+								case 91: {}
+								
+								case _: throw new HaxeError(this.fail('Wrong syntax'))
+							}
+						}
+					}
+
+					case 62: while(true) {
+						var varname1: String = this.getgo((62 as! Token))
+						var kind: data.NodeType = null
+						if(this.tok() == (76 as! Token)) {
+							this.i++
+							kind = this.parseType()
+						}
+						var expr: data.Node = null
+						if(this.tok() == (91 as! Token)) {
+							this.i++
+							expr = this.parseExpr()
+						}
+						vars.push(data.Node.TVar(varname1, kind, expr, const))
+						if(this.tok() == (75 as! Token) && this.lex.token[this.i + 1] == (62 as! Token) && (this.lex.token[this.i + 2] == (91 as! Token) || this.lex.token[this.i + 2] == (76 as! Token))) this.i++ else break
+					}
+					
+					case _: throw new HaxeError(this.fail('Wrong syntax'))
+				}
+			}
+			return vars
+		}
+
+		private function parseFunction(parseBody?: Bool??): data.Node {
+			if(parseBody != null) parseBody = parseBody else parseBody = true
+			this.i++
+			var expr: data.Node = null
+			var name: String = null
+			var vars: [String] = {[]}
+			var types: [data.NodeType] = {[]}
+			var values: [data.Node] = {[]}
+			{
+				var _g: Token = this.tok()
+				switch (_g) {
+					case 61: throw new HaxeError(this.fail('Function names can\'t start with uppercase.'))
+
+					case 62: name = this.getgo((62 as! Token))
+					
+					case _: {}
+				}
+			}
+			this.step((80 as! Token))
+			{
+				while(this.tok() != (79 as! Token)) {
+					var expr1: data.Node = null
+					var t: data.NodeType = null
+					if(this.tok() == (98 as! Token)) this.i++
+					var name1: String = this.getgo((62 as! Token))
+					if(this.tok() == (76 as! Token)) {
+						this.i++
+						t = this.parseType()
+					}
+					if(this.tok() == (91 as! Token)) {
+						this.i++
+						expr1 = this.parseExpr()
+					}
+					vars.push(name1)
+					types.push(t)
+					values.push(expr1)
+					if(this.tok() == (75 as! Token)) this.i++
+				}
+				this.step((79 as! Token))
+			}
+			var rettype: data.NodeType = null
+			if(this.tok() == (76 as! Token)) {
+				this.i++
+				rettype = this.parseType()
+			}
+			{
+				var _g1: Token = this.tok()
+				switch (_g1) {
+					case 25: if(this.lex.token[this.i + 1] != (80 as! Token)) {
+						if(parseBody) expr = this.parseExpr()
+					}
+
+					case 16, 29, 32, 73: {}
+					
+					case _: if(parseBody) expr = this.parseExpr()
+				}
+			}
+			var v: [data.Node] = {[]}
+			{
+				var _g3: Int = 0
+				var _g2: Int = vars.length
+				while(_g3 < _g2) {
+					var i: Int = _g3++
+					v.push(data.Node.TVar(vars[i], types[i], values[i], true))
+				}
+			}
+			return data.Node.TFunction(name, expr, v, rettype)
+		}
+
+		private function parseAttribute(): Void {
+			this.i++
+			var name: String = this.getgo((62 as! Token))
+			var values: [data.Node] = {[]}
+			if(this.tok() == (80 as! Token)) {
+				this.i++
+				while(this.tok() != (79 as! Token)) {
+					values.push(this.parseExpr())
+					if(this.tok() == (75 as! Token)) this.i++
+				}
+				this.step((79 as! Token))
+			}
+			this.atts.push({name: name, values: values})
+		}
+
+		private var parametricTypeNesting: Int = 0
+		private var parametricTypeNestingToken: Token = (0 as! Token)
+		private function parseType(): data.NodeType {
+			var result: data.NodeType
+			var _g: Token = this.tok()
+			switch (_g) {
+				case 61: {
+					var name: String = this.getgo((61 as! Token))
+					while(this.tok() == (77 as! Token)) {
+						this.i++
+						this.getgo((61 as! Token))
+					}
+					var result1: data.NodeType
+					if(this.tok() == (99 as! Token)) {
+						this.i++
+						this.parametricTypeNesting++
+						var params: [data.NodeType] = {[this.parseType()]}
+						while(this.tok() == (75 as! Token)) {
+							this.i++
+							params.push(this.parseType())
+						}
+						if(this.parametricTypeNestingToken == (0 as! Token)) this.parametricTypeNestingToken = this.tok()
+						{
+							var _g1: Token = this.parametricTypeNestingToken
+							switch (_g1) {
+								case 96: {
+									this.parametricTypeNesting -= 1
+									this.parametricTypeNestingToken = (0 as! Token)
+									this.i++
+								}
+
+								case 106: {
+									this.parametricTypeNesting -= 1
+									this.parametricTypeNestingToken = (96 as! Token)
+								}
+
+								case 108: {
+									this.parametricTypeNesting -= 1
+									this.parametricTypeNestingToken = (108 as! Token)
+								}
+								
+								case _: this.unexpected()
+							}
+						}
+						if(this.parametricTypeNesting < 0) throw new HaxeError(this.fail('parametricTypeNesting < 0'))
+						result1 = data.NodeType.ParamentricType(name, params)
+					} else result1 = data.NodeType.Type(name)
+					if(this.tok() == (90 as! Token)) {
+						this.i++
+						result1 = data.NodeType.Function({[result1]}, this.parseType())
+					}
+					result = result1
+				}
+
+				case 62: {
+					var res: data.NodeType
+					var _g2: Token = this.lex.token[this.i + 1]
+					switch (_g2) {
+						case 76: {
+							var argName: String = this.getgo(this.tok())
+							this.step((76 as! Token))
+							var argType: data.NodeType = this.parseType()
+							res = data.NodeType.FunctionArg(argName, argType, null)
+						}
+
+						case 77: {
+							this.i += 2
+							res = this.parseType()
+						}
+						
+						case _: throw new HaxeError(this.fail('Typename can not start with lowercase'))
+					}
+					result = res
+				}
+
+				case 72: {
+					this.i++
+					var res1: data.NodeType = null
+					var _g3: Token = this.tok()
+					switch (_g3) {
+						case 71: {
+							this.i++
+							res1 = data.NodeType.ParamentricType('Array', {[data.NodeType.Object({[]}, {[]})]})
+						}
+
+						case 76: {
+							this.i++
+							if(this.tok() == (71 as! Token)) {
+								this.i++
+								res1 = data.NodeType.ParamentricType('Map', {[data.NodeType.Object({[]}, {[]}), data.NodeType.Object({[]}, {[]})]})
+							} else res1 = data.NodeType.ParamentricType('Map', {[data.NodeType.Object({[]}, {[]}), this.parseType()]})
+						}
+						
+						case _: {
+							var key: data.NodeType = this.parseType()
+							var innerRes: data.NodeType
+							if(this.tok() == (76 as! Token)) {
+								this.i++
+								innerRes = data.NodeType.ParamentricType('Map', {[key, this.parseType()]})
+							} else innerRes = data.NodeType.ParamentricType('Array', {[key]})
+							this.step((71 as! Token))
+							if(this.tok() == (90 as! Token)) {
+								this.i++
+								innerRes = data.NodeType.Function({[res1]}, this.parseType())
+							}
+							res1 = innerRes
+						}
+					}
+					result = res1
+				}
+
+				case 74: {
+					this.i++
+					var result2: data.NodeType
+					if(this.tok() == (76 as! Token)) {
+						this.i++
+						result2 = data.NodeType.Object({[]}, {[]})
+					} else {
+						var names: [String] = {[]}
+						var types: [data.NodeType] = {[]}
+						while(this.tok() != (73 as! Token)) {
+							names.push(this.getgo((62 as! Token)))
+							if(this.tok() == (76 as! Token)) {
+								this.i++
+								types.push(this.parseType())
+							}
+							if(this.tok() == (75 as! Token)) this.i++
+						}
+						result2 = data.NodeType.Object(names, types)
+					}
+					this.step((73 as! Token))
+					if(this.tok() == (90 as! Token)) {
+						this.i++
+						result2 = data.NodeType.Function({[result2]}, this.parseType())
+					}
+					result = result2
+				}
+
+				case 80: {
+					this.i++
+					var args: [data.NodeType] = {[]}
+					while(this.tok() != (79 as! Token)) {
+						this.parseType()
+						if(this.tok() == (76 as! Token)) {
+							this.i++
+							args.push(this.parseType())
+						}
+						if(this.tok() == (75 as! Token)) this.i++
+					}
+					this.step((79 as! Token))
+					this.step((90 as! Token))
+					result = data.NodeType.Function(args, this.parseType())
+				}
+				
+				case _: throw new HaxeError(this.fail('Excected Type, parsed `' + token.Token_Impl_.stringify(this.tok()) + '`'))
+			}
+			while(this.tok() == (81 as! Token)) this.i++
+			if(this.tok() == (90 as! Token)) {
+				this.i++
+				result = data.NodeType.Function({[result]}, this.parseType())
+			}
+			return result
+		}
+
+		private function precedence(op: Token): Int {
+			var left: Int = 100
+			var right: Int = 0
+			switch (op) {
+				case 91: return 10 + right
+
+				case 92: return 7 + left
+
+				case 93: return 8 + left
+
+				case 95, 96, 97, 99, 100, 103: return 5 + left
+
+				case 101: return left
+
+				case 94, 102: return 1 + left
+
+				case 105, 106, 108: return 3 + left
+
+				case 107, 111: return 2 + left
+
+				case 104, 109, 112: return 4 + left
+				
+				case _: throw new HaxeError(this.fail('No precedence for ' + token.Token_Impl_.stringify(op)))
+			}
+		}
+
+		private static var uuid: Int = 0
+		private static function uid(): Int {
+			return Parser.uuid++
+		}
+
+		static function parseInterpolations(str: String): data.Node {
+			var chars: [String] = str.split('')
+			var resStr: String = '"'
+			var i: Int = 0
+			var inScopes: Bool = false
+			var scopes: String = ''
+			var scopeCount: Int = 0
+			while(i < chars.length) {
+				var char: String = chars[i]
+				switch (char) {
+					case '(': if(inScopes) ++scopeCount
+
+					case ')': if(scopeCount > 0) --scopeCount else {
+						resStr += scopes + ') + "'
+						inScopes = false
+						scopes = ''
+						i++
+						continue
+					}
+
+					case '\\': if(i + 1 < chars.length && chars[i + 1] == '(') {
+						inScopes = true
+						resStr += '" + ('
+						i += 2
+						continue
+					}
+					
+					case _: {}
+				}
+				if(inScopes) scopes += char else resStr += char
+				i++
+			}
+			resStr += '"'
+			var tokens: lexer.Tokens = Lexer.tokenize(nodejs.Buffer.from(resStr), '')
+			var parser: Parser = new Parser(tokens)
+			{
+				var _g: data.Node = parser.node
+				if(_g.index == 9) {
+					let data.Node.TBlock(el) = _g
+					return el[0]
+				}
+			}
+			return parser.node
+		}
+
+		private static function isBinop(t: Token): Bool {
+			switch (t) {
+				case 91, 92, 93, 94, 95, 96, 97, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 111, 112: return true
+				
+				case _: return false
+			}
+		}
+
+		new(lexe: lexer.Tokens) {
+			this.lex = lexe
+			var el: [data.Node] = {[]}
+			while(this.i < this.lex.length && this.tok() != (0 as! Token)) el.push(this.parseExpr())
+			this.node = el[0]
+			if(el.length == 0) this.node = null
+			if(el.length > 1) this.node = data.Node.TBlock(el)
+			if(this.atts.length > 0) {
+				nodejs.Process.stdout.write('\n')
+				throw new HaxeError(this.fail('Not all attributes conceived'))
+			}
+		}
+	}
+}
