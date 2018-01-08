@@ -34,56 +34,11 @@ using Converter;
 class Converter {
 
 #if macro
-
-	static var tabs = '';
-
-	// Hexa keywords of choice
-	static inline var kwAs = 'as';
-	static inline var kwBreak = 'break';
-	static inline var kwCase = 'case';
-	static inline var kwCatch = 'catch';
-	static inline var kwClass = 'class';
-	static inline var kwConst = 'let';
-	static inline var kwContinue = 'continue';
-	static inline var kwDo = 'do';
-	static inline var kwElse = 'else';
-	static inline var kwEnum = 'enum';
-	static inline var kwExtends = 'extends';
-	static inline var kwExtern = 'declare';
-	static inline var kwFalse = 'false';
-	static inline var kwFor = 'for';
-	static inline var kwFunction = 'function';
-	static inline var kwIf = 'if';
-	static inline var kwImplements = 'implements';
-	static inline var kwIn = 'in';
-	static inline var kwInterface = 'interface';
-	static inline var kwNew = 'new';
-	static inline var kwNull = 'null';
-	static inline var kwPackage = 'module';
-	static inline var kwPrivate = 'private';
-	static inline var kwReturn = 'return';
-	static inline var kwStatic = 'static';
-	static inline var kwSuper = 'super';
-	static inline var kwSwitch = 'switch';
-	static inline var kwThis = 'this';
-	static inline var kwThrow = 'throw';
-	static inline var kwTrue = 'true';
-	static inline var kwTry = 'try';
-	static inline var kwType = 'type';
-	static inline var kwVar = 'var';
-	static inline var kwWhile = 'while';
-
 	// Hexa language parts
 	static inline var docBegin = '///'; // Documentational comments
 	static inline var docEnd = '';
 	static inline var enumIndex = 'index';
 	static inline var fileExtention = '.hexa';
-	static inline var typeVoid = 'Void';
-	static inline var typeString = 'String';
-	static inline var typeInt = 'Int';
-	static inline var typeBool = 'Bool';
-	static inline var typeFloat = 'Float';
-	static inline var typeDynamic = 'Any';
 
 	static var renames: Map<String, String> = [
 				'let' => 'value',
@@ -113,8 +68,8 @@ class Converter {
 			function printClass(c: ClassType) {
 
 				function doField(f: ClassField, sStatic: Bool) {
-					var sPrivate = (!f.isPublic) ? '$kwPrivate ' : '';
-					var sStatic = sStatic ? '$kwStatic ' : '';
+					var sPrivate = (!f.isPublic) ? 'private ' : '';
+					var sStatic = sStatic ? 'static ' : '';
 					out(tabs);
 					for (meta in f.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 					var name = camelCase(f.name);
@@ -123,14 +78,14 @@ class Converter {
 
 					switch (f.kind) {
 					case FVar(t, e):
-						out('$kwVar ');
+						out('var ');
 						out(name);
 						out(': ' + stringOfType(f.type));
 						if (f.expr() != null) {
 							out(' = ' + stringOf(f.expr()));
 						}
 					case FMethod(k):
-						out('$kwFunction ');
+						out('function ');
 						out(name);
 
 						switch unwrapLazy(f.type) {
@@ -151,8 +106,8 @@ class Converter {
 
 				if (c.constructor != null) {
 					var c = c.constructor.get();
-					var sPrivate = (!c.isPublic) ? '$kwPrivate ' : '';
-					out(tabs + sPrivate + kwNew);
+					var sPrivate = (!c.isPublic) ? 'private ' : '';
+					out(tabs + sPrivate + 'new');
 					switch unwrapLazy(c.type) {
 					case TFun(args, ret):
 						out(stringOfArgs(args));
@@ -178,8 +133,8 @@ class Converter {
 			}
 
 			function moduleIntro(module) {
-				if(module != null) out('$kwPackage $module {\n');
-				if(module == null) out('$kwPackage {\n');
+				if (module != null) out('module $module {\n');
+				if (module == null) out('module {\n');
 				pushTab();
 			}
 
@@ -198,15 +153,15 @@ class Converter {
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
-				var sExternal = c.isExtern ? '$kwExtern ' : '';
-				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
-				var sKind = c.isInterface ? '$kwInterface ' : '$kwClass ';
+				var sExternal = c.isExtern ? 'declare ' : '';
+				var sPrivate = c.isPrivate ? 'private ' : '';
+				var sKind = c.isInterface ? 'interface ' : 'class ';
 				var params = stringOfParams(pa);
 
 				out(sExternal + sPrivate + sKind + typeCase(c.name) + params);
-				if (c.superClass != null) out(' $kwExtends ' + c.superClass.t.get().pathTo() + stringOfParams(c.superClass.params));
+				if (c.superClass != null) out(' extends ' + c.superClass.t.get().pathTo() + stringOfParams(c.superClass.params));
 				for (i in c.interfaces) {
-					out(' $kwImplements ' + i.t.get().pathTo() + stringOfParams(i.params));
+					out(' implements ' + i.t.get().pathTo() + stringOfParams(i.params));
 				}
 				out(' {\n');
 				pushTab();
@@ -235,8 +190,8 @@ class Converter {
 
 				moduleIntro(c.module.getModule(c.name));
 
-				var sExternal = c.isExtern ? '$kwExtern ' : '';
-				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
+				var sExternal = c.isExtern ? 'declare ' : '';
+				var sPrivate = c.isPrivate ? 'private ' : '';
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
@@ -267,12 +222,12 @@ class Converter {
 
 				moduleIntro(c.module.getModule(c.name));
 
-				var sExternal = c.isExtern ? '$kwExtern ' : '';
-				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
+				var sExternal = c.isExtern ? 'declare ' : '';
+				var sPrivate = c.isPrivate ? 'private ' : '';
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
-				out(sExternal + sPrivate + '$kwType ' + typeCase(t.get().name));
+				out(sExternal + sPrivate + 'declare ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' = ' + stringOfType(t.get().type));
 
@@ -285,12 +240,12 @@ class Converter {
 
 				moduleIntro(c.module.getModule(c.name));
 
-				var sExternal = c.isExtern ? '$kwExtern ' : '';
-				var sPrivate = c.isPrivate ? '$kwPrivate ' : '';
+				var sExternal = c.isExtern ? 'declare ' : '';
+				var sPrivate = c.isPrivate ? 'private ' : '';
 
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
-				out(sExternal + sPrivate + '$kwEnum ' + typeCase(t.get().name));
+				out(sExternal + sPrivate + 'enum ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' {\n');
 				pushTab();
@@ -326,7 +281,8 @@ class Converter {
 		}
 	}
 
-	// Control indentation
+	// Indentation
+	static var tabs = '';
 	static inline function pushTab() tabs += '\t';
 	static inline function popTab() tabs = tabs.substring(0, tabs.length - 1);
 
@@ -373,21 +329,21 @@ class Converter {
 		var r = '';
 		if (e == null) throw 'Unreachable code';
 		return switch (e.expr) {
-		case TConst(TBool(true)): kwTrue;
-		case TConst(TBool(false)): kwFalse;
-		case TBreak: kwBreak;
-		case TContinue: kwContinue;
-		case TConst(TNull): kwNull;
-		case TConst(TThis): kwThis;
+		case TConst(TBool(true)): 'true';
+		case TConst(TBool(false)): 'false';
+		case TBreak: 'break';
+		case TContinue: 'continue';
+		case TConst(TNull): 'null';
+		case TConst(TThis): 'this';
 		case TConst(TInt(i)): '$i';
 		case TConst(TFloat(s)): stringOfFloat(s);
 		case TConst(TString(s)): stringOfString(s);
-		case TConst(TSuper): kwSuper;
+		case TConst(TSuper): 'super';
 		case TLocal(t): t.name.replace('`trace', 'Log.trace').camelCase();
 		case TFunction(func):
 			var args : Array < {t: Type, opt: Bool, name: String} >
-			= [for(a in func.args) {t: a.v.t, opt: a.value != null, name: a.v.name.camelCase()}];
-			kwFunction + stringOfArgs(args) + ': ' + stringOfType(func.t)
+			= [for (a in func.args) {t: a.v.t, opt: a.value != null, name: a.v.name.camelCase()}];
+			'function' + stringOfArgs(args) + ': ' + stringOfType(func.t)
 			+ ' ' + stringOf(func.expr);
 		case TBlock([]): '{}';
 		case TBlock(el):
@@ -404,8 +360,8 @@ class Converter {
 			popTab();
 			r + tabs + '}';
 
-		case TReturn(null): '$kwReturn {}';
-		case TReturn(e): '$kwReturn ' + stringOf(e);
+		case TReturn(null): 'return {}';
+		case TReturn(e): 'return ' + stringOf(e);
 
 		case TBinop(OpAssignOp(op), e1, e2):
 			stringOf(e1) + ' ' + stringOfBinop(op) + '= ' + stringOf(e2);
@@ -432,27 +388,27 @@ class Converter {
 			case FClosure(_, cf): cf.get().name.camelCase();
 			}
 		case TArrayDecl(el):
-			'{[' + [for(e in el) stringOf(e)].join(', ') + ']}';
+			'{[' + [for (e in el) stringOf(e)].join(', ') + ']}';
 		case TObjectDecl([]): '{:}';
 		case TObjectDecl(el):
-			'{' + [for(e in el) e.name.camelCase() + ': ' + stringOf(e.expr)].join(', ') + '}';
+			'{' + [for (e in el) e.name.camelCase() + ': ' + stringOf(e.expr)].join(', ') + '}';
 		case TArray(e1, e2):
 			switch [e1.t, e2.expr] {
 				case [TEnum(_), TConst(TInt(1))]: stringOf(e1) + '.$enumIndex';
 					case _: stringOf(e1) + '[' + stringOf(e2) + ']';
 						}
 					case TNew(c, pa, el):
-			r = '$kwNew ' + c.get().name.typeCase();
+			r = 'new ' + c.get().name.typeCase();
 			r += stringOfParams(pa);
-			r += '(' + ([for(e in el) stringOf(e)].join(', ')) + ')';
+			r += '(' + ([for (e in el) stringOf(e)].join(', ')) + ')';
 			r;
 
-		case TVar(v, null): '$kwVar ' + v.name.camelCase() + ': ' + stringOfType(v.t);
+		case TVar(v, null): 'var ' + v.name.camelCase() + ': ' + stringOfType(v.t);
 		case TVar(v, e):
 			switch (e.expr) {
 			case TEnumParameter(e1, ef, index):
 				// Extractor
-				r = '$kwConst ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
+				r = 'let ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
 				switch (ef.type) {
 				case TFun(args, retType): // EnumField(...args)
 					for (i in 0...args.length) {
@@ -464,36 +420,36 @@ class Converter {
 				}
 
 				r + ') = ' + stringOf(e1);
-			case _: '$kwVar ' + v.name.camelCase() + ': ' + stringOfType(v.t) + ' = ' + stringOf(e);
+			case _: 'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) + ' = ' + stringOf(e);
 			}
 
 		case TParenthesis(e): '(' + stringOf(e) + ')';
 		case TIf(econd, eif, null):
-			kwIf + '(' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif);
+			'if (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif);
 		case TIf(econd, eif, eelse):
-			kwIf + '(' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif) + ' $kwElse ' + stringOf(eelse);
+			'if (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif) + ' else ' + stringOf(eelse);
 
 		// Pattern matcher
 		// Plain switch
 		case TSwitch(e, cases, edef):
 			pushTab();
 			function casegen(c: Array<TypedExpr>): String {
-				return '' + [for(c in c) stringOf(c)].join(', ');
+				return '' + [for (c in c) stringOf(c)].join(', ');
 			}
-			r = '$kwSwitch ' + stringOf(e) + ' {'
-				+ [for(c in cases) '\n$tabs$kwCase ${casegen(c.values)}: ' + stringOf(c.expr)].join('\n')
-				+ (edef != null ? '\n' + tabs + '\n${tabs}$kwCase _: ' + stringOf(edef) : '');
+			r = 'switch ' + stringOf(e) + ' {'
+				+ [for (c in cases) '\n${tabs}case ${casegen(c.values)}: ' + stringOf(c.expr)].join('\n')
+				+ (edef != null ? '\n' + tabs + '\n${tabs}case _: ' + stringOf(edef) : '');
 			popTab();
 			r + '\n$tabs}';
 
-		case TThrow(e): '$kwThrow ' + stringOf(e);
-		case TCast(ex, null): '(' + stringOf(ex) + ' $kwAs! ' + stringOfType(e.t) + ')';
-		case TCast(e, m): '(' + stringOf(e) + ' $kwAs ' + m.getName() + ')';
-		case TWhile(econd, e, true): '$kwWhile' + '(' + stringOf(econd.unwrapParens()) + ') ' + stringOf(e);
-		case TWhile(econd, e, false): '$kwDo ' + stringOf(e) + ' $kwWhile(' + stringOf(econd.unwrapParens()) + ')';
+		case TThrow(e): 'throw ' + stringOf(e);
+		case TCast(ex, null): '(' + stringOf(ex) + ' as! ' + stringOfType(e.t) + ')';
+		case TCast(e, m): '(' + stringOf(e) + ' as ' + m.getName() + ')';
+		case TWhile(econd, e, true): 'while (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(e);
+		case TWhile(econd, e, false): 'do ' + stringOf(e) + ' while (' + stringOf(econd.unwrapParens()) + ')';
 		case TTry(e, catches):
-			'$kwTry ' + stringOf(e) +
-			[for(c in catches) ' $kwCatch(' + c.v.name.camelCase() + ':' + stringOfType(c.v.t) + ') ' + stringOf(c.expr) ].join('\n');
+			'try ' + stringOf(e) +
+			[for (c in catches) ' catch (' + c.v.name.camelCase() + ':' + stringOfType(c.v.t) + ') ' + stringOf(c.expr) ].join('\n');
 		case TMeta(m, e): stringOfMeta(m) +
 			switch (e.expr) {
 			// Add empty () parens
@@ -507,7 +463,7 @@ class Converter {
 
 		// Lets try to extract an enum value and return from block
 		case TEnumParameter(e1, ef, index):
-			r = '{ $kwConst ';
+			r = '{ let ';
 			r += stringOfType(e1.t);
 			r += '.' + ef.name.typeCase();
 			r += '(';
@@ -525,7 +481,7 @@ class Converter {
 			r += ' = ' + stringOf(e1);
 			r + ' value }';
 
-		case TFor(v, e1, e2): '$kwFor(${v.name.camelCase()} $kwIn ${stringOf(e1)}) ' + stringOf(e2);
+		case TFor(v, e1, e2): 'for (${v.name.camelCase()} in ${stringOf(e1)}) ' + stringOf(e2);
 		}
 	}
 
@@ -533,11 +489,11 @@ class Converter {
 	static function stringOfType(t: Type): String {
 		return switch (t) {
 		// Built-in
-		case TAbstract(_.get().name => 'Void', []): typeVoid;
-		case TAbstract(_.get().name => 'Int', []): typeInt;
-		case TAbstract(_.get().name => 'Bool', []): typeBool;
-		case TAbstract(_.get().name => 'Float', []): typeFloat;
-		case TInst(_.get().name => 'String', []): typeString;
+		case TAbstract(_.get().name => 'Void', []): 'Void';
+		case TAbstract(_.get().name => 'Int', []): 'Int';
+		case TAbstract(_.get().name => 'Bool', []): 'Bool';
+		case TAbstract(_.get().name => 'Float', []): 'Float';
+		case TInst(_.get().name => 'String', []): 'String';
 		case TInst(_.get().name => 'Array', [p]): '[' + stringOfType(p) + ']';
 		case TAbstract(_.get().name => 'Map', [k, v]): '[' + stringOfType(k) + ':' + stringOfType(v) + ']';
 		case TType(_.get().name => 'Null', [p]): stringOfType(p) + '?';
@@ -570,10 +526,10 @@ class Converter {
 
 		case TFun([arg], ret): '' + stringOfType(arg.t) + '=>' + stringOfType(ret);
 		case TFun(args, ret): stringOfArgs(args) + '=>' + stringOfType(ret);
-		case TDynamic(null): typeDynamic;
-		case TDynamic(t): typeDynamic + '/*' + t + '*/';
+		case TDynamic(null): 'Any';
+		case TDynamic(t): 'Any' + '/*' + t + '*/';
 		case TMono(t) if (t.get() != null): stringOfType(t.get());
-		case TMono(t): typeDynamic;
+		case TMono(t): 'Any';
 		case TLazy(t): t().unwrapLazy().stringOfType();
 		}
 	}
@@ -593,7 +549,7 @@ class Converter {
 	// Polymorphic <parameters>
 	static function stringOfParams(pa: Array<Type>): String {
 		if (pa.length > 0)
-			return '< ' + ([for(p in pa) stringOfType(p)].join(', ')) + ' >';
+			return '< ' + ([for (p in pa) stringOfType(p)].join(', ')) + ' >';
 		return '';
 	}
 
@@ -601,7 +557,7 @@ class Converter {
 	// String representation of @meta attributes
 	static function stringOfMeta(meta: MetadataEntry): String {
 		return '@' + meta.name.replace(':', '').camelCase() +
-		(meta.params != null && meta.params.length > 0 ? '(' + [for(m in meta.params) '' + stringOfMetaExpr(m.expr)].join(', ') + ')' : '');
+		(meta.params != null && meta.params.length > 0 ? '(' + [for (m in meta.params) '' + stringOfMetaExpr(m.expr)].join(', ') + ')' : '');
 	}
 
 	// Ensures camelCase
@@ -649,7 +605,7 @@ class Converter {
 		case EBinop(op, e1, e2):
 			stringOfMetaExpr(e1.expr) + ' ' + stringOfBinop(op) + ' ' + stringOfMetaExpr(e2.expr);
 		case EArrayDecl(el):
-			'[' + [for(e in el) stringOfMetaExpr(e.expr)].join(', ') + ']';
+			'[' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ']';
 		case EMeta(s, e): stringOfMeta(s) + ' ' + stringOfMetaExpr(e.expr);
 		case EField(e, field): stringOfMetaExpr(e.expr) + '.' + field;
 		case e: throw e; // Gradually add printing features
@@ -660,20 +616,20 @@ class Converter {
 		case EReturn(expr): 'return ' + stringOfMetaExpr(expr.expr);
 		case EThrow(expr): 'throw ' + stringOfMetaExpr(expr.expr);
 		case ETernary(econd, eif, eelse), EIf(econd, eif, eelse):
-			'if(' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(eif.expr) +
+			'if (' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(eif.expr) +
 			if (eelse != null) ' else ' + stringOfMetaExpr(eelse.expr) else '';
 		case EArray(e, index): stringOfMetaExpr(e.expr) + '[' + stringOfMetaExpr(index.expr) + ']';
 		case EDisplayNew(_), EDisplay(_): '';
 		case EBlock([]): '{}';
-		case EBlock(el): '{ ' + [for(e in el) stringOfMetaExpr(e.expr)].join(' ') + ' }';
-		case ECall(e, el): stringOfMetaExpr(e.expr) + '(' + [for(e in el) stringOfMetaExpr(e.expr)].join(', ') + ')';
-		case EFor(it, e): 'for(' + stringOfMetaExpr(it.expr) + ') ' + stringOfMetaExpr(e.expr);
+		case EBlock(el): '{ ' + [for (e in el) stringOfMetaExpr(e.expr)].join(' ') + ' }';
+		case ECall(e, el): stringOfMetaExpr(e.expr) + '(' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ')';
+		case EFor(it, e): 'for (' + stringOfMetaExpr(it.expr) + ') ' + stringOfMetaExpr(e.expr);
 		case EObjectDecl([]): '{:}';
-		case EObjectDecl(el): '{' + [for(e in el) e.field.camelCase() + ':' + stringOfMetaExpr(e.expr.expr)].join(', ') + '}';
+		case EObjectDecl(el): '{' + [for (e in el) e.field.camelCase() + ':' + stringOfMetaExpr(e.expr.expr)].join(', ') + '}';
 		case EVars(el):
-			[for(e in el) 'var ' + e.name.camelCase() + ((e.expr != null) ? ' = ' + stringOfMetaExpr(e.expr.expr) : '')].join(' ');
-		case EWhile(econd, e, true): '$kwWhile' + '(' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(e.expr);
-		case EWhile(econd, e, false): '$kwDo ' + stringOfMetaExpr(e.expr) + ' $kwWhile(' + stringOfMetaExpr(econd.expr) + ')';
+			[for (e in el) 'var ' + e.name.camelCase() + ((e.expr != null) ? ' = ' + stringOfMetaExpr(e.expr.expr) : '')].join(' ');
+		case EWhile(econd, e, true): 'while (' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(e.expr);
+		case EWhile(econd, e, false): 'do ' + stringOfMetaExpr(e.expr) + ' while (' + stringOfMetaExpr(econd.expr) + ')';
 		case EIn(e1, e2): stringOfMetaExpr(e1.expr).camelCase() + ' in ' + stringOfMetaExpr(e2.expr);
 		}
 	}
@@ -717,7 +673,7 @@ class Converter {
 
 	// Renames module to avoid name clashing
 	static function renameModule(s: String): String {
-		return [for(s in s.split('.')) s.rename()].join('.');
+		return [for (s in s.split('.')) s.rename()].join('.');
 	}
 
 	// Transforms module path
@@ -730,7 +686,7 @@ class Converter {
 	// Prints path.to.Type
 	static function pathTo(c: { name: String, module: String }): String {
 		var module = c.module.getModule(c.name);
-		if(module != null) return module + '.' + c.name.typeCase();
+		if (module != null) return module + '.' + c.name.typeCase();
 		return c.name.typeCase();
 	}
 
