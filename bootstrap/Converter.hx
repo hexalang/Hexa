@@ -39,6 +39,7 @@ class Converter {
 	static inline var docEnd = '';
 	static inline var enumIndex = 'index';
 	static inline var fileExtention = '.hexa';
+	static inline var destinationFolder = 'source/auto-converted/';
 
 	static var renames: Map<String, String> = [
 				'let' => 'value',
@@ -56,10 +57,11 @@ class Converter {
 
 	static function proceed(types: Array<Type>) {
 		trace('Up to ' + types.length + ' types total to convert.');
+		var filePaths = [];
 
 		for (type in types) {
 			var output = '';
-			var destination = 'source/auto-converted/';
+			var destination = '';
 
 			tabs = '';
 
@@ -197,7 +199,7 @@ class Converter {
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				if (c.doc != null) out('$docBegin ${c.doc}$docEnd\n$tabs');
 				out('@inline' + '\n$tabs');
-				out(sExternal + sPrivate + kwClass + ' ' + typeCase(t.get().name));
+				out(sExternal + sPrivate + 'class ' + typeCase(t.get().name));
 				out(stringOfParams(pa));
 				out(' {\n$tabs' + '\tvar value: ' + stringOfType(t.get().type) + '\n');
 				pushTab();
@@ -276,9 +278,24 @@ class Converter {
 			case TFun(args, ret): throw 'Unreachable code';
 			}
 
+			filePaths.push(destination + fileExtention);
+			destination = destinationFolder + destination;
 			trace('Writing ' + destination + '...');
 			File.saveContent(destination + fileExtention, output + '\n');
 		}
+		
+		var main = filePaths.pop();
+		var json = { 
+			name   : "Hexa", 
+			files  : filePaths, 
+			main   : main, 
+			output : "hexa.js",
+			target : {
+				include: [],
+				generator: "JavaScript"
+			}
+		};
+		File.saveContent(destinationFolder + 'hexa.json', haxe.Json.stringify(json));
 	}
 
 	// Indentation
