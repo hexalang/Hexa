@@ -104,7 +104,7 @@ class Converter {
 
 		for (type in types) {
 			var output = '';
-			var destination = 'bootstrap\\output\\';
+			var destination = 'source/auto-converted/';
 
 			tabs = '';
 
