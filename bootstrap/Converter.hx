@@ -676,7 +676,19 @@ class Converter {
 		case EArray(e, index): stringOfMetaExpr(e.expr) + '[' + stringOfMetaExpr(index.expr) + ']';
 		case EDisplayNew(_), EDisplay(_): '';
 		case EBlock([]): '{}';
-		case EBlock(el): '{ ' + [for (e in el) stringOfMetaExpr(e.expr)].join(' ') + ' }';
+		case EBlock(el):
+			var r = '{\n';
+			pushTab();
+			for (e in el) r += tabs +
+				(switch (e.expr) {
+					// Make a safe postfix unop (coz Hexa has no semicolons)
+					case EUnop(OpNot|OpNegBits|OpNeg, false, e): stringOfMetaExpr(e.expr);
+					case EUnop(op, false, e): stringOfMetaExpr(e.expr) + stringOfUnop(op);
+					case _: stringOfMetaExpr(e.expr);
+				})
+			+ '\n';
+			popTab();
+			r + tabs + '}';
 		case ECall(e, el): stringOfMetaExpr(e.expr) + '(' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ')';
 		case EFor(it, e): 'for (' + stringOfMetaExpr(it.expr) + ') ' + stringOfMetaExpr(e.expr);
 		case EObjectDecl([]): '{:}';
@@ -688,13 +700,21 @@ class Converter {
 		case EIn(e1, e2): stringOfMetaExpr(e1.expr).camelCase() + ' in ' + stringOfMetaExpr(e2.expr);
 
 		case ESwitch(e, cases, edef):
+			pushTab();
 			function casegen(c: Array<Expr>): String {
 				return '' + [for (c in c) stringOfMetaExpr(c.expr)].join(', ');
 			}
-			'switch ' + stringOfMetaExpr(e.expr) + ' {'
-				+ [for (c in cases) '\n\t${tabs}case ${casegen(c.values)}: ' + (c.expr!=null?stringOfMetaExpr(c.expr.expr):'')].join('')
-				+ (edef != null ? '\n' + tabs + '\n${tabs}case _: ' + stringOfMetaExpr(edef.expr) : '')
-			+ '\n$tabs}';
+			var r = 'switch ' + stringOfMetaExpr(e.expr) + ' {'
+				+ [for (c in cases) '\n${tabs}case ${casegen(c.values)}: ' + (c.expr!=null?stringOfMetaExpr(c.expr.expr):'')].join('')
+				+ (edef != null ? '\n' + tabs + '\n${tabs}case _: ' + stringOfMetaExpr(edef.expr) : '');
+			popTab();
+			r + '\n$tabs}';
+		case EFunction(name, f):
+			var r = 'function';
+			if (name != null) r += ' $name';
+			r += '(' + [for (arg in f.args) arg.name].join(', ') + ') ';
+			r += f.expr.expr.stringOfMetaExpr();
+			r;
 		case _: throw '' + e;
 		}
 	}
