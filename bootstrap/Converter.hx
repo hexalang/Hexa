@@ -423,6 +423,9 @@ class Converter {
 		case TVar(v, null): 'var ' + v.name.camelCase() + ': ' + stringOfType(v.t);
 		case TVar(v, e):
 			switch (e.expr) {
+			case TArrayDecl(el): 
+				'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) +
+				' = [' + [for (e in el) stringOf(e)].join(', ') + ']';
 			case TEnumParameter(e1, ef, index):
 				// Extractor
 				r = 'let ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
