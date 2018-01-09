@@ -573,7 +573,9 @@ class Converter {
 	// TODO print AST
 	// String representation of @meta attributes
 	static function stringOfMeta(meta: MetadataEntry): String {
-		return '@' + meta.name.replace(':', '').camelCase() +
+		var name = meta.name.replace(':', '').camelCase();
+		if (name == 'jsRequire') name = 'require';
+		return '@' + name +
 		(meta.params != null && meta.params.length > 0 ? '(' + [for (m in meta.params) '' + stringOfMetaExpr(m.expr)].join(', ') + ')' : '');
 	}
 
