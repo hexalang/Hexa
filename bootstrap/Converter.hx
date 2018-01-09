@@ -664,7 +664,6 @@ class Converter {
 			'[' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ']';
 		case EMeta(s, e): stringOfMeta(s) + ' ' + stringOfMetaExpr(e.expr);
 		case EField(e, field): stringOfMetaExpr(e.expr) + '.' + field;
-		case e: throw e; // Gradually add printing features
 		case EBreak: 'break';
 		case EContinue: 'continue';
 		case EParenthesis(expr): '(' + stringOfMetaExpr(expr.expr) + ')';
@@ -687,6 +686,16 @@ class Converter {
 		case EWhile(econd, e, true): 'while (' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(e.expr);
 		case EWhile(econd, e, false): 'do ' + stringOfMetaExpr(e.expr) + ' while (' + stringOfMetaExpr(econd.expr) + ')';
 		case EIn(e1, e2): stringOfMetaExpr(e1.expr).camelCase() + ' in ' + stringOfMetaExpr(e2.expr);
+
+		case ESwitch(e, cases, edef):
+			function casegen(c: Array<Expr>): String {
+				return '' + [for (c in c) stringOfMetaExpr(c.expr)].join(', ');
+			}
+			'switch ' + stringOfMetaExpr(e.expr) + ' {'
+				+ [for (c in cases) '\n\t${tabs}case ${casegen(c.values)}: ' + (c.expr!=null?stringOfMetaExpr(c.expr.expr):'')].join('')
+				+ (edef != null ? '\n' + tabs + '\n${tabs}case _: ' + stringOfMetaExpr(edef.expr) : '')
+			+ '\n$tabs}';
+		case _: throw '' + e;
 		}
 	}
 
