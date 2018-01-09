@@ -504,6 +504,14 @@ class Converter {
 		case TFor(v, e1, e2): 'for (${v.name.camelCase()} in ${stringOf(e1)}) ' + stringOf(e2);
 		}
 	}
+	
+	// Unwrap nested Null<Null<T>> to just T
+	static function unwrapNestedNull(t: Type): Type {
+		return switch (t) {
+			case TType(_.get().name => 'Null', [p]): p.unwrapNestedNull();
+			case _: t;
+		}
+	}
 
 	// Prints the textual representaton of type for value:T definitions
 	static function stringOfType(t: Type): String {
@@ -516,7 +524,8 @@ class Converter {
 		case TInst(_.get().name => 'String', []): 'String';
 		case TInst(_.get().name => 'Array', [p]): '[' + stringOfType(p) + ']';
 		case TAbstract(_.get().name => 'Map', [k, v]): '[' + stringOfType(k) + ':' + stringOfType(v) + ']';
-		case TType(_.get().name => 'Null', [p]): stringOfType(p) + '?';
+		case TType(_.get().name => 'Null', [p]): 
+			p.unwrapNestedNull().stringOfType() + '?';
 
 		// Non-parametric
 		case TAbstract(t, []): t.get().pathTo();
