@@ -62,7 +62,7 @@ class Converter {
 		for (type in types) {
 			var output = '';
 			var destination = '';
-
+			renameParameters = new Map<String, String>();
 			tabs = '';
 
 			inline function out(string: String) output += string;
@@ -158,7 +158,7 @@ class Converter {
 				var sExternal = c.isExtern ? 'declare ' : '';
 				var sPrivate = c.isPrivate ? 'private ' : '';
 				var sKind = c.isInterface ? 'interface ' : 'class ';
-				var params = stringOfParams(pa);
+				var params = stringOfParamsToRename(pa);
 
 				out(sExternal + sPrivate + sKind + typeCase(c.name) + params);
 				if (c.superClass != null) out(' extends ' + c.superClass.t.get().pathTo() + stringOfParams(c.superClass.params));
@@ -200,7 +200,7 @@ class Converter {
 				if (c.doc != null) out('$docBegin ${c.doc}$docEnd\n$tabs');
 				out('@inline' + '\n$tabs');
 				out(sExternal + sPrivate + 'class ' + typeCase(t.get().name));
-				out(stringOfParams(pa));
+				out(stringOfParamsToRename(pa));
 				out(' {\n$tabs' + '\tvar value: ' + stringOfType(t.get().type) + '\n');
 				pushTab();
 
@@ -230,7 +230,7 @@ class Converter {
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				out(sExternal + sPrivate + 'declare ' + typeCase(t.get().name));
-				out(stringOfParams(pa));
+				out(stringOfParamsToRename(pa));
 				out(' = ' + stringOfType(t.get().type));
 
 				moduleOutro();
@@ -248,7 +248,7 @@ class Converter {
 				out(tabs);
 				for (meta in c.meta.get()) out(stringOfMeta(meta) + '\n$tabs');
 				out(sExternal + sPrivate + 'enum ' + typeCase(t.get().name));
-				out(stringOfParams(pa));
+				out(stringOfParamsToRename(pa));
 				out(' {\n');
 				pushTab();
 
@@ -539,7 +539,7 @@ class Converter {
 
 	// Prints the textual representaton of type for value:T definitions
 	static function stringOfType(t: Type): String {
-		return switch (t) {
+		var r = switch (t) {
 		// Built-in
 		case TAbstract(_.get().name => 'Void', []): 'Void';
 		case TAbstract(_.get().name => 'Int', []): 'Int';
@@ -585,6 +585,7 @@ class Converter {
 		case TMono(t): 'Any';
 		case TLazy(t): t().unwrapLazy().stringOfType();
 		}
+		return renameParameters.exists(r)? renameParameters.get(r) : r;
 	}
 
 	// Function arguments
@@ -600,10 +601,25 @@ class Converter {
 		return '(' + r + ')';
 	}
 
-	// Polymorphic <parameters>
+	// Polymorphic <parameters> in expressions
+	static var renameParameters: Map<String, String> = null;
 	static function stringOfParams(pa: Array<Type>): String {
 		if (pa.length > 0)
-			return '< ' + ([for (p in pa) stringOfType(p)].join(', ')) + ' >';
+			return '< ' + ([for (p in pa) {
+				var s = stringOfType(p);
+				renameParameters.exists(s)? renameParameters.get(s) : s;
+			}].join(', ')) + ' >';
+		return '';
+	}
+	// Parameters of declarations
+	static function stringOfParamsToRename(pa: Array<Type>): String {
+		if (pa.length > 0)
+			return '< ' + ([for (p in pa) {
+				var s = stringOfType(p);
+				var alpha = s.split('.').pop();
+				renameParameters.set(s, alpha);
+				alpha;
+			}].join(', ')) + ' >';
 		return '';
 	}
 
@@ -664,6 +680,7 @@ class Converter {
 			'[' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ']';
 		case EMeta(s, e): stringOfMeta(s) + ' ' + stringOfMetaExpr(e.expr);
 		case EField(e, field): stringOfMetaExpr(e.expr) + '.' + field;
+		case EUntyped(e): '@untyped ${stringOfMetaExpr(e.expr)}';
 		case EBreak: 'break';
 		case EContinue: 'continue';
 		case EParenthesis(expr): '(' + stringOfMetaExpr(expr.expr) + ')';
@@ -698,7 +715,6 @@ class Converter {
 		case EWhile(econd, e, true): 'while (' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(e.expr);
 		case EWhile(econd, e, false): 'do ' + stringOfMetaExpr(e.expr) + ' while (' + stringOfMetaExpr(econd.expr) + ')';
 		case EIn(e1, e2): stringOfMetaExpr(e1.expr).camelCase() + ' in ' + stringOfMetaExpr(e2.expr);
-
 		case ESwitch(e, cases, edef):
 			pushTab();
 			function casegen(c: Array<Expr>): String {
