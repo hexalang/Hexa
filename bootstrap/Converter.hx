@@ -283,12 +283,12 @@ class Converter {
 			trace('Writing ' + destination + '...');
 			File.saveContent(destination + fileExtention, output + '\n');
 		}
-		
+
 		var main = filePaths.pop();
-		var json = { 
-			name   : "Hexa", 
-			files  : filePaths, 
-			main   : main, 
+		var json = {
+			name   : "Hexa",
+			files  : filePaths,
+			main   : main,
 			output : "hexa.js",
 			target : {
 				include: [],
@@ -358,10 +358,7 @@ class Converter {
 		case TConst(TSuper): 'super';
 		case TLocal(t): t.name.replace('`trace', 'Log.trace').camelCase();
 		case TFunction(func):
-			var args : Array < {t: Type, opt: Bool, name: String} >
-			= [for (a in func.args) {t: a.v.t, opt: a.value != null, name: a.v.name.camelCase()}];
-			'function' + stringOfArgs(args) + ': ' + stringOfType(func.t)
-			+ ' ' + stringOf(func.expr);
+			func.stringOfFunction();
 		case TBlock([]): '{}';
 		case TBlock(el):
 			r = '{\n';
@@ -423,7 +420,7 @@ class Converter {
 		case TVar(v, null): 'var ' + v.name.camelCase() + ': ' + stringOfType(v.t);
 		case TVar(v, e):
 			switch (e.expr) {
-			case TArrayDecl(el): 
+			case TArrayDecl(el):
 				'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) +
 				' = [' + [for (e in el) stringOf(e)].join(', ') + ']';
 			case TFunction(func) if (e.t.sameAs(v.t)):
@@ -506,7 +503,7 @@ class Converter {
 		case TFor(v, e1, e2): 'for (${v.name.camelCase()} in ${stringOf(e1)}) ' + stringOf(e2);
 		}
 	}
-	
+
 	// Unwrap nested Null<Null<T>> to just T
 	static function unwrapNestedNull(t: Type): Type {
 		return switch (t) {
@@ -514,9 +511,18 @@ class Converter {
 			case _: t;
 		}
 	}
-	
+
+	// Adds ? postfix if it doesn't has one
+	static function promoteToOptional(t: Type): String {
+		var t = t.unwrapNestedNull();
+		return switch (t) {
+			case TFun(_): '(' + t.stringOfType() + ')?';
+			case _: t.stringOfType() + '?';
+		}
+	}
+
 	// Prints function
-	static function stringOfFunction(func: TFunc, name: String): String {
+	static function stringOfFunction(func: TFunc, name: String = null): String {
 		var args : Array < {t: Type, opt: Bool, name: String} >
 		= [for (a in func.args) {t: a.v.t, opt: a.value != null, name: a.v.name.camelCase()}];
 		var code = 'function';
@@ -525,7 +531,7 @@ class Converter {
 		+ ' ' + stringOf(func.expr);
 		return code;
 	}
-	
+
 	// Compares types
 	static function sameAs(t1: Type, t2: Type): Bool {
 		return stringOfType(t1) == stringOfType(t2);
@@ -542,7 +548,7 @@ class Converter {
 		case TInst(_.get().name => 'String', []): 'String';
 		case TInst(_.get().name => 'Array', [p]): '[' + stringOfType(p) + ']';
 		case TAbstract(_.get().name => 'Map', [k, v]): '[' + stringOfType(k) + ':' + stringOfType(v) + ']';
-		case TType(_.get().name => 'Null', [p]): 
+		case TType(_.get().name => 'Null', [p]):
 			p.unwrapNestedNull().stringOfType() + '?';
 
 		// Non-parametric
@@ -587,8 +593,9 @@ class Converter {
 		for (a in args) {
 			if (r != '') r += ', ';
 			if (a.name != null && a.name != '')
-				r += a.name.camelCase().renameThis() + (a.opt?'?':'') + ': ';
-			r += stringOfType(a.t);
+				r += a.name.camelCase().renameThis() + ': ';
+			if (a.opt) r += a.t.promoteToOptional();
+			else r += a.t.stringOfType();
 		}
 		return '(' + r + ')';
 	}
