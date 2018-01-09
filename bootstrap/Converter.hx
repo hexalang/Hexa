@@ -426,6 +426,8 @@ class Converter {
 			case TArrayDecl(el): 
 				'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) +
 				' = [' + [for (e in el) stringOf(e)].join(', ') + ']';
+			case TFunction(func) if (e.t.sameAs(v.t)):
+				stringOfFunction(func, v.name.camelCase());
 			case TEnumParameter(e1, ef, index):
 				// Extractor
 				r = 'let ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
@@ -511,6 +513,22 @@ class Converter {
 			case TType(_.get().name => 'Null', [p]): p.unwrapNestedNull();
 			case _: t;
 		}
+	}
+	
+	// Prints function
+	static function stringOfFunction(func: TFunc, name: String): String {
+		var args : Array < {t: Type, opt: Bool, name: String} >
+		= [for (a in func.args) {t: a.v.t, opt: a.value != null, name: a.v.name.camelCase()}];
+		var code = 'function';
+		if (name != null) code += ' $name';
+		code += stringOfArgs(args) + ': ' + stringOfType(func.t)
+		+ ' ' + stringOf(func.expr);
+		return code;
+	}
+	
+	// Compares types
+	static function sameAs(t1: Type, t2: Type): Bool {
+		return stringOfType(t1) == stringOfType(t2);
 	}
 
 	// Prints the textual representaton of type for value:T definitions
