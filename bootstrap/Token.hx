@@ -46,7 +46,6 @@
 	var KNull        = 26;
 	var KPackage     = 28;
 	var KPrivate     = 29;
-	var KPublic      = 30;
 	var KReturn      = 31;
 	var KStatic      = 32;
 	var KSwitch      = 33;
@@ -54,7 +53,6 @@
 	var KThrow       = 35;
 	var KTrue        = 36;
 	var KTry         = 37;
-	var KType        = 38;
 	var KUsing       = 39;
 	var KVar         = 40;
 	var KWhile       = 41;
@@ -159,7 +157,6 @@
 		case KNull: "null";
 		case KPackage: "module";
 		case KPrivate: "private";
-		case KPublic: "public";
 		case KReturn: "return";
 		case KStatic: "static";
 		case KSuper: "super";
@@ -168,7 +165,6 @@
 		case KThrow: "throw";
 		case KTrue: "true";
 		case KTry: "try";
-		case KType: "type";
 		case KUsing: "using";
 		case KVar: "var";
 		case KWhile: "while";
