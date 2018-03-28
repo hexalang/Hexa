@@ -47,6 +47,9 @@ extern class Process {
     public static var stdout: {
 		function write(text: String): Void;
 	};
+	public static var stderr: {
+		function write(text: String): Void;
+	};
     public static var argv: Array<String>;
     public static function exit(errorCode: Int): Void;
 }
