@@ -1,4 +1,4 @@
-<img align="left" width="64px" height="64px" src="https://avatars0.githubusercontent.com/u/19646737" />
+<img align="left" width="96px" height="96px" src="https://hexalang.github.io/favicon/favicon-96x96.png" />
 
 # Hexa
 
