@@ -72,12 +72,27 @@ class OnlineCompiler {
             return;
         }
         var html = result;
+        html = html.split('<').join('&lt;');
+        html = html.split('>').join('&gt;');
         html = html.split(' ').join('&nbsp;');
         html = html.split('\t').join('&nbsp;&nbsp;&nbsp;&nbsp;');
         html = html.split('\r\n').join('<br/>');
         html = html.split('\n').join('<br/>');
-        output.innerHTML = "// JavaScript from Hexa" + html;
+        output.innerHTML = html;
 
+        {
+            function color(input:String, begin:String, end:String/*, tagBegin:String, tagEnd:String*/):String {
+                var parts = input.split(begin);
+                var out = '' + parts.shift();
+                for (p in parts) out += '<i>' + begin + p.split(end)[0] + end + '</i>' + p.split(end)[1];
+                return out;
+            }
+
+            output.innerHTML = color(output.innerHTML, '/*', '*/');
+
+        }
+
+        output.innerHTML = "<i>// JavaScript from Hexa</i><br/>" + output.innerHTML;
         debug.innerHTML = '';
         try {
             js.Lib.eval(result.split("console").join("$console"));
