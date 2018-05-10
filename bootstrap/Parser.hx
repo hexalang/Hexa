@@ -44,7 +44,7 @@ class Parser {
 		var fields = [];
 		while (tok() != BrClose) {
 			var _static = false;
-			if(tok() == KStatic) {
+			if (tok() == KStatic) {
 				_static = true;
 				i++;
 			}
@@ -55,7 +55,7 @@ class Parser {
 				i++;
 			case KVar, KFunction, KLet:
 				var f = parseExpr();
-				if(_static) f = TStatic(f);
+				if (_static) f = TStatic(f);
 				fields.push(f);
 			case KNew:
 				i++;
@@ -81,7 +81,7 @@ class Parser {
 					expr = parseExpr();
 
 				var v = [];
-				for(i in 0...vars.length) {
+				for (i in 0...vars.length) {
 					v.push(TVar(vars[i], types[i], values[i], true));
 				}
 				fields.push(TFunction('new', expr, v, null));
@@ -247,7 +247,7 @@ class Parser {
 			i++;
 			step(POpen);
 			var econd = [parseExpr()];
-			while(tok() == Comma) {
+			while (tok() == Comma) {
 				next();
 				econd.push(parseExpr());
 			}
@@ -279,7 +279,7 @@ class Parser {
 			TWhile(econd, e, false);
 		case POpen:
 			next();
-			if(
+			if (
 				// () =>
 				(tok() == PClose && offset(1) == OpArrow) ||
 				// (a, ...) =>
@@ -307,7 +307,7 @@ class Parser {
 				step(PClose);
 				step(OpArrow);
 				var v = [];
-				for(i in 0...vars.length) {
+				for (i in 0...vars.length) {
 					v.push(TVar(vars[i], types[i], values[i], true));
 				}
 				TFunction(null, parseExpr(), v, null);
@@ -441,7 +441,7 @@ class Parser {
 		case KEnum:
 			i++;
 			var t = parseType();
-			if(tok() == DblDot) {
+			if (tok() == DblDot) {
 				i++;
 				parseType();
 			}
@@ -556,7 +556,7 @@ class Parser {
 			var isMap = false;
 
 			while (tok() != BkClose) {
-				if(tok() == DblDot) {
+				if (tok() == DblDot) {
 					isMap = true;
 					next();
 					break;
@@ -571,8 +571,9 @@ class Parser {
 			}
 			step(BkClose);
 
-			if(isMap)
-				TMap(el, values) else TArray(el);
+			if (isMap)
+				TMap(el, values);
+			else TArray(el);
 		case KNew:
 			i++;
 			var t = parseType();
@@ -612,7 +613,7 @@ class Parser {
 				conds.push(cond);
 				step(DblDot);
 				var exs = [];
-				while(tok()!=KCase && tok()!=BrClose) {
+				while (tok()!=KCase && tok()!=BrClose) {
 					exs.push(parseExpr());
 				}
 				cases.push(TBlock(exs));
@@ -632,13 +633,12 @@ class Parser {
 			TFor(n, a, b);
 		case _: unexpected(); null;
 		}
-
 		if (result == null) {
 			Process.stdout.write('\n');
 			throw "Expression is incomplete";
 		}
 
-		if(atts.length > 0) {
+		if (atts.length > 0) {
 			Project.mapAttributes.set(result, atts);
 			atts = [];
 		}
@@ -688,12 +688,12 @@ class Parser {
 			// a ?? b
 			// a ?. b
 			case Question: i++;
-				if(tok() == Dot) {
 					var name = getgo(LIdent);
+				if (tok() == Dot) {
 					TDot(result, name);
 				} else
 
-				if(tok() == Question) {
+				if (tok() == Question) {
 					i++;
 					TElvis(result, parseExpr());
 				} else {
@@ -709,7 +709,6 @@ class Parser {
 				if (tok() == OpAssign) {
 					i++;
 				}
-
 				var b = parseExpr();
 				var a = result;
 				switch (b) {
@@ -735,11 +734,10 @@ class Parser {
 			throw "Expression postfix is incomplete";
 		}
 
-		if(atts.length > 0) {
+		if (atts.length > 0) {
 			Project.mapAttributes.set(result, atts);
 			atts = [];
 		}
-
 		return result;
 	}
 
@@ -778,9 +776,9 @@ class Parser {
 					parseType();
 				}
 
-				if(parametricTypeNestingToken == Eof) parametricTypeNestingToken = tok();
+				if (parametricTypeNestingToken == Eof) parametricTypeNestingToken = tok();
 
-				switch(parametricTypeNestingToken) {
+				switch (parametricTypeNestingToken) {
 					case OpGt: parametricTypeNesting-=1; parametricTypeNestingToken = Eof; i++;
 					case OpShr: parametricTypeNesting-=1; parametricTypeNestingToken = OpGt;
 					case OpUShr: parametricTypeNesting-=1; parametricTypeNestingToken = OpUShr;
