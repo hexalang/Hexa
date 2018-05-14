@@ -111,7 +111,11 @@ class Main {
 		#end
 
 		// Usage examples
-		if(Process.argv[2] == null) {
+		if(Process.argv[2] == "version") {
+			trace('Hexa Alpha on node.js ' + untyped process.versions.node);
+			Process.exit(0);
+		}
+		else if(Process.argv[2] == null) {
 			trace("Usage: `node hexa.js project.json` or `node hexa.js init`");
 			Process.exit(1);
 		}
