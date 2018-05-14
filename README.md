@@ -26,6 +26,15 @@ While compiler is in dev, here's some cool music to listen :headphones:
 
 :raised_hands:
 
+## BUILD
+
+```sh
+npm i -g nexe
+cd hexa
+haxe build.hxml
+nexe-build.bat
+```
+
 ## LICENSE
 
 See LICENSE files for full license texts and headers of each file
