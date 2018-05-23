@@ -462,8 +462,8 @@ class Converter {
 			r + '\n$tabs}';
 
 		case TThrow(e): 'throw ' + stringOf(e);
-		case TCast(ex, null): '(' + stringOf(ex) + ' as! ' + stringOfType(e.t) + ')';
-		case TCast(e, m): '(' + stringOf(e) + ' as ' + m.getName() + ')';
+		case TCast(ex, null): '{' + stringOf(ex) + ' as! ' + stringOfType(e.t) + '}';
+		case TCast(e, m): '{' + stringOf(e) + ' as ' + m.getName() + '}';
 		case TWhile(econd, e, true): 'while (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(e);
 		case TWhile(econd, e, false): 'do ' + stringOf(e) + ' while (' + stringOf(econd.unwrapParens()) + ')';
 		case TTry(e, catches):
