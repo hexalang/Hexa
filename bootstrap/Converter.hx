@@ -427,7 +427,7 @@ class Converter {
 				stringOfFunction(func, v.name.camelCase());
 			case TEnumParameter(e1, ef, index):
 				// Extractor
-				r = 'let ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
+				r = 'var ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
 				switch (ef.type) {
 				case TFun(args, retType): // EnumField(...args)
 					for (i in 0...args.length) {
