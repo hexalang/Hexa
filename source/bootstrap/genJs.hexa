@@ -1,0 +1,1129 @@
+// The Hexa Compiler
+// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2018  Bogdan Danylchenko
+//
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+import NodeJs
+import Data
+import Main
+
+using GenJs
+using Data.DataHelper
+
+class GenJs /*extends GeneratorHelper*/ {
+	static var id = 0
+	static var tabs = ''
+
+	// Only non-Hexa keywords
+	static var reserved = [
+		// Reserved by Hexa anyway
+		// 'let', 'var', 'enum', 'break', 'case',
+		// 'catch', 'class', 'else',
+		// ES3+
+		/*let es3kwds = [ do they used in use strict mode?
+	"abstract"; "boolean"; "break"; "byte"; "case"; "catch"
+	"char"; "class"; "const"; "continue"
+	"debugger"; "default"; "delete"; "do"; "double"; "else"
+	"enum"; "export"; "extends"; "false"; "final"
+	"finally"; "float"; "for"; "function"; "goto"; "if"
+	"implements"; "import"; "in"; "instanceof"; "int"
+	"interface"; "long"; "native"; "new"; "package"
+	"private"; "protected"
+	"public"; "return"; "short"
+	"synchronized"; "throws"
+	"transient"
+	"volatile"; ]*/
+		// ES5+
+		'with','const'//, 'set', 'get'
+		/*let es5kwds = [
+	"arguments"; "const"; ""
+	"debugger"; "default"; "delete"; "do"; ""; "enum"
+	"eval"; "export"; "extends"; "false"
+	"finally"; "for"; "function"; "if"; "implements"
+	"import"; "in"; "instanceof"
+	"interface"; "let"; "new"; "null"; "package"; "private"
+	"protected"
+	"public"; "return"; "static"; "super"; "switch"; "this"
+	"throw"
+	"true"; "try"; "typeof"; "var"; "void"; "while"
+	"yield"
+]*/
+	]
+
+	static function rename(name: String) {
+		if(reserved.indexOf(name) != -1) {
+			return '$' +
+			name
+		}
+		return name
+	}
+
+	static function unblock(e: Node): Node {
+		return switch (e) {
+			case TBlock([e]): e
+			case _: e
+		}
+	}
+
+	// Control indentation
+	static inline function pushTab() tabs += '\t'
+	static inline function popTab() tabs = tabs.substring(0, tabs.length - 1)
+
+	static function stringifyBlockExpression(node: Node): String {
+		var r = ''
+		return switch (node) {
+			case TEnum(t, _):
+				r = 'const ' + extractTypeName(t) + ' = ' + node.stringify()
+			// Single binding condition if(let bind = value)
+			case TIf([cond = TVar(oname, t, expr, const)], eif, eelse):
+				r += "\n" + tabs + '{\n'
+				pushTab()
+				pushScope()
+				parentNames.set(cond, oname)
+				r += tabs + "const " + oname + " = " + expr.stringify() + '\n' + tabs
+				r += 'if (' + oname + " != null) "
+				r += switch (eif) {
+					case TBlock(_): eif.stringify()
+					case _: TBlock([eif]).stringify()
+				}
+				if (eelse != null) r += ' else ' + eelse.stringifyBlockExpression()
+				popTab()
+				popScope()
+				r + "\n" + tabs + '}'
+
+			// Single non-binding condition
+			case TIf([econd], eif, eelse):
+				r += 'if (' + econd.unwrapBlockValue() + ') '
+				r += switch (eif) {
+						case TBlock(_): eif.stringify()
+						case _: TBlock([eif]).stringify()
+					}
+				if (eelse != null) r += ' else ' + eelse.stringifyBlockExpression()
+				r
+
+			// Multiple (probably) mixed conditions
+			case TIf(econd, eif, eelse):
+				pushTab()
+				r += '{\n' + tabs
+
+				if (eelse != null) {
+					addToScope("else$$")
+					r += "const else$$ = () => " + eelse.stringify() + "\n" + tabs
+				}
+
+				var depth = 0
+				var econds = econd
+				var i = 0
+				var condsstr = ""
+				var constsstr = ""
+				var addCond = function(cond: String) {
+					return condsstr == "" ? cond : " && " + cond
+				}
+
+				while (econds[i] != null) {
+					var cond = econds[i]
+					condsstr = ""
+					constsstr = ""
+					do {
+						var innercond = econds[i]
+						switch(innercond) {
+							case TVar(oname, t, expr, const):
+								//trace("const for " + oname)
+								addToScope(oname)
+								var name = oname.rename()
+								parentNames.set(cond, name)
+								constsstr += "const " + name + " = " + expr.stringify() + ";\n" + tabs
+								condsstr += addCond(name + " != null")
+							case _: condsstr += addCond(innercond.stringify())
+						}
+						if (econds[i+1] != null)
+							switch (econds[i+1]) { case TVar(oname, t, expr, const): break
+								case _: i
+							}
+						i++
+					} while (econds[i] != null)
+					r += constsstr
+					r += "if (" +  condsstr + ") {"
+					pushTab()
+					r += "\n" + tabs
+					depth++
+					i++
+				}
+				r += switch (eif) {
+					case TBlock(_): eif.stringify()
+					case _: TBlock([eif]).stringify()
+				}
+				while (depth > 0) {
+					popTab()
+					r += "\n" + tabs + '}'
+					if (eelse != null) r += " else else$$()"
+					depth--
+				}
+				popTab()
+				r += "\n" + tabs + '}'
+				r
+
+			case TFunction(name, expr, vars, _):
+				pushScope()
+				var newname = name.rename()
+				var vars = [for (v in vars)
+					switch (v) {
+						case TVar(oname, _, _), TIdent(oname):
+							var name = oname.rename()
+							if (hasInScope(name)) name += '$$' + (++id)
+							addToScope(name)
+							parentNames.set(v, name)
+							parentNames.get(v)
+						case TParenthesis(null): ''
+						case _: throw v
+					}
+				].join(', ')
+				var funcbody = ""
+				if (expr != null) {
+					switch (expr) {
+						case TBlock(el): funcbody = expr.stringify()
+						case _:
+							pushScope()
+							pushTab()
+							funcbody = '{\n$tabs'+expr.stringify()+'\n\t$tabs}'
+							popTab()
+							popScope()
+					}
+				}
+				else funcbody = '{}'
+				popScope()
+				'const $newname = ($vars) => $funcbody'
+			case _:
+				//trace(node)
+				node.stringify()
+		}
+	}
+
+	static function getAtt(atts: Array<Attribute>, atname: String): Attribute {
+		if (atts != null && atts.length > 0) for (att in atts) {
+			if (att.name == atname) return att
+		}
+		return null
+	}
+
+	static var parentNames: JSMap<Node, String> = new JSMap()
+
+	static var scopes: Array<JSMap<String, Bool>> = [new JSMap()]
+
+	static function pushScope() {
+		scopes.push(new JSMap())
+	}
+	static function popScope() {
+		scopes.pop()
+	}
+	static function hasInScope(name: String) {
+		for(scope in scopes) {
+			if(scope.get(name) != null) {
+				return true
+			}
+		}
+		return false
+	}
+	static function addToScope(name: String) {
+		scopes[scopes.length-1].set(name, true)
+	}
+	#if false
+	static function addVariable(variable: Node) {
+		addToScope(oname)
+		var name = oname.rename()
+		if (hasInScope(oname)) name += '$$' + (++id)
+		parentNames.set(node, name)
+	}
+	#end
+
+	public static function stringifyProject(node: Node): String {
+		switch (node) {
+			//case TBlock([TClass(Type('GeneratorHelper'),_),_]): throw '' + el
+			case TBlock(el):
+				//if((el+'').indexOf('GeneratorHelper') != -1) throw '' + el
+
+				var output = ['{', '\t"use strict"']
+				pushTab()
+				// Declare modules
+				{
+					var namespaces = []
+
+					function placeholder(e) switch(e) {
+						case TDeclare(_), TClass(_,_,_,_,true): {}
+						case _: output.push('\tlet ' + e.nameOf())
+					}
+
+					//for(e in el) if((e+'').indexOf('GeneratorHelper') != -1) throw '' + e
+						//throw ''+el
+
+					function pushNamespace(path) {
+						if(namespaces.indexOf(path.join('.')) == -1)
+							namespaces.push(path.join('.'))
+					}
+
+					for(e in el) switch (e) {
+						case TBlock(el): for(e in el) switch (e) {
+							case TModule([], el): for(e in el) placeholder(e)
+							case TModule(path, el): pushNamespace(path)
+							//if(namespaces.indexOf(path.join('.')) == -1) namespaces.push(path.join('.'))
+							case _: {}
+						}
+						case TModule([], el): for(e in el) placeholder(e)
+						case TModule(path, el): pushNamespace(path)
+						//if(namespaces.indexOf(path.join('.')) == -1) namespaces.push(path.join('.'))
+						case _: throw '' + e
+					}
+					// Fill intermediate namespaces
+					//var i = namespaces.length - 1
+					//while(i >= 0) {
+					//	if(namespaces.indexOf(path.join('.')) == -1) namespaces.push(path.join('.'))
+					//	i--
+					//}
+
+					var intermediate = []
+					for(ns in namespaces) {
+						var path = ns.split('.')
+						var namespace = path.shift()
+						function check(namespace) {
+							if (/*namespaces.indexOf(namespace) == -1 &&*/ intermediate.indexOf(namespace) == -1) {
+								intermediate.push(namespace)
+							}
+						}
+						check(namespace)
+						while(path.length > 0) {
+							namespace += '.' + path.shift()
+							//trace('namespace+= =' + namespace)
+							check(namespace)
+						}
+					}
+					//for(ns in intermediate) namespaces.push(ns)
+
+					//output.push(namespaces.join('\n'))
+					//output.push('//----')
+					//output.push(intermediate.join('\n'))
+
+					for(ns in intermediate)
+					if(ns == '') {}
+					else if(ns.indexOf('.') == -1) output.push('\tconst $ns = {}')
+					else output.push('\t$ns = {}')
+				}
+				// Fill modules' class inheritance in proper order
+				{
+					// GUIDs for extendsWhat
+					function getClassGUID(path:Array<String>, e: NodeType): String {
+						//return switch (e) {
+						//	case e = TClass(t, _), TPrivate(e = TClass(t, _)): path.join('.') + '#' + t.extractTypeName()
+						//	case _: throw '' + e
+						//}
+						if(e == null) return e.extractTypeName()
+						if(path.length == 0) return e.extractTypeName()
+						if(path.length == 1) return path[0] + '.' + e.extractTypeName()
+						return path.join('.') + '.' + e.extractTypeName()
+					}
+
+					var cs = 0
+					var fs = 0
+					function fillClasses(extendsWhat: String) {
+						trace('fillClasses == ' + extendsWhat + ' $cs')
+						cs++
+						function fillClassesOf(path:Array<String>, el:Array<Node>) {
+							trace('fillClassesOf == ' + path + ' $fs')
+							fs++
+							if(path.length == 0)
+							{
+								for(e in el) switch (e) {
+									case TDeclare(_) if(extendsWhat == null): stringify(e)
+									case TClass(_,_,_,_,true) if(extendsWhat == null): stringify(e)
+
+									case TClass(t, ext, _)
+									if((extendsWhat == null && ext == null/*path.length == 0*/) /*|| ext == null*/ || extendsWhat == ext.extractTypeName())://getClassGUID(path, ext)):
+									//if(extendsWhat == null || (extendsWhat == (path.join('.') + '#' + t.extractTypeName()))):
+									output.push('\t' + e.nameOf() + '/*!5*/ = ' + stringifyClass(e, null) + ';')
+									fillClasses(getClassGUID(path, t))
+
+									case TClass(t, ext, _): {}
+									case _ if(extendsWhat == null): output.push('\t' + e.nameOf() + '/*!1*/ = ' + stringify(e) + ';')
+								}
+								return
+							}
+
+							//if(path.length == 1)
+							{
+								for(e in el) switch (e) {
+									case TDeclare(_) if(extendsWhat == null): stringify(e)
+									case TClass(_,_,_,_,true) if(extendsWhat == null): stringify(e)
+
+									case e = TClass(t, ext, _), TPrivate(e = TClass(t, ext, _))
+									if((extendsWhat == null && ext == null/*path.length == 0*/) /*|| ext == null*/ || extendsWhat == ext.extractTypeName())://getClassGUID(path, ext)):
+
+									//if(extendsWhat == null || (extendsWhat == (path.join('.') + '#' + t.extractTypeName()))):
+									output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!4*/ = ' + stringifyClass(e, path) + ';')
+									fillClasses(getClassGUID(path, t))
+
+
+									case TClass(t, ext, _): {}
+									case _ if(extendsWhat == null): output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!3*/ = ' + stringify(e) + ';')
+								}
+								return
+							}
+
+							//{
+							//	for(e in el) switch (e) {
+							//		case TDeclare(_): stringify(e)
+							//		case TClass(_,_,_,_,true): stringify(e)
+							//		case _: output.push('\t' + e.nameOf() + '/*!111*/ = ' + stringify(e) + ';')
+							//	}
+							//}
+
+							//if(path.length == 0 || path.length == 1)
+							//{
+							//	for(e in el) switch (e) {
+							//		//case TDeclare(_): stringify(e)
+							//		case TDeclare(name, vnode): parentNames.set(e, name); stringify(vnode)
+							//		case TClass(_,_,_,_,true): stringify(e)
+							//		case _: output.push('\t' + e.nameOf() + '/*!&*/ = ' + stringify(e) + ';')
+							//	}
+							//	return
+							//}
+						}
+
+						for(e in el) switch (e) {
+							case TBlock(el): for(e in el) switch (e) {
+								case TModule(path, el): fillClassesOf(path, el)
+								case _: {}
+							}
+							case TModule(path, el): fillClassesOf(path, el)
+							case _: throw '' + e
+						}
+					}
+
+					fillClasses(null)
+				}
+				// Fill modules
+				{
+					function fill(path:Array<String>, el:Array<Node>) {
+
+						if(path.length == 0)
+						{
+							for(e in el) switch (e) {
+								case TDeclare(_): stringify(e)
+								case TClass(_,_,_,_,true): stringify(e)
+								case TClass(_): output.push('\t' + e.nameOf() + '/*!5*/ = ' + stringifyClass(e, null) + ';')
+								case _: output.push('\t' + e.nameOf() + '/*!1*/ = ' + stringify(e) + ';')
+							}
+							return
+						}
+
+						//if(path.length == 1)
+						{
+							for(e in el) switch (e) {
+								case TDeclare(_): stringify(e)
+								case TClass(_,_,_,_,true): stringify(e)
+								case e = TClass(_), TPrivate(e = TClass(_)):
+								output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!4*/ = ' + stringifyClass(e, path) + ';')
+								case _: output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!3*/ = ' + stringify(e) + ';')
+							}
+							return
+						}
+
+						//{
+						//	for(e in el) switch (e) {
+						//		case TDeclare(_): stringify(e)
+						//		case TClass(_,_,_,_,true): stringify(e)
+						//		case _: output.push('\t' + e.nameOf() + '/*!111*/ = ' + stringify(e) + ';')
+						//	}
+						//}
+
+						//if(path.length == 0 || path.length == 1)
+						//{
+						//	for(e in el) switch (e) {
+						//		//case TDeclare(_): stringify(e)
+						//		case TDeclare(name, vnode): parentNames.set(e, name); stringify(vnode)
+						//		case TClass(_,_,_,_,true): stringify(e)
+						//		case _: output.push('\t' + e.nameOf() + '/*!&*/ = ' + stringify(e) + ';')
+						//	}
+						//	return
+						//}
+					}
+
+				//!	for(e in el) switch (e) {
+				//!		case TBlock(el): for(e in el) switch (e) {
+				//!			case TModule(path, el): fill(path, el)
+				//!			case _: {}
+				//!		}
+				//!		case TModule(path, el): fill(path, el)
+				//!		case _: throw '' + e
+				//!	}
+				}
+				// Trace initializers
+				{
+					for(e in el) switch (e) {
+						case TBlock(el): for(e in el) switch (e) {
+							case TModule(_): {}
+							case _: output.push('\t/*!2*/' + e.stringifyBlockExpression())
+						}
+						case TModule(_): {}
+						case _: throw '' + e
+					}
+				}
+				output.push('}')
+				return output.join('\n')
+			case _: throw 'stringifyProject got ' + node
+		}
+
+		//return stringify(node)
+	}
+
+	static var enumUid = 0
+
+	public static function stringifyClass(node: Node, path:Array<String>): String {
+		return switch (node) {
+			case TClass(t, ext, impl, fields, external):
+			var cname = extractTypeName(t)
+			var r = (external?'/* declare class ' : 'class ') + cname
+
+			if(path != null) cname = path.join('.') + '.' + cname
+
+			if (ext != null) r += ' extends ' + extractTypeName(ext)
+			r += ' {\n'
+			var after = []
+			for (f in fields) {
+				var code = ''
+				var isafter = false
+
+				function unmeta(f) {
+					switch (f) {
+						case _: return f
+					}
+				}
+
+				f = unmeta(f)
+
+				switch (f) {
+					case TStatic(field): f = field; isafter = true
+					case _: {}
+				}
+
+				f = unmeta(f)
+				switch (f) {
+					case TFunction(name, expr, vars, _):
+						{
+							if (name == 'new') name = 'constructor'
+							if (isafter) code += cname + '.' + name.rename() + ' = '
+							else code += '\t'+name.rename()
+							code += '(' + [for (v in vars)
+								switch (v) {
+									case TVar(oname, _, _):
+									var name = oname.rename()
+									if (hasInScope(name)) name += '$$' + (++id)
+									addToScope(name)
+									parentNames.set(v, name)
+									parentNames.get(v)
+									case _: throw v
+								}
+							].join(', ') + ') ' + (isafter?'=> ':'')
+							if (expr != null) {
+								switch (expr) {
+									case TBlock(el):
+									pushTab()
+									code += expr.stringify()
+									popTab()
+									case _:
+										pushTab()
+										code += '{\n$tabs' + expr.stringify()
+										popTab()
+										code += '\n$tabs}\n'
+								}
+							}
+							else code += '{}'
+						}
+					case TVar(name, t, expr, const):
+						isafter = true
+						if (expr != null) {
+							code += cname + '.' + name.rename()
+							code += ' = ' + expr.unwrapBlockValue()
+						}
+					case _: code += ''+f
+				}
+
+				if (code != '')
+				if (isafter) after.push(tabs + code) else r += tabs + code
+
+			}
+			r += '\n' + tabs + '}' + (external?' */':'')
+			r += '\n'+after.join(';\n')
+			r
+			case _: throw '' + node
+		}
+	}
+
+	public static function stringify(node: Node): String {
+		//trace(node)
+
+		var r = ''
+		if (node == null) throw 'Unable to print: node is null'
+
+		var atts = Project.mapAttributes.get(node)
+//trace(atts+'', node+'')
+		var a = ''
+		if (atts != null && atts.length > 0) for (att in atts) {
+			//a += '/* @' + att.name + '*/ '
+		}
+
+		return a + switch (node) {
+		// TODO
+		case TPrivate(f): '/*tprivate*/ ' + stringify(f)
+		case TExport(f): '/*texport*/' + stringify(f)
+
+		case TEnumExtract(path, bind, expr): {
+			enumUid++
+			var out = ''
+			var postout = ''
+			var i = 0
+			for(e in bind) {
+				switch (e) {
+						case null: {} // _
+						case TVar(name,_):
+							var name = stringify(e).split(' ')[1];//name.rename()
+							//stringify(e); //addScope(name, e)
+							out += 'let $name = null;\n' + tabs
+							postout += tabs + '\t$name = enum$enumUid$$.values[$i];'
+						case _: throw 'TEnumExtract contains not a var: ' + e
+					}
+				i++
+			}
+			var value = 'const enum$enumUid$$ = ' + unwrapBlockValue(expr) + ';\n$tabs'
+			value + out + 'if (enum$enumUid$$.index == $$TODO) {\n' + postout + '\n$tabs}'
+			//switch (expr) {
+			//	case _ if(expr.isVoidValue()): throw fail('There should be a non-void value instead of ', expr)
+			//	case _: fill(expr)
+			//}
+			//fill(e)
+			//'let ' + path.join('.') + '() = ' + stringify(expr)
+		}
+
+		case TUsing(names): '/*using $names*/'
+		case TVars(e): [for (e in e) stringify(e)].join('; ')
+
+		//case TBlock([e]): stringify(e)
+
+		// Have no sub-nodes
+		case TString(s): /*'\'' + s
+			.split('\\').join('\\\\')
+			.split('\n').join('\\n')
+			.split('\r').join('\\r')
+			.split('\'').join('\\\'')
+			+ '\'';*/
+			var s = s.split('')
+			var charsOut = []
+			while (s.length > 0)
+			{
+				switch (s[0]) {
+					case "'":
+					charsOut.push("\\'")
+					s.shift()
+					case "\n":
+					charsOut.push("\\n")
+					s.shift()
+					case "\r":
+					charsOut.push("\\r")
+					s.shift()
+					case "\\":
+					s.shift()
+					if (s[0] == "'") {
+						charsOut.push("\\'")
+						s.shift()
+					} else {
+						charsOut.push('\\')
+					}
+					case _:
+					charsOut.push(s[0])
+					s.shift()
+				}
+			}
+
+			"'" + charsOut.join('') + "'"
+		case TIdent(s):
+			//trace('`$s`')
+			var source = Project.mapNames.get(node)
+			/*var value = switch (source) {
+				case TDeclare(_, node): node
+				case _: source
+			}*/
+			var n = switch (source) {
+				case null: throw 'Unmapped $node'
+				case TDeclare(name, t):
+					var n = parentNames.get(source)
+					if (n==null)
+					//if(name=='instanceof')
+					throw 'TDeclare `$name` parentNames null == '+parentNames.get(source) + ' for ' + source
+					//if(name=='instanceof')throw ''+/*getAtt(*/Project.mapAttributes.get(source)/*, 'infix')*/
+
+					var rename = getAtt(Project.mapAttributes.get(source), 'native')
+					//if (rename != null) trace('Got @native!')
+					if (rename != null) switch (rename.values[0]) {
+						case null: n
+						case TString(s): s
+						case _: n
+					} else n
+
+					//n
+
+				//throw '' + source
+				case TEnum(Type(name), _): name
+				case TFor(name, _, _): parentNames.get(source)
+				case TIdent(name): parentNames.get(source)
+				case TVar(name, _, _):
+					var n = parentNames.get(source)
+					if (n==null) {
+						var data = Project.data.get(node)
+						var at = if(data != null) ' at ' + data.line +':'+ data.column +':'+ data.fileName else ''
+						throw 'TVar `$name` parentNames null == '+parentNames.get(source) + ' for ' + source + at
+					}
+					n
+				case TStatic(f = TVar(name, _, _)):
+					var static_source = Project.mapNames.get(source)
+					switch (static_source) {
+						case TClass(t, _), TEnum(t,_):
+							t.extractTypeName().rename() + '.' + name.rename()
+						case _: throw 'static_source is $static_source'
+					}
+				case TFunction(name, _): name.rename()
+				case TClass(t, _):
+					var rename = getAtt(Project.mapAttributes.get(source), 'native')
+					var name = t.extractTypeName().rename()
+					//if (rename != null) trace('Got @native!')
+					if (rename != null) switch (rename.values[0]) {
+						case null: name
+						case TString(s): s
+						case _: name
+					} else name
+				case TModule(path, _): path.join('.')
+				// TODO throw 'Modules cannot be used as a values (look at `${path.join('.')}`)'
+				case _:
+				throw '$s '+source
+			}
+			n
+		case TBool(true): 'true'
+		case TBool(_): 'false'
+		case TThis: 'this'
+		case TSuper: 'super'
+		case TInt(s): s
+		case TFloat(s): s
+		case TNull: 'null'
+		case TBreak: 'break'
+		case TContinue: 'continue'
+		case TBinop(a, op, b):
+			a.unwrapBlockValue() + ' ' + op.stringify() + ' ' + b.unwrapBlockValue()
+		case TAssignop(a, op, b):
+			a.unwrapBlockValue() + ' ' + op.stringify() + '= ' + b.unwrapBlockValue()
+		case TBlock([]): '{}'
+		case TBlock(elements):
+			r = '{\n'
+			pushScope()
+			pushTab()
+			for (element in elements)
+				switch(element) {
+					case _:
+						var code = tabs + element.stringifyBlockExpression() + ';\n'
+						// TODO if(!element.match(TBlock(_),TTry(_)))
+						//if (!element.match(TBlock(_)) && code.length < 256)
+						//trace('Generated block expression `${code.trim()}`')
+						r += code
+				}
+			popTab(); // This is nearest to pushTab for cache locality
+			popScope()
+			r + tabs + '}'
+
+		case TElvis(a, b): a.stringify() + ' || ' + b.stringify()
+		case TFor(n, a, b):
+			pushScope()
+			var name = n.rename()
+			if (hasInScope(name)) name += '$$' + (++id)
+			addToScope(name)
+			parentNames.set(node, name)
+			var res = 'for (const ' + name.rename() + ' of ' + a.stringify() + ') '
+			+ b.stringify()
+			popScope()
+			res
+		//TODO argNames?
+		//case TCall(TIdent('__instanceof__'), [of, type], _):
+		//of.stringify() + ' instanceof ' + type.stringify()
+		//case TCall(TIdent('__typeof__'), [of], _):
+		//'typeof ' + of.stringify()
+
+		case TCall(e, el, argNames):
+			var source = Project.mapNames.get(e)
+			switch (source) {
+			/*	case null: throw 'Unmapped $node'
+				case TEnum(Type(name), _): name
+				case TFor(name, _, _): parentNames.get(source)
+				case TIdent(name): parentNames.get(source)
+				case TVar(name, _, _):
+					var n = parentNames.get(source)
+					if (n==null) throw 'TVar `$name` parentNames null == '+parentNames.get(source)
+					n
+				case TStatic(f = TVar(name, _, _)):
+					var static_source = Project.mapNames.get(source)
+					switch (static_source) {
+						case TClass(t, _), TEnum(t,_):
+							t.extractTypeName().rename() + '.' + name.rename()
+						case _: throw 'static_source is $static_source'
+					}
+				case TFunction(name, _): name.rename()
+				case TClass(t, _):
+					var rename = getAtt(Project.mapAttributes.get(source), 'native')
+					var name = t.extractTypeName().rename()
+					//if (rename != null) trace('Got @native!')
+					if (rename != null) switch (rename.values[0]) {
+						case null: name
+						case TString(s): s
+						case _: name
+					} else name;*/
+				case null: e.unwrapBlockValue() + '(' + [for (e in el) e.unwrapBlockValue()].join(', ') + ')'
+				case TFunction('instanceof', _):
+				'((' + el[0].unwrapBlockValue() + ') instanceof (' + el[1].unwrapBlockValue() + '))'
+				//throw ''+/*getAtt(*/Project.mapAttributes.get(source)/*, 'infix')*/
+				case _:
+					//if(source!=null)
+					//trace(''+source)
+					e.unwrapBlockValue() + '(' + [for (e in el) e.unwrapBlockValue()].join(', ') + ')'
+			}
+
+		case TParenthesis(e = TParenthesis(_)): e.stringify()
+		case TParenthesis(e)/*, TParenthesis(TParenthesis(e))*/: '(' + e.unwrapBlockValue() + ')'
+		case TReturn(null), TReturn(TBlock([])): 'return '
+		case TReturn(e): 'return ' + e.unwrapBlockValue()
+		case TThrow(e): 'throw ' + e.unwrapBlockValue() + ''
+		case TArray([f = TFor(oname, array, expr)]):
+			pushScope()
+			r += '((()=>{'
+			r += "const return$$ = []; "
+			var name = oname.rename()
+			if (hasInScope(name)) name += '$$' + (++id)
+			addToScope(name)
+			parentNames.set(f, name)
+			r += 'for (const ' + name + ' of ' + array.unwrapBlockValue() + ') '
+			r += "return$$.push("
+			r += expr.unwrapBlockValue()
+			r += "); return return$$;"
+			r += '})())'
+			popScope()
+			r
+
+		case TArray(el): '[' + [for (e in el) e.unwrapBlockValue()].join(', ') + ']'
+		case TMap([],_): 'new Map()'
+		case TMap(keys,values):
+			'new Map([' +
+			[for (i in 0...keys.length) '[' + keys[i].unwrapBlockValue()+ ', ' + values[i].unwrapBlockValue() + ']'].join(', ')
+			+ '])'
+
+		case TIf(econd, eif, eelse):
+		//	throw '' + node
+			r = '(' + [for (e in econd) e.unwrapBlockValue()].join(' && ') + ')? (' +  eif.unwrapBlockValue()
+			if (eelse != null) r += ') : (' + eelse.unwrapBlockValue() + ')'
+			r
+
+		case TUnop(op, postfix, e): postfix ? e.stringify() + op.stringify() : op.stringify() + e.stringify()
+		case TWhile(econd, e, true): 'while(' + econd.stringify() + ') ' + e.stringify()
+		case TWhile(econd, e, false): 'do{' + e.stringify() + '}while(' + econd.stringify() + ')'
+		case NodeTypeValue(type): extractTypeName(type)
+		case TDot(TString(s), 'length'): ''+s.length
+		case TDot(expr, name):
+		//trace('.`$name`')
+		expr.unwrapBlockValue() + '.' + name.rename()
+
+		case TIndex(expr, index): expr.unwrapBlockValue() + '[' + index.unwrapBlockValue() + ']'
+		case TIs(expr, t): ''; // TODO
+		case TAs(expr, kind, t): '(' + expr.unwrapBlockValue() + ')'
+		case TFunction(name, expr, vars, _):
+			pushScope()
+			r = ''
+			if (name != null) r += ' ' + name.rename()
+			//if(name != null) r += 'const  ' + name.rename() + " = "
+			r += '(' + [for(v in vars)
+				switch (v) {
+					case TVar(oname, _, _), TIdent(oname):
+						var name = oname.rename()
+						if (hasInScope(name)) name += '$$' + (++id)
+						addToScope(name)
+						parentNames.set(v, name)
+						parentNames.get(v)
+					case TParenthesis(null): ''
+					case _: throw v
+				}
+			].join(', ') + ') => '
+			if (expr != null) {
+				switch (expr) {
+					case TBlock(el):
+						r += expr.stringify()
+					case _:
+						pushScope()
+						pushTab()
+						r += '{\n$tabs'+expr.stringify()+'\n\t$tabs}'
+						popTab()
+						popScope()
+				}
+			}
+			else r += '{}'
+			popScope()
+			r
+		case TVar(oname, t, expr, const):
+			if (oname == null) throw 'name is null for $node'
+			var es = ''
+			if (expr != null) es = ' = ' + expr.unwrapBlockValue()
+			var name = oname.rename()
+			if (hasInScope(name)) name += '$$' + (++id)
+			addToScope(name)
+			parentNames.set(node, name)
+			if (name == null) throw 'name is null for $node'
+			r = (const?'const ':'let ') + name + es
+			r
+		case TTry(expr, t, v, catches):
+			r = 'try {\n$tabs\t'
+			pushTab()
+			switch (expr) {
+				case TBlock(el): r += [for (e in el) e.stringifyBlockExpression()].join(';\n'+tabs)
+				case _:	r += expr.stringify()
+			}
+
+			popTab()
+			r += '\n' + tabs + '} catch('+v[0].varName()+') {\n$tabs\t'
+			pushTab()
+			parentNames.set(v[0], v[0].varName())
+			switch (catches[0]) {
+				case TBlock(el): r += [for (e in el) e.stringify()].join(';\n'+tabs)
+				case _:	r += catches[0].stringify()
+			}
+			popTab()
+			r + '\n' + tabs + '}'
+		// TODO rename here
+		case TNew(path, t, args, names, values):
+			//if((''+t).indexOf('JSMap') != -1) throw ''+t
+			'new ' + path.join('.') + (path.length>0?'.':'') + extractTypeName(t) + '(' + [for (e in args) e.unwrapBlockValue()].join(', ') + ')'
+		case TSwitch(exprs, conds, cases):
+			r = 'switch ('
+			r += exprs[0].unwrapBlockValue()
+			r += ') {\n'
+			pushTab()
+			for (i in 0...cases.length) {
+				var c = cases[i]
+				r += tabs
+				for (c in conds[i])
+					r += 'case ' + c.stringify() + ':'
+				r += ' {\n'
+				r += tabs + '\t' + c.stringify() + ';\n'
+				r += tabs + '\t' + 'break;' + '\n' + '$tabs}' + '\n'
+			}
+			popTab()
+			r + tabs + '}'
+		case TClass(t, ext, impl, fields, true):
+			var cname = extractTypeName(t)
+			var rename = getAtt(Project.mapAttributes.get(node), 'native')
+			if(rename != null) cname = rename.asStringAttValue(0)
+			var require = getAtt(Project.mapAttributes.get(node), 'require')
+			if (require != null) switch ([require.values[0], require.values[1]]) {
+				case [TString(s), null]: r += 'const $cname = require("$s");\n$tabs'
+				case [TString(s), TString(f)]: r += 'const $cname = require("$s").$f;\n$tabs'
+				case _: throw '@require takes string as argument'
+			}
+			r += '/* declare class $cname */'
+		case TClass(t, ext, impl, fields, external): stringifyClass(node, null)
+		/*	var cname = extractTypeName(t)
+			r = (external?'/* declare class ' : 'class ') + cname
+			if (ext != null) r += ' extends ' + extractTypeName(ext)
+			r += ' {\n'
+			var after = []
+			for (f in fields) {
+				var code = ''
+				var isafter = false
+
+				function unmeta(f) {
+					switch (f) {
+						case _: return f
+					}
+				}
+
+				f = unmeta(f)
+
+				switch (f) {
+					case TStatic(field): f = field; isafter = true
+					case _: {}
+				}
+
+				f = unmeta(f)
+				switch (f) {
+					case TFunction(name, expr, vars, _):
+						{
+							if (name == 'new') name = 'constructor'
+							if (isafter) code += cname + '.' + name.rename() + ' = '
+							else code += '\t'+name.rename()
+							code += '(' + [for (v in vars)
+								switch (v) {
+									case TVar(oname, _, _):
+									var name = oname.rename()
+									if (hasInScope(name)) name += '$$' + (++id)
+									addToScope(name)
+									parentNames.set(v, name)
+									parentNames.get(v)
+									case _: throw v
+								}
+							].join(', ') + ') ' + (isafter?'=> ':'')
+							if (expr != null) {
+								switch (expr) {
+									case TBlock(el):
+									pushTab()
+									code += expr.stringify()
+									popTab()
+									case _:
+										pushTab()
+										code += '{\n$tabs' + expr.stringify()
+										popTab()
+										code += '\n$tabs}'
+								}
+							}
+							else code += '{}'
+						}
+					case TVar(name, t, expr, const):
+						isafter = true
+						if (expr != null) {
+							code += cname + '.' + name.rename()
+							code += ' = ' + expr.unwrapBlockValue()
+						}
+					case _: code += ''+f
+				}
+
+				if (code != '')
+				if (isafter) after.push(tabs + code) else r += tabs + code
+
+			}*/
+
+		case TModule(path, el):
+			throw 'unreachable'
+			trace('TModule ' + path)
+			r = 'module ' + path.join('.') + ' {\n'
+			pushTab()
+			for (e in el) {
+
+				parentNames.set(e, e.nameOf())
+				//if(e.nameOf()=='log') throw ''+e.nameOf()+' '+e
+				switch (e) {
+					case TDeclare(_, TBinop(_)): {}
+					case TDeclare(name, t):
+						//parentNames.set(e, e.nameOf())
+						parentNames.set(t, t.nameOf())
+					case _: {}
+				}
+
+				r += tabs + e.stringify() + ';\n'
+			}
+			popTab()
+			r + tabs + '}'
+		case TObject([], _): '{}'
+		case TObject(names, el): '{' + [for (i in 0...el.length) names[i].rename() + ':' + el[i].unwrapBlockValue()].join(', ') + '}'
+
+		case TStatic(field): 'static ' + field.stringify()
+
+		// Types
+		case TEnum(t, fields):
+			r = ''
+			//r = 'const ' + extractTypeName(t) + ' = '
+			r += '{\n'
+			pushTab()
+			for (f in fields) {
+				switch(f) {
+					case TBinop(TIdent(name), OpAssign, val):
+					r += tabs + name.rename() + ':' + val.stringify() + ',\n'
+					case TIdent(name):
+					r += tabs + name.rename() + ':{},\n'
+					case TCall(TIdent(name),args,argNames):
+					r += tabs + name.rename() + ':'+[for(arg in argNames) arg.rename()]+',\n'
+					case _: throw '!' + f
+				}
+			}
+			popTab()
+			r + tabs + '}'
+		case TUnderscore: '_'
+		case TDeclare(name, vnode):
+			parentNames.set(node, name)
+			Project.mapAttributes.set(vnode, Project.mapAttributes.get(node))
+			switch (vnode) {
+				case TBinop(_): {}
+				case _: parentNames.set(vnode, vnode.nameOf())
+			}
+		}
+	}
+
+	// Converts { expr } to expr
+	static function unwrapBlock(e: Node): Node {
+		return switch (e) {
+		case TBlock([e]): e
+		case TBlock(el): throw 'Unwrapped block has multiple expressions'
+		case _: e
+		}
+	}
+
+	// Converts (expr) to expr
+	static function unwrapParenthesis(e: Node): Node {
+		return switch (e) {
+		case TParenthesis(e): e.unwrapParenthesis()
+		case _: e
+		}
+	}
+
+	// Converts { expr } to expr if only one element
+	static function unwrapBlockValue(e: Node /*, tabs*/): String {
+		return switch (e) {
+		//case TParenthesis(e): e.unwrapBlockValue()
+		case TBlock([e = TBlock(_)]): e.unwrapBlockValue()
+		case TBlock([e]): e.unwrapBlockValue();//e.stringify()
+		case TBlock(el): {
+			var r = '(() => {\n'
+			pushScope()
+			pushTab()
+			var i = 0
+			while (i < el.length - 1) {
+				r += tabs + el[i].stringifyBlockExpression() + ';\n'
+				i++
+			}
+			r += tabs + 'return ' + el[el.length - 1].unwrapBlockValue() + ';\n'
+			popTab()
+			popScope()
+			r + tabs + '})()'
+		}
+		case _: e.stringify()
+		}
+	}
+
+	static function extractTypeName(t: NodeType): String {
+		return switch (t) {
+		case Type(name), ParametricType(name, _): name
+		case null: null
+		case _: throw 'Type has no name: ' + t
+		}
+	}
+
+	public static function generatePackageJson(pack: Package): String {
+		var jspackage = {  name: pack.main,
+			version: pack.main,
+			description: pack.description,
+			main: pack.main,
+			author: pack.author,
+			license: pack.license
+		}
+		return haxe.Json.stringify(jspackage, null, "\t")
+	}
+}

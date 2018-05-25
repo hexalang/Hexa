@@ -1,0 +1,301 @@
+// The Hexa Compiler
+// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2018  Bogdan Danylchenko
+//
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+import Data
+import Token
+import Lexer
+import Parser
+import NodeJs
+
+using TestParser
+using StringTools
+
+class TestParser {
+	public static function test() {
+		trace("TestParser begin")
+
+
+		// Basics and indentaion
+		shouldAllEqual([
+			''			=> '',
+			'  '		=> '',
+			'	'		=> '',
+			'   	'	=> '',
+
+			'\n'		=> '',
+			'\n\n'		=> '',
+			'\r\r\n\r\n\r\t' => '',
+
+			'{}' => 'TBlock([])',
+			'{{}}' => 'TBlock([TBlock([])])',
+			'{ 0 0 0 }' => 'TBlock([TInt(0),TInt(0),TInt(0)])',
+
+			'0' 		=> 'TInt(0)',
+			' 0 '		=> 'TInt(0)',
+			'123'		=> 'TInt(123)',
+			'12'		=> 'TInt(12)',
+			"0x1"		=> 'TInt(0x1)',
+			"0x0"		=> 'TInt(0x0)',
+			"0xF"		=> 'TInt(0xF)',
+			"0xFA"		=> 'TInt(0xFA)',
+			"0xFABCDEF" => 'TInt(0xFABCDEF)',
+
+			"0.0"		=> 'TFloat(0.0)',
+			"0.123" 	=> 'TFloat(0.123)',
+
+			"'s'"		=> 'TString(s)',
+			"\"s\"" 	=> 'TString(s)'
+		])
+
+		shouldAllEqual([
+			'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3' =>
+				'TBlock([
+				TInt(1),
+				TInt(2),
+				TInt(3),
+				TBinop(
+				TCall(TIdent(trace),[TString(Hello!),TString(World!)]),
+				+,
+				TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
+
+			'enum Test { Demo } hello World' =>
+				'TBlock([TEnum(Type(Test),[TIdent(Demo)]),
+				TIdent(hello),
+				TIdent(World)])'
+			])
+
+		// Operators
+		shouldAllEqual([
+			'a + b' => "TBinop(TIdent(a),+,TIdent(b))",
+			'a += b' => "TAssignop(TIdent(a),+,TIdent(b))",
+			])
+
+		// String interpolation
+		shouldAllEqual([
+			// '"\\\\\\(v) \\(v)"'
+			])
+
+		shouldAllEqualWithoutTrim([
+			])
+
+		// Modularity
+		shouldAllEqual([
+			'module { }' => 'TModule(, [])',
+			'code module { } code' => 'TBlock([TIdent(code),TModule(,[]),TIdent(code)])',
+			'code module { } module { } code' => 'TBlock([TIdent(code),TModule(,[]),TModule(,[]),TIdent(code)])',
+			'module a { }' => 'TModule(a, [])',
+			'module a.b { }' => 'TModule(a.b, [])',
+			'module a { module b { } }' => 'TModule(a,[TModule(b,[])])',
+			'module { class Inner {} }' => 'TModule(,[TClass(Type(Inner),null,[],[],false)])',
+			'module { class InnerA {} class InnerB {} }' => 'TModule(,[TClass(Type(InnerA),null,[],[],false),TClass(Type(InnerB),null,[],[],false)])',
+			'module m { class C {} enum E {} function f() {} var v }' => "TModule(m,[TClass(Type(C),null,[],[],false),TEnum(Type(E),[]),TFunction(f,TBlock([]),[],null),TVar(v,null,null,false)])",
+			])
+
+		// Types parsing in expressions
+
+		// Types parsing in declarations
+
+		// Enumerations
+		shouldAllEqual([
+			'enum A {}' => 'TEnum(Type(A),[])',
+			])
+
+		// ADTs
+
+		// Constructor
+		shouldAllEqual([
+			'class A {} var a = new A { } ()' => "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[]),false)])",
+			'class A { var field: String } var a = new A { field: "Value" } ()' =>
+				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[TString(Value)]),false)])",
+			'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' =>
+				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false),TVar(otherfield,Type(Int),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)]),false)])",
+
+			])
+
+		// External declarations
+		shouldAllEqual([
+			'declare var a:T' => 'TDeclare(a,TVar(a,Type(T),null,false))',
+			'declare let a:T' => 'TDeclare(a,TVar(a,Type(T),null,true))',
+			'declare function name()' => 'TDeclare(name,TFunction(name,null,[],null))',
+			'declare function name() hi()' => 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TCall(TIdent(hi),[])])',
+			'declare function name() {}' => 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TBlock([])])',
+			])
+
+		shouldAllError([
+			"declare var a",
+			"declare var a = value",
+			"declare var a:T = value",
+			"declare function()",
+			"declare var a, b, c",
+			"declare anything",
+			])
+
+
+		trace("TestParser done")
+	}
+
+	//
+	// Helpers
+	//
+
+	// Parses `input` into AST and stringifies, checks by trimmed `test`
+	static function shouldEqual(input:String, test:String) {
+		test = test.deepTrim()
+		shouldEqualWithoutTrim(input, test)
+	}
+
+	// Same as `shouldEqual`, but does no trimming of `test`
+	static function shouldEqualWithoutTrim(input:String, test:String) {
+		//trace("Testing: " + input)
+		//test = "TBlock([" + test	 + "])"
+		var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
+		var parser = new Parser(lexe)
+		var res = stringify(parser.node)
+		if (test != res) {
+			throw 'TestParser test fail: `$input` != `$test`\nGot: `$res`'
+		}
+	}
+
+	// Operates `shouldEqual` on all key-vallue pairs of `input => test`
+	static function shouldAllEqual(map: Map<String, String>) {
+		for (input in map.keys()) {
+			var test = map.get(input)
+			//trace(test)
+			shouldEqual(input, test)
+	    }
+	}
+
+	// Does `shouldEqual` without triming `=> test` parts
+	static function shouldAllEqualWithoutTrim(map: Map<String, String>) {
+		for (input in map.keys()) {
+			var test = map.get(input)
+			shouldEqualWithoutTrim(input, test)
+	    }
+	}
+
+	static function shouldError(input:String) {
+		try {
+			//trace("Testing: " + input)
+			var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
+			var parser = new Parser(lexe)
+		}
+		catch(e: Dynamic) {
+			return
+		}
+		throw 'TestParser test fail: `$input` did not throw exception.'
+	}
+
+	static function shouldAllError(input: Array<String>) {
+		for(str in input) {
+			shouldError(str)
+		}
+	}
+
+
+	// Removes all internal and trailing whitespace and newlines
+	static function deepTrim(s:String) {
+		return s.replace('\n', '').replace('\r', '').replace('\t', '').replace(' ', '')
+	}
+
+	// Creates a testable consistent string representation of node
+	static function stringify(node: Node): String {
+		return switch (node) {
+		case null: ''
+
+		// Have no sub-nodes
+		case TString(s): 'TString($s)'
+		case TIdent(s): 'TIdent($s)'
+		case TBool(b): 'TBool($b)'
+		case TThis: 'TThis'
+		case TSuper: 'TSuper'
+		case TInt(s): 'TInt($s)'
+		case TFloat(s): 'TFloat($s)'
+		case TNull: 'TNull'
+		case TBreak: 'TBreak'
+		case TContinue: 'TContinue'
+
+		// Have sub-nodes
+		case TDeclare(name, expr): 'TDeclare($name,' + expr.stringify() + ")"
+		case TIs(expr, type): 'TAs(' + expr.stringify() + "," + type.stringifyType() + ")"
+		case TAs(expr, kind, type): 'TAs(' + expr.stringify() + "," + kind.stringify() + "," + type.stringifyType() + ")"
+		case TBinop(a, op, b): 'TBinop(' + a.stringify() + ',' + op.stringify() + ',' + b.stringify() + ')'
+		case TAssignop(a, op, b): 'TAssignop(' + a.stringify() + ',' + op.stringify() + ',' + b.stringify() + ')'
+		case TBlock(els): 'TBlock(' + els.stringifyNodeArray() + ')'
+		case TVar(name, t, expr, const):
+		'TVar($name,' + ((t != null) ? t.stringifyType() : "null") +
+		"," + ((expr != null) ? expr.stringify() : "null") +',$const)'
+		case TVars(vars): 'TVars(' + vars.stringifyNodeArray() + ")"
+
+		case TFunction(name, expr, vars, rettype):
+			'TFunction($name,'
+			+ (expr == null ? "null" : expr.stringify())
+			+ "," + vars.stringifyNodeArray() + ',' + ((rettype != null) ? rettype.stringifyType() : "null") + ")"
+
+		case TCall(e, el, argNames):
+			var res = 'TCall(' + e.stringify() + ',['
+			for (i in 0...el.length) {
+				res += argNames[i] == null ? "" : argNames[i] + ":"
+				res += el[i] + ((i != el.length - 1) ? "," : "")
+			}
+			res + "])"
+
+		case TParenthesis(e): 'TParenthesis(' + e.stringify() + ')'
+		case TReturn(e): 'TReturn(' + e.stringify() + ')'
+		case TThrow(e): 'TThrow(' + e.stringify() + ')'
+		case TEnum(t, els): 'TEnum(' + t + ',' + els.stringifyNodeArray() + ')'
+		case TUsing(a): 'TUsing(' + a.join(',') + ")"
+		case TModule(paths, els):
+			"TModule(" + paths.join('.') + "," + els.stringifyNodeArray() + ")"
+
+		case TClass(type, extend, implement, fields, external):
+			var res = "TClass(" + type.stringifyType() + ","
+			res += extend != null ? extend.stringifyType() : "null" + ","
+			res += implement.stringifyNodeTypeArray() + ","
+			res += fields.stringifyNodeArray() + ","
+			res += external + ")"
+			res
+
+		case TNew(path, t, args, names, values):
+			'TNew(' + path + ',' + t.stringifyType() + ',' + args.stringifyNodeArray() + ',[' + names.join(",") + "]," + values.stringifyNodeArray() + ")"
+
+		case NodeTypeValue(type): 'NodeTypeValue(' + type.stringifyType() + ")"
+		case TDot(l, r): "TDot(" + l.stringify() + "," + r + ")"
+
+		case e: '<!--' + e + '-->'
+		}
+	}
+
+	static function stringifyNodeArray(arr: Array<Node>) {
+		return "[" + [for (e in arr) e.stringify()].join(',') + "]"
+	}
+
+	static function stringifyNodeTypeArray(arr: Array<NodeType>) {
+		return "[" + [for (e in arr) e.stringifyType()].join(',') + "]"
+	}
+
+	// Creates a testable consistent string representation of type
+	static function stringifyType(node: NodeType): String {
+		return switch (node) {
+		case Type(s): 'Type($s)'
+		case ParametricType(name, params): 'ParametricType($name,[' + params.join(',') + "])"
+		case Function(args, rettype): 'Function(['+[for (e in args) e.stringifyType()].join(',')+"],"+rettype.stringifyType()+ ')'
+		case Object(names, types): 'Object(['+ names.join(',') +"],["+ [for (e in types) e.stringifyType()].join(',') +"])"
+		case e: '<!--' + e + '-->'
+		}
+	}
+}

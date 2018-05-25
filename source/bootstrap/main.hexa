@@ -1,0 +1,224 @@
+// The Hexa Compiler
+// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2018  Bogdan Danylchenko
+//
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+import haxe.macro.Expr
+
+import NodeJs
+import Lexer
+import Parser
+import Typer
+import Data
+
+using StringTools
+using Lambda
+
+
+@:enum
+abstract Generator(String) {
+  var JavaScript = "JavaScript"
+  var C = "C"
+  var Haxe = "Haxe"
+}
+
+typedef Target = {
+	generator: Generator,
+	instance: { generatePackageJson: Bool }
+}
+
+typedef Package = {
+	name: String,
+	version: String,
+	description: String,
+	main: String,
+	author: String,
+	license: String,
+	target: Target,
+	files: Array<String>
+}
+
+/**
+ * @author PeyTy
+ **/
+
+
+class Main {
+
+	function init() {
+		var currentDirTmp = Process.argv[1].split(Path.sep)
+		var packageFileName = currentDirTmp.splice(0, -1).join(Path.sep) + Path.sep + "hexa.json"
+		var currentDir = currentDirTmp[currentDirTmp.length - 2]
+		var name = Readline.question('Enter package name ($currentDir): ')
+		if(name == "") name = currentDir
+
+		var version = Readline.question("Enter package version (1.0.0): ")
+		if(version == "") version = "1.0.0"
+
+		var description = Readline.question("Enter package description: ")
+
+		var main = Readline.question("Enter main file (main.hexa): ")
+		if(main == "") main = "main.hexa"
+
+		var target: Target = { generator: Generator.JavaScript, instance: { generatePackageJson: false } }
+		var generatorstr = Readline.question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe")
+		if(generatorstr.toUpperCase() == "C" || generatorstr == "2") target.generator = Generator.C
+		else if(generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") target.generator = Generator.Haxe
+
+		while(!(main.endsWith(".hexa"))) {
+			Process.stdout.write("Wrong file name. Must ends with '.hexa'.\n")
+			main = Readline.question("Enter main file (main.hexa): ")
+		}
+
+		var author = Readline.question("Enter package author name: ")
+		var license = Readline.question("Enter license: ")
+
+		var pack: Package = {
+			name: name, version: version, description: description,
+			output: name,
+			main: main, author: author, license: license, target: target, files: []
+		}
+		var packageStr = haxe.Json.stringify(pack, null, "\t")
+		var answ = Readline.question('About to write to: $packageFileName:\n$packageStr\nIs this ok? (yes)')
+		if(answ != "") Process.exit(1)
+
+		Fs.writeFileSync("hexa.json", packageStr)
+		Process.stdout.write("Hexa package initialized!\n")
+	}
+
+	function processFile(target: String): Node {
+		var content = Fs.readFileSync(target)
+		var tokens = Lexer.tokenize(content, target)
+		var parser = new Parser(tokens)
+		return parser.node
+	}
+
+	function processFiles(targets: Array<String>): Array<Node> {
+		var res: Array<Node> = []
+		for(target in targets) {
+			trace(target)
+			try {
+				res.push(processFile(target))
+			} catch (e:Dynamic) {
+				trace(e)
+			}
+		}
+		if (targets.length != res.length) throw 'Stopped on errors'
+		return res
+	}
+
+	function loadPackage(filename): Package {
+		var pack = haxe.Json.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8'))
+		function incorrect(what: String) {
+			Process.stdout.write("Incorrect package file! Field `$what` does not exists\n")
+			Process.exit(1)
+		}
+		if (pack.target == null) incorrect('target')
+		if (pack.main == null) incorrect('main')
+		if (pack.name == null) incorrect('name')
+		return pack
+	}
+
+	function new() {
+		// Debug information
+		#if js
+		untyped __js__("require('source-map-support').install()")
+		#end
+
+		trace("Hexa", " Alpha")
+
+		// Self-test
+		#if debug
+			TestLexer.test()
+			TestParser.test()
+			TestTyper.test()
+		#end
+
+		// Usage examples
+		if(Process.argv[2] == "version") {
+			trace('Hexa Alpha on node.js ' + Process.versions.node)
+			Process.exit(0)
+		}
+		else if(Process.argv[2] == null) {
+			trace("Usage: `node hexa.js project.json` or `node hexa.js init`")
+			Process.exit(1)
+		}
+		else if(Process.argv[2] == "init") {
+			init()
+			Process.exit(0)
+		}
+
+		// Initialize compiler
+		Lexer.init()
+
+		// Get inputs
+		var currentFile = Path.resolve(Process.argv[2])
+		var currentParsedFile: ParsedPath = Path.parse(currentFile)
+		var input: Package = null
+		var main: String = null
+		var packageFolder: String = currentParsedFile.dir
+
+		// Build the selected project
+		if (currentParsedFile.ext == ".json") {
+			input = loadPackage(currentFile)
+			main = Path.resolve(currentFile + '/../') + Path.sep + (input.main)
+			trace(currentFile)
+		}
+		// Search for project in the selected folder
+		else if (Fs.lstatSync(currentFile).isDirectory()) {
+			input = loadPackage(currentFile + Path.sep + "hexa.json")
+			packageFolder = currentFile
+			main = packageFolder + Path.sep + (input.main)
+		}
+		// Evaluate file directly
+		else if (currentParsedFile.ext == ".hexa") {
+			eval('"use strict"\r\n' + GenJs.stringifyProject(processFile(currentFile)))
+			return
+		}
+
+		// Perform compilation
+		var codes: Array<Node> = []
+		if (input.files != null) {
+			var files = input.files.map(function(file) { return Path.resolve(packageFolder + Path.sep + file); })
+			codes = processFiles(files)
+		}
+		codes.push(processFile(main))
+		var collected: Node = TBlock(codes)
+
+		Typer.fillScopes(collected)
+
+		var parsedMain = collected
+
+		// Perform code generation
+		switch (input.target.generator) {
+			case Generator.JavaScript:
+				var outs = GenJs.stringifyProject(collected)
+				var target = packageFolder + Path.sep + Path.parse(input.main).name + ".js"
+				if(input.output != null)
+					target = packageFolder + Path.sep + Path.parse(input.output).name + ".js"
+				Fs.writeFileSync(target, outs)
+				if (input.target.instance != null && input.target.instance.generatePackageJson)
+					Fs.writeFileSync(packageFolder + Path.sep + "package.json", GenJs.generatePackageJson(input))
+			case Generator.C:
+			case Generator.Haxe:
+
+			case _: throw "Generator is not defined or unknown. Is there `target.generator` field in `hexa.json`?"
+		}
+	}
+
+	static function eval(code) js.Lib.eval(code)
+
+	static function main() new Main()
+}
