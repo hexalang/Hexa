@@ -1,0 +1,652 @@
+// The Hexa Compiler
+// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2018  Bogdan Danylchenko
+//
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+import Data
+import NodeJs
+import CompilerError
+
+using Data.DataHelper
+
+class Typer {
+	public static function fillScopes(allCode: Node) {
+		//var insideLoop, insideModule, insideClass, insideFunction
+
+		//--- Modularity
+
+		var namespaces:Map<String, Node> = new Map()
+
+		function nameOfModuleItem(node: Node): String {
+			return switch (node) {
+				case
+					TVar(name, _),
+					TPrivate(TClass(Type(name), _)),
+					TClass(Type(name), _),
+					TEnum(Type(name), _),
+					TDeclare(name, _),
+					TClass(ParametricType(name, _), _),
+					TPrivate(TClass(ParametricType(name, _), _))
+					: name
+				case _: throw '' + node
+			}
+		}
+
+		function fillModuleNamespace(m: Node) {
+			var el = null
+			var root: String = switch(m) {
+				case TModule([], els): el = els; ''
+				case TModule(path, els): el = els; path.join('.')
+				case _: throw 'module?!'
+			}
+
+
+
+			//function exists(el: Array<Node>, name: String) {
+			//	for(e in el) if(name == nameOf(e)) throw ('Type `$name` already exists in module')
+			//}
+
+			if(namespaces[root] == null) {
+				namespaces[root] = m
+			} else {
+				var els = switch(namespaces[root]) {
+					case TModule(_, els): els
+					case _: throw 'module?!'
+				}
+				while(el.length > 0) els.push(el.pop())
+			}
+
+			{
+				var els = switch(namespaces[root]) {
+					case TModule(_, els): els
+					case _: throw 'module?!'
+				}
+
+				//var i = 0
+				//while(i < els.length) {
+				//	var name = nameOf(els[i])
+				//	var found = false
+				//
+				//}
+
+				//trace('>>>>>>>>>>>>>>>>>>>>>>>>>>>'+els)
+
+				for(e in els) {
+					var name = nameOfModuleItem(e)
+					var found = false
+					for(e in els) {
+						if(nameOfModuleItem(e) == name) {
+							if(found)  throw ('Type `$name` already exists in module')
+							if(!found) found = true
+						}
+					}
+				}
+			}
+
+
+			// else {
+			//	var els = switch(namespaces[root]) {
+			//		case TModule(_, els): els
+			//		case _: throw 'module?!'
+			//	}
+			//	while(el.length > 0) {
+			//		var e = el.pop()
+			//		trace('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>' + nameOf(e))
+			//		exists(els, nameOf(e))
+			//		els.push(e)
+			//	}
+			//}
+
+			//if(namespaces[root] == null) {
+			//	namespaces[root] = m
+			//} else {
+			//	var els = switch(namespaces[root]) {
+			//		case TModule(_, els): els
+			//		case _: throw 'module?!'
+			//	}
+			//	while(el.length > 0) {
+			//		var e = el.pop()
+			//		trace('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>' + nameOf(e))
+			//		exists(els, nameOf(e))
+			//		els.push(e)
+			//	}
+			//	// TODO join attributes
+			//}
+		}
+
+
+//		var namespaces:Map<String, Map<String, Node>> = new Map()
+//
+//		function fillModuleNamespace(m: Node) {
+//			var el = null
+//			var root: String = switch(m) {
+//				case TModule([], els): el = els; ''
+//				case TModule(path, els): el = els; path.join('.')
+//				case _: throw 'module?!'
+//			}
+//
+//			//if(root != null) namespaces[root] = m; // TODO modules combine selfves, classes cannt override
+//
+//			if(namespaces[root] == null) namespaces[root] = new Map()
+//
+//			for(e in el) switch (e) {
+//				case
+//					TVar(name, _),
+//					TPrivate(TClass(Type(name), _)),
+//					TClass(Type(name), _),
+//					TEnum(Type(name), _),
+//					TDeclare(name, _),
+//					TClass(ParametricType(name, _), _),
+//					TPrivate(TClass(ParametricType(name, _), _))
+//					:
+//					if(namespaces[root][name] != null)
+//					{
+//						var where = root == ''? 'global scope' : '`$root`'
+//						throw ('Type `$name` already exists in $where')
+//					}
+//					namespaces[root][name] = e
+//				case _: throw 'Modules cannot contain ' + e
+//			}
+//
+//		}
+
+		// Let's fill global namespaces first to avoid delayed expansion
+		switch (allCode) {
+			case TBlock(files):
+				// Fill module scopes of all files at first
+			//	pushScope()
+				for (file in files) {
+					var didInit = false
+					switch (file) {
+						case TBlock(el): for (e in el) switch (e) {
+							case TModule(_):
+								if(didInit) throw 'Expressions should follow after modules2 ' +e +'\n!! ' +file
+								fillModuleNamespace(e)
+							case _: didInit = true
+						}
+						case TModule(_):
+							if(didInit) throw 'Expressions should follow after modules1' +file
+							fillModuleNamespace(file)
+						case _: didInit = true; // Not always?// throw 'Typer expects each file to be a block'
+					}
+				}
+			//	popScope()
+
+			//	// Fill initialization code at files roots
+			//	for (file in files) {
+			//		pushScope()
+			//		switch (file) {
+			//			case TBlock(el): for (e in el) switch (e) {
+			//				case TModule(_): {}
+			//				case _: fill(e)
+			//			}
+			//			case TModule(_): {}
+			//			case _: fill(file)
+			//		}
+			//		popScope()
+			//	}
+			case _: throw 'Typer expects all files to be collected into a block'
+		}
+
+		// TODO module:Array<Node> ->> :Map<Node>
+			var intermediate = []
+
+		// Fill intermediate non-existsing modules (module aaa.not_exists.bbb {})
+		{
+			// TODO check(add to tests) for name clash: module aaa.bbb {} module { var aaa }
+			var intermediateSubs = []
+			for(ns in namespaces.keys()) {
+				var path = ns.split('.')
+				var namespace = path.shift()
+				function check(namespace) {
+					if (namespaces[namespace] == null && intermediate.indexOf(namespace) == -1) {
+						intermediate.push(namespace)
+					}
+				}
+				check(namespace)
+				while(path.length > 0) {
+					namespace += '.' + path.shift()
+					//trace('namespace+= =' + namespace)
+					check(namespace)
+				}
+			}
+
+			//if(intermediate.length >0 ) throw '' + intermediate + ' subs:'+intermediateSubs
+
+			for(path in intermediate) {
+				var m = TModule(path.split('.'), [])
+				namespaces[path] = m
+			}
+		}
+
+
+		function findInNamespaceRoots(name: String): Node {
+			if(namespaces[name] != null) return namespaces[name]
+			var m = namespaces['']
+			var el = switch(m) {
+				case TModule(_, els): els
+				case _: throw 'module?!'
+			}
+			for(e in el) if(name == nameOfModuleItem(e)) return e
+			// TODO module{a} conflicts to module a {}, otherwise merge those globals
+		// TODO intermediate non-existsing modules (module aaa.not_exists.bbb {})
+			return null;//namespaces[''][name]
+		}
+
+		//---
+
+		var scopes:Array<JSMap<String, Node>> = [new JSMap()]
+		var currentClass:Array<Node> = []
+		var prevnode = null
+		var isInExternalClass = false
+
+		function pushScope() scopes.push(new JSMap())
+		function popScope() scopes.pop()
+		function addScope(name, node)
+			scopes[scopes.length-1].set(name, node)
+
+		function fail(msg: String, node: Node) {
+			var data = Project.data.get(node)
+			if(data == null)
+				data = Project.data.get(prevnode)
+				if(data == null) {
+					trace(node)
+					trace(prevnode)
+					for(el in Project.data.keys())
+						trace(el + ": " + Project.data.get(el))
+					return new CompilerError(Fail.TyperError, msg, 0, 0, "")
+				}
+			return new CompilerError(Fail.TyperError, msg,  data.line, data.column, data.fileName)
+		}
+		var prevnode_s = null
+
+		function findName(name) {
+
+		}
+
+		function fill(node: Node) {
+			prevnode = node
+			switch (node) {
+				// TODO Fill TEnumExtract
+				case TEnumExtract(path, bind, expr): {
+					for(e in bind) switch (e) {
+						case null: {} // _
+						case TVar(name,_): addScope(name, e)
+						case _: throw 'TEnumExtract contains not a var: ' + e
+					}
+					switch (expr) {
+						case _ if(expr.isVoidValue()): throw fail('There should be a non-void value instead of ', expr)
+						case _: fill(expr)
+					}
+					//fill(e)
+
+				}
+				case TBlock([]): {}
+				case TVars(e): for(e in e) fill(e)
+				case TIdent(null), TVar(null,_,_), TFor(null,_,_):
+					throw new CompilerError(Fail.TyperError, ''+node)
+				case TBlock(el):
+					pushScope()
+					for(e in el) fill(e)
+					//trace(untyped JSON.stringify(scopes[scopes.length-1].keys()))
+					popScope()
+				case TIdent(name):
+					//if(name == 's')
+					//	if (prevnode_s == null) {
+					//		prevnode_s = node
+					//		//trace('mapNames $node $name == ${Project.mapNames.get(node)}')
+					//	} else {
+					//		//throw('== ${prevnode_s == node} "$name" $prevnode_s $node, ${Project.mapNames[node]}')
+					//	}
+					var subj = null
+					//trace('SCOPESSSSSSSSSS '+scopes.length)
+					for(i in 0...scopes.length) {
+						subj = scopes[scopes.length-i-1].get(name)
+						if(subj != null) {
+							//Project.mapNames[node] = subj
+							break
+						}
+					}
+
+					if(subj == null) subj = findInNamespaceRoots(name)
+					if(subj == null)
+						throw fail('Cannot find name `$name` for $node', node)
+					if(Project.mapNames.get(node) != null && Project.mapNames.get(node) != subj)
+						throw fail('mapNames overwitten from ${Project.mapNames.get(node)} to $subj for node $node', node)
+					Project.mapNames.set(node, subj)
+					//trace('mapNames $node $name == ${Project.mapNames.get(node)}')
+
+					switch (subj) {
+						case TVar(_):
+						//trace('Found $subj => ${Project.mapNames.get(node)} == ${subj}')
+						case _:
+					}
+
+					//if(subj == null) trace('No scope subj for $node')
+					//if(name == 'Console') trace('----> scopes for Console: '+Project.mapNames[node])
+					//Project.mapNames[node] = scopes[scopes.length-1][name]
+				case TUsing(names): {}
+
+				//case TVar(name = 'valueg',t,e,c): throw fail(''+name+' '+t+' '+e+' '+c, node)
+
+				case TVar(name,_,TVar(name2,_),_):
+					throw fail('Cannot assign var to another var `var $name = var $name2`', node)
+
+				case TVar(name,_,TBlock(el),_) if(el.length == 0):
+					throw fail('Cannot assign empty block to a var `var $name = {}`', node)
+
+				// TODO Hexa case TVar(name,_,TBlock([..., TVar(name2,_)]),_):
+				case TVar(name,_,TBlock(el),_) if(el[el.length - 1].match(TVar(_))):
+					throw fail('Cannot assign var to another var as a block value `var $name = { ... var }`', node)
+
+				case TVar(name,_,TBlock(el),_)
+					if(el[el.length - 1].match(TReturn(_)) || el[el.length - 1].match(TBreak)):
+					throw fail('Cannot assign var to a void as a block value `var $name = { ... void }`', node)
+
+				//case TVar(name,_,TReturn(_)|TBreak|TContinue,_):
+				case TVar(name,_,v,_) if(v.isVoidValue()):
+					throw fail('Cannot assign var to a void `var $name = void`', node)
+
+				case TVar(name,_,null, true):
+					throw fail('Constant should have a value `let $name = value`', node)
+
+				case TVar(name,_,null, const):
+					addScope(name, node)
+
+				case TVar(name,_,e, const):
+
+					// Disallow class as a variable expression
+					switch(e) {
+						case TClass(_, _, _, _, _):
+							throw fail('Variable should not have class as a value', node)
+						case _:
+					}
+
+					fill(e)
+					addScope(name, node)
+
+				case TArray(el): for(e in el) fill(e)
+				case TMap(keys, values):
+					for(i in 0...keys.length) {
+						fill(keys[i])
+						fill(values[i])
+					}
+				case TAs(e, _, _): fill(e)
+				// Constant `let`s
+				//case TBinop(a,_,_): trace(a)
+				//case TBinop(TIdent(name),OpAssign,_): trace(name)
+				//case TBinop(OpAssign,a,_) if(().match(TVar(name,_,_,true))): throw 'Cannot reassign a constant `$name`'
+				case TAssignop(a = TIdent(_),_,b): fill(a); fill(b); // TODO const
+					var parent: Node = Project.mapNames.get(a)
+					switch (parent) {
+						case TVar(name,_,_,true), TFunction(name,_):
+							throw fail('Cannot reassign a constant `$name`', node)
+						case _: // Ok
+					}
+
+				case TAssignop(a,_,b): fill(a); fill(b); // TODO const
+
+				case TBinop(a,_,b): fill(a); fill(b)
+					switch (node) {
+						case TBinop(TDot(_),_,_): // Ok
+						case TBinop(TIndex(_),OpAssign,_): // Ok
+						case TBinop(TIdent(_),OpAssign,_):
+							var parent: Node = Project.mapNames.get(a)
+							if (parent == null)
+								throw fail('null for node $a', node)
+							switch (parent) {
+								case TVar(name,_,_,true), TFunction(name,_):
+									throw fail('Cannot reassign a constant `$name`', node)
+								case _: // Ok
+							}
+
+						case TBinop(_,OpAssign,_):
+							throw fail('Cannot assign value to `$a`', node)
+						case _: // Ok
+					}
+				case TBreak: {}
+				case TCall(e, el, elnames): fill(e); for(e in el) {
+					//trace(e)
+					if(e.isVoidValue()) throw fail('Cannot use void as argument value', node)
+					fill(e)
+				}
+				case TClass(t,ex,i,f,external):
+					var iiec = isInExternalClass
+					isInExternalClass = external
+					var name = extractTypeName(t)
+					addScope(name, node)
+					currentClass.push(node)
+					pushScope()
+					// Fill class scope, also check for existence of field
+					for(field in f) {
+						var name = switch (field) {
+							case TFunction(null,_): 'new'
+							case
+							TStatic(TVar(name,_)),
+							TVar(name,_),
+							TStatic(TFunction(name,_)),
+							TFunction(name,_):
+								//trace('Class field fill $name')
+								name
+							case _:
+								throw fail('Incorrect class field node: $field', node)
+						}
+						var map = scopes[scopes.length-1]
+						if(map.has(name))
+							throw fail('Class field $name already exists', node)
+						map.set(name, field)
+
+						Project.mapNames.set(field, node)
+					}
+
+					// Fill expressions
+					for(field in f) {
+						switch (field) {
+							case
+							TFunction(_,null,_), TStatic(TFunction(_,null,_)),
+							TVar(_,_,null,_), TStatic(TVar(_,_,null,_)):
+								{}
+							case TFunction(_,e,v,r), TStatic(TFunction(_,e,v,r)):
+								fill(TFunction(null,e,v,r))
+							case TVar(_,_,e,_), TStatic(TVar(_,_,e,_)):
+								fill(e)
+							case _: {}
+						}
+					}
+
+					popScope()
+					currentClass.pop()
+					isInExternalClass = iiec
+
+				case TDeclare(name, v = TVar(vname, t, null, true)):
+					addScope(name, node)
+					//addScope(vname, v)
+					//fill(TVar(vname, t, null, false))
+
+				case TDeclare(name, TBinop(NodeTypeValue(t), OpAssign, NodeTypeValue(value))):
+					switch (t) {
+						case Type(name), ParametricType(name, _): addScope(name, node)
+						case _: {}
+					}
+
+				case TDeclare(name, t = TFunction(fname, expr, vars, rettype)):
+					//if(name != null)
+					addScope(name, node)
+					addScope(name, t)
+					//fill(t)
+					//throw '' + name + ' ' + fname
+
+				case TDeclare(name, t):
+					//Project.mapNames[node] = node
+					addScope(name, node)
+					fill(t)
+
+				case TDot(e, n): fill(e)
+				case TElvis(a,b): fill(a); fill(b)
+				case TEnum(t,f):
+					var name = extractTypeName(t)
+					addScope(name, node)
+				case TFor(name, over, by):
+					fill(over)
+					pushScope()
+					addScope(name, node)
+					fill(by)
+					popScope()
+
+				case TFunction(name, null, _, _) if(!isInExternalClass):
+					throw fail('Non-external function should have a body', node)
+				case TFunction(name, expr, vars, rettype):
+					//trace('TFunction $name')
+					if(name != null) addScope(name, node)
+					pushScope()
+					for(v in vars) {
+						switch (v) {
+							case TVar(vname, _, _): addScope(vname, v)
+							case TIdent(vname): addScope(vname, v)
+							case TParenthesis(null): {}
+							case _:
+								throw fail(v+'', node)
+						}
+					}
+					if(expr != null) fill(expr)
+					popScope()
+
+				case TIf(econd, eif, eelse):
+					var depth = 0
+					for(e in econd) {
+						switch (e) {
+							case TVar(_,_,_,false): throw fail('Only if-let bindings supported', node)
+							case TVar(_,_,_,true): depth++; pushScope(); fill(e)
+							case _: fill(e)
+						}
+					}
+					fill(eif)
+					while(depth > 0) {
+						depth--
+						popScope()
+					}
+
+					if(eelse != null) fill(eelse)
+
+				//case TIf(econd, eif, null):
+				//	for(e in econd) fill(e); fill(eif)
+				//case TIf(econd, eif, eelse):
+				//	for(e in econd) fill(e); fill(eif); fill(eelse)
+				case TIndex(e,i): fill(e); fill(i)
+
+				//case TModule(_, null): throw 'Modules should be at a file\' upper scope'
+				//case TModule(el): throw 'Modules should be at a file\' upper scope'
+				case TModule(_): throw fail('Modules should be at a file\' upper scope', node)
+
+				//TODO vames and values added
+				case TNew(path, Type(name)|ParametricType(name,_), el, names, values):
+					for(e in el) fill(e)
+
+				case TNew(path, _, el, names, values):
+					// TODO parent names and path check
+					for(e in el) fill(e)
+				case TObject(names, el): for(e in el) fill(e)
+				case TParenthesis(e): fill(e)
+				case TReturn(null): {}
+				case TReturn(TReturn(_)): throw fail('Cannot return another return. Try `{ return 1 } return 2`', node)
+				case TReturn(e):
+					fill(e)
+				case TStatic(e):
+					//trace('TStatic $e')
+					fill(e); // throw! not in class!
+				case TSuper, TThis: Project.mapNames.set(node, currentClass[currentClass.length-1])
+				case TSwitch(exprs, conds, cases): {
+					for (e in exprs) { pushScope(); fill(e); popScope(); }
+					for (e in conds) for (e in e) { pushScope(); fill(e); popScope(); }
+					for (e in cases) { pushScope(); fill(e); popScope(); }
+				}
+				case TThrow(e): fill(e)
+				case TTry(e, t, v, ca):
+					fill(e)
+					for(e in 0...ca.length) {
+						pushScope()
+						scopes[scopes.length-1].set(v[e].varName(), v[e])
+						fill(ca[e])
+						popScope()
+					}
+				case TUnop(_,_,e): fill(e)
+				case TWhile(econd, e, _): fill(econd); fill(e)
+
+				// TODO
+				case TIs(el, el2): {}
+				case NodeTypeValue(t): {}
+				case TUnderscore, TNull, TContinue, TString(_), TBool(_), TInt(_), TFloat(_): {}
+				case TExport(f): fill(f)
+				case TPrivate(f): fill(f)
+			}
+		}
+
+		function fillFile(file) {
+			//pushScope()
+			fill(file)
+			//popScope()
+		}
+
+		function fillModule(module) {
+			switch (module) {
+				case TModule(path, el):
+					trace('-------> fillModule $path')
+					for (e in el) fill(e)
+				case _:  trace('-------> fillModule $module')
+			}
+		}
+
+		switch (allCode) {
+			case TBlock(files):
+				// Fill module scopes of all files at first
+				pushScope()
+
+				//for(i in in)
+
+				for (file in files) switch (file) {
+					case TBlock(el): for (e in el) switch (e) {
+						case TModule(_): fillModule(e)
+						case _: {}
+					}
+					case TModule(_): fillModule(file)
+					case _: {} // Not always?// throw 'Typer expects each file to be a block'
+				}
+				popScope()
+
+				// Fill initialization code at files roots
+				for (file in files) {
+					pushScope()
+					switch (file) {
+						case TBlock(el): for (e in el) switch (e) {
+							case TModule(_): {}
+							case _: fill(e)
+						}
+						case TModule(_): {}
+						case _: fill(file)
+					}
+					popScope()
+				}
+			case _: throw 'Typer expects all files to be collected into a block'
+		}
+	}
+
+	public static function extractTypeName(t: NodeType): String {
+		return switch (t) {
+		case Type(name), ParametricType(name, _): name
+		case _: throw 'Type has no name: ' + t
+		}
+	}
+}
