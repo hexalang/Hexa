@@ -15,32 +15,26 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
-import haxe.macro.Expr
 
-import NodeJs
-import Lexer
-import Parser
-import Typer
-import Data
 
 using StringTools
 using Lambda
 
 
-@:enum
-abstract Generator(String) {
-  var JavaScript = "JavaScript"
-  var C = "C"
-  var Haxe = "Haxe"
+enum Generator: String {
+	JavaScript = "JavaScript"
+	C = "C"
+	Haxe = "Haxe"
 }
 
-typedef Target = {
+declare Target = {
 	generator: Generator,
 	instance: { generatePackageJson: Bool }
 }
 
-typedef Package = {
+declare Package = {
 	name: String,
+	output: String,
 	version: String,
 	description: String,
 	main: String,
@@ -61,7 +55,7 @@ class Main {
 		var currentDirTmp = Process.argv[1].split(Path.sep)
 		var packageFileName = currentDirTmp.splice(0, -1).join(Path.sep) + Path.sep + "hexa.json"
 		var currentDir = currentDirTmp[currentDirTmp.length - 2]
-		var name = Readline.question('Enter package name ($currentDir): ')
+		var name = Readline.question('Enter package name (\(currentDir)): ')
 		if (name == "") name = currentDir
 
 		var version = Readline.question("Enter package version (1.0.0): ")
@@ -91,7 +85,7 @@ class Main {
 			main: main, author: author, license: license, target: target, files: []
 		}
 		var packageStr = haxe.Json.stringify(pack, null, "\t")
-		var answ = Readline.question('About to write to: $packageFileName:\n$packageStr\nIs this ok? (yes)')
+		var answ = Readline.question('About to write to: \(packageFileName):\n\(packageStr)\nIs this ok? (yes)')
 		if (answ != "") Process.exit(1)
 
 		Fs.writeFileSync("hexa.json", packageStr)
@@ -111,7 +105,7 @@ class Main {
 			trace(target)
 			try {
 				res.push(processFile(target))
-			} catch (e:Dynamic) {
+			} catch (e: Any) {
 				trace(e)
 			}
 		}
@@ -122,7 +116,7 @@ class Main {
 	function loadPackage(filename): Package {
 		var pack = haxe.Json.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8'))
 		function incorrect(what: String) {
-			Process.stdout.write("Incorrect package file! Field `$what` does not exists\n")
+			Process.stdout.write("Incorrect package file! Field `\(what)` does not exists\n")
 			Process.exit(1)
 		}
 		if (pack.target == null) incorrect('target')
@@ -131,7 +125,8 @@ class Main {
 		return pack
 	}
 
-	function new() {
+
+	new() {
 		// Debug information
 		#if js
 		untyped __js__("require('source-map-support').install()")
@@ -191,7 +186,7 @@ class Main {
 		// Perform compilation
 		var codes: Array<Node> = []
 		if (input.files != null) {
-			var files = input.files.map(function(file) { return Path.resolve(packageFolder + Path.sep + file); })
+			var files = input.files.map(function(file) { return Path.resolve(packageFolder + Path.sep + file) })
 			codes = processFiles(files)
 		}
 		codes.push(processFile(main))

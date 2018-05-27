@@ -16,14 +16,12 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-import Data
-import NodeJs
-import CompilerError
+module {
 
 using Data.DataHelper
 
 class Typer {
-	public static function fillScopes(allCode: Node) {
+	static function fillScopes(allCode: Node) {
 		//var insideLoop, insideModule, insideClass, insideFunction
 
 		//--- Modularity
@@ -47,16 +45,16 @@ class Typer {
 
 		function fillModuleNamespace(m: Node) {
 			var el = null
-				case TModule([], els): el = els; ''
-				case TModule(path, els): el = els; path.join('.')
 			var root: String = switch (m) {
+				case TModule([], els): el = els ''
+				case TModule(path, els): el = els path.join('.')
 				case _: throw 'module?!'
 			}
 
 
 
 			//function exists(el: Array<Node>, name: String) {
-			//	for(e in el) if(name == nameOf(e)) throw ('Type `$name` already exists in module')
+			//	for (e in el) if (name == nameOf(e)) throw ('Type `\(name)` already exists in module')
 			//}
 
 			if (namespaces[root] == null) {
@@ -87,9 +85,9 @@ class Typer {
 				for (e in els) {
 					var name = nameOfModuleItem(e)
 					var found = false
-							if(found)  throw ('Type `$name` already exists in module')
 					for (e in els) {
 						if (nameOfModuleItem(e) == name) {
+							if (found) throw ('Type `\(name)` already exists in module')
 							if (!found) found = true
 						}
 					}
@@ -132,13 +130,13 @@ class Typer {
 //
 //		function fillModuleNamespace(m: Node) {
 //			var el = null
-//				case TModule([], els): el = els; ''
-//				case TModule(path, els): el = els; path.join('.')
 //			var root: String = switch (m) {
+//				case TModule([], els): el = els ''
+//				case TModule(path, els): el = els path.join('.')
 //				case _: throw 'module?!'
 //			}
 //
-//			//if(root != null) namespaces[root] = m; // TODO modules combine selfves, classes cannt override
+//			//if (root != null) namespaces[root] = m // TODO modules combine selfves, classes cannt override
 //
 //			if (namespaces[root] == null) namespaces[root] = new Map()
 //
@@ -154,8 +152,8 @@ class Typer {
 //					:
 //					if (namespaces[root][name] != null)
 //					{
-//						var where = root == ''? 'global scope' : '`$root`'
-//						throw ('Type `$name` already exists in $where')
+//						var where = root == ''? 'global scope' : '`\(root)`'
+//						throw ('Type `\(name)` already exists in \(where)')
 //					}
 //					namespaces[root][name] = e
 //				case _: throw 'Modules cannot contain ' + e
@@ -180,7 +178,7 @@ class Typer {
 						case TModule(_):
 							if (didInit) throw 'Expressions should follow after modules1' +file
 							fillModuleNamespace(file)
-						case _: didInit = true; // Not always?// throw 'Typer expects each file to be a block'
+						case _: didInit = true // Not always?// throw 'Typer expects each file to be a block'
 					}
 				}
 			//	popScope()
@@ -243,7 +241,7 @@ class Typer {
 			for (e in el) if (name == nameOfModuleItem(e)) return e
 			// TODO module{a} conflicts to module a {}, otherwise merge those globals
 		// TODO intermediate non-existsing modules (module aaa.not_exists.bbb {})
-			return null;//namespaces[''][name]
+			return null//namespaces[''][name]
 		}
 
 		//---
@@ -307,13 +305,13 @@ class Typer {
 					//if (name == 's')
 					//	if (prevnode_s == null) {
 					//		prevnode_s = node
-					//		//trace('mapNames $node $name == ${Project.mapNames.get(node)}')
+					//		//trace('mapNames \(node) \(name) == \(Project.mapNames.get(node))')
 					//	} else {
-					//		//throw('== ${prevnode_s == node} "$name" $prevnode_s $node, ${Project.mapNames[node]}')
+					//		//throw('== \(prevnode_s == node) "\(name)" \(prevnode_s) \(node), \(Project.mapNames[node])')
 					//	}
 					var subj = null
-					for(i in 0...scopes.length) {
 					//trace('SCOPESSSSSSSSSS ' + scopes.length)
+					for (i in scopes.length) {
 						subj = scopes[scopes.length-i-1].get(name)
 						if (subj != null) {
 							//Project.mapNames[node] = subj
@@ -321,47 +319,47 @@ class Typer {
 						}
 					}
 
-						throw fail('Cannot find name `$name` for $node', node)
-						throw fail('mapNames overwitten from ${Project.mapNames.get(node)} to $subj for node $node', node)
 					if (subj == null) subj = findInNamespaceRoots(name)
 					if (subj == null)
+						throw fail('Cannot find name `\(name)` for \(node)', node)
 					if (Project.mapNames.get(node) != null && Project.mapNames.get(node) != subj)
+						throw fail('mapNames overwitten from \(Project.mapNames.get(node)) to \(subj) for node \(node)', node)
 					Project.mapNames.set(node, subj)
-					//trace('mapNames $node $name == ${Project.mapNames.get(node)}')
+					//trace('mapNames \(node) \(name) == \(Project.mapNames.get(node))')
 
 					switch (subj) {
 						case TVar(_):
-						//trace('Found $subj => ${Project.mapNames.get(node)} == ${subj}')
+						//trace('Found \(subj) => \(Project.mapNames.get(node)) == \(subj)')
 						case _:
 					}
 
-					//if(subj == null) trace('No scope subj for $node')
-					//if(name == 'Console') trace('----> scopes for Console: '+Project.mapNames[node])
+					//if (subj == null) trace('No scope subj for \(node)')
+					//if (name == 'Console') trace('----> scopes for Console: ' + Project.mapNames[node])
 					//Project.mapNames[node] = scopes[scopes.length-1][name]
 				case TUsing(names): {}
 
 				//case TVar(name = 'valueg',t,e,c): throw fail('' + name+' ' + t + ' ' + e + ' ' + c, node)
 
 				case TVar(name,_,TVar(name2,_),_):
-					throw fail('Cannot assign var to another var `var $name = var $name2`', node)
+					throw fail('Cannot assign var to another var `var \(name) = var \(name2)`', node)
 
-					throw fail('Cannot assign empty block to a var `var $name = {}`', node)
 				case TVar(name,_,TBlock(el),_) if (el.length == 0):
+					throw fail('Cannot assign empty block to a var `var \(name) = {}`', node)
 
 				// TODO Hexa case TVar(name,_,TBlock([..., TVar(name2,_)]),_):
-					throw fail('Cannot assign var to another var as a block value `var $name = { ... var }`', node)
 				case TVar(name,_,TBlock(el),_) if (el[el.length - 1].match(TVar(_))):
+					throw fail('Cannot assign var to another var as a block value `var \(name) = { ... var }`', node)
 
 				case TVar(name,_,TBlock(el),_)
-					throw fail('Cannot assign var to a void as a block value `var $name = { ... void }`', node)
 					if (el[el.length - 1].match(TReturn(_)) || el[el.length - 1].match(TBreak)):
+					throw fail('Cannot assign var to a void as a block value `var \(name) = { ... void }`', node)
 
 				//case TVar(name,_,TReturn(_)|TBreak|TContinue,_):
-					throw fail('Cannot assign var to a void `var $name = void`', node)
 				case TVar(name,_,v,_) if (v.isVoidValue()):
+					throw fail('Cannot assign var to a void `var \(name) = void`', node)
 
 				case TVar(name,_,null, true):
-					throw fail('Constant should have a value `let $name = value`', node)
+					throw fail('Constant should have a value `let \(name) = value`', node)
 
 				case TVar(name,_,null, const):
 					addScope(name, node)
@@ -380,7 +378,7 @@ class Typer {
 
 				case TArray(el): for (e in el) fill(e)
 				case TMap(keys, values):
-					for(i in 0...keys.length) {
+					for (i in keys.length) {
 						fill(keys[i])
 						fill(values[i])
 					}
@@ -388,37 +386,37 @@ class Typer {
 				// Constant `let`s
 				//case TBinop(a,_,_): trace(a)
 				//case TBinop(TIdent(name),OpAssign,_): trace(name)
-				//case TBinop(OpAssign,a,_) if(().match(TVar(name,_,_,true))): throw 'Cannot reassign a constant `$name`'
-				case TAssignop(a = TIdent(_),_,b): fill(a); fill(b); // TODO const
+				//case TBinop(OpAssign,a,_) if (().match(TVar(name,_,_,true))): throw 'Cannot reassign a constant `\(name)`'
+				case TAssignop(a = TIdent(_),_,b): fill(a) fill(b) // TODO const
 					var parent: Node = Project.mapNames.get(a)
 					switch (parent) {
 						case TVar(name,_,_,true), TFunction(name,_):
-							throw fail('Cannot reassign a constant `$name`', node)
+							throw fail('Cannot reassign a constant `\(name)`', node)
 						case _: // Ok
 					}
 
-				case TAssignop(a,_,b): fill(a); fill(b); // TODO const
+				case TAssignop(a,_,b): fill(a) fill(b) // TODO const
 
-				case TBinop(a,_,b): fill(a); fill(b)
+				case TBinop(a,_,b): fill(a) fill(b)
 					switch (node) {
 						case TBinop(TDot(_),_,_): // Ok
 						case TBinop(TIndex(_),OpAssign,_): // Ok
 						case TBinop(TIdent(_),OpAssign,_):
 							var parent: Node = Project.mapNames.get(a)
 							if (parent == null)
-								throw fail('null for node $a', node)
+								throw fail('null for node \(a)', node)
 							switch (parent) {
 								case TVar(name,_,_,true), TFunction(name,_):
-									throw fail('Cannot reassign a constant `$name`', node)
+									throw fail('Cannot reassign a constant `\(name)`', node)
 								case _: // Ok
 							}
 
 						case TBinop(_,OpAssign,_):
-							throw fail('Cannot assign value to `$a`', node)
+							throw fail('Cannot assign value to `\(a)`', node)
 						case _: // Ok
 					}
 				case TBreak: {}
-				case TCall(e, el, elnames): fill(e); for(e in el) {
+				case TCall(e, el, elnames): fill(e) for (e in el) {
 					//trace(e)
 					if (e.isVoidValue()) throw fail('Cannot use void as argument value', node)
 					fill(e)
@@ -439,14 +437,14 @@ class Typer {
 							TVar(name,_),
 							TStatic(TFunction(name,_)),
 							TFunction(name,_):
-								//trace('Class field fill $name')
+								//trace('Class field fill \(name)')
 								name
 							case _:
-								throw fail('Incorrect class field node: $field', node)
+								throw fail('Incorrect class field node: \(field)', node)
 						}
 						var map = scopes[scopes.length-1]
-							throw fail('Class field $name already exists', node)
 						if (map.has(name))
+							throw fail('Class field \(name) already exists', node)
 						map.set(name, field)
 
 						Project.mapNames.set(field, node)
@@ -495,7 +493,7 @@ class Typer {
 					fill(t)
 
 				case TDot(e, n): fill(e)
-				case TElvis(a,b): fill(a); fill(b)
+				case TElvis(a,b): fill(a) fill(b)
 				case TEnum(t,f):
 					var name = extractTypeName(t)
 					addScope(name, node)
@@ -509,7 +507,7 @@ class Typer {
 				case TFunction(name, null, _, _) if (!isInExternalClass):
 					throw fail('Non-external function should have a body', node)
 				case TFunction(name, expr, vars, rettype):
-					//trace('TFunction $name')
+					//trace('TFunction \(name)')
 					if (name != null) addScope(name, node)
 					pushScope()
 					for (v in vars) {
@@ -529,7 +527,7 @@ class Typer {
 					for (e in econd) {
 						switch (e) {
 							case TVar(_,_,_,false): throw fail('Only if-let bindings supported', node)
-							case TVar(_,_,_,true): depth++; pushScope(); fill(e)
+							case TVar(_,_,_,true): depth++ pushScope() fill(e)
 							case _: fill(e)
 						}
 					}
@@ -542,10 +540,10 @@ class Typer {
 					if (eelse != null) fill(eelse)
 
 				//case TIf(econd, eif, null):
-				//	for(e in econd) fill(e); fill(eif)
+				//	for (e in econd) fill(e) fill(eif)
 				//case TIf(econd, eif, eelse):
-				//	for(e in econd) fill(e); fill(eif); fill(eelse)
-				case TIndex(e,i): fill(e); fill(i)
+				//	for (e in econd) fill(e) fill(eif) fill(eelse)
+				case TIndex(e,i): fill(e) fill(i)
 
 				//case TModule(_, null): throw 'Modules should be at a file\' upper scope'
 				//case TModule(el): throw 'Modules should be at a file\' upper scope'
@@ -565,25 +563,25 @@ class Typer {
 				case TReturn(e):
 					fill(e)
 				case TStatic(e):
-					//trace('TStatic $e')
-					fill(e); // throw! not in class!
+					//trace('TStatic \(e)')
+					fill(e) // throw! not in class!
 				case TSuper, TThis: Project.mapNames.set(node, currentClass[currentClass.length-1])
 				case TSwitch(exprs, conds, cases): {
-					for (e in exprs) { pushScope(); fill(e); popScope(); }
-					for (e in conds) for (e in e) { pushScope(); fill(e); popScope(); }
-					for (e in cases) { pushScope(); fill(e); popScope(); }
+					for (e in exprs) { pushScope() fill(e) popScope() }
+					for (e in conds) for (e in e) { pushScope() fill(e) popScope() }
+					for (e in cases) { pushScope() fill(e) popScope() }
 				}
 				case TThrow(e): fill(e)
 				case TTry(e, t, v, ca):
 					fill(e)
-					for(e in 0...ca.length) {
+					for (e in ca.length) {
 						pushScope()
 						scopes[scopes.length-1].set(v[e].varName(), v[e])
 						fill(ca[e])
 						popScope()
 					}
 				case TUnop(_,_,e): fill(e)
-				case TWhile(econd, e, _): fill(econd); fill(e)
+				case TWhile(econd, e, _): fill(econd) fill(e)
 
 				// TODO
 				case TIs(el, el2): {}
@@ -600,12 +598,12 @@ class Typer {
 			//popScope()
 		}
 
-		function fillModule(module) {
-			switch (module) {
+		function fillModule(mod) {
+			switch (mod) {
 				case TModule(path, el):
-					trace('-------> fillModule $path')
+					trace('-------> fillModule \(path)')
 					for (e in el) fill(e)
-				case _:  trace('-------> fillModule $module')
+				case _: trace('-------> fillModule \(mod)')
 			}
 		}
 
@@ -643,10 +641,11 @@ class Typer {
 		}
 	}
 
-	public static function extractTypeName(t: NodeType): String {
+	static function extractTypeName(t: NodeType): String {
 		return switch (t) {
 		case Type(name), ParametricType(name, _): name
 		case _: throw 'Type has no name: ' + t
 		}
 	}
+}
 }
