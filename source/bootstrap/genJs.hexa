@@ -16,12 +16,8 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-import NodeJs
-import Data
-import Main
+module {
 
-using GenJs
-using Data.DataHelper
 
 class GenJs /*extends GeneratorHelper*/ {
 	static var id = 0
@@ -79,8 +75,8 @@ class GenJs /*extends GeneratorHelper*/ {
 	}
 
 	// Control indentation
-	static inline function pushTab() tabs += '\t'
-	static inline function popTab() tabs = tabs.substring(0, tabs.length - 1)
+	@inline static function pushTab() tabs += '\t'
+	@inline static function popTab() tabs = tabs.substring(0, tabs.length - 1)
 
 	static function stringifyBlockExpression(node: Node): String {
 		var r = ''
@@ -183,7 +179,7 @@ class GenJs /*extends GeneratorHelper*/ {
 					switch (v) {
 						case TVar(oname, _, _), TIdent(oname):
 							var name = oname.rename()
-							if (hasInScope(name)) name += '$$' + (++id)
+							if (hasInScope(name)) name += "$" + (++id)
 							addToScope(name)
 							parentNames.set(v, name)
 							parentNames.get(v)
@@ -198,14 +194,14 @@ class GenJs /*extends GeneratorHelper*/ {
 						case _:
 							pushScope()
 							pushTab()
-							funcbody = '{\n$tabs'+expr.stringify()+'\n\t$tabs}'
+							funcbody = '{\n\(tabs)' + expr.stringify() + '\n\t\(tabs)}'
 							popTab()
 							popScope()
 					}
 				}
 				else funcbody = '{}'
 				popScope()
-				'const $newname = ($vars) => $funcbody'
+				'const \(newname) = (\(vars)) => \(funcbody)'
 			case _:
 				//trace(node)
 				node.stringify()
@@ -244,12 +240,12 @@ class GenJs /*extends GeneratorHelper*/ {
 	static function addVariable(variable: Node) {
 		addToScope(oname)
 		var name = oname.rename()
-		if (hasInScope(oname)) name += '$$' + (++id)
+		if (hasInScope(oname)) name += "$" + (++id)
 		parentNames.set(node, name)
 	}
 	#end
 
-	public static function stringifyProject(node: Node): String {
+	static function stringifyProject(node: Node): String {
 		switch (node) {
 			//case TBlock([TClass(Type('GeneratorHelper'),_),_]): throw '' + el
 			case TBlock(el):
@@ -315,10 +311,10 @@ class GenJs /*extends GeneratorHelper*/ {
 					//output.push('//----')
 					//output.push(intermediate.join('\n'))
 
-					else if(ns.indexOf('.') == -1) output.push('\tconst $ns = {}')
-					else output.push('\t$ns = {}')
 					for (ns in intermediate)
 					if (ns == '') {}
+					else if (ns.indexOf('.') == -1) output.push('\tconst \(ns) = {}')
+					else output.push('\t\(ns) = {}')
 				}
 				// Fill modules' class inheritance in proper order
 				{
@@ -337,10 +333,10 @@ class GenJs /*extends GeneratorHelper*/ {
 					var cs = 0
 					var fs = 0
 					function fillClasses(extendsWhat: String) {
-						trace('fillClasses == ' + extendsWhat + ' $cs')
+						trace('fillClasses == ' + extendsWhat + ' \(cs)')
 						cs++
-							trace('fillClassesOf == ' + path + ' $fs')
 						function fillClassesOf(path: Array<String>, el: Array<Node>) {
+							trace('fillClassesOf == ' + path + ' \(fs)')
 							fs++
 							if (path.length == 0)
 							{
@@ -392,7 +388,7 @@ class GenJs /*extends GeneratorHelper*/ {
 							//{
 							//	for (e in el) switch (e) {
 							//		//case TDeclare(_): stringify(e)
-							//		case TDeclare(name, vnode): parentNames.set(e, name); stringify(vnode)
+							//		case TDeclare(name, vnode): parentNames.set(e, name) stringify(vnode)
 							//		case TClass(_,_,_,_,true): stringify(e)
 							//		case _: output.push('\t' + e.nameOf() + '/*!&*/ = ' + stringify(e) + ';')
 							//	}
@@ -451,7 +447,7 @@ class GenJs /*extends GeneratorHelper*/ {
 						//{
 						//	for (e in el) switch (e) {
 						//		//case TDeclare(_): stringify(e)
-						//		case TDeclare(name, vnode): parentNames.set(e, name); stringify(vnode)
+						//		case TDeclare(name, vnode): parentNames.set(e, name) stringify(vnode)
 						//		case TClass(_,_,_,_,true): stringify(e)
 						//		case _: output.push('\t' + e.nameOf() + '/*!&*/ = ' + stringify(e) + ';')
 						//	}
@@ -489,7 +485,7 @@ class GenJs /*extends GeneratorHelper*/ {
 
 	static var enumUid = 0
 
-	public static function stringifyClass(node: Node, path:Array<String>): String {
+	static function stringifyClass(node: Node, path: Array<String>): String {
 		return switch (node) {
 			case TClass(t, ext, impl, fields, external):
 			var cname = extractTypeName(t)
@@ -513,7 +509,7 @@ class GenJs /*extends GeneratorHelper*/ {
 				f = unmeta(f)
 
 				switch (f) {
-					case TStatic(field): f = field; isafter = true
+					case TStatic(field): f = field isafter = true
 					case _: {}
 				}
 
@@ -528,7 +524,7 @@ class GenJs /*extends GeneratorHelper*/ {
 								switch (v) {
 									case TVar(oname, _, _):
 									var name = oname.rename()
-									if (hasInScope(name)) name += '$$' + (++id)
+									if (hasInScope(name)) name += "$" + (++id)
 									addToScope(name)
 									parentNames.set(v, name)
 									parentNames.get(v)
@@ -543,9 +539,9 @@ class GenJs /*extends GeneratorHelper*/ {
 									popTab()
 									case _:
 										pushTab()
-										code += '{\n$tabs' + expr.stringify()
+										code += '{\n\(tabs)' + expr.stringify()
 										popTab()
-										code += '\n$tabs}\n'
+										code += '\n\(tabs)}\n'
 								}
 							}
 							else code += '{}'
@@ -570,7 +566,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		}
 	}
 
-	public static function stringify(node: Node): String {
+	static function stringify(node: Node): String {
 		//trace(node)
 
 		var r = ''
@@ -597,16 +593,16 @@ class GenJs /*extends GeneratorHelper*/ {
 				switch (e) {
 						case null: {} // _
 						case TVar(name,_):
-							var name = stringify(e).split(' ')[1];//name.rename()
-							//stringify(e); //addScope(name, e)
-							out += 'let $name = null;\n' + tabs
-							postout += tabs + '\t$name = enum$enumUid$$.values[$i];'
+							var name = stringify(e).split(' ')[1]//name.rename()
+							//stringify(e) //addScope(name, e)
+							out += 'let \(name) = null;\n' + tabs
+							postout += tabs + '\t\(name) = enum\(enumUid)$.values[\(i)];'
 						case _: throw 'TEnumExtract contains not a var: ' + e
 					}
 				i++
 			}
-			var value = 'const enum$enumUid$$ = ' + unwrapBlockValue(expr) + ';\n$tabs'
-			value + out + 'if (enum$enumUid$$.index == $$TODO) {\n' + postout + '\n$tabs}'
+			var value = 'const enum\(enumUid)$ = ' + unwrapBlockValue(expr) + ';\n\(tabs)'
+			value + out + 'if (enum\(enumUid)$.index == $TODO) {\n' + postout + '\n\(tabs)}'
 			//switch (expr) {
 			//	case _ if (expr.isVoidValue()): throw fail('There should be a non-void value instead of ', expr)
 			//	case _: fill(expr)
@@ -615,7 +611,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			//'let ' + path.join('.') + '() = ' + stringify(expr)
 		}
 
-		case TUsing(names): '/*using $names*/'
+		case TUsing(names): '/*using \(names)*/'
 		case TVars(e): [for (e in e) stringify(e)].join('; ')
 
 		//case TBlock([e]): stringify(e)
@@ -626,7 +622,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			.split('\n').join('\\n')
 			.split('\r').join('\\r')
 			.split('\'').join('\\\'')
-			+ '\'';*/
+			+ '\''*/
 			var s = s.split('')
 			var charsOut = []
 			while (s.length > 0)
@@ -657,20 +653,20 @@ class GenJs /*extends GeneratorHelper*/ {
 
 			"'" + charsOut.join('') + "'"
 		case TIdent(s):
-			//trace('`$s`')
+			//trace('`\(s)`')
 			var source = Project.mapNames.get(node)
 			/*var value = switch (source) {
 				case TDeclare(_, node): node
 				case _: source
 			}*/
 			var n = switch (source) {
-				case null: throw 'Unmapped $node'
+				case null: throw 'Unmapped \(node)'
 				case TDeclare(name, t):
 					var n = parentNames.get(source)
 					if (n==null)
-					//if(name=='instanceof')
-					throw 'TDeclare `$name` parentNames null == '+parentNames.get(source) + ' for ' + source
-					//if(name=='instanceof')throw ''+/*getAtt(*/Project.mapAttributes.get(source)/*, 'infix')*/
+					//if (name=='instanceof')
+					throw 'TDeclare `\(name)` parentNames null == ' + parentNames.get(source) + ' for ' + source
+					//if (name=='instanceof')throw '' + /*getAtt(*/Project.mapAttributes.get(source)/*, 'infix')*/
 
 					var rename = getAtt(Project.mapAttributes.get(source), 'native')
 					//if (rename != null) trace('Got @native!')
@@ -690,8 +686,8 @@ class GenJs /*extends GeneratorHelper*/ {
 					var n = parentNames.get(source)
 					if (n==null) {
 						var data = Project.data.get(node)
-						var at = if(data != null) ' at ' + data.line +':'+ data.column +':'+ data.fileName else ''
-						throw 'TVar `$name` parentNames null == '+parentNames.get(source) + ' for ' + source + at
+						var at = if (data != null) ' at ' + data.line +':' + data.column + ':' + data.fileName else ''
+						throw 'TVar `\(name)` parentNames null == ' + parentNames.get(source) + ' for ' + source + at
 					}
 					n
 				case TStatic(f = TVar(name, _, _)):
@@ -699,7 +695,7 @@ class GenJs /*extends GeneratorHelper*/ {
 					switch (static_source) {
 						case TClass(t, _), TEnum(t,_):
 							t.extractTypeName().rename() + '.' + name.rename()
-						case _: throw 'static_source is $static_source'
+						case _: throw 'static_source is \(static_source)'
 					}
 				case TFunction(name, _): name.rename()
 				case TClass(t, _):
@@ -712,9 +708,9 @@ class GenJs /*extends GeneratorHelper*/ {
 						case _: name
 					} else name
 				case TModule(path, _): path.join('.')
-				// TODO throw 'Modules cannot be used as a values (look at `${path.join('.')}`)'
+				// TODO throw 'Modules cannot be used as a values (look at `\(path.join('.'))`)'
 				case _:
-				throw '$s '+source
+				throw '\(s) ' + source
 			}
 			n
 		case TBool(true): 'true'
@@ -741,10 +737,10 @@ class GenJs /*extends GeneratorHelper*/ {
 						var code = tabs + element.stringifyBlockExpression() + ';\n'
 						// TODO if (!element.match(TBlock(_),TTry(_)))
 						//if (!element.match(TBlock(_)) && code.length < 256)
-						//trace('Generated block expression `${code.trim()}`')
+						//trace('Generated block expression `\(code.trim())`')
 						r += code
 				}
-			popTab(); // This is nearest to pushTab for cache locality
+			popTab() // This is nearest to pushTab for cache locality
 			popScope()
 			r + tabs + '}'
 
@@ -752,7 +748,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TFor(n, a, b):
 			pushScope()
 			var name = n.rename()
-			if (hasInScope(name)) name += '$$' + (++id)
+			if (hasInScope(name)) name += "$" + (++id)
 			addToScope(name)
 			parentNames.set(node, name)
 			var res = 'for (const ' + name.rename() + ' of ' + a.stringify() + ') '
@@ -768,20 +764,20 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TCall(e, el, argNames):
 			var source = Project.mapNames.get(e)
 			switch (source) {
-			/*	case null: throw 'Unmapped $node'
+			/*	case null: throw 'Unmapped \(node)'
 				case TEnum(Type(name), _): name
 				case TFor(name, _, _): parentNames.get(source)
 				case TIdent(name): parentNames.get(source)
 				case TVar(name, _, _):
 					var n = parentNames.get(source)
-					if (n==null) throw 'TVar `$name` parentNames null == '+parentNames.get(source)
+					if (n==null) throw 'TVar `\(name)` parentNames null == ' + parentNames.get(source)
 					n
 				case TStatic(f = TVar(name, _, _)):
 					var static_source = Project.mapNames.get(source)
 					switch (static_source) {
 						case TClass(t, _), TEnum(t,_):
 							t.extractTypeName().rename() + '.' + name.rename()
-						case _: throw 'static_source is $static_source'
+						case _: throw 'static_source is \(static_source)'
 					}
 				case TFunction(name, _): name.rename()
 				case TClass(t, _):
@@ -792,7 +788,7 @@ class GenJs /*extends GeneratorHelper*/ {
 						case null: name
 						case TString(s): s
 						case _: name
-					} else name;*/
+					} else name*/
 				case null: e.unwrapBlockValue() + '(' + [for (e in el) e.unwrapBlockValue()].join(', ') + ')'
 				case TFunction('instanceof', _):
 				'((' + el[0].unwrapBlockValue() + ') instanceof (' + el[1].unwrapBlockValue() + '))'
@@ -813,7 +809,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			r += '((()=>{'
 			r += "const return$$ = []; "
 			var name = oname.rename()
-			if (hasInScope(name)) name += '$$' + (++id)
+			if (hasInScope(name)) name += "$" + (++id)
 			addToScope(name)
 			parentNames.set(f, name)
 			r += 'for (const ' + name + ' of ' + array.unwrapBlockValue() + ') '
@@ -828,7 +824,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TMap([],_): 'new Map()'
 		case TMap(keys,values):
 			'new Map([' +
-			[for (i in 0...keys.length) '[' + keys[i].unwrapBlockValue()+ ', ' + values[i].unwrapBlockValue() + ']'].join(', ')
+			[for (i in keys.length) '[' + keys[i].unwrapBlockValue() + ', ' + values[i].unwrapBlockValue() + ']'].join(', ')
 			+ '])'
 
 		case TIf(econd, eif, eelse):
@@ -843,11 +839,11 @@ class GenJs /*extends GeneratorHelper*/ {
 		case NodeTypeValue(type): extractTypeName(type)
 		case TDot(TString(s), 'length'): '' + s.length
 		case TDot(expr, name):
-		//trace('.`$name`')
+		//trace('.`\(name)`')
 		expr.unwrapBlockValue() + '.' + name.rename()
 
 		case TIndex(expr, index): expr.unwrapBlockValue() + '[' + index.unwrapBlockValue() + ']'
-		case TIs(expr, t): ''; // TODO
+		case TIs(expr, t): '' // TODO
 		case TAs(expr, kind, t): '(' + expr.unwrapBlockValue() + ')'
 		case TFunction(name, expr, vars, _):
 			pushScope()
@@ -858,7 +854,7 @@ class GenJs /*extends GeneratorHelper*/ {
 				switch (v) {
 					case TVar(oname, _, _), TIdent(oname):
 						var name = oname.rename()
-						if (hasInScope(name)) name += '$$' + (++id)
+						if (hasInScope(name)) name += "$" + (++id)
 						addToScope(name)
 						parentNames.set(v, name)
 						parentNames.get(v)
@@ -873,7 +869,7 @@ class GenJs /*extends GeneratorHelper*/ {
 					case _:
 						pushScope()
 						pushTab()
-						r += '{\n$tabs'+expr.stringify()+'\n\t$tabs}'
+						r += '{\n\(tabs)' + expr.stringify() + '\n\t\(tabs)}'
 						popTab()
 						popScope()
 				}
@@ -882,18 +878,18 @@ class GenJs /*extends GeneratorHelper*/ {
 			popScope()
 			r
 		case TVar(oname, t, expr, const):
-			if (oname == null) throw 'name is null for $node'
+			if (oname == null) throw 'name is null for \(node)'
 			var es = ''
 			if (expr != null) es = ' = ' + expr.unwrapBlockValue()
 			var name = oname.rename()
-			if (hasInScope(name)) name += '$$' + (++id)
+			if (hasInScope(name)) name += "$" + (++id)
 			addToScope(name)
 			parentNames.set(node, name)
-			if (name == null) throw 'name is null for $node'
+			if (name == null) throw 'name is null for \(node)'
 			r = (const?'const ':'let ') + name + es
 			r
 		case TTry(expr, t, v, catches):
-			r = 'try {\n$tabs\t'
+			r = 'try {\n\(tabs)\t'
 			pushTab()
 			switch (expr) {
 				case TBlock(el): r += [for (e in el) e.stringifyBlockExpression()].join(';\n' + tabs)
@@ -901,7 +897,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			}
 
 			popTab()
-			r += '\n' + tabs + '} catch('+v[0].varName()+') {\n$tabs\t'
+			r += '\n' + tabs + '} catch(' + v[0].varName() + ') {\n\(tabs)\t'
 			pushTab()
 			parentNames.set(v[0], v[0].varName())
 			switch (catches[0]) {
@@ -919,14 +915,14 @@ class GenJs /*extends GeneratorHelper*/ {
 			r += exprs[0].unwrapBlockValue()
 			r += ') {\n'
 			pushTab()
-			for (i in 0...cases.length) {
+			for (i in cases.length) {
 				var c = cases[i]
 				r += tabs
 				for (c in conds[i])
 					r += 'case ' + c.stringify() + ':'
 				r += ' {\n'
 				r += tabs + '\t' + c.stringify() + ';\n'
-				r += tabs + '\t' + 'break;' + '\n' + '$tabs}' + '\n'
+				r += tabs + '\t' + 'break;' + '\n' + '\(tabs)}' + '\n'
 			}
 			popTab()
 			r + tabs + '}'
@@ -936,11 +932,11 @@ class GenJs /*extends GeneratorHelper*/ {
 			if (rename != null) cname = rename.asStringAttValue(0)
 			var require = getAtt(Project.mapAttributes.get(node), 'require')
 			if (require != null) switch ([require.values[0], require.values[1]]) {
-				case [TString(s), null]: r += 'const $cname = require("$s");\n$tabs'
-				case [TString(s), TString(f)]: r += 'const $cname = require("$s").$f;\n$tabs'
+				case [TString(s), null]: r += 'const \(cname) = require("\(s)");\n\(tabs)'
+				case [TString(s), TString(f)]: r += 'const \(cname) = require("\(s)").\(f);\n\(tabs)'
 				case _: throw '@require takes string as argument'
 			}
-			r += '/* declare class $cname */'
+			r += '/* declare class \(cname) */'
 		case TClass(t, ext, impl, fields, external): stringifyClass(node, null)
 		/*	var cname = extractTypeName(t)
 			r = (external?'/* declare class ' : 'class ') + cname
@@ -960,7 +956,7 @@ class GenJs /*extends GeneratorHelper*/ {
 				f = unmeta(f)
 
 				switch (f) {
-					case TStatic(field): f = field; isafter = true
+					case TStatic(field): f = field isafter = true
 					case _: {}
 				}
 
@@ -975,7 +971,7 @@ class GenJs /*extends GeneratorHelper*/ {
 								switch (v) {
 									case TVar(oname, _, _):
 									var name = oname.rename()
-									if (hasInScope(name)) name += '$$' + (++id)
+									if (hasInScope(name)) name += "$" + (++id)
 									addToScope(name)
 									parentNames.set(v, name)
 									parentNames.get(v)
@@ -990,9 +986,9 @@ class GenJs /*extends GeneratorHelper*/ {
 									popTab()
 									case _:
 										pushTab()
-										code += '{\n$tabs' + expr.stringify()
+										code += '{\n\(tabs)' + expr.stringify()
 										popTab()
-										code += '\n$tabs}'
+										code += '\n\(tabs)}'
 								}
 							}
 							else code += '{}'
@@ -1033,7 +1029,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			popTab()
 			r + tabs + '}'
 		case TObject([], _): '{}'
-		case TObject(names, el): '{' + [for (i in 0...el.length) names[i].rename() + ':' + el[i].unwrapBlockValue()].join(', ') + '}'
+		case TObject(names, el): '{' + [for (i in el.length) names[i].rename() + ':' + el[i].unwrapBlockValue()].join(', ') + '}'
 
 		case TStatic(field): 'static ' + field.stringify()
 
@@ -1089,7 +1085,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		return switch (e) {
 		//case TParenthesis(e): e.unwrapBlockValue()
 		case TBlock([e = TBlock(_)]): e.unwrapBlockValue()
-		case TBlock([e]): e.unwrapBlockValue();//e.stringify()
+		case TBlock([e]): e.unwrapBlockValue()//e.stringify()
 		case TBlock(el): {
 			var r = '(() => {\n'
 			pushScope()
@@ -1116,7 +1112,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		}
 	}
 
-	public static function generatePackageJson(pack: Package): String {
+	static function generatePackageJson(pack: Package): String {
 		var jspackage = { name: pack.main,
 			version: pack.main,
 			description: pack.description,
@@ -1126,4 +1122,5 @@ class GenJs /*extends GeneratorHelper*/ {
 		}
 		return haxe.Json.stringify(jspackage, null, "\t")
 	}
+}
 }

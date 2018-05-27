@@ -16,17 +16,13 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-import Data
-import Token
-import Lexer
-import NodeJs
+module {
 
-import CompilerError
 
 using StringTools
 
 class Parser {
-	public function new(lexe: Tokens) {
+	new(lexe: Tokens) {
 		lex = lexe
 
 		var el = []
@@ -97,12 +93,12 @@ class Parser {
 				} else i = tmp
 
 				var v = []
-				for (i in 0...vars.length) {
 					v.push(TVar(vars[i], types[i], values[i], true))
+				for (i in vars.length) {
 				}
 				fields.push(TFunction('new', expr, v, null))
 			case _:
-				Console.log('\n\nparseFields ' + tok().stringify())
+				Console.log('\n\nField cannot start with ' + print())
 				throw fail('KClass')
 			}
 		}
@@ -114,7 +110,7 @@ class Parser {
 	//------------------
 
 	// Lexemes input directly from lexer
-	public var node: Node
+	var node: Node
 	private var lex: Tokens
 	// The pointer
 	private var i = 0
@@ -139,11 +135,12 @@ class Parser {
 		var t = lex.token[i]
 		if (lasttok != i) {
 			//Process.stdout.write(lex.token[i].stringify(lex.value[i]))
-			lasttok = i; lasttokchecks = 40
+			lasttok = i
+			lasttokchecks = 40
 		} else {
 			lasttokchecks--
 			if (lasttokchecks < 0) {
-				throw fail("Parser Internal Error: Same token parsed too many times: " + '`${print()}`')
+				throw fail("Parser Internal Error: Same token parsed too many times: " + '`\(print())`')
 			}
 		}
 		return t
@@ -174,11 +171,11 @@ class Parser {
 		i++
 	}
 
-	inline function next() : Void {
+	@inline function next(): Void {
 		i++
 	}
 
-	inline function offset(v): Token {
+	@inline function offset(v): Token {
 		return lex.token[i+v]
 	}
 
@@ -189,12 +186,13 @@ class Parser {
 	function unexpected() {
 		var token = lex.token[i].stringify(lex.value[i])
 		if (tok() == Semicolon) Console.log('Note, that Hexa has no semicolons!')
-		throw fail('Unexpected `$token`')
+		if (print() == 'public') Console.log('Note, that Hexa has no `public` keyword!')
+		throw fail('Unexpected `\(token)`')
 	}
 
 	function expected(str: String) {
 		var token = lex.token[i].stringify(lex.value[i])
-		throw fail('Expected `$str` before `$token`')
+		throw fail('Expected `\(str)` before `\(token)`')
 	}
 
 	//-----------------
@@ -268,18 +266,18 @@ class Parser {
 				case TVar(n, t, e, _):
 					switch [t, e] {
 						case [null, _]:
-							throw fail('Variable `$n` in `declare` should have a type')
+							throw fail('Variable `\(n)` in `declare` should have a type')
 						case [_,null]:
-							name = n; // Correct
+							name = n // Correct
 						case _:
-							throw fail('Variable `$n` in `declare` should *not* have a value')
+							throw fail('Variable `\(n)` in `declare` should *not* have a value')
 					}
 				case TFunction(n, e, _, _):
 					switch [n, e] {
 						case [null, _]:
 							throw fail('Function in `declare` should have a name')
 						case [_, null]:
-							name = n; // Correct
+							name = n // Correct
 						case _:
 							throw fail('Functions in `declare` should *not* have a body')
 					}
@@ -414,8 +412,8 @@ class Parser {
 				step(PClose)
 				step(OpArrow)
 				var v = []
-				for (i in 0...vars.length) {
 					v.push(TVar(vars[i], types[i], values[i], true))
+				for (i in vars.length) {
 				}
 				TFunction(null, parseExpr(), v, null)
 			} else {
@@ -678,13 +676,13 @@ class Parser {
 		// 	next()
 		// null
 
-		case _: unexpected(); null
+		case _: unexpected() null
 		}
 		if (result == null) {
 			Process.stdout.write('\n')
 			throw fail("Expression is incomplete, current tokens is: " + tok().stringify())
 		}
-		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)); // map element at prefix step
+		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
 		if (atts.length > 0) {
 			Project.mapAttributes.set(result, atts)
@@ -806,7 +804,7 @@ class Parser {
 
 				case _: TBinop(result, t, b)
 				}
-			case _: done = true; result
+			case _: done = true result
 			}
 		}
 		if (result == null) {
@@ -998,8 +996,8 @@ class Parser {
 		}
 
 		var v = []
-		for (i in 0...vars.length) {
 			v.push(TVar(vars[i], types[i], values[i], true))
+		for (i in vars.length) {
 		}
 		return (TFunction(name, expr, v, rettype))
 	}
@@ -1056,12 +1054,12 @@ class Parser {
 						resStr += scopes + ") + \""
 						inScopes = false
 						scopes = ""
-						i++; continue
+						i++ continue
 					}
 				case _:
 			}
 			if (inScopes) scopes += char
-			else { resStr += char; }
+			else { resStr += char }
 			i++
 		}
 		resStr += "\""
@@ -1073,7 +1071,7 @@ class Parser {
 				case _: return parsed.node
 			}
 		}
-		catch(e: Dynamic) {
+		catch(e: Any) {
 			throw fail("Parse interpolation error: " + e)
 		}
 	}
@@ -1289,4 +1287,5 @@ class Parser {
 		case _: false
 		}
 	}
+}
 }

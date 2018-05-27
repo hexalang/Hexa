@@ -16,17 +16,13 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-import Data
-import Token
-import Lexer
-import Parser
-import NodeJs
+module {
 
 using TestParser
 using StringTools
 
 class TestParser {
-	public static function test() {
+	static function test() {
 		trace("TestParser begin")
 
 
@@ -63,7 +59,7 @@ class TestParser {
 		])
 
 		shouldAllEqual([
-			'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3' =>
+			'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
 				'TBlock([
 				TInt(1),
 				TInt(2),
@@ -73,7 +69,7 @@ class TestParser {
 				+,
 				TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
 
-			'enum Test { Demo } hello World' =>
+			'enum Test { Demo } hello World':
 				'TBlock([TEnum(Type(Test),[TIdent(Demo)]),
 				TIdent(hello),
 				TIdent(World)])'
@@ -81,8 +77,8 @@ class TestParser {
 
 		// Operators
 		shouldAllEqual([
-			'a + b' => "TBinop(TIdent(a),+,TIdent(b))",
-			'a += b' => "TAssignop(TIdent(a),+,TIdent(b))",
+			'a + b': "TBinop(TIdent(a),+,TIdent(b))",
+			'a += b': "TAssignop(TIdent(a),+,TIdent(b))",
 			])
 
 		// String interpolation
@@ -167,7 +163,7 @@ class TestParser {
 		var parser = new Parser(lexe)
 		var res = stringify(parser.node)
 		if (test != res) {
-			throw 'TestParser test fail: `$input` != `$test`\nGot: `$res`'
+			throw 'TestParser test fail: `\(input)` != `\(test)`\nGot: `\(res)`'
 		}
 	}
 
@@ -194,10 +190,10 @@ class TestParser {
 			var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
 			var parser = new Parser(lexe)
 		}
-		catch(e: Dynamic) {
+		catch(e: Any) {
 			return
 		}
-		throw 'TestParser test fail: `$input` did not throw exception.'
+		throw 'TestParser test fail: `\(input)` did not throw exception.'
 	}
 
 	static function shouldAllError(input: Array<String>) {
@@ -218,37 +214,37 @@ class TestParser {
 		case null: ''
 
 		// Have no sub-nodes
-		case TString(s): 'TString($s)'
-		case TIdent(s): 'TIdent($s)'
-		case TBool(b): 'TBool($b)'
+		case TString(s): 'TString(\(s))'
+		case TIdent(s): 'TIdent(\(s))'
+		case TBool(b): 'TBool(\(b))'
 		case TThis: 'TThis'
 		case TSuper: 'TSuper'
-		case TInt(s): 'TInt($s)'
-		case TFloat(s): 'TFloat($s)'
+		case TInt(s): 'TInt(\(s))'
+		case TFloat(s): 'TFloat(\(s))'
 		case TNull: 'TNull'
 		case TBreak: 'TBreak'
 		case TContinue: 'TContinue'
 
 		// Have sub-nodes
-		case TDeclare(name, expr): 'TDeclare($name,' + expr.stringify() + ")"
+		case TDeclare(name, expr): 'TDeclare(\(name),' + expr.stringify() + ")"
 		case TIs(expr, type): 'TAs(' + expr.stringify() + "," + type.stringifyType() + ")"
 		case TAs(expr, kind, type): 'TAs(' + expr.stringify() + "," + kind.stringify() + "," + type.stringifyType() + ")"
 		case TBinop(a, op, b): 'TBinop(' + a.stringify() + ',' + op.stringify() + ',' + b.stringify() + ')'
 		case TAssignop(a, op, b): 'TAssignop(' + a.stringify() + ',' + op.stringify() + ',' + b.stringify() + ')'
 		case TBlock(els): 'TBlock(' + els.stringifyNodeArray() + ')'
 		case TVar(name, t, expr, const):
-		'TVar($name,' + ((t != null) ? t.stringifyType() : "null") +
-		"," + ((expr != null) ? expr.stringify() : "null") +',$const)'
+		'TVar(\(name),' + ((t != null) ? t.stringifyType() : "null") +
+		"," + ((expr != null) ? expr.stringify() : "null") +',\(const))'
 		case TVars(vars): 'TVars(' + vars.stringifyNodeArray() + ")"
 
 		case TFunction(name, expr, vars, rettype):
-			'TFunction($name,'
+			'TFunction(\(name),'
 			+ (expr == null ? "null" : expr.stringify())
 			+ "," + vars.stringifyNodeArray() + ',' + ((rettype != null) ? rettype.stringifyType() : "null") + ")"
 
 		case TCall(e, el, argNames):
 			var res = 'TCall(' + e.stringify() + ',['
-			for (i in 0...el.length) {
+			for (i in el.length) {
 				res += argNames[i] == null ? "" : argNames[i] + ":"
 				res += el[i] + ((i != el.length - 1) ? "," : "")
 			}
@@ -291,11 +287,12 @@ class TestParser {
 	// Creates a testable consistent string representation of type
 	static function stringifyType(node: NodeType): String {
 		return switch (node) {
-		case Type(s): 'Type($s)'
-		case ParametricType(name, params): 'ParametricType($name,[' + params.join(',') + "])"
-		case Function(args, rettype): 'Function(['+[for (e in args) e.stringifyType()].join(',')+"],"+rettype.stringifyType()+ ')'
-		case Object(names, types): 'Object(['+ names.join(',') +"],["+ [for (e in types) e.stringifyType()].join(',') +"])"
+		case Type(s): 'Type(\(s))'
+		case ParametricType(name, params): 'ParametricType(\(name),[' + params.join(',') + "])"
+		case Function(args, rettype): 'Function([' + [for (e in args) e.stringifyType()].join(',') + "]," + rettype.stringifyType() + ')'
+		case Object(names, types): 'Object([' + names.join(',') + "],[" + [for (e in types) e.stringifyType()].join(',') +"])"
 		case e: '<!--' + e + '-->'
 		}
 	}
+}
 }
