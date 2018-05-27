@@ -49,7 +49,7 @@ class Parser {
 		var fields = []
 		while (tok() != BrClose) {
 			var atts: Array < { name: String, values: Array<Node> } > = []
-			while(tok() == At) {
+			while (tok() == At) {
 				atts.push(parseAttribute())
 			}
 
@@ -89,7 +89,7 @@ class Parser {
 				step(PClose)
 				// TODO Attributes parsing breaks this
 				var tmp = i
-				while(tok() == At) parseAttribute()
+				while (tok() == At) parseAttribute()
 				if (tok() != BrClose && tok() != KFunction /*&& tok() != KStatic*/)
 				{
 					i = tmp
@@ -157,19 +157,19 @@ class Parser {
 		line = line != null ? line : lex.line[i]
 		column = column != null ? column : lex.column[i]
 		filename = filename != null ? filename : lex.fileName
-		return new CompilerError(Fail.ParserError, message,  line, column, filename)
+		return new CompilerError(Fail.ParserError, message, line, column, filename)
 	}
 
 	// function node(nd: Node) {
 	// 	Project.data.set(nd, new NodeData(lex.line[i], lex.column[i], lex.fileName))
 	// }
 
-	function getgo(t) : String {
+	function getgo(t): String {
 		expect(t)
 		return lex.value[i++]
 	}
 
-	function step(t) : Void {
+	function step(t): Void {
 		expect(t)
 		i++
 	}
@@ -192,7 +192,7 @@ class Parser {
 		throw fail('Unexpected `$token`')
 	}
 
-	function expected(str : String) {
+	function expected(str: String) {
 		var token = lex.token[i].stringify(lex.value[i])
 		throw fail('Expected `$str` before `$token`')
 	}
@@ -227,13 +227,13 @@ class Parser {
 			TUsing(names)
 
 		// if (tok() == BrOpen)
-		// 	fail('Incorrect `declare` syntax! Use `declare function name():T`')
+		// 	fail('Incorrect `declare` syntax! Use `declare function name(): T`')
 
 		// declare class C {}
-		case KDeclare if(lex.token[i + 1] == KClass):
+		case KDeclare if (lex.token[i + 1] == KClass):
 			i++
 			var c = parseExpr()
-			switch(c) {
+			switch (c) {
 				case TClass(t, ext, impl, fields, _): TClass(t, ext, impl, fields, true)
 				case _: throw "Error KDeclare TClass"
 			}
@@ -251,7 +251,7 @@ class Parser {
 			}
 
 			var name: String = null
-			var extracted = switch(e) {
+			var extracted = switch (e) {
 				case TPrivate(el): el
 				case TStatic(el): el
 				case TExport(el): el
@@ -289,7 +289,7 @@ class Parser {
 				case TVars(_):
 					throw fail('Place only one variable into `declare`')
 				case _:
-					throw fail('Incorrect `declare` syntax! Use `declare let name:T` or `declare function name():T`')
+					throw fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare function name(): T`')
 			}
 			// Having name is ok here, coz we search by name in scopes
 			TDeclare(name, e)
@@ -367,7 +367,7 @@ class Parser {
 				eelse = parseExpr()
 			}
 			TIf(econd, eif, eelse)
-		// while() {}
+		// while () {}
 		case KWhile:
 			i++
 			step(POpen)
@@ -375,7 +375,7 @@ class Parser {
 			step(PClose)
 			var e = parseExpr()
 			TWhile(econd, e, true)
-		// do {} while()
+		// do {} while ()
 		case KDo:
 			i++
 			var e = parseExpr()
@@ -418,8 +418,7 @@ class Parser {
 					v.push(TVar(vars[i], types[i], values[i], true))
 				}
 				TFunction(null, parseExpr(), v, null)
-			} else
-			{
+			} else {
 				var expr = parseExpr()
 				step(PClose)
 				TParenthesis(expr)
@@ -453,14 +452,14 @@ class Parser {
 			}
 		case LLower:
 			var name = getgo(LLower)
-			if(tok() == OpArrow) {
+			if (tok() == OpArrow) {
 				next()
 				TFunction(null, parseExpr(), [TVar(name, null, null, true)], null)
 			} else TIdent(name)
 		case LString:
 			var str = getgo(LString)
 			// TODO Check have interpolations in string
-			if(hasInterpolation(str))
+			if (hasInterpolation(str))
 				TParenthesis(parseInterpolations(str))
 			else TString(str)
 		case KTrue:  i++; TBool(true)
@@ -719,7 +718,7 @@ class Parser {
 				else kind = Default
 				TAs(result, kind, parseType())
 			case POpen: { // call
-				var args : Array<Node> = []
+				var args: Array<Node> = []
 				var argNames: Array<String> = []
 				i++
 				while (tok() != PClose) {
@@ -766,9 +765,7 @@ class Parser {
 				if (tok() == Dot) {
 					var name = getgo(LLower)
 					TDot(result, name)
-				} else
-
-				if (tok() == Question) {
+				} else if (tok() == Question) {
 					i++
 					TElvis(result, parseExpr())
 				} else {
@@ -833,18 +830,18 @@ class Parser {
 		i++
 		var vars: Array<Node> = []
 
-		function parseSingleVar():Node {
+		function parseSingleVar(): Node {
 			var varname = getgo(LLower)
-			if(varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
 			var type = null; if (tok() == DblDot) { i++; type = parseType(); }
 			var expr = null; if (tok() == OpAssign) { i++; expr = parseExpr(); }
+			if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
 			return TVar(varname, type, expr, const)
 		}
 
-		function parseSingleBinding():Node {
+		function parseSingleBinding(): Node {
 			var path = []
 			// Path let path.path.path.
-			while(tok() == LLower && offset(1) == Dot) {
+			while (tok() == LLower && offset(1) == Dot) {
 				path.push(getgo(LLower))
 				i++
 			}
@@ -862,7 +859,7 @@ class Parser {
 					i++
 					if(tok() == Underscore) { i++; bind.push(null); }
 					else bind.push(TVar(getgo(LLower), null, null, const))
-				} while(tok() == Comma)
+				} while (tok() == Comma)
 				step(PClose)
 			}
 
@@ -873,14 +870,14 @@ class Parser {
 			//throw fail("parseSingleBinding " + path + ' ' + bind + ' ' + expr)
 		}
 
-		while(true) {
+		while (true) {
 
-			if(tok() == LUpper || (tok() == LLower && offset(1) == Dot))
+			if (tok() == LUpper || (tok() == LLower && offset(1) == Dot))
 				vars.push(parseSingleBinding())
 			else vars.push(parseSingleVar())
 
 			// Multiple variables var a, b, c
-			if(tok() == Comma && offset(1) == LLower && (offset(2) == OpAssign || offset(2) == DblDot))
+			if (tok() == Comma && offset(1) == LLower && (offset(2) == OpAssign || offset(2) == DblDot))
 				i++
 			else break
 		}
@@ -890,20 +887,20 @@ class Parser {
 		var const = tok() == KLet
 		i++
 		var vars: Array<Node> = []
-		switch(tok()) {
+		switch (tok()) {
 			// var a
 			case LLower:
 				// TODO Refactor
-				while(true) {
+				while (true) {
 
 					var varname = getgo(LLower)
-					if(varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
+					if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
 
 					var type = null; if (tok() == DblDot) { i++; type = parseType(); }
 					var expr = null; if (tok() == OpAssign) { i++; expr = parseExpr(); }
 					vars.push(TVar(varname, type, expr, const))
 
-					if(tok() == Comma && offset(1) == LLower && (offset(2) == OpAssign || offset(2) == DblDot))
+					if (tok() == Comma && offset(1) == LLower && (offset(2) == OpAssign || offset(2) == DblDot))
 						i++
 					else break
 				}
@@ -917,13 +914,13 @@ class Parser {
 					var left = TIdent(getgo(LUpper))
 					var res = left
 					// var Left.B.C.D...
-					while(tok() == Dot) {
+					while (tok() == Dot) {
 						res = TDot(res, getgo(LUpper))
 					}
-					switch(tok()) {
+					switch (tok()) {
 						case POpen:
 							var args: Array<String> = []
-							while(tok() != PClose) {
+							while (tok() != PClose) {
 								args.push(getgo(LLower))
 							}
 							step(OpAssign)
@@ -990,7 +987,7 @@ class Parser {
 			case BrClose, KStatic, KPrivate, KFunction: {}
 			case At: {
 				var tmp = i
-				while(tok() == At) parseAttribute()
+				while (tok() == At) parseAttribute()
 				if (tok() != BrClose && tok() != KStatic && tok() != KPrivate && tok() != KFunction)
 				{
 					i = tmp
@@ -1010,10 +1007,10 @@ class Parser {
 	function hasInterpolation(str: String): Bool {
 		var chars = str.split("")
 		var i = 0
-		while(i < chars.length) {
-			if(chars[i] == "\\")
-				if(i+1 < chars.length)
-					if(chars[i+1] == "\\")
+		while (i < chars.length) {
+			if (chars[i] == "\\")
+				if (i+1 < chars.length)
+					if (chars[i+1] == "\\")
 						i++
 					else if (chars[i+1] == "(")
 						return true
@@ -1037,7 +1034,7 @@ class Parser {
 					i++
 					continue
 				case "\\":
-					if(i+1 < chars.length)
+					if (i+1 < chars.length)
 						if (chars[i+1] == "\\") {
 							i++
 							char += "\\"
@@ -1100,7 +1097,7 @@ class Parser {
 	var parametricTypeNestingToken = Eof
 	function parseType(): NodeType {
 		var path = []
-		while(tok() == LLower && offset(1) == Dot) {
+		while (tok() == LLower && offset(1) == Dot) {
 			path.push(getgo(LLower))
 			i++
 		}
@@ -1109,7 +1106,7 @@ class Parser {
 		switch (tok()) {
 		case LUpper:
 			var name = getgo(LUpper)
-			if(path.length != 0) name = path.join('.') + '.' + name
+			if (path.length != 0) name = path.join('.') + '.' + name
 			while (tok() == Dot) {
 				i++
 				getgo(LUpper)
@@ -1144,7 +1141,7 @@ class Parser {
 			}
 
 			result
-		case BkOpen if(path.length == 0): // [Type]
+		case BkOpen if (path.length == 0): // [Type]
 			i++
 			var res: NodeType = null
 			res = switch (tok()) {
@@ -1174,7 +1171,7 @@ class Parser {
 					innerRes
 			}
 			res
-		case BrOpen if(path.length == 0): // {}
+		case BrOpen if (path.length == 0): // {}
 			i++
 			var result = if (tok() == DblDot) { // Empty
 				i++
@@ -1198,7 +1195,7 @@ class Parser {
 				result = Function([result], parseType())
 			}
 			result
-		case POpen if(path.length == 0): // ()
+		case POpen if (path.length == 0): // ()
 			i++
 			var args = []
 			while (tok() != PClose) {
@@ -1216,7 +1213,7 @@ class Parser {
 		// var.Invar
 		//
 		case LLower:
-			var res: NodeType = switch(offset(1)) {
+			var res: NodeType = switch (offset(1)) {
 				case DblDot: {
 					var argName = getgo(tok())
 					step(DblDot)
@@ -1234,10 +1231,10 @@ class Parser {
 			res
 
 		case _:
-			throw fail("Excected Type, parsed `" +tok().stringify()+"`")
+			throw fail("Excected Type, parsed `" + tok().stringify() + "`")
 		}
 
-		if(tok() == Question) {
+		if (tok() == Question) {
 			result = Optional(result)
 		}
 		while (tok() == Question) i++
@@ -1252,15 +1249,15 @@ class Parser {
 		var left = 100
 		var right = 0
 		return switch (op) {
-			case OpMod : 0 + left
-			case OpMult | OpDiv : 1 + left
-			case OpAdd | OpSub : 2 + left
-			case OpShl | OpShr | OpUShr : 3 + left
-			case OpOr | OpAnd | OpXor : 4 + left
-			case OpEq | OpNotEq | OpGt | OpLt | OpGte | OpLte : 5 + left
-			case OpBoolAnd : 7 + left
-			case OpBoolOr : 8 + left
-			case OpAssign : 10 + right
+			case OpMod: 0 + left
+			case OpMult | OpDiv: 1 + left
+			case OpAdd | OpSub: 2 + left
+			case OpShl | OpShr | OpUShr: 3 + left
+			case OpOr | OpAnd | OpXor: 4 + left
+			case OpEq | OpNotEq | OpGt | OpLt | OpGte | OpLte: 5 + left
+			case OpBoolAnd: 7 + left
+			case OpBoolOr: 8 + left
+			case OpAssign: 10 + right
 			case _: // TODO proper message, this is internal error
 				throw fail("No precedence for " + op.stringify())
 		}
