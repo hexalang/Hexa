@@ -17,9 +17,6 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 module {
-
-using Data.DataHelper
-
 class Typer {
 	static function fillScopes(allCode: Node) {
 		//var insideLoop, insideModule, insideClass, insideFunction
@@ -51,8 +48,6 @@ class Typer {
 				case _: throw 'module?!'
 			}
 
-
-
 			//function exists(el: Array<Node>, name: String) {
 			//	for (e in el) if (name == nameOf(e)) throw ('Type `\(name)` already exists in module')
 			//}
@@ -80,7 +75,6 @@ class Typer {
 				//
 				//}
 
-				//trace('>>>>>>>>>>>>>>>>>>>>>>>>>>>' + els)
 
 				for (e in els) {
 					var name = nameOfModuleItem(e)
@@ -102,7 +96,6 @@ class Typer {
 			//	}
 			//	while (el.length > 0) {
 			//		var e = el.pop()
-			//		trace('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>' + nameOf(e))
 			//		exists(els, nameOf(e))
 			//		els.push(e)
 			//	}
@@ -117,7 +110,6 @@ class Typer {
 			//	}
 			//	while (el.length > 0) {
 			//		var e = el.pop()
-			//		trace('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>' + nameOf(e))
 			//		exists(els, nameOf(e))
 			//		els.push(e)
 			//	}
@@ -217,7 +209,6 @@ class Typer {
 				check(namespace)
 				while (path.length > 0) {
 					namespace += '.' + path.shift()
-					//trace('namespace+= =' + namespace)
 					check(namespace)
 				}
 			}
@@ -229,7 +220,6 @@ class Typer {
 				namespaces[path] = m
 			}
 		}
-
 
 		function findInNamespaceRoots(name: String): Node {
 			if (namespaces[name] != null) return namespaces[name]
@@ -246,12 +236,12 @@ class Typer {
 
 		//---
 
-		var scopes: Array<JSMap<String, Node>> = [new JSMap()]
-		var currentClass:Array<Node> = []
+		var scopes: Array<Map<String, Node>> = [new Map()]
+		var currentClass: Array<Node> = []
 		var prevnode = null
 		var isInExternalClass = false
 
-		function pushScope() scopes.push(new JSMap())
+		function pushScope() scopes.push(new Map())
 		function popScope() scopes.pop()
 		function addScope(name, node)
 			scopes[scopes.length-1].set(name, node)
@@ -261,10 +251,8 @@ class Typer {
 			if (data == null)
 				data = Project.data.get(prevnode)
 				if (data == null) {
-					trace(node)
-					trace(prevnode)
 					for (el in Project.data.keys())
-						trace(el + ": " + Project.data.get(el))
+						Console.log(el + ": " + Project.data.get(el))
 					return new CompilerError(Fail.TyperError, msg, 0, 0, "")
 				}
 			return new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName)
@@ -299,18 +287,15 @@ class Typer {
 				case TBlock(el):
 					pushScope()
 					for (e in el) fill(e)
-					//trace(untyped JSON.stringify(scopes[scopes.length-1].keys()))
 					popScope()
 				case TIdent(name):
 					//if (name == 's')
 					//	if (prevnode_s == null) {
 					//		prevnode_s = node
-					//		//trace('mapNames \(node) \(name) == \(Project.mapNames.get(node))')
 					//	} else {
 					//		//throw('== \(prevnode_s == node) "\(name)" \(prevnode_s) \(node), \(Project.mapNames[node])')
 					//	}
 					var subj = null
-					//trace('SCOPESSSSSSSSSS ' + scopes.length)
 					for (i in scopes.length) {
 						subj = scopes[scopes.length-i-1].get(name)
 						if (subj != null) {
@@ -325,16 +310,12 @@ class Typer {
 					if (Project.mapNames.get(node) != null && Project.mapNames.get(node) != subj)
 						throw fail('mapNames overwitten from \(Project.mapNames.get(node)) to \(subj) for node \(node)', node)
 					Project.mapNames.set(node, subj)
-					//trace('mapNames \(node) \(name) == \(Project.mapNames.get(node))')
 
 					switch (subj) {
 						case TVar(_):
-						//trace('Found \(subj) => \(Project.mapNames.get(node)) == \(subj)')
 						case _:
 					}
 
-					//if (subj == null) trace('No scope subj for \(node)')
-					//if (name == 'Console') trace('----> scopes for Console: ' + Project.mapNames[node])
 					//Project.mapNames[node] = scopes[scopes.length-1][name]
 				case TUsing(names): {}
 
@@ -601,7 +582,6 @@ class Typer {
 		function fillModule(mod) {
 			switch (mod) {
 				case TModule(path, el):
-					trace('-------> fillModule \(path)')
 					for (e in el) fill(e)
 				case _: trace('-------> fillModule \(mod)')
 			}

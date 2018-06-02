@@ -17,8 +17,6 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 module {
-
-
 class GenJs /*extends GeneratorHelper*/ {
 	static var id = 0
 	static var tabs = ''
@@ -137,7 +135,6 @@ class GenJs /*extends GeneratorHelper*/ {
 						var innercond = econds[i]
 						switch (innercond) {
 							case TVar(oname, t, expr, const):
-								//trace("const for " + oname)
 								addToScope(oname)
 								var name = oname.rename()
 								parentNames.set(cond, name)
@@ -203,7 +200,6 @@ class GenJs /*extends GeneratorHelper*/ {
 				popScope()
 				'const \(newname) = (\(vars)) => \(funcbody)'
 			case _:
-				//trace(node)
 				node.stringify()
 		}
 	}
@@ -215,12 +211,12 @@ class GenJs /*extends GeneratorHelper*/ {
 		return null
 	}
 
-	static var parentNames: JSMap<Node, String> = new JSMap()
+	static var parentNames: Map<Node, String> = new Map()
 
-	static var scopes: Array<JSMap<String, Bool>> = [new JSMap()]
+	static var scopes: Array<Map<String, Bool>> = [new Map()]
 
 	static function pushScope() {
-		scopes.push(new JSMap())
+		scopes.push(new Map())
 	}
 	static function popScope() {
 		scopes.pop()
@@ -236,14 +232,6 @@ class GenJs /*extends GeneratorHelper*/ {
 	static function addToScope(name: String) {
 		scopes[scopes.length-1].set(name, true)
 	}
-	#if false
-	static function addVariable(variable: Node) {
-		addToScope(oname)
-		var name = oname.rename()
-		if (hasInScope(oname)) name += "$" + (++id)
-		parentNames.set(node, name)
-	}
-	#end
 
 	static function stringifyProject(node: Node): String {
 		switch (node) {
@@ -301,7 +289,6 @@ class GenJs /*extends GeneratorHelper*/ {
 						check(namespace)
 						while (path.length > 0) {
 							namespace += '.' + path.shift()
-							//trace('namespace+= =' + namespace)
 							check(namespace)
 						}
 					}
@@ -333,10 +320,8 @@ class GenJs /*extends GeneratorHelper*/ {
 					var cs = 0
 					var fs = 0
 					function fillClasses(extendsWhat: String) {
-						trace('fillClasses == ' + extendsWhat + ' \(cs)')
 						cs++
 						function fillClassesOf(path: Array<String>, el: Array<Node>) {
-							trace('fillClassesOf == ' + path + ' \(fs)')
 							fs++
 							if (path.length == 0)
 							{
@@ -567,13 +552,11 @@ class GenJs /*extends GeneratorHelper*/ {
 	}
 
 	static function stringify(node: Node): String {
-		//trace(node)
 
 		var r = ''
 		if (node == null) throw 'Unable to print: node is null'
 
 		var atts = Project.mapAttributes.get(node)
-//trace(atts+'', node+'')
 		var a = ''
 		if (atts != null && atts.length > 0) for (att in atts) {
 			//a += '/* @' + att.name + '*/ '
@@ -653,7 +636,6 @@ class GenJs /*extends GeneratorHelper*/ {
 
 			"'" + charsOut.join('') + "'"
 		case TIdent(s):
-			//trace('`\(s)`')
 			var source = Project.mapNames.get(node)
 			/*var value = switch (source) {
 				case TDeclare(_, node): node
@@ -701,7 +683,6 @@ class GenJs /*extends GeneratorHelper*/ {
 				case TClass(t, _):
 					var rename = getAtt(Project.mapAttributes.get(source), 'native')
 					var name = t.extractTypeName().rename()
-					//if (rename != null) trace('Got @native!')
 					if (rename != null) switch (rename.values[0]) {
 						case null: name
 						case TString(s): s
@@ -783,7 +764,6 @@ class GenJs /*extends GeneratorHelper*/ {
 				case TClass(t, _):
 					var rename = getAtt(Project.mapAttributes.get(source), 'native')
 					var name = t.extractTypeName().rename()
-					//if (rename != null) trace('Got @native!')
 					if (rename != null) switch (rename.values[0]) {
 						case null: name
 						case TString(s): s
@@ -795,7 +775,6 @@ class GenJs /*extends GeneratorHelper*/ {
 				//throw '' + /*getAtt(*/Project.mapAttributes.get(source)/*, 'infix')*/
 				case _:
 					//if (source!=null)
-					//trace('' + source)
 					e.unwrapBlockValue() + '(' + [for (e in el) e.unwrapBlockValue()].join(', ') + ')'
 			}
 
@@ -908,7 +887,6 @@ class GenJs /*extends GeneratorHelper*/ {
 			r + '\n' + tabs + '}'
 		// TODO rename here
 		case TNew(path, t, args, names, values):
-			//if (('' + t).indexOf('JSMap') != -1) throw '' + t
 			'new ' + path.join('.') + (path.length>0?'.':'') + extractTypeName(t) + '(' + [for (e in args) e.unwrapBlockValue()].join(', ') + ')'
 		case TSwitch(exprs, conds, cases):
 			r = 'switch ('
@@ -1009,7 +987,6 @@ class GenJs /*extends GeneratorHelper*/ {
 
 		case TModule(path, el):
 			throw 'unreachable'
-			trace('TModule ' + path)
 			r = 'module ' + path.join('.') + ' {\n'
 			pushTab()
 			for (e in el) {
@@ -1120,7 +1097,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			author: pack.author,
 			license: pack.license
 		}
-		return haxe.Json.stringify(jspackage, null, "\t")
+		return JSON.stringify(jspackage, null, "\t")
 	}
 }
 }
