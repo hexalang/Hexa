@@ -22,13 +22,13 @@ class Parser {
 		lex = lexe
 
 		var el = []
-		while (i < lex.length && tok() != Eof) {
+		while (i < lex.length && tok() != Token.Eof) {
 			el.push(parseExpr())
 		}
 
 		node = el[0]
 		if (el.length == 0) node = null
-		if (el.length > 1) node = TBlock(el)
+		if (el.length > 1) node = Node.TBlock(el)
 
 	// TODO fix trailing atts
 		//if (atts.length > 0) {
@@ -39,60 +39,60 @@ class Parser {
 
 	function parseFields() {
 		var fields = []
-		while (tok() != BrClose) {
+		while (tok() != Token.BrClose) {
 			var atts: Array < { name: String, values: Array<Node> } > = []
-			while (tok() == At) {
+			while (tok() == Token.At) {
 				atts.push(parseAttribute())
 			}
 
 			var _static = false
-			if (tok() == KStatic) {
+			if (tok() == Token.KStatic) {
 				_static = true
 				i++
 			}
 
 			switch (tok()) {
-			case KPrivate:
+			case Token.KPrivate:
 				i++
 			case KVar, KFunction, KLet:
 				var f = parseExpr()
-				if (_static) f = TStatic(f)
+				if (_static) f = Node.TStatic(f)
 				Project.mapAttributes.set(f, atts)
 				fields.push(f)
-			case KNew:
+			case Token.KNew:
 				i++
 				var expr = null
 				var vars = []
 				var types = []
 				var values = []
-				step(POpen)
-				while (tok() != PClose) {
-					vars.push(getgo(LLower))
-					if (tok() == DblDot) {
+				step(Token.POpen)
+				while (tok() != Token.PClose) {
+					vars.push(getgo(Token.LLower))
+					if (tok() == Token.DblDot) {
 						i++
 						types.push(parseType())
 					}
-					if (tok() == OpAssign) {
+					if (tok() == Token.OpAssign) {
 						i++
 						values.push(parseExpr())
 					}
-					if (tok() == Comma) i++
+					if (tok() == Token.Comma) i++
 				}
-				step(PClose)
+				step(Token.PClose)
 				// TODO Attributes parsing breaks this
 				var tmp = i
-				while (tok() == At) parseAttribute()
-				if (tok() != BrClose && tok() != KFunction /*&& tok() != KStatic*/)
+				while (tok() == Token.At) parseAttribute()
+				if (tok() != Token.BrClose && tok() != Token.KFunction /*&& tok() != KStatic*/)
 				{
 					i = tmp
 					expr = parseExpr()
 				} else i = tmp
 
 				var v = []
-					v.push(TVar(vars[i], types[i], values[i], true))
 				for (i in vars.length) {
+					v.push(Node.TVar(vars[i], types[i], values[i], true))
 				}
-				fields.push(TFunction('new', expr, v, null))
+				fields.push(Node.TFunction('new', expr, v, null))
 			case _:
 				Console.log('\n\nField cannot start with ' + print())
 				throw fail('KClass')
@@ -123,9 +123,9 @@ class Parser {
 	// Current token
 	function tok() {
 		if (i > lex.length) {
-			trace("Parser is out of token space!")
-			trace("This should NOT happen.")
 			trace("Please, issue a developer (with a code sample).")
+			Console.log("Parser is out of token space!")
+			Console.log("This should NOT happen.")
 			throw fail(lex.fileName + ": Parser Internal Error: Out of token space")
 		}
 		var t = lex.token[i]
@@ -147,9 +147,9 @@ class Parser {
 	function expect(t) if (t != tok()) expected(t.stringify())
 
 	function fail(message: String, ?line, ?column, ?filename) {
-		line = line != null ? line : lex.line[i]
-		column = column != null ? column : lex.column[i]
-		filename = filename != null ? filename : lex.fileName
+		let line = line != null ? line : lex.line[i]
+		let column = column != null ? column : lex.column[i]
+		let filename = filename != null ? filename : lex.fileName
 		return new CompilerError(Fail.ParserError, message, line, column, filename)
 	}
 
@@ -181,7 +181,7 @@ class Parser {
 
 	function unexpected() {
 		var token = lex.token[i].stringify(lex.value[i])
-		if (tok() == Semicolon) Console.log('Note, that Hexa has no semicolons!')
+		if (tok() == Token.Semicolon) Console.log('Note, that Hexa has no semicolons!')
 		if (print() == 'public') Console.log('Note, that Hexa has no `public` keyword!')
 		throw fail('Unexpected `\(token)`')
 	}
@@ -198,7 +198,7 @@ class Parser {
 	var class_external = false
 	function parseExpr(): Node {
 		var atts: Array < { name: String, values: Array<Node> } > = []
-		while (tok() == At) atts.push(parseAttribute())
+		while (tok() == Token.At) atts.push(parseAttribute())
 		var node = tok()
 		//-------------
 		// PREFIX STEP
@@ -206,16 +206,16 @@ class Parser {
 		var nodePosition = { line: lex.line[i], column: lex.column[i] }
 		var result: Node =
 		switch (node) {
-		case KUsing:
+		case Token.KUsing:
 			//
 			// TODO Namespaces with dots
 			//
 			next()
-			var names = [getgo(LUpper)]
+			var names = [getgo(Token.LUpper)]
 
-			while (tok() == Comma) {
-				step(Comma)
-				names.push(getgo(LUpper))
+			while (tok() == Token.Comma) {
+				step(Token.Comma)
+				names.push(getgo(Token.LUpper))
 				// names.push(getgo(LLower))
 			}
 			TUsing(names)
@@ -280,7 +280,7 @@ class Parser {
 				// TODO binop assign
 				// Types-to-types `T = T` or idents-to-idents `name = name` should be assigned
 				// TODO require type for var and func args / retT?
-				case TVars(_):
+				case Node.TVars(_):
 					throw fail('Place only one variable into `declare`')
 				case _:
 					throw fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare function name(): T`')
@@ -315,111 +315,111 @@ class Parser {
 			//}
 
 		// []
-		case BrOpen:
+		case Token.BrOpen:
 			i++
-			if (tok() == BrClose) { // Empty block
+			if (tok() == Token.BrClose) { // Empty block
 				i++
 				TBlock([])
-			} else if (tok() == DblDot) { // Empty object
+			} else if (tok() == Token.DblDot) { // Empty object
 				i++
-				step(BrClose)
 				TObject([], [])
-			} else if (tok() == LLower && lex.token[i + 1] == DblDot) { // Object
+				step(Token.BrClose)
+			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object
 				var names: Array<String> = [], el: Array<Node> = []
-				while (tok() != BrClose) {
-					names.push(getgo(LLower))
-					step(DblDot)
+				while (tok() != Token.BrClose) {
+					names.push(getgo(Token.LLower))
+					step(Token.DblDot)
 					el.push(parseExpr())
-					if (tok() == Comma) i++
+					if (tok() == Token.Comma) i++
 				}
-				step(BrClose)
 				TObject(names, el)
+				step(Token.BrClose)
 			} else { // Block
 				var el = []
-				while (tok() != BrClose) {
+				while (tok() != Token.BrClose) {
 					el.push(parseExpr())
 				}
-				step(BrClose)
 				TBlock(el)
+				step(Token.BrClose)
 			}
-		case KIf:
+		case Token.KIf:
 			i++
-			step(POpen)
+			step(Token.POpen)
 			var econd = [parseExpr()]
-			while (tok() == Comma) {
+			while (tok() == Token.Comma) {
 				next()
 				econd.push(parseExpr())
 			}
-			step(PClose)
+			step(Token.PClose)
 			var eif = null
-			if (tok() != DblDot) {
+			if (tok() != Token.DblDot) {
 				eif = parseExpr()
 			}
 			var eelse: Null<Node> = null
-			if (tok() == KElse) {
+			if (tok() == Token.KElse) {
 				i++
 				eelse = parseExpr()
 			}
 			TIf(econd, eif, eelse)
 		// while () {}
-		case KWhile:
+		case Token.KWhile:
 			i++
-			step(POpen)
+			step(Token.POpen)
 			var econd = parseExpr()
-			step(PClose)
+			step(Token.PClose)
 			var e = parseExpr()
 			TWhile(econd, e, true)
 		// do {} while ()
-		case KDo:
+		case Token.KDo:
 			i++
 			var e = parseExpr()
-			step(KWhile)
-			step(POpen)
+			step(Token.KWhile)
+			step(Token.POpen)
 			var econd = parseExpr()
-			step(PClose)
 			TWhile(econd, e, false)
-		case POpen:
+			step(Token.PClose)
+		case Token.POpen:
 			next()
 			if (
 				// () =>
-				(tok() == PClose && offset(1) == OpArrow) ||
+				(tok() == Token.PClose && offset(1) == Token.OpArrow) ||
 				// (a, ...) =>
-				(tok() == LLower && offset(1) == Comma) ||
+				(tok() == Token.LLower && offset(1) == Token.Comma) ||
 				// (a: ...) =>
-				(tok() == LLower && offset(1) == DblDot) ||
+				(tok() == Token.LLower && offset(1) == Token.DblDot) ||
 				// (a) =>
-				(tok() == LLower && offset(1) == PClose && offset(2) == OpArrow)
+				(tok() == Token.LLower && offset(1) == Token.PClose && offset(2) == Token.OpArrow)
 			) {
 				var vars = []
 				var types = []
 				var values = []
-				while (tok() != PClose) {
-					vars.push(getgo(LLower))
-					if (tok() == DblDot) {
+				while (tok() != Token.PClose) {
+					vars.push(getgo(Token.LLower))
+					if (tok() == Token.DblDot) {
 						i++
 						types.push(parseType())
 					}
-					if (tok() == OpAssign) {
+					if (tok() == Token.OpAssign) {
 						i++
 						values.push(parseExpr())
 					}
-					if (tok() == Comma) i++
+					if (tok() == Token.Comma) i++
 				}
-				step(PClose)
-				step(OpArrow)
+				step(Token.PClose)
+				step(Token.OpArrow)
 				var v = []
-					v.push(TVar(vars[i], types[i], values[i], true))
 				for (i in vars.length) {
+					v.push(Node.TVar(vars[i], types[i], values[i], true))
 				}
 				TFunction(null, parseExpr(), v, null)
 			} else {
 				var expr = parseExpr()
-				step(PClose)
 				TParenthesis(expr)
+				step(Token.PClose)
 			}
 		// return e
 		// return
-		case KReturn: i++
+		case Token.KReturn: i++
 			switch (tok()) {
 				case BrClose, KVar: TReturn(null)
 				case _: TReturn(parseExpr())
@@ -441,17 +441,17 @@ class Parser {
 				var res = parseType()
 				NodeTypeValue(res)
 			} else {
-				var name = getgo(LUpper)
 				TIdent(name)
+				var name = getgo(Token.LUpper)
 			}
-		case LLower:
-			var name = getgo(LLower)
-			if (tok() == OpArrow) {
+		case Token.LLower:
+			var name = getgo(Token.LLower)
+			if (tok() == Token.OpArrow) {
 				next()
 				TFunction(null, parseExpr(), [TVar(name, null, null, true)], null)
 			} else TIdent(name)
-		case LString:
-			var str = getgo(LString)
+		case Token.LString:
+			var str = getgo(Token.LString)
 			// TODO Check have interpolations in string
 			if (hasInterpolation(str))
 				TParenthesis(parseInterpolations(str))
@@ -464,199 +464,199 @@ class Parser {
 		case KVar, KLet:
 			var parsed = parseVar()
 			(parsed.length > 1) ? TVars(parsed) : parsed[0]
-		case KTry:
+		case Token.KTry:
 			i++
 			var expr = parseExpr()
 			var vars = []
 			var t = []
 			var v = []
 			var catches = []
-			while (tok() == KCatch) {
-				step(KCatch)
-				step(POpen)
-				var name = getgo(LLower)
+			while (tok() == Token.KCatch) {
+				step(Token.KCatch)
+				step(Token.POpen)
+				var name = getgo(Token.LLower)
 				vars.push(name)
-				step(DblDot)
+				step(Token.DblDot)
 				var type = parseType()
 				{
 					t.push(type)
 				}
-				v.push(TVar(name, type, null, true))
-				step(PClose)
+				v.push(Node.TVar(name, type, null, true))
+				step(Token.PClose)
 				catches.push(parseExpr())
 			}
 			TTry(expr, t, v, catches)
 
-		case KModule:
+		case Token.KModule:
 			i++
 			var path = []
 			// TODO Corrent by upperlower mode
-			if (tok() == LLower) {
-				path.push(getgo(LLower))
-				while (tok() == Dot) {
+			if (tok() == Token.LLower) {
+				path.push(getgo(Token.LLower))
+				while (tok() == Token.Dot) {
 					i++
-					path.push(getgo(LLower))
+					path.push(getgo(Token.LLower))
 				}
 			}
-			step(BrOpen)
+			step(Token.BrOpen)
 			var el = []
-			while (tok() != BrClose) {
+			while (tok() != Token.BrClose) {
 				el.push(parseExpr())
 			}
-			step(BrClose)
 			TModule(path, el)
+			step(Token.BrClose)
 
-		case KEnum:
+		case Token.KEnum:
 			i++
 			var t = parseType()
-			if (tok() == DblDot) {
+			if (tok() == Token.DblDot) {
 				i++
 				parseType()
 			}
-			step(BrOpen)
+			step(Token.BrOpen)
 			var names = []
-			while (tok() != BrClose) {
-				while (tok() == At) atts.push(parseAttribute())
+			while (tok() != Token.BrClose) {
+				while (tok() == Token.At) atts.push(parseAttribute())
 				atts = []
 				names.push(parseExpr())
 			}
-			step(BrClose)
 			TEnum(t, names)
+			step(Token.BrClose)
 
 		case KClass, KInterface:
-			var isInterface = tok() == KInterface
+			var isInterface = tok() == Token.KInterface
 			var att = atts
 			atts = []
 			i++
 			var t = parseType()
 
-			var ext = if (tok() == KExtends) {
+			var ext = if (tok() == Token.KExtends) {
 				i++
 				parseType()
 			} else null
 
 			var impl = []
-			while (tok() == KImplements) {
+			while (tok() == Token.KImplements) {
 				i++
 				impl.push(parseType())
 			}
 
-			step(BrOpen)
+			step(Token.BrOpen)
 			var fields = parseFields()
-			step(BrClose)
-			var me = TClass(t, ext, impl, fields, class_external)
+			step(Token.BrClose)
+			var me = Node.TClass(t, ext, impl, fields, class_external)
 			//Project.mapAttributes.set(me, atts)
 			Project.mapAttributes.set(me, att)
 			me
-		case KFunction:
 			parseFunction()
-		case BkOpen:
+		case Token.KFunction:
+		case Token.BkOpen:
 			i++
 			var el = []
 			var values = []
 			var isMap = false
 
-			while (tok() != BkClose) {
-				if (tok() == DblDot) {
+			while (tok() != Token.BkClose) {
+				if (tok() == Token.DblDot) {
 					isMap = true
 					next()
 					break
 				}
 				el.push(parseExpr())
-				if (tok() == DblDot) {
+				if (tok() == Token.DblDot) {
 					i++
 					values.push(parseExpr())
 					isMap = true
 				}
-				if (tok() == Comma) i++
+				if (tok() == Token.Comma) i++
 			}
-			step(BkClose)
+			step(Token.BkClose)
 
 			if (isMap)
 				TMap(el, values)
 			else TArray(el)
-		case KNew:
+		case Token.KNew:
 			i++
 			var t = parseType()
 			var names: Array<String> = []
 			var values: Array<Node> = []
-			if (tok() == BrOpen) {
+			if (tok() == Token.BrOpen) {
 				i++
-				if (tok() == DblDot) { // Empty object
+				if (tok() == Token.DblDot) { // Empty object
 					i++
-					step(BrClose)
-				} else if (tok() == LLower && lex.token[i + 1] == DblDot) { // Object
-					while (tok() != BrClose) {
-						names.push(getgo(LLower))
-						step(DblDot)
+					step(Token.BrClose)
+				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object
+					while (tok() != Token.BrClose) {
+						names.push(getgo(Token.LLower))
+						step(Token.DblDot)
 						values.push(parseExpr())
-						if (tok() == Comma) i++
+						if (tok() == Token.Comma) i++
 					}
-					step(BrClose)
+					step(Token.BrClose)
 				}
-				else if (tok() == BrClose) {
-					step(BrClose)
+				else if (tok() == Token.BrClose) {
+					step(Token.BrClose)
 				}
 			}
-			step(POpen)
+			step(Token.POpen)
 			var args = []
-			while (tok() != PClose) {
+			while (tok() != Token.PClose) {
 				args.push(parseExpr())
-				if (tok() == Comma) i++
+				if (tok() == Token.Comma) i++
 			}
-			step(PClose)
+			step(Token.PClose)
 
 			TNew([], t, args, names, values)
-		case KSwitch:
+		case Token.KSwitch:
 			i++
-			step(POpen)
+			step(Token.POpen)
 			var exprs = []
-			while (tok() != PClose) {
+			while (tok() != Token.PClose) {
 				exprs.push(parseExpr())
-				if (tok() == Comma) i++
+				if (tok() == Token.Comma) i++
 			}
-			step(PClose)
-			step(BrOpen)
+			step(Token.PClose)
+			step(Token.BrOpen)
 
 			var cases = []
 			var conds = []
 
-			while (tok() != BrClose) {
-				step(KCase)
+			while (tok() != Token.BrClose) {
+				step(Token.KCase)
 				var cond = []
-				while (tok() != DblDot) {
-					if (tok() == Underscore) {
+				while (tok() != Token.DblDot) {
+					if (tok() == Token.Underscore) {
 						i++
-						cond.push(TUnderscore)
+						cond.push(Node.TUnderscore)
 					} else cond.push(parseExpr())
-					if (tok() == Comma) i++
+					if (tok() == Token.Comma) i++
 				}
 				conds.push(cond)
-				step(DblDot)
+				step(Token.DblDot)
 				var exs = []
-				while (tok()!=KCase && tok()!=BrClose) {
+				while (tok()!=Token.KCase && tok()!=Token.BrClose) {
 					exs.push(parseExpr())
 				}
-				cases.push(TBlock(exs))
+				cases.push(Node.TBlock(exs))
 			}
 
-			step(BrClose)
 			TSwitch(exprs, conds, cases)
+			step(Token.BrClose)
 
-		case KFor:
+		case Token.KFor:
 			i++
-			step(POpen)
-			var n = getgo(LLower)
-			step(KIn)
+			step(Token.POpen)
+			var n = getgo(Token.LLower)
+			step(Token.KIn)
 			var a = parseExpr()
-			step(PClose)
+			step(Token.PClose)
 			var b = parseExpr()
 			TFor(n, a, b)
 
-		case KStatic:
+		case Token.KStatic:
 			next()
 			TStatic(parseExpr())
-		case KPrivate:
+		case Token.KPrivate:
 			next()
 			TPrivate(parseExpr())
 
@@ -691,55 +691,55 @@ class Parser {
 		var done = false
 		while (!done) {
 			result = switch (tok()) {
-			case BkOpen:
+			case Token.BkOpen:
 				i++
 				var index = parseExpr()
-				step(BkClose)
 				TIndex(result, index)
-			case KIs:
+				step(Token.BkClose)
+			case Token.KIs:
 				i++
 				switch (tok()) {
-					case LUpper:
 						TIs(result, parseType())
+					case Token.LUpper:
 					case _:
 						throw fail("Cannot parse type `" + tok().stringify() + "`")
 				}
-			case KAs:
+			case Token.KAs:
 				i++
 				var kind = tok()
-				if (tok() == OpNot) i++
-				else if (tok() == Question) i++
-				else kind = Default
 				TAs(result, kind, parseType())
-			case POpen: { // call
+				if (tok() == Token.OpNot) i++
+				else if (tok() == Token.Question) i++
+				else kind = Token.Default
+			case Token.POpen: { // call
 				var args: Array<Node> = []
 				var argNames: Array<String> = []
 				i++
-				while (tok() != PClose) {
+				while (tok() != Token.PClose) {
 					var argname = null
 					switch (tok()) {
-						case LUpper:
+						case Token.LUpper:
 							args.push(parseExpr())
-							if (tok() == DblDot) {
-								step(DblDot)
+							if (tok() == Token.DblDot) {
+								step(Token.DblDot)
 								parseType()
 							}
 						case _:
-							if (lex.token[i+1] == DblDot) {
-								argNames.push(getgo(LLower))
-								step(DblDot)
+							if (lex.token[i+1] == Token.DblDot) {
+								argNames.push(getgo(Token.LLower))
+								step(Token.DblDot)
 							}
 							else {
 								argNames.push(null)
 							}
 							args.push(parseExpr())
 					}
-					if (tok() != PClose) step(Comma)
+					if (tok() != Token.PClose) step(Token.Comma)
 				}
-				step(PClose)
 				TCall(result, args, argNames)
+				step(Token.PClose)
 			}
-			case OpArrow:
+			case Token.OpArrow:
 				next()
 				TFunction(null, parseExpr(), [result], null)
 
@@ -755,21 +755,21 @@ class Parser {
 			// a ? b : c
 			// a ?? b
 			// a ?. b
-			case Question: i++
-				if (tok() == Dot) {
-					var name = getgo(LLower)
 					TDot(result, name)
-				} else if (tok() == Question) {
+			case Token.Question: i++
+				if (tok() == Token.Dot) {
+					var name = getgo(Token.LLower)
+				} else if (tok() == Token.Question) {
 					i++
 					TElvis(result, parseExpr())
 				} else {
 					var eif = parseExpr()
-					step(DblDot)
+					step(Token.DblDot)
 					var eelse = parseExpr()
 					TIf([result], eif, eelse)
 				}
-			case OpChain: i++
 				parseExpr()
+			case Token.OpChain: i++
 			// a += b
 			case t if (isBinop(t) && offset(1) == OpAssign):
 				var op = tok()
@@ -786,7 +786,7 @@ class Parser {
 				var b = parseExpr()
 				var a = result
 				switch (b) {
-				case TBinop(aa, op, bb):
+				case Node.TBinop(aa, op, bb):
 					var tp = precedence(t)
 					var tLeft = tp > 99
 					tp = tp % 100
@@ -820,107 +820,107 @@ class Parser {
 
 		// let data.Node.TIdent(s1) = node
 
-		var const = tok() == KLet
+		var const = tok() == Token.KLet
 		i++
 		var vars: Array<Node> = []
 
 		function parseSingleVar(): Node {
-			var varname = getgo(LLower)
-			var type = null; if (tok() == DblDot) { i++; type = parseType(); }
-			var expr = null; if (tok() == OpAssign) { i++; expr = parseExpr(); }
+			var varname = getgo(Token.LLower)
 			if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
-			return TVar(varname, type, expr, const)
+			var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
+			var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
+			return Node.TVar(varname, type, expr, const)
 		}
 
 		function parseSingleBinding(): Node {
 			var path = []
 			// Path let path.path.path.
-			while (tok() == LLower && offset(1) == Dot) {
-				path.push(getgo(LLower))
+			while (tok() == Token.LLower && offset(1) == Token.Dot) {
+				path.push(getgo(Token.LLower))
 				i++
 			}
 			// Enum type
-			path.push(getgo(LUpper))
-			step(Dot)
+			path.push(getgo(Token.LUpper))
+			step(Token.Dot)
 			// Enum exact tag
-			path.push(getgo(LUpper))
+			path.push(getgo(Token.LUpper))
 
 			// Enum bind vars or none
-			if(tok() == POpen && offset(1) == PClose) throw fail("Don't use empty parenthesis for `let " + path.join('.') + '()` bindings')
-			var bind = []; // Variables T(var, var, var)
-			if(tok() == POpen) {
+			if (tok() == Token.POpen && offset(1) == Token.PClose) throw fail("Don't use empty parenthesis for `let " + path.join('.') + '()` bindings')
+			var bind = [] // Variables T(var, var, var)
+			if (tok() == Token.POpen) {
 				do {
 					i++
-					if(tok() == Underscore) { i++; bind.push(null); }
-					else bind.push(TVar(getgo(LLower), null, null, const))
-				} while (tok() == Comma)
-				step(PClose)
+					if (tok() == Token.Underscore) { i++ bind.push(null) }
+					else bind.push(Node.TVar(getgo(Token.LLower), null, null, const))
+				} while (tok() == Token.Comma)
+				step(Token.PClose)
 			}
 
-			step(OpAssign)
+			step(Token.OpAssign)
 
 			var expr = parseExpr()
-			return TEnumExtract(path, bind, expr)
+			return Node.TEnumExtract(path, bind, expr)
 			//throw fail("parseSingleBinding " + path + ' ' + bind + ' ' + expr)
 		}
 
 		while (true) {
 
-			if (tok() == LUpper || (tok() == LLower && offset(1) == Dot))
+			if (tok() == Token.LUpper || (tok() == Token.LLower && offset(1) == Token.Dot))
 				vars.push(parseSingleBinding())
 			else vars.push(parseSingleVar())
 
 			// Multiple variables var a, b, c
-			if (tok() == Comma && offset(1) == LLower && (offset(2) == OpAssign || offset(2) == DblDot))
+			if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.DblDot))
 				i++
 			else break
 		}
 
 		return vars
 
-		var const = tok() == KLet
+		var const = tok() == Token.KLet
 		i++
 		var vars: Array<Node> = []
 		switch (tok()) {
 			// var a
-			case LLower:
+			case Token.LLower:
 				// TODO Refactor
 				while (true) {
 
-					var varname = getgo(LLower)
+					var varname = getgo(Token.LLower)
 					if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
 
-					var type = null; if (tok() == DblDot) { i++; type = parseType(); }
-					var expr = null; if (tok() == OpAssign) { i++; expr = parseExpr(); }
-					vars.push(TVar(varname, type, expr, const))
+					var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
+					var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
+					vars.push(Node.TVar(varname, type, expr, const))
 
-					if (tok() == Comma && offset(1) == LLower && (offset(2) == OpAssign || offset(2) == DblDot))
+					if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.DblDot))
 						i++
 					else break
 				}
 			// var Left
-			case LUpper:
+			case Token.LUpper:
 				// if (offset(1) != Dot) {
 				// 	throw fail("Please use lowercase for variable")
 				// }
 				// // var Left.B
 				// else {
-					var left = TIdent(getgo(LUpper))
+					var left = Node.TIdent(getgo(Token.LUpper))
 					var res = left
 					// var Left.B.C.D...
-					while (tok() == Dot) {
-						res = TDot(res, getgo(LUpper))
+					while (tok() == Token.Dot) {
+						res = Node.TDot(res, getgo(Token.LUpper))
 					}
 					switch (tok()) {
-						case POpen:
+						case Token.POpen:
 							var args: Array<String> = []
-							while (tok() != PClose) {
-								args.push(getgo(LLower))
+							while (tok() != Token.PClose) {
+								args.push(getgo(Token.LLower))
 							}
-							step(OpAssign)
-							var varname = getgo(LLower)
+							step(Token.OpAssign)
+							var varname = getgo(Token.LLower)
 							//!vars.push(TEnumExtract(res, args, varname))
-						case OpAssign:
+						case Token.OpAssign:
 							//warning Extracting empty enum
 						case _:
 							throw fail("Wrong syntax")
@@ -941,37 +941,37 @@ class Parser {
 		var types = []
 		var values = []
 		switch (tok()) {
-			case LLower:
-				name = getgo(LLower)
-			case LUpper: throw fail("Function names can't start with uppercase.")
+			case Token.LLower:
+				name = getgo(Token.LLower)
+			case Token.LUpper: throw fail("Function names can't start with uppercase.")
 			case _:
 		}
-		step(POpen)
+		step(Token.POpen)
 		{
-			while (tok() != PClose) {
+			while (tok() != Token.PClose) {
 				var expr = null
 				var t = null
-				if (tok() == Interval) {
+				if (tok() == Token.Interval) {
 					i++
 				}
-				var name = getgo(LLower)
-				if (tok() == DblDot) {
+				var name = getgo(Token.LLower)
+				if (tok() == Token.DblDot) {
 					i++
 					t = parseType()
 				}
-				if (tok() == OpAssign) {
+				if (tok() == Token.OpAssign) {
 					i++
 					expr = parseExpr()
 				}
 				vars.push(name)
 				types.push(t)
 				values.push(expr)
-				if (tok() == Comma) i++
+				if (tok() == Token.Comma) i++
 			}
-			step(PClose)
+			step(Token.PClose)
 		}
 		var rettype = null
-		if (tok() == DblDot) {
+		if (tok() == Token.DblDot) {
 			i++
 			rettype = parseType()
 		}
@@ -979,10 +979,10 @@ class Parser {
 		if (parseBody) switch (tok()) {
 			case KNew if (lex.token[i+1] == POpen): {}
 			case BrClose, KStatic, KPrivate, KFunction: {}
-			case At: {
+			case Token.At: {
 				var tmp = i
-				while (tok() == At) parseAttribute()
-				if (tok() != BrClose && tok() != KStatic && tok() != KPrivate && tok() != KFunction)
+				while (tok() == Token.At) parseAttribute()
+				if (tok() != Token.BrClose && tok() != Token.KStatic && tok() != Token.KPrivate && tok() != Token.KFunction)
 				{
 					i = tmp
 					expr = parseExpr()
@@ -992,10 +992,10 @@ class Parser {
 		}
 
 		var v = []
-			v.push(TVar(vars[i], types[i], values[i], true))
 		for (i in vars.length) {
+			v.push(Node.TVar(vars[i], types[i], values[i], true))
 		}
-		return (TFunction(name, expr, v, rettype))
+		return (Node.TFunction(name, expr, v, rettype))
 	}
 
 	function hasInterpolation(str: String): Bool {
@@ -1074,52 +1074,52 @@ class Parser {
 
 	function parseAttribute() {
 		i++
-		var name = getgo(LLower)
+		var name = getgo(Token.LLower)
 		var values = []
-		if (tok() == POpen) {
+		if (tok() == Token.POpen) {
 			i++
-			while (tok() != PClose) {
+			while (tok() != Token.PClose) {
 				values.push(parseExpr())
-				if (tok() == Comma) i++
+				if (tok() == Token.Comma) i++
 			}
-			step(PClose)
+			step(Token.PClose)
 		}
 		return { name: name, values: values }
 	}
 
 	var parametricTypeNesting = 0
-	var parametricTypeNestingToken = Eof
+	var parametricTypeNestingToken = Token.Eof
 	function parseType(): NodeType {
 		var path = []
-		while (tok() == LLower && offset(1) == Dot) {
-			path.push(getgo(LLower))
+		while (tok() == Token.LLower && offset(1) == Token.Dot) {
+			path.push(getgo(Token.LLower))
 			i++
 		}
 
 		var result =
 		switch (tok()) {
-		case LUpper:
-			var name = getgo(LUpper)
+		case Token.LUpper:
+			var name = getgo(Token.LUpper)
 			if (path.length != 0) name = path.join('.') + '.' + name
-			while (tok() == Dot) {
+			while (tok() == Token.Dot) {
 				i++
-				getgo(LUpper)
+				getgo(Token.LUpper)
 			}
 			var result = if (tok() == OpLt) {
 				i++
 				parametricTypeNesting++
 				var params: Array<NodeType> = [parseType()]
-				while (tok() == Comma) {
+				while (tok() == Token.Comma) {
 					i++
 					params.push(parseType())
 				}
 
-				if (parametricTypeNestingToken == Eof) parametricTypeNestingToken = tok()
+				if (parametricTypeNestingToken == Token.Eof) parametricTypeNestingToken = tok()
 
 				switch (parametricTypeNestingToken) {
-					case OpGt: parametricTypeNesting-=1; parametricTypeNestingToken = Eof; i++
-					case OpShr: parametricTypeNesting-=1; parametricTypeNestingToken = OpGt
-					case OpUShr: parametricTypeNesting-=1; parametricTypeNestingToken = OpUShr
+					case Token.OpGt: parametricTypeNesting-=1 parametricTypeNestingToken = Token.Eof i++
+					case Token.OpShr: parametricTypeNesting-=1 parametricTypeNestingToken = Token.OpGt
+					case Token.OpUShr: parametricTypeNesting-=1 parametricTypeNestingToken = Token.OpUShr
 					case _: unexpected()
 				}
 				if (parametricTypeNesting < 0)
@@ -1129,7 +1129,7 @@ class Parser {
 			} else Type(name)
 
 			// A => B
-			if (tok() == OpArrow) {
+			if (tok() == Token.OpArrow) {
 				i++
 				result = Function([result], parseType())
 			}
@@ -1139,12 +1139,12 @@ class Parser {
 			i++
 			var res: NodeType = null
 			res = switch (tok()) {
-				case BkClose:
+				case Token.BkClose:
 					i++
 					ParametricType("Array", [Object([], [])])
-				case DblDot:
+				case Token.DblDot:
 					i++
-					if (tok() == BkClose) {
+					if (tok() == Token.BkClose) {
 						i++
 						ParametricType("Map", [Object([], []), Object([], [])])
 					}
@@ -1153,14 +1153,14 @@ class Parser {
 					}
 				case _:
 					var key = parseType()
-					var innerRes = if (tok() == DblDot) { // Map
+					var innerRes = if (tok() == Token.DblDot) { // Map
 						i++
 						ParametricType("Map", [key, parseType()])
 					} else ParametricType("Array", [key])
-					step(BkClose)
-					if (tok() == OpArrow) {
+					step(Token.BkClose)
+					if (tok() == Token.OpArrow) {
 						i++
-						innerRes = Function([res], parseType())
+						innerRes = NodeType.Function([res], parseType())
 					}
 					innerRes
 			}
@@ -1173,18 +1173,18 @@ class Parser {
 			} else {
 				var names: Array<String> = []
 				var types: Array<NodeType> = []
-				while (tok() != BrClose) {
-					names.push(getgo(LLower))
-					if (tok() == DblDot) {
+				while (tok() != Token.BrClose) {
+					names.push(getgo(Token.LLower))
+					if (tok() == Token.DblDot) {
 						i++
 						types.push(parseType())
 					}
-					if (tok() == Comma) i++
+					if (tok() == Token.Comma) i++
 				}
 				Object(names, types)
 			}
-			step(BrClose)
-			if (tok() == OpArrow) {
+			step(Token.BrClose)
+			if (tok() == Token.OpArrow) {
 				i++
 				result = Function([result], parseType())
 			}
@@ -1192,25 +1192,25 @@ class Parser {
 		case POpen if (path.length == 0): // ()
 			i++
 			var args = []
-			while (tok() != PClose) {
+			while (tok() != Token.PClose) {
 				parseType()
-				if (tok() == DblDot) {
+				if (tok() == Token.DblDot) {
 					i++
 					args.push(parseType())
 				}
-				if (tok() == Comma) i++
+				if (tok() == Token.Comma) i++
 			}
-			step(PClose)
-			step(OpArrow)
 			Function(args, parseType())
+			step(Token.PClose)
+			step(Token.OpArrow)
 		// var.invar
 		// var.Invar
 		//
-		case LLower:
 			var res: NodeType = switch (offset(1)) {
-				case DblDot: {
+		case Token.LLower:
+				case Token.DblDot: {
 					var argName = getgo(tok())
-					step(DblDot)
+					step(Token.DblDot)
 					var argType = parseType()
 					FunctionArg(argName, argType, null)
 				}
@@ -1228,13 +1228,13 @@ class Parser {
 			throw fail("Excected Type, parsed `" + tok().stringify() + "`")
 		}
 
-		if (tok() == Question) {
-			result = Optional(result)
+		if (tok() == Token.Question) {
+			result = NodeType.Optional(result)
 		}
-		while (tok() == Question) i++
-		if (tok() == OpArrow) {
+		while (tok() == Token.Question) i++
+		if (tok() == Token.OpArrow) {
 			i++
-			result = Function([result], parseType())
+			result = NodeType.Function([result], parseType())
 		}
 		return result
 	}

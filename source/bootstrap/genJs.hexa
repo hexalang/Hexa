@@ -79,8 +79,8 @@ class GenJs /*extends GeneratorHelper*/ {
 	static function stringifyBlockExpression(node: Node): String {
 		var r = ''
 		return switch (node) {
-			case TEnum(t, _):
 				r = 'const ' + extractTypeName(t) + ' = ' + node.stringify()
+			case Node.TEnum(t, _):
 			// Single binding condition if (let bind = value)
 			case TIf([cond = TVar(oname, t, expr, const)], eif, eelse):
 				r += "\n" + tabs + '{\n'
@@ -134,7 +134,7 @@ class GenJs /*extends GeneratorHelper*/ {
 					do {
 						var innercond = econds[i]
 						switch (innercond) {
-							case TVar(oname, t, expr, const):
+							case Node.TVar(oname, t, expr, const):
 								addToScope(oname)
 								var name = oname.rename()
 								parentNames.set(cond, name)
@@ -143,7 +143,8 @@ class GenJs /*extends GeneratorHelper*/ {
 							case _: condsstr += addCond(innercond.stringify())
 						}
 						if (econds[i+1] != null)
-							switch (econds[i+1]) { case TVar(oname, t, expr, const): break
+							switch (econds[i+1]) {
+								case Node.TVar(oname, t, expr, const): break
 								case _: i
 							}
 						i++
@@ -168,8 +169,7 @@ class GenJs /*extends GeneratorHelper*/ {
 				popTab()
 				r += "\n" + tabs + '}'
 				r
-
-			case TFunction(name, expr, vars, _):
+			case Node.TFunction(name, expr, vars, _):
 				pushScope()
 				var newname = name.rename()
 				var vars = [for (v in vars)
@@ -187,7 +187,7 @@ class GenJs /*extends GeneratorHelper*/ {
 				var funcbody = ""
 				if (expr != null) {
 					switch (expr) {
-						case TBlock(el): funcbody = expr.stringify()
+						case Node.TBlock(el): funcbody = stringify(expr)
 						case _:
 							pushScope()
 							pushTab()
@@ -236,7 +236,7 @@ class GenJs /*extends GeneratorHelper*/ {
 	static function stringifyProject(node: Node): String {
 		switch (node) {
 			//case TBlock([TClass(Type('GeneratorHelper'),_),_]): throw '' + el
-			case TBlock(el):
+			case Node.TBlock(el):
 				//if ((el+'').indexOf('GeneratorHelper') != -1) throw '' + el
 
 				var output = ['{', '\t"use strict"']
@@ -259,9 +259,9 @@ class GenJs /*extends GeneratorHelper*/ {
 					}
 
 					for (e in el) switch (e) {
-						case TBlock(el): for (e in el) switch (e) {
 							case TModule([], el): for (e in el) placeholder(e)
 							case TModule(path, el): pushNamespace(path)
+						case Node.TBlock(el): for (e in el) switch (e) {
 							//if (namespaces.indexOf(path.join('.')) == -1) namespaces.push(path.join('.'))
 							case _: {}
 						}
@@ -334,9 +334,9 @@ class GenJs /*extends GeneratorHelper*/ {
 									//if (extendsWhat == null || (extendsWhat == (path.join('.') + '#' + t.extractTypeName()))):
 									output.push('\t' + e.nameOf() + '/*!5*/ = ' + stringifyClass(e, null) + ';')
 									fillClasses(getClassGUID(path, t))
-
-									case TClass(t, ext, _): {}
 									case _ if (extendsWhat == null): output.push('\t' + e.nameOf() + '/*!1*/ = ' + stringify(e) + ';')
+
+									case Node.TClass(t, ext, _): {}
 								}
 								return
 							}
@@ -355,8 +355,8 @@ class GenJs /*extends GeneratorHelper*/ {
 									fillClasses(getClassGUID(path, t))
 
 
-									case TClass(t, ext, _): {}
 									case _ if (extendsWhat == null): output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!3*/ = ' + stringify(e) + ';')
+									case Node.TClass(t, ext, _): {}
 								}
 								return
 							}
@@ -382,11 +382,11 @@ class GenJs /*extends GeneratorHelper*/ {
 						}
 
 						for (e in el) switch (e) {
-							case TBlock(el): for (e in el) switch (e) {
-								case TModule(path, el): fillClassesOf(path, el)
+							case Node.TBlock(el): for (e in el) switch (e) {
+								case Node.TModule(path, el): fillClassesOf(path, el)
 								case _: {}
 							}
-							case TModule(path, el): fillClassesOf(path, el)
+							case Node.TModule(path, el): fillClassesOf(path, el)
 							case _: throw '' + e
 						}
 					}
@@ -411,11 +411,11 @@ class GenJs /*extends GeneratorHelper*/ {
 						//if (path.length == 1)
 						{
 							for (e in el) switch (e) {
-								case TDeclare(_): stringify(e)
 								case TClass(_,_,_,_,true): stringify(e)
 								case e = TClass(_), TPrivate(e = TClass(_)):
 								output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!4*/ = ' + stringifyClass(e, path) + ';')
 								case _: output.push('\t' + path.join('.') + '.' + e.nameOf() + '/*!3*/ = ' + stringify(e) + ';')
+								case Node.TDeclare(_): stringify(e)
 							}
 							return
 						}
@@ -452,11 +452,11 @@ class GenJs /*extends GeneratorHelper*/ {
 				// Trace initializers
 				{
 					for (e in el) switch (e) {
-						case TBlock(el): for (e in el) switch (e) {
-							case TModule(_): {}
 							case _: output.push('\t/*!2*/' + e.stringifyBlockExpression())
+						case Node.TBlock(el): for (e in el) switch (e) {
+							case Node.TModule(_): {}
 						}
-						case TModule(_): {}
+						case Node.TModule(_): {}
 						case _: throw '' + e
 					}
 				}
@@ -472,7 +472,7 @@ class GenJs /*extends GeneratorHelper*/ {
 
 	static function stringifyClass(node: Node, path: Array<String>): String {
 		return switch (node) {
-			case TClass(t, ext, impl, fields, external):
+			case Node.TClass(t, ext, impl, fields, external):
 			var cname = extractTypeName(t)
 			var r = (external?'/* declare class ' : 'class ') + cname
 
@@ -494,7 +494,7 @@ class GenJs /*extends GeneratorHelper*/ {
 				f = unmeta(f)
 
 				switch (f) {
-					case TStatic(field): f = field isafter = true
+					case Node.TStatic(field): f = field isafter = true
 					case _: {}
 				}
 
@@ -507,8 +507,8 @@ class GenJs /*extends GeneratorHelper*/ {
 							else code += '\t' + name.rename()
 							code += '(' + [for (v in vars)
 								switch (v) {
-									case TVar(oname, _, _):
 									var name = oname.rename()
+									case Node.TVar(oname, _, _):
 									if (hasInScope(name)) name += "$" + (++id)
 									addToScope(name)
 									parentNames.set(v, name)
@@ -518,7 +518,7 @@ class GenJs /*extends GeneratorHelper*/ {
 							].join(', ') + ') ' + (isafter?'=> ':'')
 							if (expr != null) {
 								switch (expr) {
-									case TBlock(el):
+									case Node.TBlock(el):
 									pushTab()
 									code += expr.stringify()
 									popTab()
@@ -531,7 +531,7 @@ class GenJs /*extends GeneratorHelper*/ {
 							}
 							else code += '{}'
 						}
-					case TVar(name, t, expr, const):
+					case Node.TVar(name, t, expr, const):
 						isafter = true
 						if (expr != null) {
 							code += cname + '.' + name.rename()
@@ -567,7 +567,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TPrivate(f): '/*tprivate*/ ' + stringify(f)
 		case TExport(f): '/*texport*/' + stringify(f)
 
-		case TEnumExtract(path, bind, expr): {
+		case Node.TEnumExtract(path, bind, expr): {
 			enumUid++
 			var out = ''
 			var postout = ''
@@ -575,8 +575,8 @@ class GenJs /*extends GeneratorHelper*/ {
 			for (e in bind) {
 				switch (e) {
 						case null: {} // _
-						case TVar(name,_):
 							var name = stringify(e).split(' ')[1]//name.rename()
+						case Node.TVar(name,_):
 							//stringify(e) //addScope(name, e)
 							out += 'let \(name) = null;\n' + tabs
 							postout += tabs + '\t\(name) = enum\(enumUid)$.values[\(i)];'
@@ -600,7 +600,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		//case TBlock([e]): stringify(e)
 
 		// Have no sub-nodes
-		case TString(s): /*'\'' + s
+		case Node.TString(s): /*'\'' + s
 			.split('\\').join('\\\\')
 			.split('\n').join('\\n')
 			.split('\r').join('\\r')
@@ -635,7 +635,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			}
 
 			"'" + charsOut.join('') + "'"
-		case TIdent(s):
+		case Node.TIdent(s):
 			var source = Project.mapNames.get(node)
 			/*var value = switch (source) {
 				case TDeclare(_, node): node
@@ -643,9 +643,9 @@ class GenJs /*extends GeneratorHelper*/ {
 			}*/
 			var n = switch (source) {
 				case null: throw 'Unmapped \(node)'
-				case TDeclare(name, t):
 					var n = parentNames.get(source)
 					if (n==null)
+				case Node.TDeclare(name, t):
 					//if (name=='instanceof')
 					throw 'TDeclare `\(name)` parentNames null == ' + parentNames.get(source) + ' for ' + source
 					//if (name=='instanceof')throw '' + /*getAtt(*/Project.mapAttributes.get(source)/*, 'infix')*/
@@ -662,11 +662,11 @@ class GenJs /*extends GeneratorHelper*/ {
 
 				//throw '' + source
 				case TEnum(Type(name), _): name
-				case TFor(name, _, _): parentNames.get(source)
-				case TIdent(name): parentNames.get(source)
-				case TVar(name, _, _):
 					var n = parentNames.get(source)
 					if (n==null) {
+				case Node.TFor(name, _, _): parentNames.get(source)
+				case Node.TIdent(name): parentNames.get(source)
+				case Node.TVar(name, _, _):
 						var data = Project.data.get(node)
 						var at = if (data != null) ' at ' + data.line +':' + data.column + ':' + data.fileName else ''
 						throw 'TVar `\(name)` parentNames null == ' + parentNames.get(source) + ' for ' + source + at
@@ -708,7 +708,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TAssignop(a, op, b):
 			a.unwrapBlockValue() + ' ' + op.stringify() + '= ' + b.unwrapBlockValue()
 		case TBlock([]): '{}'
-		case TBlock(elements):
+		case Node.TBlock(elements):
 			r = '{\n'
 			pushScope()
 			pushTab()
@@ -726,7 +726,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			r + tabs + '}'
 
 		case TElvis(a, b): a.stringify() + ' || ' + b.stringify()
-		case TFor(n, a, b):
+		case Node.TFor(n, a, b):
 			pushScope()
 			var name = n.rename()
 			if (hasInScope(name)) name += "$" + (++id)
@@ -742,7 +742,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		//case TCall(TIdent('__typeof__'), [of], _):
 		//'typeof ' + of.stringify()
 
-		case TCall(e, el, argNames):
+		case Node.TCall(e, el, argNames):
 			var source = Project.mapNames.get(e)
 			switch (source) {
 			/*	case null: throw 'Unmapped \(node)'
@@ -801,12 +801,12 @@ class GenJs /*extends GeneratorHelper*/ {
 
 		case TArray(el): '[' + [for (e in el) e.unwrapBlockValue()].join(', ') + ']'
 		case TMap([],_): 'new Map()'
-		case TMap(keys,values):
 			'new Map([' +
 			[for (i in keys.length) '[' + keys[i].unwrapBlockValue() + ', ' + values[i].unwrapBlockValue() + ']'].join(', ')
+		case Node.TMap(keys, values):
 			+ '])'
 
-		case TIf(econd, eif, eelse):
+		case Node.TIf(econd, eif, eelse):
 		//	throw '' + node
 			r = '(' + [for (e in econd) e.unwrapBlockValue()].join(' && ') + ')? (' + eif.unwrapBlockValue()
 			if (eelse != null) r += ') : (' + eelse.unwrapBlockValue() + ')'
@@ -817,14 +817,14 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TWhile(econd, e, false): 'do{' + e.stringify() + '}while(' + econd.stringify() + ')'
 		case NodeTypeValue(type): extractTypeName(type)
 		case TDot(TString(s), 'length'): '' + s.length
-		case TDot(expr, name):
 		//trace('.`\(name)`')
 		expr.unwrapBlockValue() + '.' + name.rename()
 
 		case TIndex(expr, index): expr.unwrapBlockValue() + '[' + index.unwrapBlockValue() + ']'
 		case TIs(expr, t): '' // TODO
 		case TAs(expr, kind, t): '(' + expr.unwrapBlockValue() + ')'
-		case TFunction(name, expr, vars, _):
+		case Node.TDot(expr, name):
+		case Node.TFunction(name, expr, vars, _):
 			pushScope()
 			r = ''
 			if (name != null) r += ' ' + name.rename()
@@ -843,8 +843,8 @@ class GenJs /*extends GeneratorHelper*/ {
 			].join(', ') + ') => '
 			if (expr != null) {
 				switch (expr) {
-					case TBlock(el):
 						r += expr.stringify()
+					case Node.TBlock(el):
 					case _:
 						pushScope()
 						pushTab()
@@ -856,7 +856,7 @@ class GenJs /*extends GeneratorHelper*/ {
 			else r += '{}'
 			popScope()
 			r
-		case TVar(oname, t, expr, const):
+		case Node.TVar(oname, t, expr, const):
 			if (oname == null) throw 'name is null for \(node)'
 			var es = ''
 			if (expr != null) es = ' = ' + expr.unwrapBlockValue()
@@ -867,12 +867,12 @@ class GenJs /*extends GeneratorHelper*/ {
 			if (name == null) throw 'name is null for \(node)'
 			r = (const?'const ':'let ') + name + es
 			r
-		case TTry(expr, t, v, catches):
+		case Node.TTry(expr, t, v, catches):
 			r = 'try {\n\(tabs)\t'
 			pushTab()
 			switch (expr) {
-				case TBlock(el): r += [for (e in el) e.stringifyBlockExpression()].join(';\n' + tabs)
 				case _:	r += expr.stringify()
+				case Node.TBlock(el): r += [for (e in el) stringifyBlockExpression(e)].join(';\n' + tabs)
 			}
 
 			popTab()
@@ -880,15 +880,15 @@ class GenJs /*extends GeneratorHelper*/ {
 			pushTab()
 			parentNames.set(v[0], v[0].varName())
 			switch (catches[0]) {
-				case TBlock(el): r += [for (e in el) e.stringify()].join(';\n' + tabs)
 				case _:	r += catches[0].stringify()
+				case Node.TBlock(el): r += [for (e in el) stringify(e)].join(';\n' + tabs)
 			}
 			popTab()
 			r + '\n' + tabs + '}'
 		// TODO rename here
-		case TNew(path, t, args, names, values):
 			'new ' + path.join('.') + (path.length>0?'.':'') + extractTypeName(t) + '(' + [for (e in args) e.unwrapBlockValue()].join(', ') + ')'
-		case TSwitch(exprs, conds, cases):
+		case Node.TNew(path, t, args, names, values):
+		case Node.TSwitch(exprs, conds, cases):
 			r = 'switch ('
 			r += exprs[0].unwrapBlockValue()
 			r += ') {\n'
@@ -985,7 +985,7 @@ class GenJs /*extends GeneratorHelper*/ {
 
 			}*/
 
-		case TModule(path, el):
+		case Node.TModule(path, el):
 			throw 'unreachable'
 			r = 'module ' + path.join('.') + ' {\n'
 			pushTab()
@@ -995,9 +995,9 @@ class GenJs /*extends GeneratorHelper*/ {
 				//if (e.nameOf()=='log') throw '' + e.nameOf() + ' ' + e
 				switch (e) {
 					case TDeclare(_, TBinop(_)): {}
-					case TDeclare(name, t):
 						//parentNames.set(e, e.nameOf())
 						parentNames.set(t, t.nameOf())
+					case Node.TDeclare(name, t):
 					case _: {}
 				}
 
@@ -1011,7 +1011,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		case TStatic(field): 'static ' + field.stringify()
 
 		// Types
-		case TEnum(t, fields):
+		case Node.TEnum(t, fields):
 			r = ''
 			//r = 'const ' + extractTypeName(t) + ' = '
 			r += '{\n'
@@ -1020,22 +1020,22 @@ class GenJs /*extends GeneratorHelper*/ {
 				switch (f) {
 					case TBinop(TIdent(name), OpAssign, val):
 					r += tabs + name.rename() + ':' + val.stringify() + ',\n'
-					case TIdent(name):
 					r += tabs + name.rename() + ':{},\n'
 					case TCall(TIdent(name),args,argNames):
 					r += tabs + name.rename() + ':' + [for (arg in argNames) arg.rename()]+',\n'
+					case Node.TIdent(name):
 					case _: throw '!' + f
 				}
 			}
 			popTab()
 			r + tabs + '}'
 		case TUnderscore: '_'
-		case TDeclare(name, vnode):
+		case Node.TDeclare(name, vnode):
 			parentNames.set(node, name)
 			Project.mapAttributes.set(vnode, Project.mapAttributes.get(node))
 			switch (vnode) {
-				case TBinop(_): {}
 				case _: parentNames.set(vnode, vnode.nameOf())
+				case Node.TBinop(_): {}
 			}
 		}
 	}
@@ -1063,7 +1063,7 @@ class GenJs /*extends GeneratorHelper*/ {
 		//case TParenthesis(e): e.unwrapBlockValue()
 		case TBlock([e = TBlock(_)]): e.unwrapBlockValue()
 		case TBlock([e]): e.unwrapBlockValue()//e.stringify()
-		case TBlock(el): {
+		case Node.TBlock(el):
 			var r = '(() => {\n'
 			pushScope()
 			pushTab()

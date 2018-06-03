@@ -75,7 +75,6 @@ class Typer {
 				//
 				//}
 
-
 				for (e in els) {
 					var name = nameOfModuleItem(e)
 					var found = false
@@ -117,7 +116,6 @@ class Typer {
 			//}
 		}
 
-
 //		var namespaces: Map<String, Map<String, Node>> = new Map()
 //
 //		function fillModuleNamespace(m: Node) {
@@ -155,26 +153,25 @@ class Typer {
 
 		// Let's fill global namespaces first to avoid delayed expansion
 		switch (allCode) {
-			case TBlock(files):
+			case Node.TBlock(files):
 				// Fill module scopes of all files at first
 			//	pushScope()
 				for (file in files) {
 					var didInit = false
 					switch (file) {
-						case TBlock(el): for (e in el) switch (e) {
-							case TModule(_):
+						case Node.TBlock(el): for (e in el) switch (e) {
+							case Node.TModule(_):
 								if (didInit) throw 'Expressions should follow after modules2 ' +e +'\n!! ' +file
 								fillModuleNamespace(e)
 							case _: didInit = true
 						}
-						case TModule(_):
+						case Node.TModule(_):
 							if (didInit) throw 'Expressions should follow after modules1' +file
 							fillModuleNamespace(file)
 						case _: didInit = true // Not always?// throw 'Typer expects each file to be a block'
 					}
 				}
 			//	popScope()
-
 			//	// Fill initialization code at files roots
 			//	for (file in files) {
 			//		pushScope()
@@ -216,7 +213,7 @@ class Typer {
 			//if (intermediate.length >0 ) throw '' + intermediate + ' subs:' + intermediateSubs
 
 			for (path in intermediate) {
-				var m = TModule(path.split('.'), [])
+				var m = Node.TModule(path.split('.'), [])
 				namespaces[path] = m
 			}
 		}
@@ -267,10 +264,10 @@ class Typer {
 			prevnode = node
 			switch (node) {
 				// TODO Fill TEnumExtract
-				case TEnumExtract(path, bind, expr): {
+				case Node.TEnumExtract(path, bind, expr): {
 					for (e in bind) switch (e) {
 						case null: {} // _
-						case TVar(name,_): addScope(name, e)
+						case Node.TVar(name,_): addScope(name, e)
 						case _: throw 'TEnumExtract contains not a var: ' + e
 					}
 					switch (expr) {
@@ -281,14 +278,14 @@ class Typer {
 
 				}
 				case TBlock([]): {}
-				case TVars(e): for (e in e) fill(e)
 				case TIdent(null), TVar(null,_,_), TFor(null,_,_):
 					throw new CompilerError(Fail.TyperError, '' + node)
-				case TBlock(el):
+				case Node.TVars(e): for (e in e) fill(e)
+				case Node.TBlock(el):
 					pushScope()
 					for (e in el) fill(e)
 					popScope()
-				case TIdent(name):
+				case Node.TIdent(name):
 					//if (name == 's')
 					//	if (prevnode_s == null) {
 					//		prevnode_s = node
@@ -312,12 +309,12 @@ class Typer {
 					Project.mapNames.set(node, subj)
 
 					switch (subj) {
-						case TVar(_):
+						case Node.TVar(_):
 						case _:
 					}
 
 					//Project.mapNames[node] = scopes[scopes.length-1][name]
-				case TUsing(names): {}
+				case Node.TUsing(names): {}
 
 				//case TVar(name = 'valueg',t,e,c): throw fail('' + name+' ' + t + ' ' + e + ' ' + c, node)
 
@@ -345,25 +342,24 @@ class Typer {
 				case TVar(name,_,null, const):
 					addScope(name, node)
 
-				case TVar(name,_,e, const):
+				case Node.TVar(name,_,e, const):
 
 					// Disallow class as a variable expression
 					switch (e) {
-						case TClass(_, _, _, _, _):
+						case Node.TClass(_, _, _, _, _):
 							throw fail('Variable should not have class as a value', node)
 						case _:
 					}
-
 					fill(e)
 					addScope(name, node)
 
-				case TArray(el): for (e in el) fill(e)
-				case TMap(keys, values):
+				case Node.TArray(el): for (e in el) fill(e)
+				case Node.TMap(keys, values):
 					for (i in keys.length) {
 						fill(keys[i])
 						fill(values[i])
 					}
-				case TAs(e, _, _): fill(e)
+				case Node.TAs(e, _, _): fill(e)
 				// Constant `let`s
 				//case TBinop(a,_,_): trace(a)
 				//case TBinop(TIdent(name),OpAssign,_): trace(name)
@@ -396,13 +392,13 @@ class Typer {
 							throw fail('Cannot assign value to `\(a)`', node)
 						case _: // Ok
 					}
-				case TBreak: {}
-				case TCall(e, el, elnames): fill(e) for (e in el) {
 					//trace(e)
 					if (e.isVoidValue()) throw fail('Cannot use void as argument value', node)
+				case Node.TBreak: {}
+				case Node.TCall(e, el, elnames): fill(e) for (e in el) {
 					fill(e)
 				}
-				case TClass(t,ex,i,f,external):
+				case Node.TClass(t,ex,i,f,external):
 					var iiec = isInExternalClass
 					isInExternalClass = external
 					var name = extractTypeName(t)
@@ -425,7 +421,7 @@ class Typer {
 						}
 						var map = scopes[scopes.length-1]
 						if (map.has(name))
-							throw fail('Class field \(name) already exists', node)
+							throw fail('Class field `\(name)` already exists', node)
 						map.set(name, field)
 
 						Project.mapNames.set(field, node)
@@ -473,12 +469,12 @@ class Typer {
 					addScope(name, node)
 					fill(t)
 
-				case TDot(e, n): fill(e)
-				case TElvis(a,b): fill(a) fill(b)
-				case TEnum(t,f):
+				case Node.TDot(e, n): fill(e)
+				case Node.TElvis(a,b): fill(a) fill(b)
+				case Node.TEnum(t,f):
 					var name = extractTypeName(t)
 					addScope(name, node)
-				case TFor(name, over, by):
+				case Node.TFor(name, over, by):
 					fill(over)
 					pushScope()
 					addScope(name, node)
@@ -487,15 +483,15 @@ class Typer {
 
 				case TFunction(name, null, _, _) if (!isInExternalClass):
 					throw fail('Non-external function should have a body', node)
-				case TFunction(name, expr, vars, rettype):
 					//trace('TFunction \(name)')
+				case Node.TFunction(name, expr, vars, rettype):
 					if (name != null) addScope(name, node)
 					pushScope()
 					for (v in vars) {
 						switch (v) {
-							case TVar(vname, _, _): addScope(vname, v)
-							case TIdent(vname): addScope(vname, v)
 							case TParenthesis(null): {}
+							case Node.TVar(vname, _, _): addScope(vname, v)
+							case Node.TIdent(vname): addScope(vname, v)
 							case _:
 								throw fail(v+'', node)
 						}
@@ -503,7 +499,7 @@ class Typer {
 					if (expr != null) fill(expr)
 					popScope()
 
-				case TIf(econd, eif, eelse):
+				case Node.TIf(econd, eif, eelse):
 					var depth = 0
 					for (e in econd) {
 						switch (e) {
@@ -524,36 +520,37 @@ class Typer {
 				//	for (e in econd) fill(e) fill(eif)
 				//case TIf(econd, eif, eelse):
 				//	for (e in econd) fill(e) fill(eif) fill(eelse)
-				case TIndex(e,i): fill(e) fill(i)
+				case Node.TIndex(e,i): fill(e) fill(i)
 
 				//case TModule(_, null): throw 'Modules should be at a file\' upper scope'
 				//case TModule(el): throw 'Modules should be at a file\' upper scope'
-				case TModule(_): throw fail('Modules should be at a file\' upper scope', node)
+				case Node.TModule(_): throw fail('Modules should be at a file\' upper scope', node)
 
 				//TODO vames and values added
 				case TNew(path, Type(name)|ParametricType(name,_), el, names, values):
 					for (e in el) fill(e)
 
-				case TNew(path, _, el, names, values):
+				case Node.TNew(path, _, el, names, values):
 					// TODO parent names and path check
 					for (e in el) fill(e)
-				case TObject(names, el): for (e in el) fill(e)
-				case TParenthesis(e): fill(e)
 				case TReturn(null): {}
 				case TReturn(TReturn(_)): throw fail('Cannot return another return. Try `{ return 1 } return 2`', node)
-				case TReturn(e):
 					fill(e)
-				case TStatic(e):
 					//trace('TStatic \(e)')
+				case Node.TObject(names, el): for (e in el) fill(e)
+				case Node.TParenthesis(e): fill(e)
+				case Node.TReturn(e):
+				case Node.TStatic(e):
 					fill(e) // throw! not in class!
-				case TSuper, TThis: Project.mapNames.set(node, currentClass[currentClass.length-1])
-				case TSwitch(exprs, conds, cases): {
+				case Node.TSuper: Project.mapNames.set(node, currentClass[currentClass.length-1])
+				case Node.TThis: Project.mapNames.set(node, currentClass[currentClass.length-1])
+				case Node.TSwitch(exprs, conds, cases): {
 					for (e in exprs) { pushScope() fill(e) popScope() }
 					for (e in conds) for (e in e) { pushScope() fill(e) popScope() }
 					for (e in cases) { pushScope() fill(e) popScope() }
 				}
-				case TThrow(e): fill(e)
-				case TTry(e, t, v, ca):
+				case Node.TThrow(e): fill(e)
+				case Node.TTry(e, t, v, ca):
 					fill(e)
 					for (e in ca.length) {
 						pushScope()
@@ -561,15 +558,21 @@ class Typer {
 						fill(ca[e])
 						popScope()
 					}
-				case TUnop(_,_,e): fill(e)
-				case TWhile(econd, e, _): fill(econd) fill(e)
+				case Node.TUnop(_,_,e): fill(e)
+				case Node.TWhile(econd, e, _): fill(econd) fill(e)
 
 				// TODO
-				case TIs(el, el2): {}
-				case NodeTypeValue(t): {}
-				case TUnderscore, TNull, TContinue, TString(_), TBool(_), TInt(_), TFloat(_): {}
-				case TExport(f): fill(f)
-				case TPrivate(f): fill(f)
+				case Node.TIs(el, el2): {}
+				case Node.NodeTypeValue(t): {}
+				case Node.TUnderscore: {}
+				case Node.TNull: {}
+				case Node.TContinue: {}
+				case Node.TString(_): {}
+				case Node.TBool(_): {}
+				case Node.TInt(_): {}
+				case Node.TFloat(_): {}
+				case Node.TExport(f): fill(f)
+				case Node.TPrivate(f): fill(f)
 			}
 		}
 
@@ -581,25 +584,25 @@ class Typer {
 
 		function fillModule(mod) {
 			switch (mod) {
-				case TModule(path, el):
+				case Node.TModule(path, el):
 					for (e in el) fill(e)
-				case _: trace('-------> fillModule \(mod)')
+				case _: Console.log('-------> fillModule \(mod)')
 			}
 		}
 
 		switch (allCode) {
-			case TBlock(files):
+			case Node.TBlock(files):
 				// Fill module scopes of all files at first
 				pushScope()
 
 				//for (i in in)
 
 				for (file in files) switch (file) {
-					case TBlock(el): for (e in el) switch (e) {
-						case TModule(_): fillModule(e)
+					case Node.TBlock(el): for (e in el) switch (e) {
+						case Node.TModule(_): fillModule(e)
 						case _: {}
 					}
-					case TModule(_): fillModule(file)
+					case Node.TModule(_): fillModule(file)
 					case _: {} // Not always?// throw 'Typer expects each file to be a block'
 				}
 				popScope()
@@ -608,11 +611,11 @@ class Typer {
 				for (file in files) {
 					pushScope()
 					switch (file) {
-						case TBlock(el): for (e in el) switch (e) {
-							case TModule(_): {}
+						case Node.TBlock(el): for (e in el) switch (e) {
+							case Node.TModule(_): {}
 							case _: fill(e)
 						}
-						case TModule(_): {}
+						case Node.TModule(_): {}
 						case _: fill(file)
 					}
 					popScope()
