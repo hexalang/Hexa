@@ -26,25 +26,26 @@ class Typer {
 		var namespaces: Map<String, Node> = new Map()
 
 		function nameOfModuleItem(node: Node): String {
-			return switch (node) {
-				case
-					TVar(name, _),
 					TPrivate(TClass(Type(name), _)),
 					TClass(Type(name), _),
 					TEnum(Type(name), _),
-					TDeclare(name, _),
 					TClass(ParametricType(name, _), _),
 					TPrivate(TClass(ParametricType(name, _), _))
 					: name
+			switch (node) {
+				case Node.TVar(name, _): return name
+				case Node.TDeclare(name, _): return name
 				case _: throw '' + node
 			}
 		}
 
 		function fillModuleNamespace(m: Node) {
 			var el = null
-			var root: String = switch (m) {
-				case TModule([], els): el = els ''
-				case TModule(path, els): el = els path.join('.')
+			var root: String = null
+			switch (m) {
+				case Node.TModule(path, els):
+				el = els
+				root = path.join('.')
 				case _: throw 'module?!'
 			}
 
@@ -55,16 +56,18 @@ class Typer {
 			if (namespaces[root] == null) {
 				namespaces[root] = m
 			} else {
-				var els = switch (namespaces[root]) {
-					case TModule(_, els): els
+				var els = null
+				switch (namespaces[root]) {
+					case Node.TModule(_, el): els = el
 					case _: throw 'module?!'
 				}
 				while (el.length > 0) els.push(el.pop())
 			}
 
 			{
-				var els = switch (namespaces[root]) {
-					case TModule(_, els): els
+				var els = null
+				switch (namespaces[root]) {
+					case Node.TModule(_, el): els = el
 					case _: throw 'module?!'
 				}
 
@@ -87,10 +90,10 @@ class Typer {
 				}
 			}
 
-
 			// else {
-			//	var els = switch (namespaces[root]) {
-			//		case TModule(_, els): els
+			//	var els = null
+			//	switch (namespaces[root]) {
+			//		case TModule(_, el): els = el
 			//		case _: throw 'module?!'
 			//	}
 			//	while (el.length > 0) {
@@ -221,8 +224,9 @@ class Typer {
 		function findInNamespaceRoots(name: String): Node {
 			if (namespaces[name] != null) return namespaces[name]
 			var m = namespaces['']
-			var el = switch (m) {
-				case TModule(_, els): els
+			var el = null
+			switch (m) {
+				case Node.TModule(_, els): el = els
 				case _: throw 'module?!'
 			}
 			for (e in el) if (name == nameOfModuleItem(e)) return e
@@ -365,16 +369,18 @@ class Typer {
 				//case TBinop(TIdent(name),OpAssign,_): trace(name)
 				//case TBinop(OpAssign,a,_) if (().match(TVar(name,_,_,true))): throw 'Cannot reassign a constant `\(name)`'
 				case TAssignop(a = TIdent(_),_,b): fill(a) fill(b) // TODO const
+				case Node.TAssignop(a, _, b): fill(a) fill(b)
 					var parent: Node = Project.mapNames.get(a)
 					switch (parent) {
-						case TVar(name,_,_,true), TFunction(name,_):
+						case Node.TVar(name,_,_,const):
+							if (const)
 							throw fail('Cannot reassign a constant `\(name)`', node)
+						case Node.TFunction(name,_):
+							throw fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
 					}
 
-				case TAssignop(a,_,b): fill(a) fill(b) // TODO const
 
-				case TBinop(a,_,b): fill(a) fill(b)
 					switch (node) {
 						case TBinop(TDot(_),_,_): // Ok
 						case TBinop(TIndex(_),OpAssign,_): // Ok
@@ -390,12 +396,12 @@ class Typer {
 
 						case TBinop(_,OpAssign,_):
 							throw fail('Cannot assign value to `\(a)`', node)
+				case Node.TBinop(a,_,b): fill(a) fill(b)
 						case _: // Ok
 					}
-					//trace(e)
-					if (e.isVoidValue()) throw fail('Cannot use void as argument value', node)
 				case Node.TBreak: {}
 				case Node.TCall(e, el, elnames): fill(e) for (e in el) {
+					if (DataHelper.isVoidValue(e)) throw fail('Cannot use void as argument value', node)
 					fill(e)
 				}
 				case Node.TClass(t,ex,i,f,external):
@@ -481,17 +487,15 @@ class Typer {
 					fill(by)
 					popScope()
 
-				case TFunction(name, null, _, _) if (!isInExternalClass):
-					throw fail('Non-external function should have a body', node)
-					//trace('TFunction \(name)')
 				case Node.TFunction(name, expr, vars, rettype):
+					if (expr == null && !isInExternalClass) throw fail('Non-external function should have a body', node)
 					if (name != null) addScope(name, node)
 					pushScope()
 					for (v in vars) {
 						switch (v) {
-							case TParenthesis(null): {}
 							case Node.TVar(vname, _, _): addScope(vname, v)
 							case Node.TIdent(vname): addScope(vname, v)
+							case Node.TParenthesis(e): if (e != null) throw fail(v+'', node)
 							case _:
 								throw fail(v+'', node)
 						}
@@ -503,8 +507,9 @@ class Typer {
 					var depth = 0
 					for (e in econd) {
 						switch (e) {
-							case TVar(_,_,_,false): throw fail('Only if-let bindings supported', node)
-							case TVar(_,_,_,true): depth++ pushScope() fill(e)
+							case Node.TVar(_,_,_,const):
+							if(!const) throw fail('Only if-let bindings supported', node)
+							depth++ pushScope() fill(e)
 							case _: fill(e)
 						}
 					}
@@ -554,7 +559,7 @@ class Typer {
 					fill(e)
 					for (e in ca.length) {
 						pushScope()
-						scopes[scopes.length-1].set(v[e].varName(), v[e])
+						scopes[scopes.length-1].set(DataHelper.varName(v[e]), v[e])
 						fill(ca[e])
 						popScope()
 					}
@@ -625,8 +630,9 @@ class Typer {
 	}
 
 	static function extractTypeName(t: NodeType): String {
-		return switch (t) {
-		case Type(name), ParametricType(name, _): name
+		switch (t) {
+		case NodeType.Type(name): return name
+		case NodeType.ParametricType(name, _): return name
 		case _: throw 'Type has no name: ' + t
 		}
 	}

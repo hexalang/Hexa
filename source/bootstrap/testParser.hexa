@@ -24,34 +24,34 @@ class TestParser {
 
 		// Basics and indentaion
 		shouldAllEqual([
-			''			=> '',
-			'  '		=> '',
-			'	'		=> '',
-			'   	'	=> '',
+			''			 : '<!--null-->',
+			'  '		 : '<!--null-->',
+			'	'		 : '<!--null-->',
+			'   	'	 : '<!--null-->',
 
-			'\n'		=> '',
-			'\n\n'		=> '',
-			'\r\r\n\r\n\r\t' => '',
+			'\n'		 : '<!--null-->',
+			'\n\n'		 : '<!--null-->',
+			'\r\r\n\r\n\r\t' : '<!--null-->',
 
-			'{}' => 'TBlock([])',
-			'{{}}' => 'TBlock([TBlock([])])',
-			'{ 0 0 0 }' => 'TBlock([TInt(0),TInt(0),TInt(0)])',
+			'{}' : 'TBlock([])',
+			'{{}}' : 'TBlock([TBlock([])])',
+			'{ 0 0 0 }' : 'TBlock([TInt(0),TInt(0),TInt(0)])',
 
-			'0' 		=> 'TInt(0)',
-			' 0 '		=> 'TInt(0)',
-			'123'		=> 'TInt(123)',
-			'12'		=> 'TInt(12)',
-			"0x1"		=> 'TInt(0x1)',
-			"0x0"		=> 'TInt(0x0)',
-			"0xF"		=> 'TInt(0xF)',
-			"0xFA"		=> 'TInt(0xFA)',
-			"0xFABCDEF" => 'TInt(0xFABCDEF)',
+			'0' 		 : 'TInt(0)',
+			' 0 '		 : 'TInt(0)',
+			'123'		 : 'TInt(123)',
+			'12'		 : 'TInt(12)',
+			"0x1"		 : 'TInt(0x1)',
+			"0x0"		 : 'TInt(0x0)',
+			"0xF"		 : 'TInt(0xF)',
+			"0xFA"		 : 'TInt(0xFA)',
+			"0xFABCDEF" : 'TInt(0xFABCDEF)',
 
-			"0.0"		=> 'TFloat(0.0)',
-			"0.123" 	=> 'TFloat(0.123)',
+			"0.0"		 : 'TFloat(0.0)',
+			"0.123" 	 : 'TFloat(0.123)',
 
-			"'s'"		=> 'TString(s)',
-			"\"s\"" 	=> 'TString(s)'
+			"'s'"		 : 'TString(s)',
+			"\"s\"" 	 : 'TString(s)'
 		])
 
 		shouldAllEqual([
@@ -87,15 +87,15 @@ class TestParser {
 
 		// Modularity
 		shouldAllEqual([
-			'module { }' => 'TModule(, [])',
-			'code module { } code' => 'TBlock([TIdent(code),TModule(,[]),TIdent(code)])',
-			'code module { } module { } code' => 'TBlock([TIdent(code),TModule(,[]),TModule(,[]),TIdent(code)])',
-			'module a { }' => 'TModule(a, [])',
-			'module a.b { }' => 'TModule(a.b, [])',
-			'module a { module b { } }' => 'TModule(a,[TModule(b,[])])',
 			'module { class Inner {} }' => 'TModule(,[TClass(Type(Inner),null,[],[],false)])',
 			'module { class InnerA {} class InnerB {} }' => 'TModule(,[TClass(Type(InnerA),null,[],[],false),TClass(Type(InnerB),null,[],[],false)])',
 			'module m { class C {} enum E {} function f() {} var v }' => "TModule(m,[TClass(Type(C),null,[],[],false),TEnum(Type(E),[]),TFunction(f,TBlock([]),[],null),TVar(v,null,null,false)])",
+			'module { }': 'TModule(, [])',
+			'code module { } code': 'TBlock([TIdent(code),TModule(,[]),TIdent(code)])',
+			'code module { } module { } code': 'TBlock([TIdent(code),TModule(,[]),TModule(,[]),TIdent(code)])',
+			'module a { }': 'TModule(a, [])',
+			'module a.b { }': 'TModule(a.b, [])',
+			'module a { module b { } }': 'TModule(a,[TModule(b,[])])',
 			])
 
 		// Types parsing in expressions
@@ -104,28 +104,28 @@ class TestParser {
 
 		// Enumerations
 		shouldAllEqual([
-			'enum A {}' => 'TEnum(Type(A),[])',
+			'enum A {}' : 'TEnum(Type(A),[])',
 			])
 
 		// ADTs
 
 		// Constructor
 		shouldAllEqual([
-			'class A {} var a = new A { } ()' => "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[]),false)])",
-			'class A { var field: String } var a = new A { field: "Value" } ()' =>
+			'class A {} var a = new A { } ()' : "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[]),false)])",
+			'class A { var field: String } var a = new A { field: "Value" } ()' :
 				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[TString(Value)]),false)])",
-			'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' =>
+			'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' :
 				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false),TVar(otherfield,Type(Int),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)]),false)])",
 
 			])
 
 		// External declarations
 		shouldAllEqual([
-			'declare var a:T' => 'TDeclare(a,TVar(a,Type(T),null,false))',
-			'declare let a:T' => 'TDeclare(a,TVar(a,Type(T),null,true))',
-			'declare function name()' => 'TDeclare(name,TFunction(name,null,[],null))',
-			'declare function name() hi()' => 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TCall(TIdent(hi),[])])',
-			'declare function name() {}' => 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TBlock([])])',
+			'declare var a: T' : 'TDeclare(a,TVar(a,Type(T),null,false))',
+			'declare let a: T' : 'TDeclare(a,TVar(a,Type(T),null,true))',
+			'declare function name()' : 'TDeclare(name,TFunction(name,null,[],null))',
+			'declare function name() hi()' : 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TCall(TIdent(hi),[])])',
+			'declare function name() {}' : 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TBlock([])])',
 			])
 
 		shouldAllError([
@@ -147,7 +147,7 @@ class TestParser {
 
 	// Parses `input` into AST and stringifies, checks by trimmed `test`
 	static function shouldEqual(input: String, test: String) {
-		test = test.deepTrim()
+		let test = TestParser.deepTrim(test)
 		shouldEqualWithoutTrim(input, test)
 	}
 
@@ -198,93 +198,95 @@ class TestParser {
 
 	// Removes all internal and trailing whitespace and newlines
 	static function deepTrim(s: String) {
-		return s.replace('\n', '').replace('\r', '').replace('\t', '').replace(' ', '')
+		return s.split('\n').join('').split('\r').join('').split('\t').join('').split(' ').join('')
 	}
 
 	// Creates a testable consistent string representation of node
 	static function stringify(node: Node): String {
-		return switch (node) {
-		case null: ''
+		switch (node) {
+		case null: return '<!--null-->'
 
 		// Have no sub-nodes
-		case TString(s): 'TString(\(s))'
-		case TIdent(s): 'TIdent(\(s))'
-		case TBool(b): 'TBool(\(b))'
-		case TThis: 'TThis'
-		case TSuper: 'TSuper'
-		case TInt(s): 'TInt(\(s))'
-		case TFloat(s): 'TFloat(\(s))'
-		case TNull: 'TNull'
-		case TBreak: 'TBreak'
-		case TContinue: 'TContinue'
+		case Node.TString(s): return 'TString(\(s))'
+		case Node.TIdent(s): return 'TIdent(\(s))'
+		case Node.TBool(b): return 'TBool(\(b))'
+		case Node.TThis: return 'TThis'
+		case Node.TSuper: return 'TSuper'
+		case Node.TInt(s): return 'TInt(\(s))'
+		case Node.TFloat(s): return 'TFloat(\(s))'
+		case Node.TNull: return 'TNull'
+		case Node.TBreak: return 'TBreak'
+		case Node.TContinue: return 'TContinue'
 
 		// Have sub-nodes
-		case TDeclare(name, expr): 'TDeclare(\(name),' + expr.stringify() + ")"
-		case TIs(expr, type): 'TAs(' + expr.stringify() + "," + type.stringifyType() + ")"
-		case TAs(expr, kind, type): 'TAs(' + expr.stringify() + "," + kind.stringify() + "," + type.stringifyType() + ")"
-		case TBinop(a, op, b): 'TBinop(' + a.stringify() + ',' + op.stringify() + ',' + b.stringify() + ')'
-		case TAssignop(a, op, b): 'TAssignop(' + a.stringify() + ',' + op.stringify() + ',' + b.stringify() + ')'
-		case TBlock(els): 'TBlock(' + els.stringifyNodeArray() + ')'
-		case TVar(name, t, expr, const):
-		'TVar(\(name),' + ((t != null) ? t.stringifyType() : "null") +
-		"," + ((expr != null) ? expr.stringify() : "null") +',\(const))'
-		case TVars(vars): 'TVars(' + vars.stringifyNodeArray() + ")"
+		case Node.TDeclare(name, expr): return 'TDeclare(\(name),' + TestParser.stringify(expr) + ")"
+		case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
+		case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
+		case Node.TBinop(a, op, b): return 'TBinop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
+		case Node.TAssignop(a, op, b): return 'TAssignop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
+		case Node.TBlock(els): return 'TBlock(' + TestParser.stringifyNodeArray(els) + ')'
+		case Node.TVar(name, t, expr, const):
+		return 'TVar(\(name),' + ((t != null) ? TestParser.stringifyType(t) : "null") +
+		"," + ((expr != null) ? TestParser.stringify(expr) : "null") +',\(const))'
+		case Node.TVars(vars): return 'TVars(' + TestParser.stringifyNodeArray(vars) + ")"
 
-		case TFunction(name, expr, vars, rettype):
-			'TFunction(\(name),'
-			+ (expr == null ? "null" : expr.stringify())
-			+ "," + vars.stringifyNodeArray() + ',' + ((rettype != null) ? rettype.stringifyType() : "null") + ")"
+		case Node.TFunction(name, expr, vars, rettype):
+			return 'TFunction(\(name),'
+			+ (expr == null ? "null" : TestParser.stringify(expr))
+			+ "," + TestParser.stringifyNodeArray(vars) + ',' + ((rettype != null) ? TestParser.stringifyType(rettype) : "null") + ")"
 
-		case TCall(e, el, argNames):
-			var res = 'TCall(' + e.stringify() + ',['
+		case Node.TCall(e, el, argNames):
+			var res = 'TCall(' + TestParser.stringify(e) + ',['
 			for (i in el.length) {
 				res += argNames[i] == null ? "" : argNames[i] + ":"
-				res += el[i] + ((i != el.length - 1) ? "," : "")
+				res += TestParser.stringify(el[i]) + ((i != el.length - 1) ? "," : "")
 			}
-			res + "])"
+			return res + "])"
 
-		case TParenthesis(e): 'TParenthesis(' + e.stringify() + ')'
-		case TReturn(e): 'TReturn(' + e.stringify() + ')'
-		case TThrow(e): 'TThrow(' + e.stringify() + ')'
-		case TEnum(t, els): 'TEnum(' + t + ',' + els.stringifyNodeArray() + ')'
-		case TUsing(a): 'TUsing(' + a.join(',') + ")"
-		case TModule(paths, els):
-			"TModule(" + paths.join('.') + "," + els.stringifyNodeArray() + ")"
+		case Node.TParenthesis(e): return 'TParenthesis(' + TestParser.stringify(e) + ')'
+		case Node.TReturn(e): return 'TReturn(' + TestParser.stringify(e) + ')'
+		case Node.TThrow(e): return 'TThrow(' + TestParser.stringify(e) + ')'
+		case Node.TEnum(t, els): return 'TEnum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
+		case Node.TUsing(a): return 'TUsing(' + a.join(',') + ")"
+		case Node.TModule(paths, els):
+			return "TModule(" + paths.join('.') + "," + TestParser.stringifyNodeArray(els) + ")"
 
-		case TClass(type, extend, implement, fields, external):
-			var res = "TClass(" + type.stringifyType() + ","
-			res += extend != null ? extend.stringifyType() : "null" + ","
-			res += implement.stringifyNodeTypeArray() + ","
-			res += fields.stringifyNodeArray() + ","
+		case Node.TMap(k, v): return 'TMap([' + [for(p in k) TestParser.stringify(p)].join(',') + '],[' + [for(p in v) TestParser.stringify(p)].join(',') + '])'
+
+		case Node.TClass(type, extend, implement, fields, external):
+			var res = "TClass(" + TestParser.stringifyType(type) + ","
+			res += extend != null ? TestParser.stringifyType(extend) : "null" + ","
+			res += TestParser.stringifyNodeTypeArray(implement) + ","
+			res += TestParser.stringifyNodeArray(fields) + ","
 			res += external + ")"
-			res
+			return res
 
-		case TNew(path, t, args, names, values):
-			'TNew(' + path + ',' + t.stringifyType() + ',' + args.stringifyNodeArray() + ',[' + names.join(",") + "]," + values.stringifyNodeArray() + ")"
+		case Node.TNew(path, t, args, names, values):
+			return 'TNew([' + path.join('.') + '],' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(args) + ',[' + names.join(",") + "]," + TestParser.stringifyNodeArray(values) + ")"
 
-		case NodeTypeValue(type): 'NodeTypeValue(' + type.stringifyType() + ")"
-		case TDot(l, r): "TDot(" + l.stringify() + "," + r + ")"
+		case Node.NodeTypeValue(type): return 'NodeTypeValue(' + TestParser.stringifyType(type) + ")"
+		case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
 
 		case e: '<!--' + e + '-->'
 		}
 	}
 
 	static function stringifyNodeArray(arr: Array<Node>) {
-		return "[" + [for (e in arr) e.stringify()].join(',') + "]"
+		return "[" + [for (e in arr) TestParser.stringify(e)].join(',') + "]"
 	}
 
 	static function stringifyNodeTypeArray(arr: Array<NodeType>) {
-		return "[" + [for (e in arr) e.stringifyType()].join(',') + "]"
+		return "[" + [for (e in arr) TestParser.stringifyType(e)].join(',') + "]"
 	}
 
 	// Creates a testable consistent string representation of type
 	static function stringifyType(node: NodeType): String {
-		return switch (node) {
-		case Type(s): 'Type(\(s))'
-		case ParametricType(name, params): 'ParametricType(\(name),[' + params.join(',') + "])"
-		case Function(args, rettype): 'Function([' + [for (e in args) e.stringifyType()].join(',') + "]," + rettype.stringifyType() + ')'
-		case Object(names, types): 'Object([' + names.join(',') + "],[" + [for (e in types) e.stringifyType()].join(',') +"])"
 		case e: '<!--' + e + '-->'
+		switch (node) {
+		case NodeType.Type(s): return 'Type(\(s))'
+		case NodeType.ParametricType(name, params): return 'ParametricType(\(name),[' + [for(p in params) TestParser.stringifyType(p)].join(',') + "])"
+		case NodeType.Function(args, rettype): return 'Function([' + [for (e in args) TestParser.stringifyType(e)].join(',') + "]," + TestParser.stringifyType(rettype) + ')'
+		case NodeType.Object(names, types): return 'Object([' + names.join(',') + "],[" + [for (e in types) TestParser.stringifyType(e)].join(',') +"])"
 		}
 	}
 }
