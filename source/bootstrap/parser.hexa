@@ -142,9 +142,9 @@ class Parser {
 		return t
 	}
 
-	function print() return lex.token[i].stringify(lex.value[i])
+	function print() return Token.stringify(lex.token[i], lex.value[i])
 
-	function expect(t) if (t != tok()) expected(t.stringify())
+	function expect(t) if (t != tok()) expected(Token.stringify(t))
 
 	function fail(message: String, ?line, ?column, ?filename) {
 		let line = line != null ? line : lex.line[i]
@@ -180,14 +180,14 @@ class Parser {
 	//------------
 
 	function unexpected() {
-		var token = lex.token[i].stringify(lex.value[i])
+		var token = Token.stringify(lex.token[i], lex.value[i])
 		if (tok() == Token.Semicolon) Console.log('Note, that Hexa has no semicolons!')
 		if (print() == 'public') Console.log('Note, that Hexa has no `public` keyword!')
 		throw fail('Unexpected `\(token)`')
 	}
 
 	function expected(str: String) {
-		var token = lex.token[i].stringify(lex.value[i])
+		var token = Token.stringify(lex.token[i], lex.value[i])
 		throw fail('Expected `\(str)` before `\(token)`')
 	}
 
@@ -245,11 +245,15 @@ class Parser {
 			}
 
 			var name: String = null
-			var extracted = switch (e) {
-				case TPrivate(el): el
-				case TStatic(el): el
-				case TExport(el): el
-				case _: e
+			var extracted = null
+			switch (e) {
+				case Node.TPrivate(el):
+				extracted = el
+				case Node.TStatic(el):
+				extracted = el
+				case Node.TExport(el):
+				extracted = el
+				case _: extracted = e
 			}
 
 			switch (extracted) {
@@ -523,7 +527,7 @@ class Parser {
 			TEnum(t, names)
 			step(Token.BrClose)
 
-		case KClass, KInterface:
+		case Token.KClass | Token.KInterface:
 			var isInterface = tok() == Token.KInterface
 			var att = atts
 			atts = []
@@ -676,7 +680,7 @@ class Parser {
 		}
 		if (result == null) {
 			Process.stdout.write('\n')
-			throw fail("Expression is incomplete, current tokens is: " + tok().stringify())
+			throw fail("Expression is incomplete, current tokens is: " + Token.stringify(tok()))
 		}
 		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
@@ -702,7 +706,7 @@ class Parser {
 						TIs(result, parseType())
 					case Token.LUpper:
 					case _:
-						throw fail("Cannot parse type `" + tok().stringify() + "`")
+						throw fail("Cannot parse type `" + Token.stringify(tok()) + "`")
 				}
 			case Token.KAs:
 				i++
@@ -1225,7 +1229,7 @@ class Parser {
 			res
 
 		case _:
-			throw fail("Excected Type, parsed `" + tok().stringify() + "`")
+			throw fail("Expected Type, parsed `" + Token.stringify(tok()) + "`")
 		}
 
 		if (tok() == Token.Question) {
@@ -1253,7 +1257,7 @@ class Parser {
 			case OpBoolOr: 8 + left
 			case OpAssign: 10 + right
 			case _: // TODO proper message, this is internal error
-				throw fail("No precedence for " + op.stringify())
+				throw fail("No precedence for " + Token.stringify(op))
 		}
 	}
 

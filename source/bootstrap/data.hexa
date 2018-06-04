@@ -165,51 +165,69 @@ enum Node {
 
 class DataHelper {
 	static function varName(v: Node) {
-		return switch (v) {
-			case TVar(name,_): name
-			case _: throw 'varName got not a TVar, but `$v`'
+		switch (v) {
+			case Node.TVar(name,_): return name
+			case _: throw 'varName got not a TVar, but `\(v)`'
 		}
 	}
 
 	static function nameOf(v: Node) {
-		return switch (v) {
-			case TPrivate(node): nameOf(node)
-			case
-				TVar(name,_),
-				TEnum(Type(name)|ParametricType(name,_), _),
-				TFunction(name,_),
-				TClass(Type(name)|ParametricType(name,_), _),
-				TDeclare(name, _): name
-			case _: throw 'nameOf expected named node, but got `$v`'
+		switch (v) {
+			case Node.TPrivate(node): return nameOf(node)
+			case Node.TVar(name,_): return name
+			case Node.TEnum(t, _):
+				switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name, _): return name
+				}
+				throw "unreachable"
+
+			case Node.TFunction(name,_): return name
+			case Node.TClass(t, _):
+				switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name, _): return name
+				}
+				throw "unreachable"
+
+			case Node.TDeclare(name, _): return name
+			case _: throw 'nameOf expected named node, but got `\(v)`'
 		}
 	}
 
 	static function asStringAttValue(a: Attribute, index: Int): String {
-		return switch (a.values[index]) {
+		switch (a.values[index]) {
 			case null: throw 'Got null, not a string'
-			case TString(s): s
-			case _: throw 'Got `${a.values[index]}`, not a string'
+			case Node.TString(s): return s
+			case _: throw 'Got `(a.values[index])`, not a string'
 		}
 	}
 
 	static function getLastOfBlock(block: Node): Null<Node> {
-		return switch (block) {
+		switch (block) {
 			case null: throw 'Got null, not a block'
-			case TBlock(el): el[el.length - 1]
-			case _: throw 'Got `${block}`, not a block'
+			case Node.TBlock(el): return el[el.length - 1]
+			case _: throw 'Got `\(block)`, not a block'
 		}
 	}
 
 	static function isVoidValue(block: Node): Bool {
-		return switch (block) {
-			case null,
-			TReturn(_), TBreak, TContinue, TBlock([]), TVar(_),
-			TIf(_,_,null),
-			TEnum(_), TClass(_): true
+		switch (block) {
+			case null: return true
+			case Node.TReturn(_): return true
+			case Node.TBreak: return true
+			case Node.TContinue: return true
+			case Node.TVar(_): return true
+			case Node.TIf(_,_,eelse): if (eelse == null) return true
+			case Node.TEnum(_): return true
+			case Node.TClass(_): return true
 			// Also recursively traverses { ... { ... { ... void }}}
-			case TBlock(el): isVoidValue(el[el.length - 1])
-			case _: false
+			case Node.TBlock(el):
+			if (el.length == 0) return true
+			return isVoidValue(el[el.length - 1])
+			case _: return false
 		}
+		return false
 	}
 }
 
