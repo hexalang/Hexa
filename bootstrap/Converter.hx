@@ -43,6 +43,7 @@ class Converter {
 
 	static var renames: Map<String, String> = [
 				'let' => 'value',
+				'is' => 'isOf',
 				'naN' => 'nan',
 				'module' => 'container',
 				'as' => 'convert',
@@ -50,6 +51,7 @@ class Converter {
 				'type' => 'kind',
 				'class' => 'clas',
 				'enum' => 'enums',
+				'_' => 'tmp',
 				'`' => 'grave',
 			];
 
@@ -122,6 +124,7 @@ class Converter {
 
 			// Sets output file path depending on namespace
 			function setDestination(module: String, name: String) {
+				trace("Destination: " + module + '::' + name);
 				if (module != null) {
 					if (module == name) {
 						destination += name.toLowerCase();
@@ -281,7 +284,12 @@ class Converter {
 			filePaths.push(destination + fileExtention);
 			destination = destinationFolder + destination;
 			trace('Writing ' + destination + '...');
+			if (!(destination.indexOf('\\js.') > 0) && !(destination.indexOf('\\haxe.') > 0))
 			File.saveContent(destination + fileExtention, output + '\n');
+			else {
+				trace('Passing module ' + destination + '...');
+				filePaths.pop();
+			}
 		}
 
 		var main = filePaths.pop();
@@ -292,6 +300,7 @@ class Converter {
 			output : "hexa.js",
 			target : {
 				include: [],
+				instance: { generatePackageJson: false },
 				generator: "JavaScript"
 			}
 		};
@@ -365,6 +374,8 @@ class Converter {
 			pushTab();
 			for (e in el) r += tabs +
 				(switch (e.expr) {
+			case TIf(econd, eif, eelse) if (eelse != null):
+				'if (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif) + ' else ' + stringOf(eelse);
 			// Make a safe postfix unop (coz Hexa has no semicolons)
 			case TUnop(OpNot|OpNegBits|OpNeg, false, e): stringOf(e);
 				case TUnop(op, false, e): stringOf(e) + stringOfUnop(op);
@@ -412,41 +423,51 @@ class Converter {
 					case _: stringOf(e1) + '[' + stringOf(e2) + ']';
 						}
 					case TNew(c, pa, el):
-			r = 'new ' + c.get().name.typeCase();
+			r = 'new ';
+			if (c.get().pack.length > 0) r += c.get().pack.join('.') + '.';
+			r += c.get().name.typeCase();
 			r += stringOfParams(pa);
 			r += '(' + ([for (e in el) stringOf(e)].join(', ')) + ')';
 			r;
 
 		case TVar(v, null): 'var ' + v.name.camelCase() + ': ' + stringOfType(v.t);
+		//case TVar(v, _.expr => TArrayDecl(el)):
+		//	'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) +
+		//	'= [' + [for (e in el) stringOf(e)].join(', ') + ']';
 		case TVar(v, e):
 			switch (e.expr) {
 			case TArrayDecl(el):
 				'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) +
 				' = [' + [for (e in el) stringOf(e)].join(', ') + ']';
 			case TFunction(func) if (e.t.sameAs(v.t)):
+				//throw func.t.stringOfType() + ' v:' + v.t.stringOfType();
 				stringOfFunction(func, v.name.camelCase());
 			case TEnumParameter(e1, ef, index):
 				// Extractor
-				r = 'var ' + stringOfType(e1.t) + '.' + ef.name.typeCase() + '(';
+				r = 'var ' + stringOfType(e1.t) + '.' + ef.name.typeCase();
 				switch (ef.type) {
 				case TFun(args, retType): // EnumField(...args)
+					if(args.length > 0) r += '(';
 					for (i in 0...args.length) {
 						if (i > 0) r += ', ';
 						if (index == i) r += v.name.camelCase();
 						if (index != i) r += '_';
 					}
+					if(args.length > 0) r += ')';
+
 				default: throw 'Unreachable code'; // EnumField
 				}
 
-				r + ') = ' + stringOf(e1);
+				r + ' = ' + stringOf(e1);
 			case _: 'var ' + v.name.camelCase() + ': ' + stringOfType(v.t) + ' = ' + stringOf(e);
 			}
 
 		case TParenthesis(e): '(' + stringOf(e) + ')';
-		case TIf(econd, eif, null):
+		case TIf(econd, eif, null): // TODO print `else` anyway for func args value
 			'if (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif);
 		case TIf(econd, eif, eelse):
 			'if (' + stringOf(econd.unwrapParens()) + ') ' + stringOf(eif) + ' else ' + stringOf(eelse);
+		//	'(' + stringOf(econd.unwrapParens()) + ')? ' + stringOf(eif) + ' : ' + stringOf(eelse);
 
 		// Pattern matcher
 		// Plain switch
@@ -483,7 +504,7 @@ class Converter {
 		// Lets try to extract an enum value and return from block
 		case TEnumParameter(e1, ef, index):
 			r = '{ let ';
-			r += stringOfType(e1.t);
+			r += stringOfType(e1.t.unwrapNestedNull());
 			r += '.' + ef.name.typeCase();
 			r += '(';
 			switch (ef.type) {
@@ -500,7 +521,10 @@ class Converter {
 			r += ' = ' + stringOf(e1);
 			r + ' value }';
 
-		case TFor(v, e1, e2): 'for (${v.name.camelCase()} in ${stringOf(e1)}) ' + stringOf(e2);
+		case TFor(v, _.expr => TBinop(OpInterval, _.expr => TConst(TInt(0)), e1), e2):
+			'for (${v.name.camelCase()} in ${stringOf(e1)}) ' + stringOf(e2);
+		case TFor(v, e1, e2):
+			'for (${v.name.camelCase()} in ${stringOf(e1)}) ' + stringOf(e2);
 		}
 	}
 
@@ -516,9 +540,14 @@ class Converter {
 	static function promoteToOptional(t: Type): String {
 		var t = t.unwrapNestedNull();
 		return switch (t) {
-			case TFun(_): '(' + t.stringOfType() + ')?';
-			case _: t.stringOfType() + '?';
+			//case TFun(_): '(' + t.stringOfType() + ')?';
+			//case _: t.stringOfType() + '?';
+			case TFun(_): 'Null<' + t.stringOfType() + '>';
+			case _: 'Null<' + t.stringOfType() + '>';
 		}
+		//var s = t.stringOfType();
+		//if (s.endsWith('?')) return s;
+		//return s + '?';
 	}
 
 	// Prints function
@@ -549,7 +578,8 @@ class Converter {
 		case TInst(_.get().name => 'Array', [p]): '[' + stringOfType(p) + ']';
 		case TAbstract(_.get().name => 'Map', [k, v]): '[' + stringOfType(k) + ':' + stringOfType(v) + ']';
 		case TType(_.get().name => 'Null', [p]):
-			p.unwrapNestedNull().stringOfType() + '?';
+			//p.unwrapNestedNull().stringOfType() + '?';
+			"Null<" + p.unwrapNestedNull().stringOfType() + '>';
 
 		// Non-parametric
 		case TAbstract(t, []): t.get().pathTo();
@@ -680,6 +710,11 @@ class Converter {
 			'[' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ']';
 		case EMeta(s, e): stringOfMeta(s) + ' ' + stringOfMetaExpr(e.expr);
 		case EField(e, field): stringOfMetaExpr(e.expr) + '.' + field;
+		//case ECheckType:
+		//case ENew(c, pa, el):
+		//case ETry:
+		//case ECast(ex, null): '(' + stringOfMetaExpr(ex) + ' as! ' + stringOfType(e.t) + ')';
+		//case ECast(e, m): '(' + stringOfMetaExpr(e) + ' as ' + m.getName() + ')';
 		case EUntyped(e): '@untyped ${stringOfMetaExpr(e.expr)}';
 		case EBreak: 'break';
 		case EContinue: 'continue';
@@ -707,14 +742,27 @@ class Converter {
 			popTab();
 			r + tabs + '}';
 		case ECall(e, el): stringOfMetaExpr(e.expr) + '(' + [for (e in el) stringOfMetaExpr(e.expr)].join(', ') + ')';
-		case EFor(it, e): 'for (' + stringOfMetaExpr(it.expr) + ') ' + stringOfMetaExpr(e.expr);
+		case EFor(it, e):
+			var iterator = stringOfMetaExpr(it.expr);
+			'for (' + iterator + ') ' + stringOfMetaExpr(e.expr);
+
 		case EObjectDecl([]): '{:}';
 		case EObjectDecl(el): '{' + [for (e in el) e.field.camelCase() + ':' + stringOfMetaExpr(e.expr.expr)].join(', ') + '}';
 		case EVars(el):
 			[for (e in el) 'var ' + e.name.camelCase() + ((e.expr != null) ? ' = ' + stringOfMetaExpr(e.expr.expr) : '')].join(' ');
 		case EWhile(econd, e, true): 'while (' + stringOfMetaExpr(econd.expr) + ') ' + stringOfMetaExpr(e.expr);
 		case EWhile(econd, e, false): 'do ' + stringOfMetaExpr(e.expr) + ' while (' + stringOfMetaExpr(econd.expr) + ')';
-		case EIn(e1, e2): stringOfMetaExpr(e1.expr).camelCase() + ' in ' + stringOfMetaExpr(e2.expr);
+		case EIn(e1, e2):
+			var r = stringOfMetaExpr(e1.expr).camelCase() + ' in ';
+			switch (e2.expr) {
+				case EBinop(OpInterval, _.expr => EConst(CInt('0')), b2):
+					r += stringOfMetaExpr(b2.expr);
+				case EConst(_):
+					r += stringOfMetaExpr(e2.expr);
+				case _:
+					r += stringOfMetaExpr(e2.expr);
+			}
+			r;
 		case ESwitch(e, cases, edef):
 			pushTab();
 			function casegen(c: Array<Expr>): String {
