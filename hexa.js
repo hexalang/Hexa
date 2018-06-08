@@ -839,7 +839,7 @@
 					break;
 				};
 				let _16 = (len - position) > (1)? (_8 | (get_8(position + 1) << 8)) : (_8);
-				if (_8 == 47) {
+				if (_8 == '/'.charCodeAt(0)) {
 					if (_16 == 0x2f2f) {
 						let pos = position + 2;
 						while(get_8(position) != 10 && not_eof()) {
@@ -847,7 +847,7 @@
 						};
 						continue;
 					};
-					if (_16 == 10799 && get_8(position + 2) == 42) {
+					if (_16 == 10799 && get_8(position + 2) == '*'.charCodeAt(0)) {
 						position += 3;
 						p = position;
 						while(not_eof()) {
@@ -906,12 +906,12 @@
 					position = p;
 					continue;
 				};
-				if (_16 == 11822 && (get_8(position + 2) == 46)) {
+				if (_16 == 11822 && (get_8(position + 2) == '.'.charCodeAt(0))) {
 					add(Token.Interval);
 					position += 3;
 					continue;
 				};
-				if (_16 == 15934 && (get_8(position + 2) == 62)) {
+				if (_16 == 15934 && (get_8(position + 2) == '>'.charCodeAt(0))) {
 					add(Token.OpUShr);
 					position += 3;
 					continue;
@@ -936,7 +936,7 @@
 						if (get_8(position) == 10) {
 							new_line();
 						};
-						if (get_8(position) == 92) {
+						if (get_8(position) == '\\'.charCodeAt(0)) {
 							position += 2;
 							continue;
 						};
@@ -968,16 +968,16 @@
 					while(_8 >= 48 && _8 <= 57) {
 						_8 = get_8(++p);
 					};
-					if (_8 == 46 && get_8(p + 1) != 46) {
+					if (_8 == '.'.charCodeAt(0) && get_8(p + 1) != '.'.charCodeAt(0)) {
 						_8 = get_8(++p);
 						while(_8 >= 48 && _8 <= 57) {
 							_8 = get_8(++p);
 						};
 						found$11 = Token.LFloat;
 					};
-					if (_8 == 101 || _8 == 69) {
+					if (_8 == 'e'.charCodeAt(0) || _8 == 'E'.charCodeAt(0)) {
 						_8 = get_8(++p);
-						if (_8 == 43 || _8 == 45) {
+						if (_8 == '+'.charCodeAt(0) || _8 == '-'.charCodeAt(0)) {
 							_8 = get_8(++p);
 						};
 						while(_8 >= 48 && _8 <= 57) {
@@ -1011,7 +1011,7 @@
 			_8++; }
 			 };
 			Lexer.kwd = new Map([['_', Token.Underscore], ['as', Token.KAs], ['break', Token.KBreak], ['case', Token.KCase], ['catch', Token.KCatch], ['class', Token.KClass], ['continue', Token.KContinue], ['do', Token.KDo], ['else', Token.KElse], ['enum', Token.KEnum], ['extends', Token.KExtends], ['declare', Token.KDeclare], ['false', Token.KFalse], ['for', Token.KFor], ['function', Token.KFunction], ['if', Token.KIf], ['implements', Token.KImplements], ['in', Token.KIn], ['interface', Token.KInterface], ['let', Token.KLet], ['new', Token.KNew], ['null', Token.KNull], ['module', Token.KModule], ['private', Token.KPrivate], ['return', Token.KReturn], ['static', Token.KStatic], ['super', Token.KSuper], ['switch', Token.KSwitch], ['this', Token.KThis], ['throw', Token.KThrow], ['true', Token.KTrue], ['try', Token.KTry], ['using', Token.KUsing], ['var', Token.KVar], ['while', Token.KWhile], ['is', Token.KIs]]);
-			let ops8 = new Map([[64, Token.At], [36, Token.Query], [35, Token.Sharp], [33, Token.OpNot], [37, Token.OpMod], [38, Token.OpAnd], [40, Token.POpen], [41, Token.PClose], [42, Token.OpMult], [43, Token.OpAdd], [44, Token.Comma], [45, Token.OpSub], [46, Token.Dot], [47, Token.OpDiv], [58, Token.DblDot], [59, Token.Semicolon], [60, Token.OpLt], [61, Token.OpAssign], [62, Token.OpGt], [63, Token.Question], [91, Token.BkOpen], [92, Token.OpIntDiv], [93, Token.BkClose], [94, Token.OpXor], [123, Token.BrOpen], [124, Token.OpOr], [125, Token.BrClose], [126, Token.OpNegBits]]);
+			let ops8 = new Map([['@'.charCodeAt(0), Token.At], ['$'.charCodeAt(0), Token.Query], ['#'.charCodeAt(0), Token.Sharp], ['!'.charCodeAt(0), Token.OpNot], ['%'.charCodeAt(0), Token.OpMod], ['&'.charCodeAt(0), Token.OpAnd], ['('.charCodeAt(0), Token.POpen], [')'.charCodeAt(0), Token.PClose], ['*'.charCodeAt(0), Token.OpMult], ['+'.charCodeAt(0), Token.OpAdd], [','.charCodeAt(0), Token.Comma], ['-'.charCodeAt(0), Token.OpSub], ['.'.charCodeAt(0), Token.Dot], ['/'.charCodeAt(0), Token.OpDiv], [':'.charCodeAt(0), Token.DblDot], [';'.charCodeAt(0), Token.Semicolon], ['<'.charCodeAt(0), Token.OpLt], ['='.charCodeAt(0), Token.OpAssign], ['>'.charCodeAt(0), Token.OpGt], ['?'.charCodeAt(0), Token.Question], ['['.charCodeAt(0), Token.BkOpen], ['\\'.charCodeAt(0), Token.OpIntDiv], [']'.charCodeAt(0), Token.BkClose], ['^'.charCodeAt(0), Token.OpXor], ['{'.charCodeAt(0), Token.BrOpen], ['|'.charCodeAt(0), Token.OpOr], ['}'.charCodeAt(0), Token.BrClose], ['~'.charCodeAt(0), Token.OpNegBits]]);
 			Lexer.ops8a = Buffer.alloc(256);
 			for (const key of ops8.keys()) Lexer.ops8a[key] = ops8.get(key);
 			let ops16 = new Map([[11051, Token.OpIncrement], [11565, Token.OpDecrement], [15420, Token.OpShl], [15649, Token.OpNotEq], [15676, Token.OpLte], [15677, Token.OpEq], [15678, Token.OpGte], [15934, Token.OpShr], [31868, Token.OpBoolOr], [9766, Token.OpBoolAnd], [15933, Token.OpArrow], [11839, Token.OpChain]]);
@@ -1116,10 +1116,8 @@
 	Parser/*!5*/ = class Parser {
 
 		parseFields() {
-			console.log('parseFields begin');
 			let fields = [];
 			while(this.tok() != Token.BrClose) {
-				console.log('parseFields begin field');
 				let atts = [];
 				while(this.tok() == Token.At) {
 					atts.push(this.parseAttribute());
@@ -1129,7 +1127,6 @@
 					_static = true;
 					this.i++;
 				};
-				console.log('parseFields _static ' + _static);
 				{
 				const $switch$ = this.tok();
 				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -1203,12 +1200,10 @@
 				break;
 				default:
 					{
-					console.log('\n\nField cannot start with ' + this.print());
-					throw this.fail('KClass');
+					throw this.fail('Field cannot start with ' + this.print());
 				}
 				}};
 			};
-			console.log('parseFields done');
 			return fields;
 		}
 		tok() {
@@ -1493,7 +1488,6 @@
 			}
 			break;
 			case Token.KIf: {
-				console.log('Token.KIf');
 				this.i++;
 				this.step(Token.POpen);
 				let econd = [this.parseExpr()];
@@ -1688,7 +1682,6 @@
 			}
 			break;
 			case Token.KNull: {
-				console.log('Token.KNull');
 				this.i++;
 				result = Node.TNull;
 			}
@@ -1774,7 +1767,6 @@
 			}
 			break;
 			case Token.KClass: case Token.KInterface: {
-				console.log('KClass begin');
 				let isInterface = this.tok() == Token.KInterface;
 				let att = atts;
 				atts = [];
@@ -1795,7 +1787,6 @@
 				let me = Node.TClass(t$30, ext, impl, fields, this.class_external);
 				Project.mapAttributes.set(me, att);
 				result = me;
-				console.log('KClass done ' + t$30);
 			}
 			break;
 			case Token.KFunction: {
@@ -1944,7 +1935,6 @@
 				}
 				break;
 				case Token.BkOpen: {
-					console.log('Token.BkOpen');
 					this.i++;
 					let index$35 = this.parseExpr();
 					this.step(Token.BkClose);
@@ -1952,7 +1942,6 @@
 				}
 				break;
 				case Token.KIs: {
-					console.log('Token.KIs');
 					this.i++;
 					{
 					const $switch$ = this.tok();
@@ -1969,7 +1958,6 @@
 				}
 				break;
 				case Token.KAs: {
-					console.log('Token.KAs');
 					this.i++;
 					let kind = this.tok();
 					if (this.tok() == Token.OpNot) {
@@ -1982,7 +1970,6 @@
 				break;
 				case Token.POpen: {
 					{
-						console.log('Token.POpen');
 						let args = [];
 						let argNames = [];
 						this.i++;
@@ -2020,26 +2007,22 @@
 				}
 				break;
 				case Token.OpArrow: {
-					console.log('Token.OpArrow');
 					this.next();
 					result = Node.TFunction(null, this.parseExpr(), [result], null);
 				}
 				break;
 				case Token.OpIncrement: {
-					console.log('Token.OpIncrement');
 					this.i++;
 					result = Node.TUnop(Token.OpIncrement, true, result);
 				}
 				break;
 				case Token.OpDecrement: {
-					console.log('Token.OpDecrement');
 					this.i++;
 					result = Node.TUnop(Token.OpDecrement, true, result);
 				}
 				break;
 				case Token.Dot: {
 					this.i++;
-					console.log('Token.Dot');
 					let name = null;
 					{
 					const $switch$ = this.tok();
@@ -2058,7 +2041,6 @@
 				break;
 				case Token.Question: {
 					this.i++;
-					console.log('Token.Question');
 					if (this.tok() == Token.Dot) {
 						let name = this.getgo(Token.LLower);
 						result = Node.TDot(result, name);
@@ -2075,7 +2057,6 @@
 				break;
 				case Token.OpChain: {
 					this.i++;
-					console.log('Token.OpChain');
 					result = this.parseExpr();
 				}
 				break;
@@ -2083,14 +2064,12 @@
 					{
 					const t$36 = this.tok();
 					if (Parser.isBinop(t$36) && this.offset(1) == Token.OpAssign) {
-						console.log('if Token.OpAssign');
 						let op = this.tok();
 						this.i++;
 						this.i++;
 						let b = this.parseExpr();
 						result = Node.TAssignop(result, op, b);
 					} else if (Parser.isBinop(t$36)) {
-						console.log('if isBinop');
 						this.i++;
 						let b = this.parseExpr();
 						let a$37 = result;
@@ -2253,7 +2232,6 @@
 			return vars$39;
 		}
 		parseFunction(parseBody) {
-			console.log('parseFunction begin');
 			const parseBody$40 = ((parseBody != null))? (parseBody) : (true);
 			this.i++;
 			let expr = null;
@@ -2353,7 +2331,6 @@
 			}
 			i++; }
 			 };
-			console.log('parseFunction end');
 			return (Node.TFunction(name, expr, v$45, rettype));
 		}
 		hasInterpolation(str$46) {
@@ -2772,7 +2749,6 @@
 	this.parametricTypeNestingToken = Token.Eof
 	{
 			this.lex = lexe;
-			console.log('Parser new called');
 			let el = [];
 			while(this.i < this.lex.length && this.tok() != Token.Eof) {
 				el.push(this.parseExpr());
@@ -4864,7 +4840,6 @@
 					let cs = 0;
 					let fs = 0;
 					const fillClasses = (extendsWhat) => {
-						console.log('fillClasses == ' + extendsWhat + (' ' + (cs) + ''));
 						cs++;
 						const fillClassesOf = (path, el) => {
 							fs++;
@@ -5886,9 +5861,6 @@
 					if (name == 'length') {
 						return '' + s.length;
 					};
-					if (name == 'code') {
-						return '' + s.charCodeAt(0);
-					};
 				} break; }
 				
 				}};
@@ -6832,7 +6804,8 @@
 		constructor() {
 	
 	{
-			console.log('Hexa', ' Alpha');
+			/*declare Date*/;
+			const begin = Date.now();
 			TestLexer.test();
 			TestParser.test();
 			TestTyper.test();
@@ -6854,8 +6827,8 @@
 			let packageFolder = currentParsedFile.dir;
 			if (currentParsedFile.ext == '.json') {
 				input$170 = this.loadPackage(currentFile);
+				console.log(('[Building ' + (input$170.name) + ']'));
 				main = path.resolve(currentFile + '/../') + path.sep + (input$170.main);
-				console.log(currentFile);
 			} else if (fs.lstatSync(currentFile).isDirectory()) {
 				input$170 = this.loadPackage(currentFile + path.sep + 'hexa.json');
 				packageFolder = currentFile;
@@ -6889,7 +6862,6 @@
 				if (input$170.target.instance != null && input$170.target.instance.generatePackageJson) {
 					fs.writeFileSync(packageFolder + path.sep + 'package.json', GenJs.generatePackageJson(input$170));
 				};
-				console.log('<< FINISHED >>');
 			}
 			break;
 			case Generator.C: {}
@@ -6901,6 +6873,7 @@
 				throw 'Generator is not defined or unknown. Is there `target.generator` field in `hexa.json`?';
 			}
 			}};
+			console.log(('[Finished in ' + (Date.now() - begin) + ' ms]'));
 		}
 }
 	}
