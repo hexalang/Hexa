@@ -1,4 +1,4 @@
-// LICENSE GNU Lesser General Public License as published by the Free Software Foundation; version 2.1
+// LICENSE LGPL-2.1-or-later
 {
 	"use strict"
 	let Token
@@ -107,6 +107,7 @@
 		OpAnd:112,
 		OpChain:113,
 		stringify:(token, param) => {
+				const x = token + param;
 				{
 				const $switch$ = token;
 				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -426,24 +427,24 @@
 					return '_';
 				}
 				break;
-				case Token.LString: {
-					return param == (null)? ('string') : (('\'' + (param) + '\''));
+				case Token.LUpper: {
+					return param == (null)? ('<!--upper-->') : (param);
 				}
 				break;
-				case Token.LUpper: {
-					return param == (null)? ('upper') : (param);
+				case Token.LString: {
+					return param == (null)? ('<!--string-->') : (('\'' + (param) + '\''));
 				}
 				break;
 				case Token.LLower: {
-					return param == (null)? ('lower') : (param);
+					return param == (null)? ('<!--lower-->') : (param);
 				}
 				break;
 				case Token.LInt: {
-					return param == (null)? ('integer') : (param);
+					return param == (null)? ('<!--integer-->') : (param);
 				}
 				break;
 				case Token.LFloat: {
-					return param == (null)? ('float') : (param);
+					return param == (null)? ('<!--float-->') : (param);
 				}
 				break;
 				case Token.LDoc: {
@@ -563,9 +564,14 @@
 			}
 			} else {
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+			case 0: {
+			const s = $switch$[2];
+			{
+				return s;
+			} break; }
 			default:
 				{
-				throw 'Got `(a.values[index])`, not a string';
+				throw ('Got `' + (a.values[index]) + '`, not a string');
 			}
 			}
 			} };
@@ -579,6 +585,11 @@
 			}
 			} else {
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+			case 10: {
+			const el = $switch$[2];
+			{
+				return el[el.length - 1];
+			} break; }
 			default:
 				{
 				throw ('Got `' + (block) + '`, not a block');
@@ -589,12 +600,60 @@
 	DataHelper.isVoidValue = (block$2) => {
 			{
 			const $switch$ = block$2;
+			if($switch$ == null) {
+				{
+				return true;
+			}
+			} else {
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+			case 14: {
+			{
+				return true;
+			} break; }
+			case 16: {{
+				return true;
+			} break; }
+			case 17: {{
+				return true;
+			} break; }
+			case 21: {
+			{
+				return true;
+			} break; }
+			case 12: {
+			const eelse = $switch$[4];
+			{
+				if (eelse == null) {
+					return true;
+				};
+			} break; }
+			case 33: {
+			{
+				return true;
+			} break; }
+			case 23: {
+			{
+				return true;
+			} break; }
+			case 30: {
+			{
+				return true;
+			} break; }
+			case 10: {
+			const el = $switch$[2];
+			{
+				if (el.length == 0) {
+					return true;
+				};
+				return DataHelper.isVoidValue(el[el.length - 1]);
+			} break; }
 			default:
 				{
 				return false;
 			}
-			}};
+			}
+			} };
+			return false;
 		};
 	Node/*!1*/ = {
 		TString:(s)=>{ const $r = ["TString",0,s]; return $r },
@@ -627,7 +686,7 @@
 		TArray:(elements)=>{ const $r = ["TArray",27,elements]; return $r },
 		TMap:(keys,values)=>{ const $r = ["TMap",28,keys,values]; return $r },
 		TIndex:(expr,index)=>{ const $r = ["TIndex",29,expr,index]; return $r },
-		TSwitch:(exprs,conds,cases)=>{ const $r = ["TSwitch",30,exprs,conds,cases]; return $r },
+		TSwitch:(exprs,conds,guards,cases)=>{ const $r = ["TSwitch",30,exprs,conds,guards,cases]; return $r },
 		TModule:(path,el)=>{ const $r = ["TModule",31,path,el]; return $r },
 		TObject:(names,el)=>{ const $r = ["TObject",32,names,el]; return $r },
 		TEnum:(t,fields)=>{ const $r = ["TEnum",33,t,fields]; return $r },
@@ -664,6 +723,8 @@
 	Project.mapAttributes = new Map();
 	Project.mapNames = new Map();
 	Project.data = new Map();
+/*declare Handle*/
+/*declare Attribute*/
 	Extentions/*!5*/ = class Extentions {
 
 	}
@@ -671,25 +732,27 @@
 		return s['trim']()
 	}
 ;
-const readlinesync = require("readline-sync");
-	/* declare class readlinesync */
-const fs = require("fs");
-	/* declare class fs */
-const path = require("path");
-	/* declare class path */
+/*declare Readline*/const readlinesync = require("readline-sync");
+	
+/*declare Fs*/const fs = require("fs");
+	
+/*declare Path*/const path = require("path");
+	
 	ParsedPath/*!5*/ = class ParsedPath {
 
 	}
 ;
-/* declare class process */
-/* declare class ProcessStd */
-/* declare class console */
-/* declare class Map */
-/* declare class Buffer */
-/* declare class JSON */
-/* declare class Math */
-/* declare class String */
-/* declare class Array */
+/*declare Process*/
+/*declare ProcessStd*/
+/*declare Console*/
+/*declare Map*/
+/*declare Buffer*/
+/*declare eval*/
+/*declare __js__*/
+/*declare JSON*/
+/*declare Math*/
+/*declare String*/
+/*declare Array*/
 	Fail/*!1*/ = {
 		ParserError:["ParserError",0],
 		ParserInternalError:["ParserInternalError",1],
@@ -1167,6 +1230,15 @@ const path = require("path");
 					throw this.fail('Parser Internal Error: Same token parsed too many times: ' + ('`' + (this.print()) + '`'));
 				};
 			};
+			if (t == Token.Sharp) {
+				this.i++;
+				t = this.lex.token[this.i];
+				if (t == Token.KIf) {
+					this.i++;
+				};
+				this.i++;
+				t = this.lex.token[this.i];
+			};
 			return t;
 		}
 		print() {
@@ -1214,13 +1286,11 @@ const path = require("path");
 			throw this.fail(('Expected `' + (str) + '` before `' + (token) + '`'));
 		}
 		parseExpr() {
-			console.log('parseExpr called');
 			let atts = [];
 			while(this.tok() == Token.At) atts.push(this.parseAttribute());
 			let node = this.tok();
 			let nodePosition = {line:this.lex.line[this.i], column:this.lex.column[this.i]};
 			let result = null;
-			console.log('Token == ' + node);
 			{
 			const $switch$ = node;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -1253,6 +1323,20 @@ const path = require("path");
 				default:
 					{
 					e = this.parseExpr();
+					{
+					const $switch$ = e;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 23: {
+					const t = $switch$[2];
+					const ext = $switch$[3];
+					const impl = $switch$[4];
+					const fields = $switch$[5];
+					{
+						e = Node.TClass(t, ext, impl, fields, true);
+					} break; }
+					default:
+						{}
+					}};
 				}
 				}};
 				let name = null;
@@ -1378,11 +1462,9 @@ const path = require("path");
 			}
 			break;
 			case Token.BrOpen: {
-				console.log('Token.BrOpen');
 				this.i++;
 				if (this.tok() == Token.BrClose) {
 					this.i++;
-					console.log('Empty block');
 					result = Node.TBlock([]);
 				} else if (this.tok() == Token.DblDot) {
 					this.i++;
@@ -1797,19 +1879,14 @@ const path = require("path");
 				this.step(Token.BrOpen);
 				let cases = [];
 				let conds = [];
+				let guards = [];
 				while(this.tok() != Token.BrClose) {
 					this.step(Token.KCase);
-					let cond = [];
-					while(this.tok() != Token.DblDot) {
-						if (this.tok() == Token.Underscore) {
-							this.i++;
-							cond.push(Node.TUnderscore);
-						} else cond.push(this.parseExpr());
-						if (this.tok() == Token.Comma) {
-							this.i++;
-						};
-					};
-					conds.push(cond);
+					if (this.tok() == Token.Underscore) {
+						conds.push(Node.TUnderscore);
+						this.i++;
+					} else conds.push(this.parseExpr());
+					guards.push(null);
 					this.step(Token.DblDot);
 					let exs = [];
 					while(this.tok() != Token.KCase && this.tok() != Token.BrClose) {
@@ -1818,7 +1895,7 @@ const path = require("path");
 					cases.push(Node.TBlock(exs));
 				};
 				this.step(Token.BrClose);
-				result = Node.TSwitch(exprs, conds, cases);
+				result = Node.TSwitch(exprs, conds, guards, cases);
 			}
 			break;
 			case Token.KFor: {
@@ -1857,7 +1934,6 @@ const path = require("path");
 				Project.mapAttributes.set(result, atts);
 				atts = [];
 			};
-			console.log('POSTFIX STEP');
 			let done = this.i >= this.lex.length;
 			while(!done) {
 				{
@@ -2045,7 +2121,6 @@ const path = require("path");
 				}
 				}};
 			};
-			console.log('POSTFIX STEP DONE');
 			if (result == null) {
 				process.stdout.write('\n');
 				throw this.fail('Expression postfix is incomplete');
@@ -2305,7 +2380,7 @@ const path = require("path");
 					return s$48;
 				};
 				let i = 0;
-				const s$49 = s$48.replace('"', '\\"');
+				const s$49 = s$48.split('"').join('\\"');
 				const pushInterpolator = () => {
 					i++;
 					i++;
@@ -2581,7 +2656,7 @@ const path = require("path");
 			break;
 			default:
 				{
-				throw this.fail('Excected Type, parsed `' + Token.stringify(this.tok()) + '`');
+				throw this.fail('Expected Type, parsed `' + Token.stringify(this.tok()) + '`');
 			}
 			}};
 			if (this.tok() == Token.Question) {
@@ -2595,8 +2670,8 @@ const path = require("path");
 			return result;
 		}
 		precedence(op) {
-			let left = 100;
-			let right = 0;
+			const left = 100;
+			const right = 0;
 			{
 			const $switch$ = op;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -3152,7 +3227,6 @@ const path = require("path");
 			TestTyper.shouldNotError('let a = [2, 4, 1, 2, 5]');
 			TestTyper.shouldNotError('var a = [2, 4, 1, 2, 5] a = [2, 3, 4]');
 			TestTyper.shouldError('let a = [2, 4, 1, 2, 5] a = [2, 3, 4]');
-			TestTyper.shouldNotError('var a = 4, b = 2, c = 4 let arr = [a, b, c]');
 			TestTyper.shouldNotError('var a = for (b in [1, 2, 3, 4]) b');
 			TestTyper.shouldError('var a = for (b in [1, 2, 3, 4]) a');
 			TestTyper.shouldNotError('var a = [ 1: "a", 2: "b", 3: "c" ]');
@@ -3181,7 +3255,6 @@ const path = require("path");
 			TestTyper.shouldError('module hi { function hi() }');
 			TestTyper.shouldNotError('@att("value") 123');
 			TestTyper.shouldNotError('let known = 1 @att(known) 123');
-			TestTyper.shouldNotError('module{class A {static var x}} var a = A.x');
 			('' + (123) + '\n');
 			('\n' + (123) + ' \n' + (34) + '');
 			('' + (123) + '');
@@ -3231,6 +3304,72 @@ const path = require("path");
 				const name = $switch$[2];
 				{
 					return name;
+				} break; }
+				case 41: {
+				const node = $switch$[2];
+				{
+					{
+					const $switch$ = node;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 23: {
+					const t = $switch$[2];
+					{
+						{
+						const $switch$ = t;
+						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+						case 1: {
+						const name = $switch$[2];
+						{
+							return name;
+						} break; }
+						case 2: {
+						const name = $switch$[2];
+						{
+							return name;
+						} break; }
+						
+						}};
+					} break; }
+					
+					}};
+				} break; }
+				case 23: {
+				const t = $switch$[2];
+				{
+					{
+					const $switch$ = t;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 1: {
+					const name = $switch$[2];
+					{
+						return name;
+					} break; }
+					case 2: {
+					const name = $switch$[2];
+					{
+						return name;
+					} break; }
+					
+					}};
+				} break; }
+				case 33: {
+				const t = $switch$[2];
+				{
+					{
+					const $switch$ = t;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 1: {
+					const name = $switch$[2];
+					{
+						return name;
+					} break; }
+					case 2: {
+					const name = $switch$[2];
+					{
+						return name;
+					} break; }
+					
+					}};
 				} break; }
 				case 35: {
 				const name = $switch$[2];
@@ -3425,7 +3564,6 @@ const path = require("path");
 					data = Project.data.get(prevnode);
 				};
 				if (data == null) {
-					for (const el of Project.data.keys()) console.log(el + ': ' + Project.data.get(el));
 					return new CompilerError(Fail.TyperError, msg, 0, 0, '');
 				};
 				return new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName);
@@ -3471,7 +3609,7 @@ const path = require("path");
 				case 22: {
 				const e = $switch$[2];
 				{
-					for (const e of e) fill(e);
+					for (const ee of e) fill(ee);
 				} break; }
 				case 10: {
 				const el = $switch$[2];
@@ -3521,6 +3659,9 @@ const path = require("path");
 				const e = $switch$[4];
 				const $const = $switch$[5];
 				{
+					if (e == null && $const) {
+						throw fail(('Constant should have a value `let ' + (name) + ' = value`'), node$80);
+					};
 					if (e != null) {
 						{
 						const $switch$ = e;
@@ -3532,6 +3673,9 @@ const path = require("path");
 						default:
 							{}
 						}};
+						if (DataHelper.isVoidValue(e)) {
+							throw fail(('Cannot assign var to a void `var ' + (name) + ' = void`'), node$80);
+						};
 						fill(e);
 					};
 					addScope(name, node$80);
@@ -3561,8 +3705,10 @@ const path = require("path");
 				const a = $switch$[2];
 				const b = $switch$[4];
 				{
+					if (DataHelper.isVoidValue(b)) {
+						throw fail('Cannot use void as value', node$80);
+					};
 					fill(a);
-					fill(b);
 					let parent = Project.mapNames.get(a);
 					{
 					const $switch$ = parent;
@@ -3578,18 +3724,48 @@ const path = require("path");
 					case 20: {
 					const name = $switch$[2];
 					{
-						throw fail(('Cannot reassign a constant `' + (name) + '`'), node$80);
+						throw fail(('Cannot reassign a function `' + (name) + '`'), node$80);
 					} break; }
 					default:
 						{}
 					}};
+					fill(b);
 				} break; }
 				case 8: {
 				const a = $switch$[2];
+				const op = $switch$[3];
 				const b = $switch$[4];
 				{
+					if (DataHelper.isVoidValue(a)) {
+						throw fail('Cannot use void as value', node$80);
+					};
+					if (DataHelper.isVoidValue(b)) {
+						throw fail('Cannot use void as value', node$80);
+					};
 					fill(a);
 					fill(b);
+					let parent = Project.mapNames.get(a);
+					if (op == Token.OpAssign) {
+						{
+						const $switch$ = parent;
+						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+						case 21: {
+						const name = $switch$[2];
+						const $const = $switch$[5];
+						{
+							if ($const) {
+								throw fail(('Cannot reassign a constant `' + (name) + '`'), node$80);
+							};
+						} break; }
+						case 20: {
+						const name = $switch$[2];
+						{
+							throw fail(('Cannot reassign a function `' + (name) + '`'), node$80);
+						} break; }
+						default:
+							{}
+						}};
+					};
 					{
 					const $switch$ = node$80;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -3781,14 +3957,54 @@ const path = require("path");
 				{
 					let name = Typer.extractTypeName(t);
 					addScope(name, node$80);
+					for (const field of f) {
+						{
+						const $switch$ = field;
+						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+						case 40: {
+						const e = $switch$[2];
+						{
+							{
+							const $switch$ = e;
+							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+							case 20: {
+							const e = $switch$[3];
+							const v = $switch$[4];
+							const r = $switch$[5];
+							{
+								if (e != null) {
+									fill(Node.TFunction(null, e, v, r));
+								};
+							} break; }
+							
+							}};
+						} break; }
+						case 20: {
+						const e = $switch$[3];
+						const v = $switch$[4];
+						const r = $switch$[5];
+						{
+							if (e != null) {
+								fill(Node.TFunction(null, e, v, r));
+							};
+						} break; }
+						default:
+							{
+							{};
+						}
+						}};
+					};
 				} break; }
 				case 43: {
 				const name = $switch$[2];
 				const over = $switch$[3];
 				const by = $switch$[4];
 				{
-					fill(over);
+					if (DataHelper.isVoidValue(over)) {
+						throw fail('Cannot use void as value', node$80);
+					};
 					pushScope();
+					fill(over);
 					addScope(name, node$80);
 					fill(by);
 					popScope();
@@ -3906,6 +4122,9 @@ const path = require("path");
 				case 14: {
 				const e = $switch$[2];
 				{
+					if (e != null && DataHelper.isVoidValue(e)) {
+						throw fail('Cannot use void as a returning value', node$80);
+					};
 					if (e != null) {
 						fill(e);
 					};
@@ -3924,7 +4143,8 @@ const path = require("path");
 				case 30: {
 				const exprs = $switch$[2];
 				const conds = $switch$[3];
-				const cases = $switch$[4];
+				const guards = $switch$[4];
+				const cases = $switch$[5];
 				{
 					{
 						for (const e of exprs) {
@@ -3932,15 +4152,96 @@ const path = require("path");
 							fill(e);
 							popScope();
 						};
-						for (const e of conds) for (const e$84 of e) {
+						let i = 0;
+						while(i < cases.length) {
 							pushScope();
-							fill(e$84);
-							popScope();
-						};
-						for (const e of cases) {
+							let e = conds[i];
+							const follow = (e$84) => {
+								{
+								const $switch$ = e$84;
+								switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+								case 25: {
+								const ex = $switch$[2];
+								const name = $switch$[3];
+								{
+									{
+										fill(e$84);
+									};
+								} break; }
+								case 13: {
+								const e = $switch$[2];
+								{
+									{
+										fill(e);
+									};
+								} break; }
+								case 39: {{
+									{};
+								} break; }
+								case 7: {{
+									{};
+								} break; }
+								case 2: {
+								{
+									{};
+								} break; }
+								case 5: {
+								{
+									{};
+								} break; }
+								case 0: {
+								{
+									{};
+								} break; }
+								case 11: {
+								const ex = $switch$[2];
+								const args = $switch$[3];
+								const argNames = $switch$[4];
+								{
+									{
+										follow(ex);
+										for (const ee of args) follow(ee);
+									};
+								} break; }
+								case 1: {
+								const name = $switch$[2];
+								{
+									{
+										if (name.charAt(0) == name.charAt(0).toUpperCase()) {
+											fill(e$84);
+										} else addScope(name, node$80);
+									};
+								} break; }
+								case 8: {
+								const a = $switch$[2];
+								const op = $switch$[3];
+								const b = $switch$[4];
+								{
+									if (op == Token.OpOr) {
+										follow(a);
+										follow(b);
+									} else throw fail('' + e$84, e$84);
+								} break; }
+								case 12: {
+								const econd = $switch$[2];
+								{
+									pushScope();
+									fill(econd[0]);
+									popScope();
+								} break; }
+								default:
+									{
+									throw fail('' + e$84, e$84);
+								}
+								}};
+							};
+							follow(e);
+							let e$85 = cases[i];
 							pushScope();
-							fill(e);
+							fill(e$85);
 							popScope();
+							popScope();
+							i++;
 						};
 					};
 				} break; }
@@ -4120,9 +4421,9 @@ const path = require("path");
 			}
 			}};
 		};
-	Typer.extractTypeName = (t$85) => {
+	Typer.extractTypeName = (t$86) => {
 			{
-			const $switch$ = t$85;
+			const $switch$ = t$86;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 1: {
 			const name = $switch$[2];
@@ -4136,7 +4437,7 @@ const path = require("path");
 			} break; }
 			default:
 				{
-				throw 'Type has no name: ' + t$85;
+				throw 'Type has no name: ' + t$86;
 			}
 			}};
 		};
@@ -4177,15 +4478,15 @@ const path = require("path");
 		GenJs.tabs = GenJs.tabs.substring(0, GenJs.tabs.length - 1)
 	}
 ;
-	GenJs.stringifyBlockExpression = (node$86) => {
+	GenJs.stringifyBlockExpression = (node$87) => {
 			let r = '';
 			{
-			const $switch$ = node$86;
+			const $switch$ = node$87;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 33: {
 			const t = $switch$[2];
 			{
-				return r = 'const ' + GenJs.extractTypeName(t) + ' = ' + GenJs.stringify(node$86);
+				return r = 'const ' + GenJs.extractTypeName(t) + ' = ' + GenJs.stringify(node$87);
 			} break; }
 			case 12: {
 			const econd = $switch$[2];
@@ -4287,11 +4588,10 @@ const path = require("path");
 								const $const = $switch$[5];
 								{
 									GenJs.addToScope(oname);
-									let name$87 = GenJs.rename(oname);
-									GenJs.parentNames.set(cond, name$87);
-									constsstr += 'const ' + name$87 + ' = ' + GenJs.stringify(expr) + ';\n' + GenJs.tabs;
-									condsstr += addCond(name$87 + ' != null');
-									console.log('TIf let -> ' + name$87);
+									let name$88 = GenJs.rename(oname);
+									GenJs.parentNames.set(cond, name$88);
+									constsstr += 'const ' + name$88 + ' = ' + GenJs.stringify(expr) + ';\n' + GenJs.tabs;
+									condsstr += addCond(name$88 + ' != null');
 								} break; }
 								default:
 									{
@@ -4360,22 +4660,11 @@ const path = require("path");
 			{
 				GenJs.pushScope();
 				let newname = GenJs.rename(name);
-				let ivars = ((()=>{const return$$ = []; const $switch$ = vars;for (const v$88 of $switch$) { return$$.push(((v$89) => {
+				let ivars = ((()=>{const return$$ = []; const $switch$ = vars;for (const v$89 of $switch$) { return$$.push(((v$90) => {
 					{
-					const $switch$ = v$89;
+					const $switch$ = v$90;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 21: {
-					const oname = $switch$[2];
-					{
-						let name$90 = GenJs.rename(oname);
-						if (GenJs.hasInScope(name$90)) {
-							name$90 += '$' + (++GenJs.id);
-						};
-						GenJs.addToScope(name$90);
-						GenJs.parentNames.set(v$89, name$90);
-						return GenJs.parentNames.get(v$89);
-					} break; }
-					case 1: {
 					const oname = $switch$[2];
 					{
 						let name$91 = GenJs.rename(oname);
@@ -4383,23 +4672,34 @@ const path = require("path");
 							name$91 += '$' + (++GenJs.id);
 						};
 						GenJs.addToScope(name$91);
-						GenJs.parentNames.set(v$89, name$91);
-						return GenJs.parentNames.get(v$89);
+						GenJs.parentNames.set(v$90, name$91);
+						return GenJs.parentNames.get(v$90);
+					} break; }
+					case 1: {
+					const oname = $switch$[2];
+					{
+						let name$92 = GenJs.rename(oname);
+						if (GenJs.hasInScope(name$92)) {
+							name$92 += '$' + (++GenJs.id);
+						};
+						GenJs.addToScope(name$92);
+						GenJs.parentNames.set(v$90, name$92);
+						return GenJs.parentNames.get(v$90);
 					} break; }
 					case 13: {
 					const e = $switch$[2];
 					{
 						if (e != null) {
-							throw v$89;
+							throw v$90;
 						};
 						return '';
 					} break; }
 					default:
 						{
-						throw v$89;
+						throw v$90;
 					}
 					}}
-						})(v$88)); } return return$$;})()).join(', ');
+						})(v$89)); } return return$$;})()).join(', ');
 				let funcbody = '';
 				if (expr != null) {
 					{
@@ -4425,7 +4725,7 @@ const path = require("path");
 			} break; }
 			default:
 				{
-				return GenJs.stringify(node$86);
+				return GenJs.stringify(node$87);
 			}
 			}};
 		};
@@ -4447,20 +4747,20 @@ const path = require("path");
 	GenJs.popScope = () => {
 			GenJs.scopes.pop();
 		};
-	GenJs.hasInScope = (name$92) => {
+	GenJs.hasInScope = (name$93) => {
 			for (const scope of GenJs.scopes) {
-				if (scope.get(name$92) != null) {
+				if (scope.get(name$93) != null) {
 					return true;
 				};
 			};
 			return false;
 		};
-	GenJs.addToScope = (name$93) => {
-			GenJs.scopes[GenJs.scopes.length - 1].set(name$93, true);
+	GenJs.addToScope = (name$94) => {
+			GenJs.scopes[GenJs.scopes.length - 1].set(name$94, true);
 		};
-	GenJs.stringifyProject = (node$94) => {
+	GenJs.stringifyProject = (node$95) => {
 			{
-			const $switch$ = node$94;
+			const $switch$ = node$95;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 10: {
 			const el = $switch$[2];
@@ -4469,9 +4769,9 @@ const path = require("path");
 				GenJs.pushTab();
 				{
 					let namespaces = [];
-					const placeholder = (e$95) => {
+					const placeholder = (e$96) => {
 						{
-						const $switch$ = e$95;
+						const $switch$ = e$96;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						case 35: {
 						{
@@ -4480,11 +4780,11 @@ const path = require("path");
 						case 23: {
 						const ex = $switch$[6];
 						{
-							if (ex) {} else output.push('\tlet ' + DataHelper.nameOf(e$95));
+							if (ex) {} else output.push('\tlet ' + DataHelper.nameOf(e$96));
 						} break; }
 						default:
 							{
-							output.push('\tlet ' + DataHelper.nameOf(e$95));
+							output.push('\tlet ' + DataHelper.nameOf(e$96));
 						}
 						}}
 							};
@@ -4493,21 +4793,21 @@ const path = require("path");
 							namespaces.push(path.join('.'));
 						};
 					};
-					for (const e$96 of el) {
-					const $switch$ = e$96;
+					for (const e$97 of el) {
+					const $switch$ = e$97;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 10: {
 					const el = $switch$[2];
 					{
-						for (const e$97 of el) {
-						const $switch$ = e$97;
+						for (const e$98 of el) {
+						const $switch$ = e$98;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						case 31: {
 						const path = $switch$[2];
 						const el = $switch$[3];
 						{
 							if (path.length == 0) {
-								for (const e$98 of el) placeholder(e$98);
+								for (const e$99 of el) placeholder(e$99);
 							} else pushNamespace(path);
 						} break; }
 						default:
@@ -4521,21 +4821,21 @@ const path = require("path");
 					const el = $switch$[3];
 					{
 						if (path.length == 0) {
-							for (const e$99 of el) placeholder(e$99);
+							for (const e$100 of el) placeholder(e$100);
 						} else pushNamespace(path);
 					} break; }
 					default:
 						{
-						throw '' + e$96;
+						throw '' + e$97;
 					}
 					}};
 					let intermediate = [];
 					for (const ns of namespaces) {
 						let path = ns.split('.');
 						let namespace = path.shift();
-						const check = (namespace$100) => {
-							if (intermediate.indexOf(namespace$100) == -1) {
-								intermediate.push(namespace$100);
+						const check = (namespace$101) => {
+							if (intermediate.indexOf(namespace$101) == -1) {
+								intermediate.push(namespace$101);
 							};
 						};
 						check(namespace);
@@ -4549,17 +4849,17 @@ const path = require("path");
 					} else output.push(('\t' + (ns) + ' = {}'));
 				};
 				{
-					const getClassGUID = (path, e$101) => {
-						if (e$101 == null) {
-							return GenJs.extractTypeName(e$101);
+					const getClassGUID = (path, e$102) => {
+						if (e$102 == null) {
+							return GenJs.extractTypeName(e$102);
 						};
 						if (path.length == 0) {
-							return GenJs.extractTypeName(e$101);
+							return GenJs.extractTypeName(e$102);
 						};
 						if (path.length == 1) {
-							return path[0] + '.' + GenJs.extractTypeName(e$101);
+							return path[0] + '.' + GenJs.extractTypeName(e$102);
 						};
-						return path.join('.') + '.' + GenJs.extractTypeName(e$101);
+						return path.join('.') + '.' + GenJs.extractTypeName(e$102);
 					};
 					let cs = 0;
 					let fs = 0;
@@ -4567,55 +4867,78 @@ const path = require("path");
 						console.log('fillClasses == ' + extendsWhat + (' ' + (cs) + ''));
 						cs++;
 						const fillClassesOf = (path, el) => {
-							console.log('fillClassesOf == ' + path + (' ' + (fs) + ''));
 							fs++;
 							if (path.length == 0) {
-								for (const e$102 of el) {
-								const $switch$ = e$102;
+								for (const e$103 of el) {
+								const $switch$ = e$103;
 								switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+								case 35: {
+								{
+									if (extendsWhat == null) {
+										output.push(GenJs.stringify(e$103));
+									};
+								} break; }
 								case 23: {
 								const t = $switch$[2];
 								const ext = $switch$[3];
+								const ex = $switch$[6];
 								{
-									{};
+									if (ex && extendsWhat == null) {
+										output.push(GenJs.stringify(e$103));
+									} else if ((extendsWhat == null && ext == null) || extendsWhat == GenJs.extractTypeName(ext)) {
+										output.push('\t' + DataHelper.nameOf(e$103) + '/*!5*/ = ' + GenJs.stringifyClass(e$103, null) + ';');
+										fillClasses(getClassGUID(path, t));
+									} else {};
 								} break; }
 								default:
 									{
 									if (extendsWhat == null) {
-										output.push('\t' + DataHelper.nameOf(e$102) + '/*!1*/ = ' + GenJs.stringify(e$102) + ';');
+										output.push('\t' + DataHelper.nameOf(e$103) + '/*!1*/ = ' + GenJs.stringify(e$103) + ';');
 									};
 								}
 								}};
 								return ;
 							};
 							{
-								for (const e$103 of el) {
-								const $switch$ = e$103;
+								for (const e$104 of el) {
+								const $switch$ = e$104;
 								switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+								case 35: {
+								{
+									if (extendsWhat == null) {
+										GenJs.stringify(e$104);
+									};
+								} break; }
 								case 23: {
 								const t = $switch$[2];
 								const ext = $switch$[3];
+								const ex = $switch$[6];
 								{
-									{};
+									if (ex && extendsWhat == null) {
+										GenJs.stringify(e$104);
+									} else if ((extendsWhat == null && ext == null) || extendsWhat == GenJs.extractTypeName(ext)) {
+										output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$104) + '/*!4*/ = ' + GenJs.stringifyClass(e$104, path) + ';');
+										fillClasses(getClassGUID(path, t));
+									} else {};
 								} break; }
 								default:
 									{
 									if (extendsWhat == null) {
-										output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$103) + '/*!3*/ = ' + GenJs.stringify(e$103) + ';');
+										output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$104) + '/*!3*/ = ' + GenJs.stringify(e$104) + ';');
 									};
 								}
 								}};
 								return ;
 							};
 						};
-						for (const e$104 of el) {
-						const $switch$ = e$104;
+						for (const e$105 of el) {
+						const $switch$ = e$105;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						case 10: {
 						const el = $switch$[2];
 						{
-							for (const e$105 of el) {
-							const $switch$ = e$105;
+							for (const e$106 of el) {
+							const $switch$ = e$106;
 							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 							case 31: {
 							const path = $switch$[2];
@@ -4637,7 +4960,7 @@ const path = require("path");
 						} break; }
 						default:
 							{
-							throw '' + e$104;
+							throw '' + e$105;
 						}
 						}};
 					};
@@ -4646,28 +4969,6 @@ const path = require("path");
 				{
 					const fill = (path, el) => {
 						if (path.length == 0) {
-							for (const e$106 of el) {
-							const $switch$ = e$106;
-							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
-							case 35: {
-							{
-								GenJs.stringify(e$106);
-							} break; }
-							case 23: {
-							const ext = $switch$[6];
-							{
-								if (ext) {
-									GenJs.stringify(e$106);
-								} else output.push('\t' + DataHelper.nameOf(e$106) + '/*!5*/ = ' + GenJs.stringifyClass(e$106, null) + ';');
-							} break; }
-							default:
-								{
-								output.push('\t' + DataHelper.nameOf(e$106) + '/*!1*/ = ' + GenJs.stringify(e$106) + ';');
-							}
-							}};
-							return ;
-						};
-						{
 							for (const e$107 of el) {
 							const $switch$ = e$107;
 							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -4676,15 +4977,37 @@ const path = require("path");
 								GenJs.stringify(e$107);
 							} break; }
 							case 23: {
-							const ex = $switch$[6];
+							const ext = $switch$[6];
 							{
-								if (ex) {
+								if (ext) {
 									GenJs.stringify(e$107);
-								} else output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$107) + '/*!3*/ = ' + GenJs.stringify(e$107) + ';');
+								} else output.push('\t' + DataHelper.nameOf(e$107) + '/*!5*/ = ' + GenJs.stringifyClass(e$107, null) + ';');
 							} break; }
 							default:
 								{
-								output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$107) + '/*!3*/ = ' + GenJs.stringify(e$107) + ';');
+								output.push('\t' + DataHelper.nameOf(e$107) + '/*!1*/ = ' + GenJs.stringify(e$107) + ';');
+							}
+							}};
+							return ;
+						};
+						{
+							for (const e$108 of el) {
+							const $switch$ = e$108;
+							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+							case 35: {
+							{
+								GenJs.stringify(e$108);
+							} break; }
+							case 23: {
+							const ex = $switch$[6];
+							{
+								if (ex) {
+									GenJs.stringify(e$108);
+								} else output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$108) + '/*!3*/ = ' + GenJs.stringifyClass(e$108, path) + ';');
+							} break; }
+							default:
+								{
+								output.push('\t' + path.join('.') + '.' + DataHelper.nameOf(e$108) + '/*!3*/ = ' + GenJs.stringify(e$108) + ';');
 							}
 							}};
 							return ;
@@ -4692,14 +5015,14 @@ const path = require("path");
 					};
 				};
 				{
-					for (const e$108 of el) {
-					const $switch$ = e$108;
+					for (const e$109 of el) {
+					const $switch$ = e$109;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 10: {
 					const el = $switch$[2];
 					{
-						for (const e$109 of el) {
-						const $switch$ = e$109;
+						for (const e$110 of el) {
+						const $switch$ = e$110;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						case 31: {
 						{
@@ -4707,7 +5030,7 @@ const path = require("path");
 						} break; }
 						default:
 							{
-							output.push('\t/*!2*/' + GenJs.stringifyBlockExpression(e$109));
+							output.push('\t/*!2*/' + GenJs.stringifyBlockExpression(e$110));
 						}
 						}};
 					} break; }
@@ -4717,7 +5040,7 @@ const path = require("path");
 					} break; }
 					default:
 						{
-						throw '' + e$108;
+						throw '' + e$109;
 					}
 					}};
 				};
@@ -4726,14 +5049,14 @@ const path = require("path");
 			} break; }
 			default:
 				{
-				throw 'stringifyProject got ' + node$94;
+				throw 'stringifyProject got ' + node$95;
 			}
 			}};
 		};
 	GenJs.enumUid = 0;
-	GenJs.stringifyClass = (node$110, path) => {
+	GenJs.stringifyClass = (node$111, path) => {
 			{
-			const $switch$ = node$110;
+			const $switch$ = node$111;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 23: {
 			const t = $switch$[2];
@@ -4752,27 +5075,64 @@ const path = require("path");
 				};
 				r += ' {\n';
 				let after = [];
+				let constructorFieldsInit = [];
+				let constructorCode = '';
+				for (const f of fields) {
+					{
+					const $switch$ = f;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 40: {
+					const f = $switch$[2];
+					{
+						{
+						const $switch$ = f;
+						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+						case 20: {
+						{
+							GenJs.parentNames.set(f, DataHelper.nameOf(f));
+						} break; }
+						case 21: {
+						{
+							GenJs.parentNames.set(f, DataHelper.nameOf(f));
+						} break; }
+						
+						}};
+					} break; }
+					case 20: {
+					{
+						GenJs.parentNames.set(f, DataHelper.nameOf(f));
+					} break; }
+					case 21: {
+					{
+						GenJs.parentNames.set(f, DataHelper.nameOf(f));
+					} break; }
+					default:
+						{
+						throw '' + f;
+					}
+					}};
+				};
 				for (const f of fields) {
 					let code = '';
 					let isafter = false;
-					const unmeta = (f$111) => {
+					const unmeta = (f$112) => {
 						{
-						const $switch$ = f$111;
+						const $switch$ = f$112;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						default:
 							{
-							return f$111;
+							return f$112;
 						}
 						}};
 					};
-					let f$112 = unmeta(f);
+					let f$113 = unmeta(f);
 					{
-					const $switch$ = f$112;
+					const $switch$ = f$113;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 40: {
 					const field = $switch$[2];
 					{
-						f$112 = field;
+						f$113 = field;
 						isafter = true;
 					} break; }
 					default:
@@ -4780,24 +5140,24 @@ const path = require("path");
 						{};
 					}
 					}};
-					let f$113 = unmeta(f$112);
+					const f$114 = unmeta(f$113);
 					{
-					const $switch$ = f$113;
+					const $switch$ = f$114;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 20: {
-					const fnamef = $switch$[2];
+					const name = $switch$[2];
 					const expr = $switch$[3];
 					const vars = $switch$[4];
 					{
-						{
-							let name$114 = fnamef;
-							if (name$114 == 'new') {
-								name$114 = 'constructor';
+						if (name != 'new') {
+							let out = '';
+							if (name == 'new') {
+								name = 'constructor';
 							};
 							if (isafter) {
-								code += cname + '.' + GenJs.rename(name$114) + ' = ';
-							} else code += '\t' + GenJs.rename(name$114);
-							code += '(' + ((()=>{const return$$ = []; const $switch$ = vars;for (const v$115 of $switch$) { return$$.push(((v$116) => {
+								out += cname + '.' + GenJs.rename(name) + ' = ';
+							} else out += '\t' + GenJs.rename(name);
+							out += '(' + ((()=>{const return$$ = []; const $switch$ = vars;for (const v$115 of $switch$) { return$$.push(((v$116) => {
 								{
 								const $switch$ = v$116;
 								switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -4826,18 +5186,19 @@ const path = require("path");
 								const el = $switch$[2];
 								{
 									GenJs.pushTab();
-									code += GenJs.stringify(expr);
+									out += GenJs.stringifyBlockExpression(expr);
 									GenJs.popTab();
 								} break; }
 								default:
 									{
 									GenJs.pushTab();
-									code += ('{\n' + (GenJs.tabs) + '') + GenJs.stringify(expr);
+									out += ('{\n' + (GenJs.tabs) + '') + GenJs.stringifyBlockExpression(expr);
 									GenJs.popTab();
-									code += ('\n' + (GenJs.tabs) + '}\n');
+									out += ('\n' + (GenJs.tabs) + '}\n');
 								}
 								}};
-							} else code += '{}';
+							} else out += '{}';
+							code += out;
 						};
 					} break; }
 					case 21: {
@@ -4846,45 +5207,119 @@ const path = require("path");
 					const expr = $switch$[4];
 					const $const = $switch$[5];
 					{
-						isafter = true;
-						if (expr != null) {
+						if (isafter) {
 							code += cname + '.' + GenJs.rename(name);
-							code += ' = ' + GenJs.unwrapBlockValue(expr);
+							if (expr != null) {
+								code += ' = ' + GenJs.unwrapBlockValue(expr);
+							};
+							if (expr == null) {
+								code += ' = null';
+							};
+						};
+						if (!isafter) {
+							constructorFieldsInit.push(('this.' + (GenJs.rename(name)) + ' = ') + (expr != (null)? (GenJs.unwrapBlockValue(expr)) : ('null')));
 						};
 					} break; }
 					default:
 						{
-						code += '' + f$113;
+						throw code += '' + f$114;
 					}
 					}};
 					if (code != '') {
 						if (isafter) {
 							after.push(GenJs.tabs + code);
-						} else r += GenJs.tabs + code;
+						} else r += '\n' + GenJs.tabs + code;
 					};
 				};
+				let isafter = false;
+				for (const f of fields) {
+				const $switch$ = f;
+				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+				case 20: {
+				const name = $switch$[2];
+				const expr = $switch$[3];
+				const vars = $switch$[4];
+				{
+					if (name == 'new') {
+						let out = '';
+						let name$118 = name;
+						if (name$118 == 'new') {
+							name$118 = 'constructor';
+						};
+						if (isafter) {
+							out += cname + '.' + GenJs.rename(name$118) + ' = ';
+						} else out += '\t' + GenJs.rename(name$118);
+						out += '(' + ((()=>{const return$$ = []; const $switch$ = vars;for (const v$119 of $switch$) { return$$.push(((v$120) => {
+							{
+							const $switch$ = v$120;
+							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+							case 21: {
+							const oname = $switch$[2];
+							{
+								let name$121 = GenJs.rename(oname);
+								if (GenJs.hasInScope(name$121)) {
+									name$121 += '$' + (++GenJs.id);
+								};
+								GenJs.addToScope(name$121);
+								GenJs.parentNames.set(v$120, name$121);
+								return GenJs.parentNames.get(v$120);
+							} break; }
+							default:
+								{
+								throw v$120;
+							}
+							}}
+								})(v$119)); } return return$$;})()).join(', ') + ') ' + ((isafter)? ('=> ') : ('{'));
+						out += ('\n' + (GenJs.tabs) + '') + constructorFieldsInit.join((';\n' + (GenJs.tabs) + '')) + ('\n' + (GenJs.tabs) + '');
+						if (expr != null) {
+							{
+							const $switch$ = expr;
+							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+							case 10: {
+							const el = $switch$[2];
+							{
+								GenJs.pushTab();
+								out += GenJs.stringifyBlockExpression(expr);
+								GenJs.popTab();
+							} break; }
+							default:
+								{
+								GenJs.pushTab();
+								out += ('\n{\n' + (GenJs.tabs) + '') + GenJs.stringifyBlockExpression(expr);
+								GenJs.popTab();
+								out += ('\n' + (GenJs.tabs) + '}\n');
+							}
+							}};
+						} else out += '';
+						out += '\n}';
+						r += '\n' + GenJs.tabs + out;
+					};
+				} break; }
+				default:
+					{}
+				}};
 				r += '\n' + GenJs.tabs + '}' + ((external)? (' */') : (''));
 				r += '\n' + after.join(';\n');
 				return r;
 			} break; }
 			default:
 				{
-				throw '' + node$110;
+				throw '' + node$111;
 			}
 			}};
 		};
-	GenJs.stringify = (node$118) => {
+	GenJs.stringify = (node$122) => {
 			let r = '';
-			if (node$118 == null) {
+			if (node$122 == null) {
 				return '<!-- null -->';
 			};
-			let atts$119 = Project.mapAttributes.get(node$118);
-			let a$120 = '';
-			if (atts$119 != null && atts$119.length > 0) {
-				for (const att of atts$119) {};
+			let atts$123 = Project.mapAttributes.get(node$122);
+			let a$124 = '';
+			if (atts$123 != null && atts$123.length > 0) {
+				for (const att of atts$123) {};
 			};
 			{
-			const $switch$ = node$118;
+			const $switch$ = node$122;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 41: {
 			const f = $switch$[2];
@@ -4906,9 +5341,9 @@ const path = require("path");
 					let out = '';
 					let postout = '';
 					let i = 0;
-					for (const e$121 of bind) {
+					for (const e$125 of bind) {
 						{
-						const $switch$ = e$121;
+						const $switch$ = e$125;
 						if($switch$ == null) {
 							{
 							{};
@@ -4918,13 +5353,13 @@ const path = require("path");
 						case 21: {
 						const name = $switch$[2];
 						{
-							let name$122 = GenJs.stringify(e$121).split(' ')[1];
-							out += ('let ' + (name$122) + ' = null;\n') + GenJs.tabs;
-							postout += GenJs.tabs + ('\t' + (name$122) + ' = enum' + (GenJs.enumUid) + '$.values[' + (i) + '];');
+							let name$126 = GenJs.stringify(e$125).split(' ')[1];
+							out += ('let ' + (name$126) + ' = null;\n') + GenJs.tabs;
+							postout += GenJs.tabs + ('\t' + (name$126) + ' = enum' + (GenJs.enumUid) + '$.values[' + (i) + '];');
 						} break; }
 						default:
 							{
-							throw 'TEnumExtract contains not a var: ' + e$121;
+							throw 'TEnumExtract contains not a var: ' + e$125;
 						}
 						}
 						} };
@@ -4942,39 +5377,39 @@ const path = require("path");
 			case 22: {
 			const e = $switch$[2];
 			{
-				return ((()=>{const return$$ = []; const $switch$ = e;for (const e$123 of $switch$) { return$$.push(GenJs.stringify(e$123)); } return return$$;})()).join('; ');
+				return ((()=>{const return$$ = []; const $switch$ = e;for (const e$127 of $switch$) { return$$.push(GenJs.stringify(e$127)); } return return$$;})()).join('; ');
 			} break; }
 			case 0: {
 			const s = $switch$[2];
 			{
-				let s$124 = s.split('');
+				let s$128 = s.split('');
 				let charsOut = [];
-				while(s$124.length > 0) {
+				while(s$128.length > 0) {
 					{
-					const $switch$ = s$124[0];
+					const $switch$ = s$128[0];
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case '\'': {
 						charsOut.push('\\');
 						charsOut.push('\'');
-						s$124.shift();
+						s$128.shift();
 					}
 					break;
 					case '\n': {
 						charsOut.push('\\n');
-						s$124.shift();
+						s$128.shift();
 					}
 					break;
 					case '\r': {
 						charsOut.push('\\r');
-						s$124.shift();
+						s$128.shift();
 					}
 					break;
 					case '\\': {
-						s$124.shift();
-						if (s$124[0] == '\'') {
+						s$128.shift();
+						if (s$128[0] == '\'') {
 							charsOut.push('\\');
 							charsOut.push('\'');
-							s$124.shift();
+							s$128.shift();
 						} else {
 							charsOut.push('\\');
 						};
@@ -4982,8 +5417,8 @@ const path = require("path");
 					break;
 					default:
 						{
-						charsOut.push(s$124[0]);
-						s$124.shift();
+						charsOut.push(s$128[0]);
+						s$128.shift();
 					}
 					}};
 				};
@@ -4992,13 +5427,13 @@ const path = require("path");
 			case 1: {
 			const s = $switch$[2];
 			{
-				let source = Project.mapNames.get(node$118);
+				let source = Project.mapNames.get(node$122);
 				let n = null;
 				{
 				const $switch$ = source;
 				if($switch$ == null) {
 					{
-					throw ('Unmapped ' + (node$118) + ' ') + JSON.stringify(Project.data.get(node$118));
+					throw ('Unmapped ' + (node$122) + ' ') + JSON.stringify(Project.data.get(node$122));
 				}
 				} else {
 				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -5065,43 +5500,54 @@ const path = require("path");
 				{
 					n = GenJs.parentNames.get(source);
 					if (n == null) {
-						let data = Project.data.get(node$118);
+						let data = Project.data.get(node$122);
 						let at = (data != null)? (' at ' + data.line + ':' + data.column + ':' + data.fileName) : ('');
 						throw ('TVar `' + (name) + '` parentNames null == ') + GenJs.parentNames.get(source) + ' for ' + source + at;
+					};
+					let static_source = Project.mapNames.get(source);
+					if (static_source != null) {
+						n = 'this.' + n;
 					};
 				} break; }
 				case 40: {
 				const f = $switch$[2];
 				{
+					let name$129 = null;
 					{
 					const $switch$ = f;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 21: {
-					const name = $switch$[2];
+					const n = $switch$[2];
 					{
-						let static_source = Project.mapNames.get(source);
-						{
-						const $switch$ = static_source;
-						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
-						case 23: {
-						const t = $switch$[2];
-						{
-							n = GenJs.rename(GenJs.extractTypeName(t)) + '.' + GenJs.rename(name);
-						} break; }
-						case 33: {
-						const t = $switch$[2];
-						{
-							n = GenJs.rename(GenJs.extractTypeName(t)) + '.' + GenJs.rename(name);
-						} break; }
-						default:
-							{
-							throw ('static_source is ' + (static_source) + '');
-						}
-						}};
+						name$129 = n;
+					} break; }
+					case 20: {
+					const n = $switch$[2];
+					{
+						name$129 = n;
 					} break; }
 					default:
 						{
 						throw ('Node.TStatic ' + (s) + ' ') + source;
+					}
+					}};
+					let static_source = Project.mapNames.get(source);
+					{
+					const $switch$ = static_source;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 23: {
+					const t = $switch$[2];
+					{
+						n = GenJs.rename(GenJs.extractTypeName(t)) + '.' + GenJs.rename(name$129);
+					} break; }
+					case 33: {
+					const t = $switch$[2];
+					{
+						n = GenJs.rename(GenJs.extractTypeName(t)) + '.' + GenJs.rename(name$129);
+					} break; }
+					default:
+						{
+						throw ('static_source is ' + (static_source) + '');
 					}
 					}};
 				} break; }
@@ -5109,18 +5555,22 @@ const path = require("path");
 				const name = $switch$[2];
 				{
 					n = GenJs.rename(name);
+					let static_source = Project.mapNames.get(source);
+					if (static_source != null) {
+						n = 'this.' + n;
+					};
 				} break; }
 				case 23: {
 				const t = $switch$[2];
 				{
 					let arename = GenJs.getAtt(Project.mapAttributes.get(source), 'native');
-					let name$125 = GenJs.rename(GenJs.extractTypeName(t));
+					let name$130 = GenJs.rename(GenJs.extractTypeName(t));
 					if (arename != null) {
 						{
 						const $switch$ = arename.values[0];
 						if($switch$ == null) {
 							{
-							n = name$125;
+							n = name$130;
 						}
 						} else {
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -5131,16 +5581,20 @@ const path = require("path");
 						} break; }
 						default:
 							{
-							n = name$125;
+							n = name$130;
 						}
 						}
 						} };
-					} else n = name$125;
+					} else n = name$130;
 				} break; }
 				case 31: {
 				const path = $switch$[2];
 				{
 					n = path.join('.');
+				} break; }
+				case 30: {
+				{
+					n = GenJs.rename(s);
 				} break; }
 				default:
 					{
@@ -5197,6 +5651,9 @@ const path = require("path");
 			case 10: {
 			const elements = $switch$[2];
 			{
+				if (elements.length == 0) {
+					return '{}';
+				};
 				r = '{\n';
 				GenJs.pushScope();
 				GenJs.pushTab();
@@ -5225,13 +5682,37 @@ const path = require("path");
 			const b = $switch$[4];
 			{
 				GenJs.pushScope();
-				let name$126 = GenJs.rename(n);
-				if (GenJs.hasInScope(name$126)) {
-					name$126 += '$' + (++GenJs.id);
+				let name$131 = GenJs.rename(n);
+				if (GenJs.hasInScope(name$131)) {
+					name$131 += '$' + (++GenJs.id);
 				};
-				GenJs.addToScope(name$126);
-				GenJs.parentNames.set(node$118, name$126);
-				let res = 'for (const ' + GenJs.rename(name$126) + ' of ' + GenJs.stringify(a) + ') ' + GenJs.stringify(b);
+				GenJs.addToScope(name$131);
+				GenJs.parentNames.set(node$122, name$131);
+				let res = '';
+				{
+				const $switch$ = a;
+				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+				case 25: {
+				const f = $switch$[3];
+				{
+					if (f == 'length') {
+						let i = GenJs.rename(name$131);
+						res = ('{ let $v = ' + (GenJs.stringify(a)) + '; let ' + (i) + ' = 0; while(' + (i) + ' < $v) {') + GenJs.stringifyBlockExpression(b) + ('\n' + (GenJs.tabs) + '' + (i) + '++; }\n' + (GenJs.tabs) + ' }');
+					} else {
+						res = 'for (const ' + GenJs.rename(name$131) + ' of ' + GenJs.stringify(a) + ') ' + GenJs.stringifyBlockExpression(b);
+					};
+				} break; }
+				case 5: {
+				const s = $switch$[2];
+				{
+					let i = GenJs.rename(name$131);
+					res = ('{ let ' + (i) + ' = 0; while(' + (i) + ' < ' + (s) + ') {') + GenJs.stringifyBlockExpression(b) + ('\n' + (GenJs.tabs) + '' + (i) + '++; }\n' + (GenJs.tabs) + ' }');
+				} break; }
+				default:
+					{
+					res = 'for (const ' + GenJs.rename(name$131) + ' of ' + GenJs.stringify(a) + ') ' + GenJs.stringifyBlockExpression(b);
+				}
+				}};
 				GenJs.popScope();
 				return res;
 			} break; }
@@ -5245,7 +5726,7 @@ const path = require("path");
 				const $switch$ = source;
 				if($switch$ == null) {
 					{
-					return GenJs.unwrapBlockValue(e) + '(' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$127 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$127)); } return return$$;})()).join(', ') + ')';
+					return GenJs.unwrapBlockValue(e) + '(' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$132 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$132)); } return return$$;})()).join(', ') + ')';
 				}
 				} else {
 				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -5255,11 +5736,11 @@ const path = require("path");
 					if (name == 'instanceof') {
 						return '((' + GenJs.unwrapBlockValue(el[0]) + ') instanceof (' + GenJs.unwrapBlockValue(el[1]) + '))';
 					};
-					return GenJs.unwrapBlockValue(e) + '(' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$128 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$128)); } return return$$;})()).join(', ') + ')';
+					return GenJs.unwrapBlockValue(e) + '(' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$133 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$133)); } return return$$;})()).join(', ') + ')';
 				} break; }
 				default:
 					{
-					return GenJs.unwrapBlockValue(e) + '(' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$129 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$129)); } return return$$;})()).join(', ') + ')';
+					return GenJs.unwrapBlockValue(e) + '(' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$134 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$134)); } return return$$;})()).join(', ') + ')';
 				}
 				}
 				} };
@@ -5267,13 +5748,23 @@ const path = require("path");
 			case 13: {
 			const e = $switch$[2];
 			{
+				{
+				const $switch$ = e;
+				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+				case 13: {
+				const e = $switch$[2];
+				{
+					return '(' + GenJs.unwrapBlockValue(e) + ')';
+				} break; }
+				
+				}};
 				return '(' + GenJs.unwrapBlockValue(e) + ')';
 			} break; }
 			case 14: {
 			const e = $switch$[2];
 			{
 				if (e == null) {
-					return 'return';
+					return 'return ';
 				} else return 'return ' + GenJs.unwrapBlockValue(e);
 			} break; }
 			case 15: {
@@ -5296,23 +5787,47 @@ const path = require("path");
 					GenJs.pushScope();
 					r += '((()=>{';
 					r += 'const return$$ = []; ';
-					let name$130 = GenJs.rename(oname);
-					if (GenJs.hasInScope(name$130)) {
-						name$130 += '$' + (++GenJs.id);
+					let name$135 = GenJs.rename(oname);
+					if (GenJs.hasInScope(name$135)) {
+						name$135 += '$' + (++GenJs.id);
 					};
-					GenJs.addToScope(name$130);
-					GenJs.parentNames.set(f, name$130);
-					r += 'for (const ' + name$130 + ' of ' + GenJs.unwrapBlockValue(array) + ') ';
+					GenJs.addToScope(name$135);
+					GenJs.parentNames.set(f, name$135);
+					r += 'const $switch$ = ' + GenJs.unwrapBlockValue(array) + ';';
+					{
+					const $switch$ = array;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 25: {
+					const f = $switch$[3];
+					{
+						if (f == 'length') {
+							let i = GenJs.rename(name$135);
+							r += ('let ' + (i) + ' = -1; while((' + (i) + '+1) < $switch$) { ' + (i) + '++; ');
+						} else {
+							r += 'for (const ' + GenJs.rename(name$135) + ' of $switch$) { ';
+						};
+					} break; }
+					case 5: {
+					const s = $switch$[2];
+					{
+						let i = GenJs.rename(name$135);
+						r += ('let ' + (i) + ' = -1; while((' + (i) + '+1) < $switch$) { ' + (i) + '++; ');
+					} break; }
+					default:
+						{
+						r += 'for (const ' + GenJs.rename(name$135) + ' of $switch$) { ';
+					}
+					}};
 					r += 'return$$.push(';
 					r += GenJs.unwrapBlockValue(expr);
-					r += '); return return$$;';
+					r += '); } return return$$;';
 					r += '})())';
 					GenJs.popScope();
 					return r;
 				} break; }
 				default:
 					{
-					return '[' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$131 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$131)); } return return$$;})()).join(', ') + ']';
+					return '[' + ((()=>{const return$$ = []; const $switch$ = el;for (const e$136 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$136)); } return return$$;})()).join(', ') + ']';
 				}
 				}};
 			} break; }
@@ -5330,7 +5845,7 @@ const path = require("path");
 			const eif = $switch$[3];
 			const eelse = $switch$[4];
 			{
-				r = '(' + ((()=>{const return$$ = []; const $switch$ = econd;for (const e$132 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$132)); } return return$$;})()).join(' && ') + ')? (' + GenJs.unwrapBlockValue(eif);
+				r = '(' + ((()=>{const return$$ = []; const $switch$ = econd;for (const e$137 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$137)); } return return$$;})()).join(' && ') + ')? (' + GenJs.unwrapBlockValue(eif);
 				if (eelse != null) {
 					r += ') : (' + GenJs.unwrapBlockValue(eelse) + ')';
 				};
@@ -5341,7 +5856,6 @@ const path = require("path");
 			const postfix = $switch$[3];
 			const e = $switch$[4];
 			{
-				console.log('Node.TUnop ' + node$118);
 				return (postfix)? ((GenJs.stringify(e) + Token.stringify(op))) : ((Token.stringify(op) + GenJs.stringify(e)));
 			} break; }
 			case 19: {
@@ -5363,6 +5877,21 @@ const path = require("path");
 			const expr = $switch$[2];
 			const name = $switch$[3];
 			{
+				{
+				const $switch$ = expr;
+				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+				case 0: {
+				const s = $switch$[2];
+				{
+					if (name == 'length') {
+						return '' + s.length;
+					};
+					if (name == 'code') {
+						return '' + s.charCodeAt(0);
+					};
+				} break; }
+				
+				}};
 				return GenJs.unwrapBlockValue(expr) + '.' + GenJs.rename(name);
 			} break; }
 			case 29: {
@@ -5394,46 +5923,46 @@ const path = require("path");
 				if (name != null) {
 					r += ' ' + GenJs.rename(name);
 				};
-				r += '(' + ((()=>{const return$$ = []; const $switch$ = vars;for (const v$133 of $switch$) { return$$.push(((v$134) => {
+				r += '(' + ((()=>{const return$$ = []; const $switch$ = vars;for (const v$138 of $switch$) { return$$.push(((v$139) => {
 					{
-					const $switch$ = v$134;
+					const $switch$ = v$139;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 21: {
 					const oname = $switch$[2];
 					{
-						let name$135 = GenJs.rename(oname);
-						if (GenJs.hasInScope(name$135)) {
-							name$135 += '$' + (++GenJs.id);
+						let name$140 = GenJs.rename(oname);
+						if (GenJs.hasInScope(name$140)) {
+							name$140 += '$' + (++GenJs.id);
 						};
-						GenJs.addToScope(name$135);
-						GenJs.parentNames.set(v$134, name$135);
-						return GenJs.parentNames.get(v$134);
+						GenJs.addToScope(name$140);
+						GenJs.parentNames.set(v$139, name$140);
+						return GenJs.parentNames.get(v$139);
 					} break; }
 					case 1: {
 					const oname = $switch$[2];
 					{
-						let name$136 = GenJs.rename(oname);
-						if (GenJs.hasInScope(name$136)) {
-							name$136 += '$' + (++GenJs.id);
+						let name$141 = GenJs.rename(oname);
+						if (GenJs.hasInScope(name$141)) {
+							name$141 += '$' + (++GenJs.id);
 						};
-						GenJs.addToScope(name$136);
-						GenJs.parentNames.set(v$134, name$136);
-						return GenJs.parentNames.get(v$134);
+						GenJs.addToScope(name$141);
+						GenJs.parentNames.set(v$139, name$141);
+						return GenJs.parentNames.get(v$139);
 					} break; }
 					case 13: {
 					const e = $switch$[2];
 					{
 						if (e != null) {
-							throw v$134;
+							throw v$139;
 						};
 						return '';
 					} break; }
 					default:
 						{
-						throw v$134;
+						throw v$139;
 					}
 					}}
-						})(v$133)); } return return$$;})()).join(', ') + ') => ';
+						})(v$138)); } return return$$;})()).join(', ') + ') => ';
 				if (expr != null) {
 					{
 					const $switch$ = expr;
@@ -5463,22 +5992,22 @@ const path = require("path");
 			const $const = $switch$[5];
 			{
 				if (oname == null) {
-					throw ('name is null for ' + (node$118) + '');
+					throw ('name is null for ' + (node$122) + '');
 				};
 				let es = '';
 				if (expr != null) {
 					es = ' = ' + GenJs.unwrapBlockValue(expr);
 				};
-				let name$137 = GenJs.rename(oname);
-				if (GenJs.hasInScope(name$137)) {
-					name$137 += '$' + (++GenJs.id);
+				let name$142 = GenJs.rename(oname);
+				if (GenJs.hasInScope(name$142)) {
+					name$142 += '$' + (++GenJs.id);
 				};
-				GenJs.addToScope(name$137);
-				GenJs.parentNames.set(node$118, name$137);
-				if (name$137 == null) {
-					throw ('name is null for ' + (node$118) + '');
+				GenJs.addToScope(name$142);
+				GenJs.parentNames.set(node$122, name$142);
+				if (name$142 == null) {
+					throw ('name is null for ' + (node$122) + '');
 				};
-				r = (($const)? ('const ') : ('let ')) + name$137 + es;
+				r = (($const)? ('const ') : ('let ')) + name$142 + es;
 				return r;
 			} break; }
 			case 24: {
@@ -5495,7 +6024,7 @@ const path = require("path");
 				case 10: {
 				const el = $switch$[2];
 				{
-					r += ((()=>{const return$$ = []; const $switch$ = el;for (const e$138 of $switch$) { return$$.push(GenJs.stringifyBlockExpression(e$138)); } return return$$;})()).join(';\n' + GenJs.tabs);
+					r += ((()=>{const return$$ = []; const $switch$ = el;for (const e$143 of $switch$) { return$$.push(GenJs.stringifyBlockExpression(e$143)); } return return$$;})()).join(';\n' + GenJs.tabs);
 				} break; }
 				default:
 					{
@@ -5512,7 +6041,7 @@ const path = require("path");
 				case 10: {
 				const el = $switch$[2];
 				{
-					r += ((()=>{const return$$ = []; const $switch$ = el;for (const e$139 of $switch$) { return$$.push(GenJs.stringify(e$139)); } return return$$;})()).join(';\n' + GenJs.tabs);
+					r += ((()=>{const return$$ = []; const $switch$ = el;for (const e$144 of $switch$) { return$$.push(GenJs.stringify(e$144)); } return return$$;})()).join(';\n' + GenJs.tabs);
 				} break; }
 				default:
 					{
@@ -5529,29 +6058,273 @@ const path = require("path");
 			const names = $switch$[5];
 			const values = $switch$[6];
 			{
-				return 'new ' + path.join('.') + (path.length > (0)? ('.') : ('')) + GenJs.extractTypeName(t) + '(' + ((()=>{const return$$ = []; const $switch$ = args;for (const e$140 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$140)); } return return$$;})()).join(', ') + ')';
+				return 'new ' + path.join('.') + (path.length > (0)? ('.') : ('')) + GenJs.extractTypeName(t) + '(' + ((()=>{const return$$ = []; const $switch$ = args;for (const e$145 of $switch$) { return$$.push(GenJs.unwrapBlockValue(e$145)); } return return$$;})()).join(', ') + ')';
 			} break; }
 			case 30: {
 			const exprs = $switch$[2];
 			const conds = $switch$[3];
-			const cases = $switch$[4];
+			const guards = $switch$[4];
+			const cases = $switch$[5];
 			{
-				r = 'switch (';
-				r += GenJs.unwrapBlockValue(exprs[0]);
-				r += ') {\n';
-				GenJs.pushTab();
+				let nullCase = null;
+				let defaultCase = null;
+				let isComplexEnum = false;
 				{ let $v = cases.length; let i = 0; while(i < $v) {{
-					let c = cases[i];
-					r += GenJs.tabs;
-					for (const c$141 of conds[i]) r += 'case ' + GenJs.stringify(c$141) + ':';
-					r += ' {\n';
-					r += GenJs.tabs + '\t' + GenJs.stringify(c) + ';\n';
-					r += GenJs.tabs + '\t' + 'break;' + '\n' + ('' + (GenJs.tabs) + '}') + '\n';
+					let cond = conds[i];
+					{
+					const $switch$ = cond;
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 11: {
+					{
+						isComplexEnum = true;
+					} break; }
+					case 27: {
+					{
+						isComplexEnum = true;
+					} break; }
+					case 7: {{
+						if (nullCase == null) {
+							nullCase = cases[i];
+						};
+					} break; }
+					case 39: {{
+						if (defaultCase == null) {
+							defaultCase = cases[i];
+						};
+					} break; }
+					case 1: {
+					{
+						if (defaultCase == null) {
+							defaultCase = cases[i];
+						};
+					} break; }
+					default:
+						{
+						{};
+					}
+					}};
 				}
 				i++; }
 				 };
-				GenJs.popTab();
-				return r + GenJs.tabs + '}';
+				r = ('{\n' + (GenJs.tabs) + '');
+				const wrapIntoReturn = (e$146) => {
+					if (e$146 == null) {
+						return '{}';
+					};
+					return GenJs.stringifyBlockExpression(e$146);
+				};
+				let ex = GenJs.unwrapBlockValue(exprs[0]);
+				r += 'const $switch$ = ' + ex + (';\n' + (GenJs.tabs) + '');
+				if (nullCase != null) {
+					r += ('if($switch$ == null) {\n' + (GenJs.tabs) + '');
+					r += '\t' + wrapIntoReturn(nullCase);
+					r += ('\n' + (GenJs.tabs) + '} else {\n' + (GenJs.tabs) + '');
+				};
+				{
+					r += ('switch((($switch$==undefined) || ([\"number\",\"string\"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {\n' + (GenJs.tabs) + '');
+					if (isComplexEnum == false) {
+						let usedTags = [];
+						{ let $v = cases.length; let i = 0; while(i < $v) {{
+							let c = cases[i];
+							let cond = conds[i];
+							{
+							const $switch$ = cond;
+							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+							case 39: {{
+								{};
+							} break; }
+							case 1: {
+							{
+								{};
+							} break; }
+							case 7: {{
+								{};
+							} break; }
+							case 8: {
+							const a = $switch$[2];
+							const op = $switch$[3];
+							const b = $switch$[4];
+							{
+								r += 'case ' + GenJs.stringify(a) + ': ' + 'case ' + GenJs.stringify(b) + ': ' + wrapIntoReturn(c) + ('\n' + (GenJs.tabs) + 'break;\n' + (GenJs.tabs) + '');
+							} break; }
+							case 12: {
+							{
+								{};
+							} break; }
+							default:
+								{
+								r += 'case ' + GenJs.stringify(cond) + ': ' + wrapIntoReturn(c) + ('\n' + (GenJs.tabs) + 'break;\n' + (GenJs.tabs) + '');
+							}
+							}};
+						}
+						i++; }
+						 };
+					} else {
+						let usedTags = [];
+						{ let $v = cases.length; let i = 0; while(i < $v) {{
+							let c = cases[i];
+							const getETN = (node$147) => {
+								{
+								const $switch$ = node$147;
+								switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+								case 11: {
+								const e = $switch$[2];
+								{
+									return getETN(e);
+								} break; }
+								case 25: {
+								const e = $switch$[2];
+								const n = $switch$[3];
+								{
+									{
+									const $switch$ = e;
+									switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+									case 1: {
+									const t = $switch$[2];
+									{
+										return {e:e, n:n};
+									} break; }
+									
+									}};
+								} break; }
+								
+								}};
+							};
+							let cond = conds[i];
+							{
+							const $switch$ = cond;
+							switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+							case 39: {{
+								{};
+							} break; }
+							case 1: {
+							{
+								{};
+							} break; }
+							case 7: {{
+								{};
+							} break; }
+							default:
+								{
+								const tagOf = (e$148, n) => {
+									let tag = -1;
+									let source = Project.mapNames.get(e$148);
+									let i$149 = 0;
+									{
+									const $switch$ = source;
+									switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+									case 33: {
+									const t = $switch$[2];
+									const f = $switch$[3];
+									{
+										for (const fi of f) {
+										const $switch$ = fi;
+										switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+										case 11: {
+										const a = $switch$[2];
+										{
+											{
+											const $switch$ = a;
+											switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+											case 1: {
+											const na = $switch$[2];
+											{
+												if (n == na) {
+													tag = i$149;
+												};
+												i$149++;
+											} break; }
+											
+											}};
+										} break; }
+										case 1: {
+										const na = $switch$[2];
+										{
+											{
+												if (n == na) {
+													tag = i$149;
+												};
+												i$149++;
+											};
+										} break; }
+										default:
+											{
+											throw '' + fi;
+										}
+										}};
+									} break; }
+									default:
+										{
+										throw ('`' + (source) + '` is not enumerable');
+									}
+									}};
+									if (tag == -1) {
+										throw ('Field `' + (n) + '` doesn\'t exists on `' + (source) + '`');
+									};
+									return tag;
+								};
+								let e$150 = getETN(cond).e;
+								let n = getETN(cond).n;
+								let tag = tagOf(e$150, n);
+								if (usedTags.indexOf(tag) != -1) {
+									throw ('This enum case already matched ' + cond + ' ' + Project.data.get(cond));
+								};
+								usedTags.push(tag);
+								r += 'case ' + tag + ': {';
+								{
+								const $switch$ = cond;
+								switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+								case 11: {
+								const a = $switch$[3];
+								{
+									r += ('\n' + (GenJs.tabs) + '');
+									let i$151 = 2;
+									for (const a$152 of a) {
+										{
+										const $switch$ = a$152;
+										switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+										case 1: {
+										const s = $switch$[2];
+										{
+											r += ('const ' + (GenJs.rename(s)) + ' = $switch$[' + (i$151) + '];\n' + (GenJs.tabs) + '');
+										} break; }
+										case 39: {{
+											{};
+										} break; }
+										default:
+											{
+											{
+												throw 'Cannot bind ' + a$152 + JSON.stringify(Project.data.get(cond));
+											};
+										}
+										}};
+										i$151++;
+									};
+								} break; }
+								default:
+									{
+									{};
+								}
+								}};
+								r += wrapIntoReturn(c) + (' break; }\n' + (GenJs.tabs) + '');
+							}
+							}};
+						}
+						i++; }
+						 };
+					};
+				};
+				if (defaultCase != null) {
+					r += ('default:\n' + (GenJs.tabs) + '');
+					r += '\t' + wrapIntoReturn(defaultCase);
+				};
+				{
+					r += ('\n' + (GenJs.tabs) + '}');
+				};
+				if (nullCase != null) {
+					r += ('\n' + (GenJs.tabs) + '} ');
+				};
+				return r + '}';
 			} break; }
 			case 23: {
 			const t = $switch$[2];
@@ -5561,14 +6334,14 @@ const path = require("path");
 			const external = $switch$[6];
 			{
 				if (external == false) {
-					return GenJs.stringifyClass(node$118, null);
+					return GenJs.stringifyClass(node$122, null);
 				};
 				let cname = GenJs.extractTypeName(t);
-				let arename = GenJs.getAtt(Project.mapAttributes.get(node$118), 'native');
+				let arename = GenJs.getAtt(Project.mapAttributes.get(node$122), 'native');
 				if (arename != null) {
 					cname = arename.asStringAttValue(0);
 				};
-				let require = GenJs.getAtt(Project.mapAttributes.get(node$118), 'require');
+				let require = GenJs.getAtt(Project.mapAttributes.get(node$122), 'require');
 				if (require != null) {
 					{
 					const $switch$ = require.values[0];
@@ -5576,7 +6349,8 @@ const path = require("path");
 					case 0: {
 					const s = $switch$[2];
 					{
-						r += ('const ' + (cname) + ' = require(\"' + (s) + '\");\n' + (GenJs.tabs) + '');
+						r += ('const ' + (cname) + ' = require(\"') + s + '");\n';
+						r += GenJs.tabs;
 					} break; }
 					default:
 						{
@@ -5593,10 +6367,10 @@ const path = require("path");
 				throw 'unreachable';
 				r = 'module ' + path.join('.') + ' {\n';
 				GenJs.pushTab();
-				for (const e$142 of el) {
-					GenJs.parentNames.set(e$142, DataHelper.nameOf(e$142));
+				for (const e$153 of el) {
+					GenJs.parentNames.set(e$153, DataHelper.nameOf(e$153));
 					{
-					const $switch$ = e$142;
+					const $switch$ = e$153;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 35: {
 					const name = $switch$[2];
@@ -5620,7 +6394,7 @@ const path = require("path");
 						{};
 					}
 					}};
-					r += GenJs.tabs + GenJs.stringify(e$142) + ';\n';
+					r += GenJs.tabs + GenJs.stringify(e$153) + ';\n';
 				};
 				GenJs.popTab();
 				return r + GenJs.tabs + '}';
@@ -5643,20 +6417,21 @@ const path = require("path");
 				r = '';
 				r += '{\n';
 				GenJs.pushTab();
+				let index$154 = 0;
 				for (const f of fields) {
 					{
 					const $switch$ = f;
 					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 					case 8: {
-					const a = $switch$[2];
+					const iii = $switch$[2];
 					const op = $switch$[3];
 					const val = $switch$[4];
 					{
 						if (op != Token.OpAssign) {
-							throw '!' + f;
+							throw 'Not Token.OpAssign ' + f;
 						};
 						{
-						const $switch$ = a;
+						const $switch$ = iii;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						case 1: {
 						const name = $switch$[2];
@@ -5665,32 +6440,118 @@ const path = require("path");
 						} break; }
 						default:
 							{
-							throw '!' + f;
+							throw '!!iii ' + iii;
 						}
 						}};
 					} break; }
 					case 1: {
 					const name = $switch$[2];
 					{
-						r += GenJs.tabs + GenJs.rename(name) + ':{},\n';
+						index$154++;
+						r += GenJs.tabs + GenJs.rename(name) + (':[\"' + (GenJs.rename(name)) + '\",' + (index$154 - 1) + '],\n');
 					} break; }
 					case 11: {
-					const e = $switch$[2];
+					const iii = $switch$[2];
 					const args = $switch$[3];
 					const argNames = $switch$[4];
 					{
 						{
-						const $switch$ = e;
+						const $switch$ = iii;
 						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 						case 1: {
 						const name = $switch$[2];
 						{
-							r += GenJs.tabs + GenJs.rename(name) + ':' + ((()=>{const return$$ = []; const $switch$ = argNames;for (const arg of $switch$) { return$$.push(GenJs.rename(arg)); } return return$$;})()) + ',\n';
+							let a$155 = ((()=>{const return$$ = []; const $switch$ = argNames;for (const arg of $switch$) { return$$.push(GenJs.rename(arg)); } return return$$;})()).join(',');
+							let s$156 = GenJs.tabs + GenJs.rename(name);
+							s$156 += ':(' + a$155 + ')=>{ const $r = ["' + GenJs.rename(name) + ('\",' + (index$154) + ',');
+							s$156 += a$155;
+							s$156 += ']; return $r },\n';
+							index$154++;
+							r += s$156;
+							Project.mapNames.set(f, node$122);
 						} break; }
 						default:
 							{
-							throw '!' + f;
+							throw '!!iii ' + iii;
 						}
+						}};
+					} break; }
+					case 20: {
+					const name = $switch$[2];
+					const expr = $switch$[3];
+					const vars = $switch$[4];
+					const rettype = $switch$[5];
+					{
+						{
+							r += GenJs.tabs + GenJs.rename(name) + ':';
+							r += '()=>{}';
+							r += ',\n';
+						};
+					} break; }
+					case 40: {
+					const fun = $switch$[2];
+					{
+						{
+						const $switch$ = fun;
+						switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+						case 20: {
+						const name = $switch$[2];
+						const expr = $switch$[3];
+						const vars = $switch$[4];
+						const rettype = $switch$[5];
+						{
+							r += GenJs.tabs + GenJs.rename(name) + ':';
+							{
+								GenJs.pushScope();
+								let code = '';
+								const unvar = (v$157) => {
+									{
+									const $switch$ = v$157;
+									switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+									case 21: {
+									const oname = $switch$[2];
+									{
+										let name$158 = GenJs.rename(oname);
+										if (GenJs.hasInScope(name$158)) {
+											name$158 += '$' + (++GenJs.id);
+										};
+										GenJs.addToScope(name$158);
+										GenJs.parentNames.set(v$157, name$158);
+										return GenJs.parentNames.get(v$157);
+									} break; }
+									default:
+										{
+										throw v$157;
+									}
+									}}
+										};
+								code += '(' + ((()=>{const return$$ = []; const $switch$ = vars;for (const v$159 of $switch$) { return$$.push(unvar(v$159)); } return return$$;})()).join(', ') + ') ' + '=> ';
+								if (expr != null) {
+									{
+									const $switch$ = expr;
+									switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+									case 10: {
+									const el = $switch$[2];
+									{
+										GenJs.pushTab();
+										code += GenJs.stringifyBlockExpression(expr);
+										GenJs.popTab();
+									} break; }
+									default:
+										{
+										GenJs.pushTab();
+										code += ('{\n' + (GenJs.tabs) + '') + GenJs.stringifyBlockExpression(expr);
+										GenJs.popTab();
+										code += ('\n' + (GenJs.tabs) + '}\n');
+									}
+									}};
+								} else code += '{}';
+								r += code;
+								GenJs.popScope();
+							};
+							r += ',\n';
+						} break; }
+						
 						}};
 					} break; }
 					default:
@@ -5710,8 +6571,8 @@ const path = require("path");
 			const vnode = $switch$[3];
 			{
 				r += ('/*declare ' + (name) + '*/');
-				GenJs.parentNames.set(node$118, name);
-				Project.mapAttributes.set(vnode, Project.mapAttributes.get(node$118));
+				GenJs.parentNames.set(node$122, name);
+				Project.mapAttributes.set(vnode, Project.mapAttributes.get(node$122));
 				{
 				const $switch$ = vnode;
 				switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
@@ -5727,7 +6588,11 @@ const path = require("path");
 				const external = $switch$[6];
 				{
 					let cname = GenJs.extractTypeName(t);
-					let require = GenJs.getAtt(Project.mapAttributes.get(node$118), 'require');
+					let arename = GenJs.getAtt(Project.mapAttributes.get(node$122), 'native');
+					if (arename != null) {
+						cname = DataHelper.asStringAttValue(arename, 0);
+					};
+					let require = GenJs.getAtt(Project.mapAttributes.get(node$122), 'require');
 					if (require != null) {
 						{
 						const $switch$ = require.values[0];
@@ -5753,11 +6618,11 @@ const path = require("path");
 			} break; }
 			
 			}};
-			throw 'unreachable ' + node$118 + ' ' + JSON.stringify(Project.data.get(node$118));
+			throw 'unreachable ' + node$122 + ' ' + JSON.stringify(Project.data.get(node$122));
 		};
-	GenJs.unwrapBlock = (e$143) => {
+	GenJs.unwrapBlock = (e$160) => {
 			{
-			const $switch$ = e$143;
+			const $switch$ = e$160;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 10: {
 			const el = $switch$[2];
@@ -5769,28 +6634,28 @@ const path = require("path");
 			} break; }
 			default:
 				{
-				return e$143;
+				return e$160;
 			}
 			}};
 		};
-	GenJs.unwrapParenthesis = (e$144) => {
+	GenJs.unwrapParenthesis = (e$161) => {
 			{
-			const $switch$ = e$144;
+			const $switch$ = e$161;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 13: {
 			const e = $switch$[2];
 			{
-				return e.unwrapParenthesis();
+				return GenJs.unwrapParenthesis(e);
 			} break; }
 			default:
 				{
-				return e$144;
+				return e$161;
 			}
 			}};
 		};
-	GenJs.unwrapBlockValue = (e$145) => {
+	GenJs.unwrapBlockValue = (e$162) => {
 			{
-			const $switch$ = e$145;
+			const $switch$ = e$162;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case 10: {
 			const el = $switch$[2];
@@ -5807,21 +6672,55 @@ const path = require("path");
 						r += GenJs.tabs + GenJs.stringifyBlockExpression(el[i]) + ';\n';
 						i++;
 					};
-					r += GenJs.tabs + 'return ' + GenJs.unwrapBlockValue(el[el.length - 1]) + ';\n';
+					{
+					const $switch$ = el[el.length - 1];
+					switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
+					case 15: {
+					{
+						r += GenJs.tabs + '' + GenJs.stringifyBlockExpression(el[el.length - 1]) + ';\n';
+					} break; }
+					case 21: {
+					{
+						r += GenJs.tabs + '' + GenJs.stringifyBlockExpression(el[el.length - 1]) + ';\n';
+					} break; }
+					case 17: {{
+						r += GenJs.tabs + '' + GenJs.stringifyBlockExpression(el[el.length - 1]) + ';\n';
+					} break; }
+					case 14: {
+					{
+						r += GenJs.tabs + '' + GenJs.stringifyBlockExpression(el[el.length - 1]) + ';\n';
+					} break; }
+					case 43: {
+					{
+						r += GenJs.tabs + '' + GenJs.stringifyBlockExpression(el[el.length - 1]) + ';\n';
+					} break; }
+					case 16: {{
+						r += GenJs.tabs + '' + GenJs.stringifyBlockExpression(el[el.length - 1]) + ';\n';
+					} break; }
+					default:
+						{
+						r += GenJs.tabs + 'return ' + GenJs.unwrapBlockValue(el[el.length - 1]) + ';\n';
+					}
+					}};
 					GenJs.popTab();
 					GenJs.popScope();
 					return r + GenJs.tabs + '})()';
 				};
 			} break; }
+			case 15: {
+			const e = $switch$[2];
+			{
+				'(() => { throw ' + GenJs.unwrapBlockValue(e) + ' })()';
+			} break; }
 			default:
 				{
-				return GenJs.stringify(e$145);
+				return GenJs.stringify(e$162);
 			}
 			}};
 		};
-	GenJs.extractTypeName = (t$146) => {
+	GenJs.extractTypeName = (t$163) => {
 			{
-			const $switch$ = t$146;
+			const $switch$ = t$163;
 			if($switch$ == null) {
 				{
 				return null;
@@ -5840,7 +6739,7 @@ const path = require("path");
 			} break; }
 			default:
 				{
-				throw 'Type has no name: ' + t$146;
+				throw 'Type has no name: ' + t$163;
 			}
 			}
 			} };
@@ -5854,17 +6753,17 @@ const path = require("path");
 		C:'C',
 		Haxe:'Haxe',
 	}
-	/*!2*///declare Target
-	/*!2*///declare Package
+	/*!2*//*declare Target*/
+	/*!2*//*declare Package*/
 	/*!2*/class Main {
 
 		init() {
 			let currentDirTmp = process.argv[1].split(path.sep);
 			let packageFileName = currentDirTmp.splice(0, -1).join(path.sep) + path.sep + 'hexa.json';
 			let currentDir = currentDirTmp[currentDirTmp.length - 2];
-			let name$147 = readlinesync.question(('Enter package name (' + (currentDir) + '): '));
-			if (name$147 == '') {
-				name$147 = currentDir;
+			let name$164 = readlinesync.question(('Enter package name (' + (currentDir) + '): '));
+			if (name$164 == '') {
+				name$164 = currentDir;
 			};
 			let version = readlinesync.question('Enter package version (1.0.0): ');
 			if (version == '') {
@@ -5888,8 +6787,8 @@ const path = require("path");
 			};
 			let author = readlinesync.question('Enter package author name: ');
 			let license = readlinesync.question('Enter license: ');
-			let pack$148 = {name:name$147, version:version, description:description, output:name$147, main:main, author:author, license:license, target:target, files:[]};
-			let packageStr = JSON.stringify(pack$148, null, '\t');
+			let pack$165 = {name:name$164, version:version, description:description, output:name$164, main:main, author:author, license:license, target:target, files:[]};
+			let packageStr = JSON.stringify(pack$165, null, '\t');
 			let answ = readlinesync.question(('About to write to: ' + (packageFileName) + ':\n' + (packageStr) + '\nIs this ok? (yes)'));
 			if (answ != '') {
 				process.exit(1);
@@ -5899,45 +6798,44 @@ const path = require("path");
 		}
 		processFile(target) {
 			let content = fs.readFileSync(target);
-			let tokens$149 = Lexer.tokenize(content, target);
-			let parser = new Parser(tokens$149);
+			let tokens$166 = Lexer.tokenize(content, target);
+			let parser = new Parser(tokens$166);
 			return parser.node;
 		}
 		processFiles(targets) {
 			let res = [];
-			for (const target$150 of targets) {
-				console.log(target$150);
-				res.push(this.processFile(target$150));
+			for (const target$167 of targets) {
+				res.push(this.processFile(target$167));
 			};
 			if (targets.length != res.length) {
 				throw 'Stopped on errors';
 			};
 			return res;
 		}
-		loadPackage(filename$151) {
-			let pack$152 = JSON.parse(fs.readFileSync(path.resolve(filename$151)).toString('utf8'));
+		loadPackage(filename$168) {
+			let pack$169 = JSON.parse(fs.readFileSync(path.resolve(filename$168)).toString('utf8'));
 			const incorrect = (what) => {
 				process.stdout.write(('Incorrect package file! Field `' + (what) + '` does not exists\n'));
 				process.exit(1);
 			};
-			if (pack$152.target == null) {
+			if (pack$169.target == null) {
 				incorrect('target');
 			};
-			if (pack$152.main == null) {
+			if (pack$169.main == null) {
 				incorrect('main');
 			};
-			if (pack$152.name == null) {
+			if (pack$169.name == null) {
 				incorrect('name');
 			};
-			return pack$152;
+			return pack$169;
 		}
 		constructor() {
 	
 	{
 			console.log('Hexa', ' Alpha');
-			Lexer.init();
 			TestLexer.test();
 			TestParser.test();
+			TestTyper.test();
 			if (process.argv[2] == 'version') {
 				console.log('Hexa Alpha on node.js ' + process.versions.node);
 				process.exit(0);
@@ -5948,26 +6846,27 @@ const path = require("path");
 				this.init();
 				process.exit(0);
 			};
+			Lexer.init();
 			let currentFile = path.resolve(process.argv[2]);
 			let currentParsedFile = path.parse(currentFile);
-			let input$153 = null;
+			let input$170 = null;
 			let main = null;
 			let packageFolder = currentParsedFile.dir;
 			if (currentParsedFile.ext == '.json') {
-				input$153 = this.loadPackage(currentFile);
-				main = path.resolve(currentFile + '/../') + path.sep + (input$153.main);
+				input$170 = this.loadPackage(currentFile);
+				main = path.resolve(currentFile + '/../') + path.sep + (input$170.main);
 				console.log(currentFile);
 			} else if (fs.lstatSync(currentFile).isDirectory()) {
-				input$153 = this.loadPackage(currentFile + path.sep + 'hexa.json');
+				input$170 = this.loadPackage(currentFile + path.sep + 'hexa.json');
 				packageFolder = currentFile;
-				main = packageFolder + path.sep + (input$153.main);
+				main = packageFolder + path.sep + (input$170.main);
 			} else if (currentParsedFile.ext == '.hexa') {
 				eval('"use strict"\r\n' + GenJs.stringifyProject(this.processFile(currentFile)));
 				return ;
 			};
 			let codes = [];
-			if (input$153.files != null) {
-				let files = input$153.files.map((file) => {
+			if (input$170.files != null) {
+				let files = input$170.files.map((file) => {
 					return path.resolve(packageFolder + path.sep + file);
 				});
 				codes = this.processFiles(files);
@@ -5977,18 +6876,20 @@ const path = require("path");
 			Typer.fillScopes(collected);
 			let parsedMain = collected;
 			{
-			const $switch$ = input$153.target.generator;
+			const $switch$ = input$170.target.generator;
 			switch((($switch$==undefined) || (["number","string"].indexOf(typeof($switch$)) != -1))?$switch$:$switch$[1]) {
 			case Generator.JavaScript: {
 				let outs = GenJs.stringifyProject(collected);
-				let target$154 = packageFolder + path.sep + path.parse(input$153.main).name + '.js';
-				if (input$153.output != null) {
-					target$154 = packageFolder + path.sep + path.parse(input$153.output).name + '.js';
+				let target$171 = packageFolder + path.sep + path.parse(input$170.main).name + '.js';
+				if (input$170.output != null) {
+					target$171 = packageFolder + path.sep + path.parse(input$170.output).name + '.js';
 				};
-				fs.writeFileSync(target$154, outs);
-				if (input$153.target.instance != null && input$153.target.instance.generatePackageJson) {
-					fs.writeFileSync(packageFolder + path.sep + 'package.json', GenJs.generatePackageJson(input$153));
+				const license = input$170.license != (null)? (('// LICENSE ' + (input$170.license) + '\n')) : ('');
+				fs.writeFileSync(target$171, license + outs);
+				if (input$170.target.instance != null && input$170.target.instance.generatePackageJson) {
+					fs.writeFileSync(packageFolder + path.sep + 'package.json', GenJs.generatePackageJson(input$170));
 				};
+				console.log('<< FINISHED >>');
 			}
 			break;
 			case Generator.C: {}
