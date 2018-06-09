@@ -93,6 +93,36 @@ class Main {
 		return parser.node
 	}
 
+	function repl() {
+		// Load standard library
+		let js = processFile('library/js/js.hexa')
+		let nodejs = processFile('library/nodejs/nodejs.hexa')
+		// REPL
+		let lines = []
+		while (true) {
+			var line = Readline.question("> ")
+			if (line.trim().length == 0) continue
+			lines.push(line)
+			try {
+				var code = '"use strict"\r\n'
+				try {
+					let content = lines.join('\n')
+					let tokens = Lexer.tokenize(content, "REPL")
+					let parser = new Parser(tokens)
+					var collected = Node.TBlock([js, nodejs, parser.node])
+					Typer.fillScopes(collected)
+					code += GenJs.stringifyProject(collected)
+				} catch (e: Any) {
+					lines.pop()
+					console.error("Compilation Error: " + e)
+				}
+				console.log(eval(code))
+			} catch (e: Any) {
+				console.error("Error: " + e)
+			}
+		}
+	}
+
 	function processFiles(targets: Array<String>): Array<Node> {
 		var res: Array<Node> = []
 		for (target in targets) {
@@ -135,13 +165,17 @@ class Main {
 		#end
 
 		// Usage examples
-		if (Process.argv[2] == "version") {
 			Console.log('Hexa Alpha on node.js ' + Process.versions.node)
+		if (Process.argv[2] == "--version") {
 			Process.exit(0)
 		}
-		else if (Process.argv[2] == null) {
 			Console.log("Usage: `node hexa.js project.json` or `node hexa.js init`")
+		else if (Process.argv[2] == "--help") {
 			Process.exit(1)
+		}
+		else if (Process.argv[2] == null) {
+			repl()
+			Process.exit(0)
 		}
 		else if (Process.argv[2] == "init") {
 			init()
