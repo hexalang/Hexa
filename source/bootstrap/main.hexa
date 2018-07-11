@@ -36,7 +36,7 @@ declare Package = {
 	author: String,
 	license: String,
 	target: Target,
-	files: Array<String>
+	files: [String]
 }
 
 /**
@@ -45,33 +45,59 @@ declare Package = {
 
 class Main {
 
+	// Source https://stackoverflow.com/questions/3430939/node-js-readsync-from-stdin
+	static function question(query: String): String {
+		Process.stdout.write(query)
+		var bufsize = 256
+		var buf = new Buffer(bufsize)
+		var bytesRead = 0
+		try {
+			bytesRead = Fs.readSync(Process.stdin.fd, buf, 0, bufsize)
+		} catch (e: { code: String }) {
+			if (e.code == 'EAGAIN') return 'ERROR: interactive stdin input not supported.'
+			if (e.code == 'EOF') return ''
+			throw e // unexpected exception
+		}
+		if (bytesRead == 0) {
+			// No more stdin input available.
+			// OS X 10.8.3: regardless of input method, this is how the end
+			// of input is signaled.
+			// Windows 7: this is how the end of input is signaled for
+			// *interactive* stdin input.
+			return ''
+		}
+		// Process the chunk read.
+		let answer = buf.toString('utf8', 0, bytesRead).trim()
+		return answer
+	}
+
 	function init() {
 		var currentDirTmp = Process.argv[1].split(Path.sep)
 		var packageFileName = currentDirTmp.splice(0, -1).join(Path.sep) + Path.sep + "hexa.json"
 		var currentDir = currentDirTmp[currentDirTmp.length - 2]
-		var name = Readline.question('Enter package name (\(currentDir)): ')
+		var name = question('Enter package name (\(currentDir)): ')
 		if (name == "") name = currentDir
 
-		var version = Readline.question("Enter package version (1.0.0): ")
+		var version = question("Enter package version (1.0.0): ")
 		if (version == "") version = "1.0.0"
 
-		var description = Readline.question("Enter package description: ")
+		var description = question("Enter package description: ")
 
-		var main = Readline.question("Enter main file (main.hexa): ")
+		var main = question("Enter main file (main.hexa): ")
 		if (main == "") main = "main.hexa"
 
 		var target: Target = { generator: Generator.JavaScript, instance: { generatePackageJson: false } }
-		var generatorstr = Readline.question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe")
+		var generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe")
 		if (generatorstr.toUpperCase() == "C" || generatorstr == "2") target.generator = Generator.C
 		else if (generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") target.generator = Generator.Haxe
 
 		while (!(main.endsWith(".hexa"))) {
 			Process.stdout.write("Wrong file name. Must ends with '.hexa'.\n")
-			main = Readline.question("Enter main file (main.hexa): ")
+			main = question("Enter main file (main.hexa): ")
 		}
 
-		var author = Readline.question("Enter package author name: ")
-		var license = Readline.question("Enter license: ")
+		var author = question("Enter package author name: ")
+		var license = question("Enter license: ")
 
 		var pack: Package = {
 			name: name, version: version, description: description,
@@ -79,7 +105,7 @@ class Main {
 			main: main, author: author, license: license, target: target, files: []
 		}
 		var packageStr = JSON.stringify(pack, null, "\t")
-		var answ = Readline.question('About to write to: \(packageFileName):\n\(packageStr)\nIs this ok? (yes)')
+		var answ = question('About to write to: \(packageFileName):\n\(packageStr)\nIs this ok? (yes)')
 		if (answ != "") Process.exit(1)
 
 		Fs.writeFileSync("hexa.json", packageStr)
@@ -100,7 +126,7 @@ class Main {
 		// REPL
 		let lines = []
 		while (true) {
-			var line = Readline.question("> ")
+			var line = question("> ")
 			if (line.trim().length == 0) continue
 			lines.push(line)
 			try {
@@ -123,8 +149,8 @@ class Main {
 		}
 	}
 
-	function processFiles(targets: Array<String>): Array<Node> {
-		var res: Array<Node> = []
+	function processFiles(targets: [String]): [Node] {
+		var res: [Node] = []
 		for (target in targets) {
 			try {
 				res.push(processFile(target))
@@ -150,9 +176,6 @@ class Main {
 
 	new() {
 		// Debug information
-		#if js
-		untyped __js__("require('source-map-support').install()")
-		#end
 
 		declare class Date {}
 		let begin = Date.now()
@@ -211,7 +234,7 @@ class Main {
 		}
 
 		// Perform compilation
-		var codes: Array<Node> = []
+		var codes: [Node] = []
 		if (input.files != null) {
 			var files = input.files.map(function(file) { return Path.resolve(packageFolder + Path.sep + file) })
 			codes = processFiles(files)
