@@ -28,10 +28,12 @@ While compiler is in dev, here's some cool music to listen :headphones:
 
 ## BUILD
 
+Download latest [Node.js LTS](https://nodejs.org/)
+
 ```sh
 npm i -g nexe
 cd hexa
-haxe build.hxml
+node hexa.js hexa.json
 nexe-build.bat
 ```
 
