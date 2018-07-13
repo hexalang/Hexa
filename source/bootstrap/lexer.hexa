@@ -106,14 +106,6 @@ module {
 				return new CompilerError(Fail.LexerError, message, erline, column, filename)
 			}
 
-		// UTF-8 with BOM
-		if (len > 2 && get_8(0) == 239 && get_8(1) == 187 && get_8(2) == 191) position += 3
-		// Lexer main loop
-		while (position < len) {
-			// Variable
-			var _8 = 0 // Current byte value
-
-			// Whitespace
 			/*var _8 = get_8(position)
 			while ((_8 <= 32) && (position < len)) {
 				if (_8 == "\n".charCodeAt(0)) {
@@ -123,28 +115,36 @@ module {
 				position++
 				_8 = get_8(position)
 			}*/
-
-			do {
-				// \r\n case works fine, but we dont support \r-only case!
-				_8 = get_8(position)
 				if (_8 == /*"\n".charCodeAt(0)*/10) {
-					new_line()
+			// UTF-8 with BOM
+			if (len > 2 && get_8(0) == 239 && get_8(1) == 187 && get_8(2) == 191) position += 3
+			// Lexer main loop
+			while (position < len) {
+				// Variable
+				var _8 = 0 // Current byte value
+
+				// Whitespace
+
+				do {
+					// \r\n case works fine, but we dont support \r-only case!
+					_8 = get_8(position)
+						new_line()
 					//position++
+				} while (_8 <= 32 && (++position < len))
+				if (!not_eof()) break
+
+				// Current two-byte value
+				var _16 = (len - position) > 1 ? _8 | (get_8(position + 1) << 8) : _8
+
+				// Comments
+					// // Comment
+					if (_16 == 0x2f2f) {
+						var pos = position + 2
+							position++
 				}
 				//position++
-			} while (_8 <= 32 && (++position < len))
-			if (!not_eof()) break
-
-			// Current two-byte value
-			var _16 = (len - position) > 1 ? _8 | (get_8(position + 1) << 8) : _8
-
-			// Comments
 			if (_8 == "/".charCodeAt(0)) {
-				// // Comment
-				if (_16 == 0x2f2f) {
-					var pos = position + 2
 					while (get_8(position) != /*"\n".charCodeAt(0)*/10 && not_eof()) {
-						position++
 					}
 					// new_line()
 					// addn(LCommentLine, bytes.toString('utf8', pos, position))
