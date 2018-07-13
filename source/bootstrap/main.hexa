@@ -175,13 +175,17 @@ class Main {
 		if (pack.target == null) incorrect('target')
 		if (pack.main == null) incorrect('main')
 		if (pack.name == null) incorrect('name')
+
+		// Add standard library
+		if (pack.files == null) pack.files = []
+		pack.files.unshift(Path.resolve('library/js/js.hexa'))
+		pack.files.unshift(Path.resolve('library/nodejs/nodejs.hexa'))
 		return pack
 	}
 
 	new() {
 		// Debug information
 
-		declare class Date {}
 		let begin = Date.now()
 
 		// Self-test
@@ -190,6 +194,9 @@ class Main {
 			TestParser.test()
 			TestTyper.test()
 		#end
+
+		// Initialize compiler
+		Lexer.init()
 
 		// Usage examples
 		if (Process.argv[2] == "--version") {
@@ -208,9 +215,6 @@ class Main {
 			init()
 			Process.exit(0)
 		}
-
-		// Initialize compiler
-		Lexer.init()
 
 		// Get inputs
 		var currentFile = Path.resolve(Process.argv[2])
@@ -240,7 +244,11 @@ class Main {
 		// Perform compilation
 		var codes: [Node] = []
 		if (input.files != null) {
-			var files = input.files.map(function(file) { return Path.resolve(packageFolder + Path.sep + file) })
+			var files = input.files.map(function(file) {
+				// Avoid global paths
+				if (file.startsWith('/') || file.charAt(1) == ':') return Path.resolve(file)
+				return Path.resolve(packageFolder + Path.sep + file)
+			})
 			codes = processFiles(files)
 		}
 		codes.push(processFile(main))
