@@ -37,18 +37,6 @@ module {
 		var fileName: String
 	}
 
-	// true/false
-	TBool(b: Bool)
-	// this
-	TThis
-	// super
-	TSuper
-	// 123
-	TInt(s: String)
-	// 0.123
-	TFloat(s: String)
-	// null
-	TNull
 	// //
 	// // /**/
 	enum Node {
@@ -56,67 +44,76 @@ module {
 		TString(s: String)
 		// ident
 		TIdent(s: String)
+		// true/false
+		TBool(b: Bool)
+		// this
+		TThis
+		// super
+		TSuper
+		// 123
+		TInt(s: String)
+		// 0.123
+		TFloat(s: String)
+		// null
+		TNull
 
-	///////////////////
-	/// Syntax Tree ///
-	///////////////////
+		///////////////////
+		/// Syntax Tree ///
+		///////////////////
 
-	// a op b
-	TBinop(a: Node, op: Token, b: Node)
+		// a op b
+		TBinop(a: Node, op: Token, b: Node)
 
-	// a op= b
-	TAssignop(a: Node, op: Token, b: Node)
+		// a op= b
+		TAssignop(a: Node, op: Token, b: Node)
 
-	// { el[0] ... el[n] }
-	TBlock(el: Array<Node>)
+		// { el[0] ... el[n] }
+		TBlock(el: [Node])
 
-	// e(args[0], ...args[n])
-	TCall(e: Node, args: Array<Node>, argNames:Array<String>)
+		// e(args[0], ...args[n])
+		TCall(e: Node, args: [Node], argNames: [String])
 
-	// if (econd[0], ...econd[n]) { eif } [else { eelse }]
-	TIf(econd: Array<Node>, eif: Node, eelse: Null<Node>)
+		// if (econd[0], ...econd[n]) { eif } [else { eelse }]
+		TIf(econd: [Node], eif: Node, eelse: Null<Node>)
 
-	TParenthesis(inner: Node) // (inner)
-	TReturn(e: Null<Node>) // return e
-	TThrow(e: Node) // throw e
-	TBreak // break
-	TContinue // continue
+		TParenthesis(inner: Node) // (inner)
+		TReturn(e: Null<Node>) // return e
+		TThrow(e: Node) // throw e
+		TBreak // break
+		TContinue // continue
 
-	// postfix ? e op : op e
-	TUnop(op: Token, postfix: Bool, e: Node)
+		TUnop(op: Token, postfix: Bool, e: Node)
 
-	// while (econd) { e } or if pre == true then do { e } while (econd)
-	TWhile(econd: Node, e: Node, pre: Bool)
+		// while (econd) { e } or if pre == true then do { e } while (econd)
+		TWhile(econd: Node, e: Node, pre: Bool)
 
 	/// Function
 	// name(vars): rettype { expr }
 	TFunction(name: String, expr: Node, vars: Array<Node>, rettype: NodeType /*, lastIsRest: Bool*/)
-	// (const ? let : var) name: t = expr
-	TVar(name: String, t: NodeType, expr: Node, const: Bool)
 
-	// var TVar[0], ..., TVar[n]
-	TVars(vars: Array<Node>)
 
 	// external class t extends ext implements impl { fields }
 	TClass(t: NodeType, ext: NodeType, impl: Array<NodeType>, fields: Array<Node>, external: Bool)
 
-	// try { expr } catch(v[0]) { } ... catch(v[n]) { }
-	TTry(expr: Node, t: Array<NodeType>, v: Array<Node>, catches: Array<Node>) /*vars: Array<String>, */
 
 	// expr.name
 	TDot(expr: Node, name: String)
+		// (const ? let : var) name: t = expr
+		TVar(name: String, t: NodeType, expr: Node, const: Bool)
 
 	// new t { } (args)
 	TNew(path: Array<String>, t: NodeType, args: Array<Node>, fields: Array<String>, el: Array<Node>)
+		// var TVar[0], ..., TVar[n]
+		TVars(vars: [Node])
 
 	// [elements[0], ...elements[n]]
 	TArray(elements: Array<Node>)
 
 	// [keys[0] : values[0], ... keys[n] : values[n]]
 	TMap(keys: Array<Node>, values: Array<Node>)
+		// try { expr } catch(v[0]) { } ... catch(v[n]) { }
+		TTry(expr: Node, t: Array<NodeType>, v: [Node], catches: [Node])
 
-	// expr[index]
-	TIndex(expr: Node, index: Node)
 
 	// switch (exprs) {
 	//     case cases[0]: conds[0]
@@ -133,6 +130,8 @@ module {
 
 	// enum t { fields[0], ..., fields[n] }
 	TEnum(t: NodeType, fields: Array<Node>)
+		// expr[index]
+		TIndex(expr: Node, index: Node)
 
 	// let expr(extract[0], ..., extract[n]) = name
 	TEnumExtract(path: Array<String>, bind: Array<Node/*.TVar*/>, expr: Node)
@@ -161,14 +160,7 @@ module {
 	TElvis(nullable: Node, othewise: Node)
 
 	NodeTypeValue(type: NodeType)
-}
 
-class DataHelper {
-	static function varName(v: Node) {
-		switch (v) {
-			case Node.TVar(name,_): return name
-			case _: throw 'varName got not a TVar, but `\(v)`'
-		}
 	}
 
 	static function nameOf(v: Node) {
@@ -192,24 +184,29 @@ class DataHelper {
 
 			case Node.TDeclare(name, _): return name
 			case _: throw 'nameOf expected named node, but got `\(v)`'
+	class DataHelper {
+		static function varName(v: Node) {
+			switch (v) {
+				case Node.TVar(name,_): return name
+				case _: throw 'varName got not a TVar, but `\(v)`'
+			}
 		}
-	}
 
 	static function asStringAttValue(a: Attribute, index: Int): String {
 		switch (a.values[index]) {
 			case null: throw 'Got null, not a string'
 			case Node.TString(s): return s
 			case _: throw 'Got `(a.values[index])`, not a string'
+			}
 		}
-	}
 
 	static function getLastOfBlock(block: Node): Null<Node> {
 		switch (block) {
 			case null: throw 'Got null, not a block'
 			case Node.TBlock(el): return el[el.length - 1]
 			case _: throw 'Got `\(block)`, not a block'
+			}
 		}
-	}
 
 	static function isVoidValue(block: Node): Bool {
 		switch (block) {
