@@ -51,27 +51,16 @@ module {
 	}
 
 		var params = new Array<String>(/*bytes.length*/)
-		var tokens = Buffer.alloc(len + 1)
 		// var tokenDatas = Buffer.alloc(bytes.length)
-		// Just add plain token
-		@inline function add(t: Token) {
-			tokens[to++] = t
-			lines.push(line)
-			columns.push(position - columnBase - 1)
 			// tokenDatas[to] = new TokenData(t, line, position - columnBase - 1, fileName)
-		}
-		// Add parametrized token
-		@inline function addn(t: Token, p: String) {
-			params[to] = p
-			add(t)
 			//tokens[to++] = t
 			//lines.push(line)
 			//columns.push(position - columnBase)
-		}
 	class Lexer {
 		static function tokenize(bytes: Buffer<Int>, fileName: String): Tokens {
 			// Variables
 			var position = 0
+			var len = bytes.length
 			var to = 0
 			var s = ""
 			var p = 0
@@ -79,28 +68,40 @@ module {
 			var columnBase = 0
 
 			// Prefetch
+			var tokens = Buffer.alloc(len + 1)
 			var lines = []
 			var columns = []
 
 			// Helpers
+			// Just add plain token
+			@inline function add(t: Token) {
+				tokens[to++] = t
+				lines.push(line)
+				columns.push(position - columnBase - 1)
+			}
+			// Add parametrized token
+			@inline function addn(t: Token, p: String) {
+				params[to] = p
+				add(t)
+			}
 
-		@inline function curPos() return position - columnBase - 1
-		// Getting bytes
-		@inline function get_8(pos) return bytes[pos]
-		// Not out of length
-		@inline function not_eof(): Bool return (position < len)
-		// Lines
-		@inline function new_line() {
-			line++
-			columnBase = position
-		}
+			@inline function curPos() return position - columnBase - 1
+			// Getting bytes
+			@inline function get_8(pos) return bytes[pos]
+			// Not out of length
+			@inline function not_eof(): Bool return (position < len)
+			// Lines
+			@inline function new_line() {
+				line++
+				columnBase = position
+			}
 
 		inline function fail(message: String, ?erline, ?column, ?filename) {
-			var erline = erline != null ? erline : line
-			var column = column != null ? column : curPos()
-			var filename = filename != null ? filename : fileName
-			return new CompilerError(Fail.LexerError, message, erline, column, filename)
-		}
+				var erline = erline != null ? erline : line
+				var column = column != null ? column : curPos()
+				var filename = filename != null ? filename : fileName
+				return new CompilerError(Fail.LexerError, message, erline, column, filename)
+			}
 
 		// UTF-8 with BOM
 		if (len > 2 && get_8(0) == 239 && get_8(1) == 187 && get_8(2) == 191) position += 3
@@ -179,7 +180,6 @@ module {
 					position += 2
 					continue
 				}
-			}
 
 			// Identifiers and keywords
 			// A-z _
@@ -235,8 +235,6 @@ module {
 				continue
 			}
 
-			// Strings
-			// "" and ''
 			if (_8 < 40) {
 				p = _8 // Remember, if double/singlequoted
 				position++
@@ -249,6 +247,8 @@ module {
 					if (get_8(position) == '\\'.charCodeAt(0)) {
 						position += 2
 						continue
+				// Strings
+				// "" and ''
 					}
 					_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 					position++
@@ -312,19 +312,18 @@ module {
 						_8 = get_8(++p)
 					}
 					found = Token.LFloat
+					addn(found, bytes.toString('ascii', position, p))
+					position = p
+					continue
 				}
-				addn(found, bytes.toString('ascii', position, p))
-				position = p
-				continue
-			}
 
-			// Error
-			if (position >= len) break
-			throw fail('Unexpected character ' + String.fromCharCode(_8))
-			break
+				// Error
+				if (position >= len) break
+				throw fail('Unexpected character ' + String.fromCharCode(_8))
+				break
+			}
+			return new Tokens(tokens, to, params, lines, columns, fileName)
 		}
-		return new Tokens(tokens, to, params, lines, columns, fileName)
-	}
 
 	static function init() {
 		// Aplhanumeric _
@@ -460,42 +459,42 @@ module {
 			for (key2 in ops16.keys()) {
 				if (key1 != key2 && simplehash(key1) == simplehash(key2)) {
 					throw new CompilerError(Fail.LexerError, "2-byte op hash collision: " + key1 + " " + key2, 0, 0, "INTERNAL")
+					}
 				}
 			}
-		}
 
-		op16token = Buffer.alloc(768)
-		for (key in ops16.keys()) {
-			var hash = simplehash(key)
-			// Verify
-			op16token.writeUInt16LE(key, hash * 2)
-			// Tokens
 			op16token[hash + 512] = ops16[key]
+			op16token = Buffer.alloc(768)
+			for (key in ops16.keys()) {
+				var hash = simplehash(key)
+				// Verify
+				op16token.writeUInt16LE(key, hash * 2)
+				// Tokens
+			}
+			return
 		}
-		return
+
+		// Free of collisions for current set
+		@inline static function simplehash(val: Int): Int {
+			return ((val & 0xff) + (((val >> (8 * 1)) & 0xff) << 3)) & 0xEF
+		}
+
+		// Pre-calculated array of is byte in A-z 0-9 _
+		static var isident: Buffer<Int>
+
+
+		// Pre-calculated array of is byte in A-Z
+		static var isUpper: Buffer<Int>
+		// Pre-calculated array of is byte in a-z
+		static var isLower: Buffer<Int>
+
+		// Single-byte operators and symbols
+		static var ops8a: Buffer<Token>
+
+		// Double-byte operators and symbols
+		static var op16token: Buffer<Token>
+
+		// Keywords
+		static var kwd: Map<String, Token>
 	}
-
-	// Free of collisions for current set
-	@inline static function simplehash(val: Int): Int {
-		return ((val & 0xff) + (((val >> (8 * 1)) & 0xff) << 3)) & 0xEF
-	}
-
-	// Pre-calculated array of is byte in A-z 0-9 _
-	static var isident: Buffer<Int>
-
-
-	// Pre-calculated array of is byte in A-Z
-	static var isUpper: Buffer<Int>
-	// Pre-calculated array of is byte in a-z
-	static var isLower: Buffer<Int>
-
-	// Single-byte operators and symbols
-	static var ops8a: Buffer<Token>
-
-	// Double-byte operators and symbols
-	static var op16token: Buffer<Token>
-
-	// Keywords
-	static var kwd: Map<String, Token>
-}
 }
