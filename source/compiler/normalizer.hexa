@@ -1,0 +1,462 @@
+// The Hexa Compiler
+// Copyright (C) 2018  Oleg Petrenko
+//
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+module {
+	// Generates simplified view of syntax tree
+	// for easier later generation
+	class Normalizer {
+		static function normalize(collected: Node): NiceProject {
+			return (new Normalizer(collected)).project
+		}
+
+		let project = new NiceProject()
+
+		function nodeToExpression(e: Node): NiceExpression {
+			if (e == null) return null
+
+			switch (e) {
+				// Transformation not required
+				case Node.TString(v): return NiceExpression.String(v)
+				case Node.TInt(v): return NiceExpression.Int(v)
+				case Node.TFloat(v): return NiceExpression.Float(v)
+				case Node.TBool(v): return NiceExpression.Bool(v)
+				case Node.TNull: return NiceExpression.Null
+
+				// Transform
+				case Node.TIdent(name): return NiceExpression.Ident(name)
+				case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
+
+				case Node.TCall(e, args, argNames):
+				let v = nodeToExpression(e)
+				let a = []
+				for (arg in args) {
+					a.push(nodeToExpression(arg))
+				}
+				return NiceExpression.Call(v, a)
+
+				case Node.TBinop(a, op, b):
+				return NiceExpression.Binop(nodeToExpression(a), op, nodeToExpression(b))
+
+				case Node.TNew(path, t, args, fields, el): // TODO fields TODO path.t
+				let v = null
+				let a = []
+				for (arg in args) {
+					a.push(nodeToExpression(arg))
+				}
+				return NiceExpression.New(v, a)
+
+				case Node.TFunction(name, expr, vars, rettype):
+				let a = []
+				for (arg in vars) {
+					a.push(DataHelper.nameOf(arg))
+				}
+				return NiceExpression.Function(name, nodeToStatement(expr), a)
+
+				case Node.TBlock(el):
+				let a = []
+				for (e in el) {
+					a.push(nodeToStatement(e))
+				}
+				return a[0]
+
+				case Node.TObject(names, el):
+				let els = []
+				for (e in el) {
+					els.push(nodeToExpression(e))
+				}
+				return NiceExpression.Object(names, els)
+
+				case Node.TParenthesis(inner):
+				function unwrapNestedParens(inner: Node) {
+					switch (inner) {
+						case Node.TParenthesis(i): unwrapNestedParens(i)
+						case _: return inner
+					}
+				}
+				let value = unwrapNestedParens(inner)
+				return NiceExpression.Parenthesis(nodeToExpression(value))
+
+				case Node.TArray(el):
+				if (el.length == 1) switch (el[0]) {
+					case Node.TFor(name, over, by):
+					return NiceExpression.ForToArray(name, nodeToExpression(over), nodeToExpression(by))
+				}
+				let els = []
+				for (e in el) els.push(nodeToExpression(e))
+				return NiceExpression.Array(els)
+
+				case Node.TElvis(nullable, othewise):
+				return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(othewise))
+
+				case Node.TUnop(op, postfix, e):
+				return NiceExpression.Unop(op, postfix, nodeToExpression(e))
+
+				case Node.TThis: return NiceExpression.This
+
+				case Node.TMap(keys, values):
+				let k = []
+				let v = []
+				for (key in keys) k.push(nodeToExpression(key))
+				for (value in values) v.push(nodeToExpression(value))
+				return NiceExpression.Map(k, v)
+
+				case Node.TAssignop(a, op, b):
+				return NiceExpression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+
+				case Node.TIf(econd, eif, eelse):
+				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+
+				case Node.TFor(name, over, by):
+				return NiceExpression.For(name, nodeToExpression(over), nodeToStatement(by))
+
+				case Node.TIndex(expr, index):
+				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
+
+				case _: console.error('Unknown node type for expression:', e, Project.data.get(e))
+			}
+
+			return null
+		}
+
+		function nodeToStatement(e: Node): NiceStatement {
+			if (e == null) return null
+
+			switch (e) {
+				case Node.TBlock(el):
+				var els = [] // TODO break after: break, continue, return, throw
+				for(e in el) {
+					let statement = nodeToStatement(e)
+					if (statement != null) // Optimized away
+					els.push(statement)
+				}
+				return NiceStatement.Block(els)
+
+				// Types
+				case Node.TEnum(t, fields, valuesType):
+				let isComplexEnum = valuesType == null
+				if (isComplexEnum) {
+					let type = new NiceComplexEnum()
+					type.name = DataHelper.extractTypeName(t)
+					let names = []
+					let constructors = []
+					for (f in fields) switch (f) {
+						case Node.TIdent(name):
+							names.push(name)
+							constructors.push(null)
+						case Node.TCall(e, args, argNames):
+							switch (e) {
+								case Node.TIdent(name): names.push(name)
+							}
+							constructors.push(argNames)
+						case _: console.error("Unknown complex enum field kind:", f)
+					}
+					type.names = names
+					type.constructors = constructors
+					project.enumsComplex.push(type)
+					return null //type
+				} else {
+					let type = new NiceSimpleEnum()
+					type.name = DataHelper.extractTypeName(t)
+					let names = []
+					let values = []
+					for (f in fields) switch (f) {
+						case Node.TBinop(a, op, b): // op == OpAssign
+							switch (a) {
+								case Node.TIdent(name): names.push(name)
+							}
+							switch (b) {
+								case Node.TString(s): values.push(NiceExpression.String(s))
+								case Node.TInt(s): values.push(NiceExpression.Int(s))
+								case _: console.error("Unknown node field value kind:", b)
+							}
+						case Node.TStatic(field): // TODO
+							nodeToStatement(field)
+						case _: console.error("Unknown simple enum field kind:", f)
+					}
+					type.names = names
+					type.values = values
+					project.enumsSimple.push(type)
+					return null //type
+				}
+
+				case Node.TClass(t, ext, impl, fields, external):
+				let name = DataHelper.extractTypeName(t)
+				let type = new NiceClass()
+				type.name = name
+				type.external = external
+				for (f in fields) switch (f) {
+					case Node.TVar(name, t, expr, const):
+						type.vars.push(nodeToStatement(f))
+					case Node.TFunction(name, expr, vars, rettype):
+						type.methods.push(nodeToStatement(f))
+					case Node.TStatic(field): // TODO
+						switch (field) {
+							case Node.TVar(_): type.staticVars.push(nodeToStatement(field))
+							case Node.TFunction(_): type.staticMethods.push(nodeToStatement(field))
+							case _: console.error("Unknown class static field kind:", field)
+						}
+					case _: console.error("Unknown class field kind:", f)
+				}
+				project.classes.push(type)
+				return null //type
+
+				case Node.TDeclare(name, t):
+					switch (t) {
+						case Node.TBinop(_):
+						case Node.TFunction(_):
+						case Node.TClass(_):
+						case Node.TVar(name, t, expr, const):
+						case _: console.error("Unknown declare kind:", t)
+					}
+
+				// Expressions
+				case Node.TNew(path, t, args, fields, el): // TODO fields TODO path.t
+				let v = null
+				let a = []
+				for (arg in args) {
+					a.push(nodeToExpression(arg))
+				}
+				return NiceStatement.New(v, a)
+
+				case Node.TCall(e, args, argNames):
+				let v = nodeToExpression(e)
+				let a = []
+				for (arg in args) {
+					a.push(nodeToExpression(arg))
+				}
+				return NiceStatement.Call(v, a)
+
+				case Node.TVar(name, t, expr, const):
+				if (const) return NiceStatement.Const(name, nodeToExpression(expr))
+				return NiceStatement.Var(name, nodeToExpression(expr))
+
+				case Node.TFunction(name, expr, vars, rettype):
+				let a = []
+				for (arg in vars) {
+					a.push(DataHelper.nameOf(arg))
+				}
+				return NiceStatement.Function(name, nodeToStatement(expr), a)
+
+				case Node.TFor(name, over, by):
+				return NiceStatement.For(name, nodeToExpression(over), nodeToStatement(by))
+
+				case Node.TReturn(e):
+				if (e == null) return NiceStatement.Return(null)
+				return NiceStatement.Return(nodeToExpression(e))
+
+				case Node.TDot(expr, name): return NiceStatement.Dot(nodeToExpression(expr), name)
+
+				case Node.TIf(econd, eif, eelse):
+				return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
+
+				case Node.TTry(expr, t, v, catches):
+				var tt = []
+				var vv = []
+				for (c in v) vv.push(DataHelper.nameOf(c))
+				var cc = []
+				for (c in catches) cc.push(nodeToStatement(c))
+				return NiceStatement.Try(nodeToStatement(expr), tt, vv, cc)
+
+				case Node.TThrow(value):
+				return NiceStatement.Throw(nodeToExpression(value))
+
+				case Node.TAssignop(a, op, b):
+				return NiceStatement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+
+				case Node.TBinop(a, op, b):
+				switch (op) {
+					case Token.OpAssign:
+					return NiceStatement.Assign(nodeToExpression(a), nodeToExpression(b))
+					case _:
+					let sa = nodeToStatement(a)
+					let sb = nodeToStatement(b)
+					if (sa == null, sb == null) return null
+					if ((sa == null) || (sb == null)) return sa ?? sb
+					return NiceStatement.Statements([sa, sb])
+				}
+
+				case Node.TContinue: return NiceStatement.Continue
+				case Node.TBreak: return NiceStatement.Break
+
+				case Node.TWhile(econd, e, pre):
+				return NiceStatement.While(nodeToExpression(econd), nodeToStatement(e), pre)
+
+				case Node.TUnop(op, postfix, e):
+					switch (op) {
+						case Token.OpIncrement: return NiceStatement.Increment(nodeToExpression(e))
+						case Token.OpDecrement: return NiceStatement.Decrement(nodeToExpression(e))
+						case _: // Optimize away
+					}
+				case Node.TParenthesis(inner):
+				function unwrapNestedParens(inner: Node) {
+					switch (inner) {
+						case Node.TParenthesis(i): unwrapNestedParens(i)
+						case _: return inner
+					}
+				}
+				return nodeToStatement(unwrapNestedParens(inner))
+
+				case Node.TSwitch(exprs, conds, guards, cases):
+				if (exprs.length > 1) console.error('Multiple switch values not supported:', e, Project.data.get(e))
+				let s = []
+				for (ec in cases) s.push(nodeToStatement(ec))
+				let c = []
+				for (co in conds) {
+					c.push([NiceExpression.String('<!-- case -->')])
+				}
+				return NiceStatement.Switch(nodeToExpression(exprs[0]), c, s)
+
+				case Node.TVars(vars):
+				let s = []
+				for (v in vars) s.push(nodeToStatement(v))
+				return NiceStatement.Statements(s)
+
+				case Node.TIndex(v, index):
+				return NiceStatement.Statements([nodeToStatement(v), nodeToStatement(index)])
+
+				// Optimize away
+				case Node.TIdent(name):
+				case Node.TString:
+				case Node.TBool:
+				case Node.TInt:
+				case Node.TFloat:
+				case Node.TNull:
+				case _: console.error('Unknown node type for statement:', e, Project.data.get(e))
+			}
+
+			return null
+		}
+
+		function fillStatement(e: Node): NiceStatement {
+			return nodeToStatement(e)
+		}
+
+		new (collected: Node) {
+			switch (collected) {
+			case Node.TBlock(el): // File
+				for (e in el) switch (e) {
+					case Node.TModule(path, el):
+						for (e in el) fillStatement(e)
+					case _:
+					let statement = fillStatement(e)
+					if (statement != null) switch (statement) {
+						case NiceStatement.Block(el):
+						if (el.length > 0) // Don't output empty blocks
+						project.init.push(statement)
+						case _: project.init.push(statement)
+					}
+				}
+			}
+		}
+	}
+
+	class NiceProject {
+		let interfaces: [NiceInterface] = []
+		let classes: [NiceClass] = []
+		let enumsSimple: [NiceSimpleEnum] = []
+		let enumsComplex: [NiceComplexEnum] = []
+		let globalVars: [NiceVar] = []
+		let globalFuncs: [NiceFunction] = []
+		let init: NiceNode = []
+
+		new () {}
+	}
+
+	class NiceClass {
+		new () {}
+		var external: Bool
+		var name: String
+		var extend: NiceClass
+		var implement: NiceInterface
+		var parent: NiceParentModule // ???
+		var rename: Int
+		var constructor
+
+		var staticMethods = []
+		var staticVars = []
+		var methods = []
+		var vars = []
+	}
+
+	class NiceSimpleEnum {
+		new () {}
+		var name: String
+		var external: Bool
+		var names: [String]
+		var values: [NiceExpression]
+	}
+
+	class NiceComplexEnum  {
+		new () {}
+		var name: String
+		var external: Bool
+		var names: [String]
+		var constructors: [[String]]
+	}
+
+	// Does not return a value
+	enum NiceStatement {
+		Statements(el: [NiceStatement]) // Multiple statements not wrapped into a block
+		Block(el: [NiceStatement])
+		Call(e: NiceExpression, args: [NiceExpression])
+		New(e: NiceExpression, args: [NiceExpression])
+		Var(name: String, expr: NiceExpression)
+		Const(name: String, expr: NiceExpression)
+		Function(name: String, expr: NiceStatement, args: [String])
+		Return(e: NiceExpression) // TODO Null?
+		If(econd: NiceExpression, eif: NiceStatement, eelse: NiceStatement) // TODO Null?
+		Try(expr: NiceExpression, t: [String], v: [String], catches: [NiceStatement])
+		Throw(value: NiceExpression)
+		Assign(name: NiceExpression, value: NiceExpression)
+		Assignop(name: NiceExpression, op: Token, value: NiceExpression)
+		Dot(expr: NiceExpression, name: String)
+		For(name: String, over: NiceExpression, by: NiceStatement)
+		While(econd: NiceExpression, e: NiceStatement, pre: Bool)
+		Increment(e: NiceExpression)
+		Decrement(e: NiceExpression)
+		Switch(expr: NiceExpression, cases: [[NiceExpression]], /*nullcase:*/ statements: [NiceStatement])
+		Continue
+		Break
+	}
+
+	// Returns a value
+	enum NiceExpression {
+		String(s: String)
+		Int(s: String)
+		Float(s: String)
+		Bool(s: Bool)
+		Ident(s: String)
+		Null
+		This
+		Dot(expr: NiceExpression, name: String)
+		Call(e: NiceExpression, args: [NiceExpression])
+		New(e: NiceExpression, args: [NiceExpression])
+		Binop(a: NiceExpression, op: Token, b: NiceExpression)
+		Function(name: String, expr: NiceStatement, args: [String])
+		Parenthesis(inner: NiceExpression)
+		Object(names: [String], el: [NiceExpression])
+		Array(el: [NiceExpression])
+		Map(keys: [NiceExpression], values: [NiceExpression])
+		Unop(op: Token, postfix: Bool, e: NiceExpression)
+		Elvis(nullable: Node, othewise: Node)
+		If(econd: NiceExpression, eif: NiceExpression, eelse: NiceExpression) // TODO Null?
+		For(name: String, over: NiceExpression, by: NiceStatement)
+		ForToArray(name: String, over: NiceExpression, by: NiceStatement)
+		Index(expr: NiceExpression, index: NiceExpression)
+		Assignop(name: NiceExpression, op: Token, value: NiceExpression)
+	}
+}
