@@ -829,6 +829,45 @@ module {
 		case Node.TIndex(expr, index): return unwrapBlockValue(expr) + '[' + unwrapBlockValue(index) + ']'
 		case Node.TIs(expr, t): return '' // TODO
 		case Node.TAs(expr, kind, t): return '(' + unwrapBlockValue(expr) + ')'
+
+		case Node.TArrow(expr, vars):
+			pushScope()
+			r = ''
+			r += '(' + [for (v in vars)
+				(function(v)
+				switch (v) {
+					case Node.TVar(oname, _, _):
+						var name = rename(oname)
+						if (hasInScope(name)) name += "$" + (++id)
+						addToScope(name)
+						parentNames.set(v, name)
+						return parentNames.get(v)
+					case Node.TIdent(oname):
+						var name = rename(oname)
+						if (hasInScope(name)) name += "$" + (++id)
+						addToScope(name)
+						parentNames.set(v, name)
+						return parentNames.get(v)
+					case Node.TParenthesis(e): if(e != null) throw v return ''
+					case _: throw 'at Node.TFunction ' + v
+				})(v)
+			].join(', ') + ') => '
+			if (expr != null) {
+				switch (expr) {
+					case Node.TBlock(el):
+						r += stringify(expr)
+					case _:
+						pushScope()
+						pushTab()
+						r += '{\n\(tabs)' + stringify(expr) + '\n\t\(tabs)}'
+						popTab()
+						popScope()
+				}
+			}
+			else r += '{}'
+			popScope()
+			return r
+
 		case Node.TFunction(name, expr, vars, _):
 			pushScope()
 			r = ''
