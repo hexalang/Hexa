@@ -103,7 +103,29 @@ module {
 				case Node.TArray(el):
 				if (el.length == 1) switch (el[0]) {
 					case Node.TFor(name, over, by):
-					return NiceExpression.ForToArray(name, nodeToExpression(over), nodeToExpression(by))
+					let block = []
+					let result = '$result'
+					block.push(NiceStatement.Const(result, NiceExpression.Array([])))
+					let value = '$value'
+					block.push(NiceStatement.Const(value, nodeToExpression(over)))
+
+					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result), 'push'), [nodeToExpression(by)])
+					function fillLoop() {
+						switch (over) {
+							case Node.TDot(_, f): // TODO remove after proper type info
+							if (f == "length") {
+							}
+
+							case Node.TInt(s):
+						}
+
+						block.push(NiceStatement.For(name, NiceExpression.Ident(value), push))
+						return
+					}
+
+					fillLoop()
+					block.push(NiceStatement.Return(NiceExpression.Ident(result)))
+					return NiceExpression.Call(NiceExpression.Function(null, NiceStatement.Block(block), []), [])
 				}
 				let els = []
 				for (e in el) els.push(nodeToExpression(e))
@@ -130,8 +152,6 @@ module {
 				case Node.TIf(econd, eif, eelse):
 				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 
-				case Node.TFor(name, over, by):
-				return NiceExpression.For(name, nodeToExpression(over), nodeToStatement(by))
 
 				case Node.TIndex(expr, index):
 				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
@@ -265,7 +285,7 @@ module {
 					case Node.TDot(_, f): // TODO remove after proper type info
 					if (f == "length") {
 						let i = name
-						let v = 'v'
+						let v = '$v'
 						return NiceStatement.Block([
 						NiceStatement.Const(v, nodeToExpression(over)),
 						NiceStatement.Const(i, NiceExpression.Int(0)),
@@ -546,8 +566,6 @@ module {
 		Unop(op: Token, postfix: Bool, e: NiceExpression)
 		Elvis(nullable: Node, othewise: Node)
 		If(econd: NiceExpression, eif: NiceExpression, eelse: NiceExpression) // TODO Null?
-		For(name: String, over: NiceExpression, by: NiceStatement)
-		ForToArray(name: String, over: NiceExpression, by: NiceStatement)
 		Index(expr: NiceExpression, index: NiceExpression)
 		Assignop(name: NiceExpression, op: Token, value: NiceExpression)
 	}
