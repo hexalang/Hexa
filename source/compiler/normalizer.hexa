@@ -344,6 +344,26 @@ module {
 				case Node.TDot(expr, name): return NiceStatement.Dot(nodeToExpression(expr), name)
 
 				case Node.TIf(econd, eif, eelse):
+				// Check if it contains if-let bindings
+				var binds = false
+				for (cond in econd) switch (cond) {
+					case Node.TVar(_):
+					binds = true
+				}
+
+				if (!binds && econd.length == 1)
+				return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
+
+				if (!binds) {
+					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
+					var i = 1
+					while (i < econd.length) {
+						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])))
+						i++
+					}
+					return NiceStatement.If(parens, nodeToStatement(eif), nodeToStatement(eelse))
+				}
+
 				return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
 
 				case Node.TTry(expr, t, v, catches):
