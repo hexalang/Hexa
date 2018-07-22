@@ -173,8 +173,27 @@ module {
 				return NiceExpression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
 				case Node.TIf(econd, eif, eelse):
+				// Check if it contains if-let bindings
+				var binds = false
+				for (cond in econd) switch (cond) {
+					case Node.TVar(_):
+					binds = true
+				}
+
+				if (!binds && econd.length == 1)
 				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 
+				if (!binds) {
+					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
+					var i = 1
+					while (i < econd.length) {
+						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])))
+						i++
+					}
+					return NiceExpression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
+				}
+
+				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 
 				case Node.TIndex(expr, index):
 				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
