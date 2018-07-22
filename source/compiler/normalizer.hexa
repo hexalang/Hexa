@@ -383,7 +383,38 @@ module {
 					return NiceStatement.If(parens, nodeToStatement(eif), nodeToStatement(eelse))
 				}
 
-				return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
+				// if(let, let, let...)
+				let block = []
+				var id = 0
+				let step = '$step'
+				block.push(NiceStatement.Var(step, NiceExpression.Int(0)))
+				var nullable = false
+				var last = ''
+ 				switch (econd[0]) {
+					case Node.TVar(name, t, expr, const):
+					last = name
+					nullable = true
+					block.push(NiceStatement.Const(last, nodeToExpression(expr)))
+					case _:
+					last = 'step$' + id
+					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
+				}
+
+				// Last step
+				block.push(NiceStatement.If(
+					NiceExpression.Binop(
+						NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(econd.length - 1)),
+						Token.OpBoolAnd,
+						NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, NiceExpression.Null)
+					),
+					NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(econd.length)), null))
+
+				// if (step == steps)
+				block.push(NiceStatement.If(
+					NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(econd.length)),
+					nodeToStatement(eif), nodeToStatement(eelse)))
+
+				return NiceStatement.Block(block)
 
 				case Node.TTry(expr, t, v, catches):
 				var tt = []
