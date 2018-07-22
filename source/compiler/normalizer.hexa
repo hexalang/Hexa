@@ -400,6 +400,39 @@ module {
 					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
 				}
 
+				while (id < econd.length - 1) switch (econd[id + 1]) {
+					case Node.TVar(name, t, expr, const):
+					block.push(NiceStatement.Var(name, NiceExpression.Null))
+					block.push(NiceStatement.If(
+						NiceExpression.Binop(
+							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(id + 0)),
+							Token.OpBoolAnd,
+							NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, NiceExpression.Null)
+						),
+						NiceStatement.Block([
+							NiceStatement.Assign(NiceExpression.Ident(name), nodeToExpression(expr)),
+							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(id + 1)), null
+						]), null))
+					id++
+					last = name
+					nullable = true
+					case _:
+					block.push(NiceStatement.Var('step$' + id + 1, NiceExpression.Null))
+					block.push(NiceStatement.If(
+						NiceExpression.Binop(
+							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(id + 0)),
+							Token.OpBoolAnd,
+							NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, NiceExpression.Null)
+						),
+						NiceStatement.Block([
+							NiceStatement.Assign(NiceExpression.Ident('step$' + id + 1), nodeToExpression(econd[id + 1])),
+							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(id + 1)), null
+						]), null))
+					id++
+					last = 'step$' + id
+					nullable = false
+				}
+
 				// Last step
 				block.push(NiceStatement.If(
 					NiceExpression.Binop(
