@@ -38,7 +38,15 @@ module {
 
 				// Transform
 				case Node.TIdent(name): return NiceExpression.Ident(name)
-				case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
+				case Node.TDot(expr, name):
+				let parent = Project.mapNames.get(expr)
+				switch (parent) {
+					case Node.TEnum(t, fields, valuesType): if (valuesType != null) {
+						return getTag(parent, name)
+					}
+				}
+
+				return NiceExpression.Dot(nodeToExpression(expr), name)
 
 				case Node.TCall(e, args, argNames):
 				let v = nodeToExpression(e)
@@ -502,25 +510,6 @@ module {
 				for (ec in cases) s.push(nodeToStatement(ec))
 				let c = []
 
-				function getTag(enumNode: Node, name: String) {
-					switch (enumNode) {
-						case Node.TEnum(t, fields, valuesType):
-						var i = 0
-						for (f in fields) {
-							switch (f) {
-								case Node.TIdent(n): if (n == name) return NiceExpression.Int(i)
-								case Node.TCall(e, _): switch (e) {
-									case Node.TIdent(n): if (n == name) return NiceExpression.Int(i)
-								}
-								case Node.TBinop(a, op, b): switch (a) {
-									case Node.TIdent(n): if (n == name) return nodeToExpression(b)
-								}
-								case _: console.error('Unknown enum tag kind:', f)
-							}
-							i++
-						}
-					}
-				}
 
 				for (co in conds) {
 					let cx = []
@@ -576,6 +565,26 @@ module {
 			}
 
 			return null
+		}
+
+		function getTag(enumNode: Node, name: String) {
+			switch (enumNode) {
+				case Node.TEnum(t, fields, valuesType):
+				var i = 0
+				for (f in fields) {
+					switch (f) {
+						case Node.TIdent(n): if (n == name) return NiceExpression.Int(i)
+						case Node.TCall(e, _): switch (e) {
+							case Node.TIdent(n): if (n == name) return NiceExpression.Int(i)
+						}
+						case Node.TBinop(a, op, b): switch (a) {
+							case Node.TIdent(n): if (n == name) return nodeToExpression(b)
+						}
+						case _: console.error('Unknown enum tag kind:', f)
+					}
+					i++
+				}
+			}
 		}
 
 		function fillStatement(e: Node): NiceStatement {
