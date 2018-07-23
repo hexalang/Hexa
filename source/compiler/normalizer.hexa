@@ -70,11 +70,25 @@ module {
 				return NiceExpression.Dot(nodeToExpression(expr), name)
 
 				case Node.TCall(e, args, argNames):
-				let v = nodeToExpression(e)
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
 				}
+				let atts = Project.mapAttributes.get(Project.mapNames.get(e))
+
+				let infix = getAtt(atts, 'infix')
+				if (infix != null) switch (infix.values[0]) {
+					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
+					case _: throw '@infix takes string as argument'
+				}
+
+				let operator = getAtt(atts, 'operator')
+				if (operator != null) switch (operator.values[0]) {
+					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
+					case _: throw '@operator takes string as argument'
+				}
+
+				let v = nodeToExpression(e)
 				return NiceExpression.Call(v, a)
 
 				case Node.TBinop(a, op, b):
@@ -300,20 +314,15 @@ module {
 				type.name = name
 				type.external = external
 
-				function getAtt(atts: [Attribute], atname: String): Attribute {
-					if (atts != null && atts.length > 0) for (att in atts) {
-						if (att.name == atname) return att
-					}
-					return null
-				}
+				let atts = Project.mapAttributes.get(e)
 
-				let require = getAtt(Project.mapAttributes.get(e), 'require')
+				let require = getAtt(atts, 'require')
 				if (require != null) switch (require.values[0]) {
 					case Node.TString(s): type.jsRequire = s
 					case _: throw '@require takes string as argument'
 				}
 
-				let native = getAtt(Project.mapAttributes.get(e), 'native')
+				let native = getAtt(atts, 'native')
 				if (native != null) switch (native.values[0]) {
 					case Node.TString(s): type.jsNative = s
 					case _: throw '@native takes string as argument'
@@ -629,6 +638,13 @@ module {
 			}
 		}
 
+		function getAtt(atts: [Attribute], atname: String): Attribute {
+			if (atts != null && atts.length > 0) for (att in atts) {
+				if (att.name == atname) return att
+			}
+			return null
+		}
+
 		function fillStatement(e: Node): NiceStatement {
 			return nodeToStatement(e)
 		}
@@ -748,5 +764,13 @@ module {
 		If(econd: NiceExpression, eif: NiceExpression, eelse: NiceExpression) // TODO Null?
 		Index(expr: NiceExpression, index: NiceExpression)
 		Assignop(name: NiceExpression, op: Token, value: NiceExpression)
+		NativeOperator(kind: NativeOperatorKind, args: [NiceExpression], name: String)
+	}
+
+	enum NativeOperatorKind : Int {
+		Infix = 0
+		Function = 1
+		Prefix = 2
+		Postfix = 3
 	}
 }
