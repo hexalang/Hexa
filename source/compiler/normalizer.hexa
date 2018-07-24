@@ -59,7 +59,7 @@ module {
 								case _: throw 'staticSource is \(staticSource)'
 							}
 					}
-					return NiceExpression.Ident(name)
+					return NiceExpression.Ident(parentNames.get(source) ?? name)
 				case Node.TDot(expr, name):
 				let parent = Project.mapNames.get(expr)
 				switch (parent) {
@@ -106,9 +106,9 @@ module {
 				case Node.TFunction(name, expr, vars, rettype):
 				let a = []
 				for (arg in vars) {
-					a.push(DataHelper.nameOf(arg))
+					a.push(unique(DataHelper.nameOf(arg), arg))
 				}
-				return NiceExpression.Function(name, nodeToStatement(expr), a)
+				return NiceExpression.Function(name?unique(name, e):null, nodeToStatement(expr), a)
 
 				case Node.TArrow(expr, vars, rettype):
 				let a = []
@@ -373,15 +373,15 @@ module {
 				return NiceStatement.Call(v, a)
 
 				case Node.TVar(name, t, expr, const):
-				if (const) return NiceStatement.Const(name, nodeToExpression(expr))
-				return NiceStatement.Var(name, nodeToExpression(expr))
+				if (const) return NiceStatement.Const(unique(name, e), nodeToExpression(expr))
+				return NiceStatement.Var(unique(name, e), nodeToExpression(expr))
 
 				case Node.TFunction(name, expr, vars, rettype):
 				let a = []
 				for (arg in vars) {
-					a.push(DataHelper.nameOf(arg))
+					a.push(unique(DataHelper.nameOf(arg), arg))
 				}
-				return NiceStatement.Function(name, nodeToStatement(expr), a)
+				return NiceStatement.Function(name?unique(name, e):null, nodeToStatement(expr), a)
 
 				case Node.TFor(name, over, by): switch (over) {
 					case Node.TDot(_, f): // TODO remove after proper type info
@@ -672,12 +672,16 @@ module {
 			scopes[scopes.length-1].set(name, true)
 		}
 
+		// Allows to find renamed node
+		let parentNames: [Node : String] = [:]
+
 		// Returns new name if name occupied or reserved
 		// Returns same name and calls addToScope if name is free
-		function unique(name: String): String {
+		function unique(name: String, node: Node): String {
 			var uname = name
 			while (hasInScope(uname) || (keywords.indexOf(uname) != -1)) uname = name + '_' + (++id)
 			addToScope(uname)
+			parentNames.set(node, uname)
 			return uname
 		}
 
