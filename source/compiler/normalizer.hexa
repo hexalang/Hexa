@@ -53,7 +53,7 @@ module {
 							let staticSource = Project.mapNames.get(source)
 							switch (staticSource) {
 								case Node.TClass(t, _):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), name)
+									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name))
 								case Node.TEnum(t,_):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), name)
 								case _: throw 'staticSource is \(staticSource)'
@@ -66,11 +66,7 @@ module {
 					case Node.TEnum(t, fields, valuesType): if (valuesType != null) {
 						return getTag(parent, name)
 					}
-					case Node.TClass(t, ext, impl, fields, external): for (f in fields) switch (f) {
-						case Node.TStatic(sf):
-						if (DataHelper.nameOf(sf) == name)
-						return NiceExpression.Dot(nodeToExpression(expr), parentNames.get(sf) ?? name)
-					}
+					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name))
 				}
 				return NiceExpression.Dot(nodeToExpression(expr), name)
 
@@ -335,13 +331,29 @@ module {
 
 				for (f in fields) switch (f) {
 					case Node.TVar(name, t, expr, const):
-						type.vars.push(nodeToStatement(f))
+						let uname = parentNames.get(f) ?? unique(name, f)
+						if (const) type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
+						else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
 					case Node.TFunction(name, expr, vars, rettype):
-						type.methods.push(nodeToStatement(f))
+						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
+						let a = []
+						for (arg in vars) {
+							a.push(unique(DataHelper.nameOf(arg), arg))
+						}
+						type.methods.push(NiceStatement.Function(uname, nodeToStatement(expr), a))
 					case Node.TStatic(field):
 						switch (field) {
-							case Node.TVar(_): type.staticVars.push(nodeToStatement(field))
-							case Node.TFunction(_): type.staticMethods.push(nodeToStatement(field))
+							case Node.TVar(name, t, expr, const):
+								let uname = parentNames.get(field) ?? unique(name, field)
+								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
+								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
+							case Node.TFunction(name, expr, vars, rettype):
+								let uname = parentNames.get(field) ?? unique(name, field)
+								let a = []
+								for (arg in vars) {
+									a.push(unique(DataHelper.nameOf(arg), arg))
+								}
+								type.staticMethods.push(NiceStatement.Function(uname, nodeToStatement(expr), a))
 							case _: console.error("Unknown class static field kind:", field)
 						}
 					case _: console.error("Unknown class field kind:", f)
@@ -385,6 +397,7 @@ module {
 				for (arg in vars) {
 					a.push(unique(DataHelper.nameOf(arg), arg))
 				}
+				if (name == 'new') return NiceStatement.Function(null, nodeToStatement(expr), a)
 				return NiceStatement.Function(name?unique(name, e):null, nodeToStatement(expr), a)
 
 				case Node.TFor(name, over, by): switch (over) {
@@ -691,12 +704,44 @@ module {
 
 		function fillStatement(e: Node): NiceStatement {
 			return nodeToStatement(e)
+		function renameClassFields(fields: [Node]) {
+			for (f in fields) switch (f) {
+				case Node.TVar(name, t, expr, const): if (parentNames.get(f) == null) unique(name, f)
+				case Node.TFunction(name, expr, vars, rettype):
+					if (name == 'new') parentNames.set(f, 'new')
+					else if (parentNames.get(f) == null) unique(name, f)
+				case Node.TStatic(field): switch (field) {
+					case Node.TVar(name, t, expr, const): if (parentNames.get(field) == null) unique(name, field)
+					case Node.TFunction(name, expr, vars, rettype): if (parentNames.get(field) == null) unique(name, field)
+				}
+			}
+		}
+
+		// Used for `something.name`
+		function getClassDotField(expr: Node, name: String) {
+			switch (expr) {
+				case Node.TClass(t, ext, impl, fields, external): for (f in fields) switch (f) {
+					case Node.TStatic(sf):
+					if (DataHelper.nameOf(sf) == name)
+					return parentNames.get(sf) ?? (name + '!!!!')
+				}
+			}
 		}
 
 		new (collected: Node, keywords: [String]) {
 			this.keywords = keywords
 			switch (collected) {
 			case Node.TBlock(el): // File
+				// Rename classes upfront to avoid race condition
+				for (e in el) switch (e) {
+					case Node.TModule(path, el):
+						for (e in el) switch (e) {
+							case Node.TClass(t, ext, impl, fields, external):
+							renameClassFields(fields)
+						}
+				}
+
+				// Fill statements
 				for (e in el) switch (e) {
 					case Node.TModule(path, el):
 						for (e in el) fillStatement(e)
