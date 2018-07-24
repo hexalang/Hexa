@@ -19,11 +19,12 @@ module {
 	// Generates simplified view of syntax tree
 	// for easier later generation
 	class Normalizer {
-		static function normalize(collected: Node): NiceProject {
-			return (new Normalizer(collected)).project
+		static function normalize(collected: Node, keywords: [String]): NiceProject {
+			return (new Normalizer(collected, keywords)).project
 		}
 
 		let project = new NiceProject()
+		var keywords = []
 
 		function nodeToExpression(e: Node): NiceExpression {
 			if (e == null) return null
@@ -147,9 +148,9 @@ module {
 				if (el.length == 1) switch (el[0]) {
 					case Node.TFor(name, over, by):
 					let block = []
-					let result = '$result'
+					let result = unique('result')
 					block.push(NiceStatement.Const(result, NiceExpression.Array([])))
-					let value = '$value'
+					let value = unique('value')
 					block.push(NiceStatement.Const(value, nodeToExpression(over)))
 
 					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result), 'push'), [nodeToExpression(by)])
@@ -386,7 +387,7 @@ module {
 					case Node.TDot(_, f): // TODO remove after proper type info
 					if (f == "length") {
 						let i = name
-						let v = '$v'
+						let v = unique('value')
 						return NiceStatement.Block([
 						NiceStatement.Const(v, nodeToExpression(over)),
 						NiceStatement.Var(i, NiceExpression.Int(0)),
@@ -445,7 +446,7 @@ module {
 				// if(let, let, let...)
 				let block = []
 				var current = 0
-				let step = 'step$' + (++id)
+				let step = unique('step')
 				block.push(NiceStatement.Var(step, NiceExpression.Int(0)))
 				var nullable = false
 				var last = ''
@@ -455,7 +456,7 @@ module {
 					nullable = true
 					block.push(NiceStatement.Const(last, nodeToExpression(expr)))
 					case _:
-					last = 'temp$' + current + '$' + (++id)
+					last = unique('temp')
 					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
 				}
 
@@ -476,7 +477,7 @@ module {
 					last = name
 					nullable = true
 					case _:
-					let next = 'temp$' + current + '$' + (++id)
+					let next = unique('temp')
 					block.push(NiceStatement.Var(next, NiceExpression.Null))
 					block.push(NiceStatement.If(
 						NiceExpression.Binop(
@@ -646,13 +647,46 @@ module {
 			return null
 		}
 
-		static var id = 0
+		var scopes: [[String : Bool]] = [[:]]
+
+		var id = 0
+
+		function pushScope() {
+			scopes.push(new Map())
+		}
+
+		function popScope() {
+			scopes.pop()
+		}
+
+		function hasInScope(name: String) {
+			for (scope in scopes) {
+				if (scope.get(name) != null) {
+					return true
+				}
+			}
+			return false
+		}
+
+		function addToScope(name: String) {
+			scopes[scopes.length-1].set(name, true)
+		}
+
+		// Returns new name if name occupied or reserved
+		// Returns same name and calls addToScope if name is free
+		function unique(name: String): String {
+			var uname = name
+			while (hasInScope(uname) || (keywords.indexOf(uname) != -1)) uname = name + '_' + (++id)
+			addToScope(uname)
+			return uname
+		}
 
 		function fillStatement(e: Node): NiceStatement {
 			return nodeToStatement(e)
 		}
 
-		new (collected: Node) {
+		new (collected: Node, keywords: [String]) {
+			this.keywords = keywords
 			switch (collected) {
 			case Node.TBlock(el): // File
 				for (e in el) switch (e) {
