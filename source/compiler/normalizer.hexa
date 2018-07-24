@@ -444,8 +444,8 @@ module {
 
 				// if(let, let, let...)
 				let block = []
-				var id = 0
-				let step = '$step'
+				var current = 0
+				let step = 'step$' + (++id)
 				block.push(NiceStatement.Var(step, NiceExpression.Int(0)))
 				var nullable = false
 				var last = ''
@@ -455,40 +455,41 @@ module {
 					nullable = true
 					block.push(NiceStatement.Const(last, nodeToExpression(expr)))
 					case _:
-					last = 'step$' + id
+					last = 'temp$' + current + '$' + (++id)
 					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
 				}
 
-				while (id < econd.length - 1) switch (econd[id + 1]) {
+				while (current < econd.length - 1) switch (econd[current + 1]) {
 					case Node.TVar(name, t, expr, const):
 					block.push(NiceStatement.Var(name, NiceExpression.Null))
 					block.push(NiceStatement.If(
 						NiceExpression.Binop(
-							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(id + 0)),
+							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(current + 0)),
 							Token.OpBoolAnd,
 							NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, NiceExpression.Null)
 						),
 						NiceStatement.Block([
 							NiceStatement.Assign(NiceExpression.Ident(name), nodeToExpression(expr)),
-							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(id + 1)), null
+							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(current + 1)), null
 						]), null))
-					id++
+					current++
 					last = name
 					nullable = true
 					case _:
-					block.push(NiceStatement.Var('step$' + (id + 1), NiceExpression.Null))
+					let next = 'temp$' + current + '$' + (++id)
+					block.push(NiceStatement.Var(next, NiceExpression.Null))
 					block.push(NiceStatement.If(
 						NiceExpression.Binop(
-							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(id + 0)),
+							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(current + 0)),
 							Token.OpBoolAnd,
 							NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, NiceExpression.Null)
 						),
 						NiceStatement.Block([
-							NiceStatement.Assign(NiceExpression.Ident('step$' + (id + 1)), nodeToExpression(econd[id + 1])),
-							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(id + 1)), null
+							NiceStatement.Assign(NiceExpression.Ident(next), nodeToExpression(econd[current + 1])),
+							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(current + 1)), null
 						]), null))
-					id++
-					last = 'step$' + id
+					current++
+					last = next
 					nullable = false
 				}
 
@@ -644,6 +645,8 @@ module {
 			}
 			return null
 		}
+
+		static var id = 0
 
 		function fillStatement(e: Node): NiceStatement {
 			return nodeToStatement(e)
