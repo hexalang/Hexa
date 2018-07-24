@@ -40,8 +40,8 @@ module {
 				for (name in e.names) {
 					out += '\n\tconst enum$' + e.name + '$' + name + ' = '
 					if (e.constructors[i] != null) {
-						out += '(' + [for(c in e.constructors[i]) rename(c)].join(',') + ')=>["'
-						out += name + '",' + i + ',' + [for(c in e.constructors[i]) rename(c)].join(',')
+						out += '(' + [for(c in e.constructors[i]) c].join(',') + ')=>["'
+						out += name + '",' + i + ',' + [for(c in e.constructors[i]) c].join(',')
 						out += '];'
 					} else out += '["' + name + '",' + i + '];'
 					i++
@@ -70,8 +70,8 @@ module {
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args):
 					if (name == null || name == 'new') out += '\n\t\tconstructor'
-					else out += '\n\t\t' + rename(name)
-					out += '(' + [for (a in args) rename(a)].join(', ') + ') { ' + printStatement(expr) + ' };'
+					else out += '\n\t\t' + name
+					out += '(' + [for (a in args) a].join(', ') + ') { ' + printStatement(expr) + ' };'
 				}
 				out += '\n\t}'
 
@@ -86,7 +86,7 @@ module {
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args):
 						out += '\n\t' + c.name + '.' + name + ' = '
-						out += '(' + [for (a in args) rename(a)].join(', ') + ') => { ' + printStatement(expr) + ' };'
+						out += '(' + [for (a in args) a].join(', ') + ') => { ' + printStatement(expr) + ' };'
 				}
 			}
 
@@ -112,7 +112,7 @@ module {
 		@inline function pushTab() tabs += '\t'
 		@inline function popTab() tabs = tabs.substring(0, tabs.length - 1)
 
-		static var reserved = ['with', 'const', 'instanceof', 'typeof', 'delete']
+		static var reserved = ['with', 'const', 'instanceof', 'typeof', 'delete', 'undefined']
 
 		// Rename to make an unique name
 		static function rename(name: String) {
@@ -158,10 +158,10 @@ module {
 					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
-				case NiceStatement.Const(name, expr): return 'const ' + rename(name) + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Var(name, expr): return 'let ' + rename(name) + Math.random().toString().split('.')[1] + (expr == null? '' : ' = ' + printExpression(expr))
+				case NiceStatement.Const(name, expr): return 'const ' + name + (expr == null? '' : ' = ' + printExpression(expr))
+				case NiceStatement.Var(name, expr): return 'let ' + name + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Function(name, expr, args):
-					return 'const ' + rename(name) + ' = (' + [for (a in args) a].join(', ') + ') => ' + printBlock(expr)
+					return 'const ' + name + ' = (' + [for (a in args) a].join(', ') + ') => ' + printBlock(expr)
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
 					return 'return ' + printExpression(e)
@@ -185,7 +185,7 @@ module {
 				case NiceStatement.Throw(e):
 					return 'throw ' + printExpression(e)
 				case NiceStatement.For(name, over, by):
-					return 'for (const ' + rename(name) + ' of ' + printExpression(over) + ') ' + printStatement(by)
+					return 'for (const ' + name + ' of ' + printExpression(over) + ') ' + printStatement(by)
 				case NiceStatement.Increment(e): return printExpression(e) + '++'
 				case NiceStatement.Decrement(e): return printExpression(e) + '--'
 				case NiceStatement.While(econd, e, pre):
@@ -275,11 +275,11 @@ module {
 				case NiceExpression.Dot(expr, name): return printExpression(expr) + '.' + name
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
 				case NiceExpression.Function(name, expr, args):
-					if (name == null) return '(' + [for (a in args) rename(a)].join(', ') + ') => ' + printBlock(expr)
-					return 'function ' + (name?rename(name):'') + '(' + [for (a in args) rename(a)].join(', ') + ') {'
+					if (name == null) return '(' + [for (a in args) a].join(', ') + ') => ' + printBlock(expr)
+					return 'function ' + (name??'') + '(' + [for (a in args) a].join(', ') + ') {'
 					+ printStatement(expr) + ' }'
 				case NiceExpression.Arrow(expr, args):
-					return '(' + [for (a in args) rename(a)].join(', ') + ') => (' + printExpression(expr) + ')'
+					return '(' + [for (a in args) a].join(', ') + ') => (' + printExpression(expr) + ')'
 				case NiceExpression.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceExpression.Array(el): return '[' + [for (a in el) printExpression(a)].join(', ') + ']'
 				case NiceExpression.Unop(op, postfix, e):
