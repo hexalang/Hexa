@@ -63,15 +63,24 @@ module {
 				}
 
 				out += '\n\t' + 'var ' + c.name + ' = class {'
-				for (v in c.vars) switch (v) {
-					case NiceStatement.Var(name, expr):
-					out += '\n\t\t/*' + printStatement(v) + '*/'
-				}
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args):
 					if (name == null || name == 'new') out += '\n\t\tconstructor'
 					else out += '\n\t\t' + name
-					out += '(' + args.join(', ') + ') { ' + printStatement(expr) + ' };'
+					out += '(' + args.join(', ') + ') { '
+
+					if (name == null || name == 'new') {
+						// Init fields
+						for (v in c.vars) switch (v) {
+							case NiceStatement.Var(name, expr):
+							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ''
+							case NiceStatement.Const(name, expr):
+							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ''
+						}
+						out += '\n\t\t'
+					}
+
+					out += printStatement(expr) + ' };'
 				}
 				out += '\n\t}'
 
