@@ -577,6 +577,8 @@ module {
 
 				case Node.TSwitch(exprs, conds, guards, cases):
 				if (exprs.length > 1) console.error('Multiple switch values not supported:', e, Project.data.get(e))
+				let value = nodeToExpression(exprs[0])
+				var index = value
 				let s = []
 				let c = []
 
@@ -596,8 +598,10 @@ module {
 						case Node.TBool(v): cx.push(NiceExpression.Bool(v))
 						case Node.TCall(e, args, argNames): switch (e) {
 							case Node.TDot(expr, name): cx.push(getTag(Project.mapNames.get(expr), name))
+							// Promote to complex enum
+							index = NiceExpression.Index(value, NiceExpression.Int(1))
 							for (arg in args.length) switch (args[arg]) {
-								case Node.TIdent(name): block.push(NiceStatement.Const(name, NiceExpression.Index(nodeToExpression(exprs[0]), NiceExpression.Int(3 + arg))))
+								case Node.TIdent(name): block.push(NiceStatement.Const(name, NiceExpression.Index(value, NiceExpression.Int(2 + arg))))
 								case Node.TUnderscore: {}
 								case _: console.log('Unknown case extract value kind:', arg)
 							}
@@ -624,7 +628,7 @@ module {
 					i++
 				}
 
-				return NiceStatement.Switch(nodeToExpression(exprs[0]), c, s)
+				return NiceStatement.Switch(index, c, s)
 
 				case Node.TVars(vars):
 				let s = []
