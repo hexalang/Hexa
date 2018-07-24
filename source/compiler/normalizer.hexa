@@ -578,11 +578,13 @@ module {
 				case Node.TSwitch(exprs, conds, guards, cases):
 				if (exprs.length > 1) console.error('Multiple switch values not supported:', e, Project.data.get(e))
 				let s = []
-				for (ec in cases) s.push(nodeToStatement(ec))
 				let c = []
 
 
-				for (co in conds) {
+				var i = 0
+				for (ec in cases) {
+					let block = []
+					let co = conds[i]
 					let cx = []
 
 					function addTag(co) switch (co) {
@@ -594,6 +596,11 @@ module {
 						case Node.TBool(v): cx.push(NiceExpression.Bool(v))
 						case Node.TCall(e, args, argNames): switch (e) {
 							case Node.TDot(expr, name): cx.push(getTag(Project.mapNames.get(expr), name))
+							for (arg in args.length) switch (args[arg]) {
+								case Node.TIdent(name): block.push(NiceStatement.Const(name, NiceExpression.Index(nodeToExpression(exprs[0]), NiceExpression.Int(3 + arg))))
+								case Node.TUnderscore: {}
+								case _: console.log('Unknown case extract value kind:', arg)
+							}
 							case _: console.error('Unknown case extract kind:', e, Project.mapNames.get(e))
 						}
 						case Node.TDot(expr, name):
@@ -612,6 +619,9 @@ module {
 					addTag(co)
 
 					c.push(cx)
+					block.push(nodeToStatement(ec))
+					s.push(NiceStatement.Block(block))
+					i++
 				}
 
 				return NiceStatement.Switch(nodeToExpression(exprs[0]), c, s)
