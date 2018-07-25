@@ -53,13 +53,7 @@ module {
 				"\"s\"" 	 : 'TString(s)'
 			])
 
-		shouldAllEqual([
 			// '"\\\\\\(v) \\(v)"'
-			])
-
-		shouldAllEqualWithoutTrim([
-			])
-		shouldAllEqual([
 			'module { class Inner {} }' => 'TModule(,[TClass(Type(Inner),null,[],[],false)])',
 			'module { class InnerA {} class InnerB {} }' => 'TModule(,[TClass(Type(InnerA),null,[],[],false),TClass(Type(InnerB),null,[],[],false)])',
 			'module m { class C {} enum E {} function f() {} var v }' => "TModule(m,[TClass(Type(C),null,[],[],false),TEnum(Type(E),[]),TFunction(f,TBlock([]),[],null),TVar(v,null,null,false)])",
@@ -69,25 +63,12 @@ module {
 			'module a { }': 'TModule(a, [])',
 			'module a.b { }': 'TModule(a.b, [])',
 			'module a { module b { } }': 'TModule(a,[TModule(b,[])])',
-			])
-
-		// Types parsing in expressions
-
-		// Types parsing in declarations
-		shouldAllEqual([
-			'enum A {}' : 'TEnum(Type(A),[])',
-			])
-
-		// ADTs
-
-		shouldAllEqual([
 			'class A {} var a = new A { } ()' : "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[]),false)])",
 			'class A { var field: String } var a = new A { field: "Value" } ()' :
 				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[TString(Value)]),false)])",
 			'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' :
 				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false),TVar(otherfield,Type(Int),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)]),false)])",
 
-			])
 			shouldAllEqual([
 				'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
 					'TBlock([
@@ -111,23 +92,48 @@ module {
 				'a += b': "TAssignop(TIdent(a),+,TIdent(b))",
 				])
 
-		// External declarations
-		shouldAllEqual([
-			'declare var a: T' : 'TDeclare(a,TVar(a,Type(T),null,false))',
-			'declare let a: T' : 'TDeclare(a,TVar(a,Type(T),null,true))',
-			'declare function name()' : 'TDeclare(name,TFunction(name,null,[],null))',
-			'declare function name() hi()' : 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TCall(TIdent(hi),[])])',
-			'declare function name() {}' : 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TBlock([])])',
-			])
 			// String interpolation
+			shouldAllEqual([
+				])
+
+			shouldAllEqualWithoutTrim([
+				])
+
+			// Usings
+			shouldAllEqual([
+				])
 
 			// Modularity
+			shouldAllEqual([
+				])
+
+			// Types parsing in expressions
+			shouldAllEqual([
+				])
+
+			// Types parsing in declarations
+			shouldAllEqual([
+				])
 
 			// Enumerations
+			shouldAllEqual([
+				'enum A {}' : 'TEnum(Type(A),[])',
+				])
 
 
 
 			// Constructor
+			shouldAllEqual([
+				])
+
+			// External declarations
+			shouldAllEqual([
+				'declare var a: T' : 'TDeclare(a,TVar(a,Type(T),null,false))',
+				'declare let a: T' : 'TDeclare(a,TVar(a,Type(T),null,true))',
+				'declare function name()' : 'TDeclare(name,TFunction(name,null,[],null))',
+				'declare function name() hi()' : 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TCall(TIdent(hi),[])])',
+				'declare function name() {}' : 'TBlock([TDeclare(name,TFunction(name,null,[],null)),TBlock([])])',
+				])
 
 			shouldAllError([
 				"declare var a",
@@ -139,11 +145,6 @@ module {
 				])
 
 
-		var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
-		var parser = new Parser(lexe)
-		var res = stringify(parser.node)
-		if (test != res) {
-			throw 'TestParser test fail: `\(input)`\n!==: `\(test)`\nGot: `\(res)`'
 			console.log("TestParser done")
 		}
 
@@ -160,7 +161,11 @@ module {
 		// Same as `shouldEqual`, but does no trimming of `test`
 		static function shouldEqualWithoutTrim(input: String, test: String) {
 			var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
-			var parser = new Parser(lexe)
+			var parsed = new Parser(lexe).node
+			var res = stringify(parsed)
+			if (test != res) {
+				throw 'TestParser test fail: `\(input)`\n!==: `\(test)`\nGot: `\(res)`\nParsed: `\(parsed)`'
+			}
 		}
 
 		// Operates `shouldEqual` on all key-value pairs of `input => test`
@@ -181,6 +186,8 @@ module {
 
 		static function shouldError(input: String) {
 			try {
+				var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
+				var parser = new Parser(lexe)
 			}
 			catch(e: Any) {
 				return
