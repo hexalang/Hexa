@@ -109,6 +109,7 @@ module {
 					// \r\n case works fine, but we dont support \r-only case!
 					_8 = get_8(position)
 						new_line()
+					}
 					//position++
 				} while (_8 <= 32 && (++position < len))
 				if (!not_eof()) break
@@ -117,21 +118,55 @@ module {
 				var _16 = (len - position) > 1 ? _8 | (get_8(position + 1) << 8) : _8
 
 				// Comments
+				if (_8 == "/".charCodeAt(0)) {
 					// // Comment
 					if (_16 == 0x2f2f) {
 						var pos = position + 2
+					// /** Doc **/
+					if (_16 == 10799 && get_8(position + 2) == "*".charCodeAt(0)) {
+					// /* Comment */
+					if (_16 == 10799) {
+						var pos = position + 2
+						p = 0 // Nesting level
+						position += 2
+						while (not_eof()) {
+							_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
+							else if (_16 == 12074 && p > 0) p--
+							else if (_16 == 10799) p++
+							else if (_16 == 12074 && p == 0) break
 							position++
+						}
 				}
 				//position++
-			if (_8 == "/".charCodeAt(0)) {
 					while (get_8(position) != /*"\n".charCodeAt(0)*/10 && not_eof()) {
+
+				// Identifiers and keywords
+				// A-z _
+				if (((_8 & 95) >= 65 && (_8 & 95) <= 90) || (_8 == 95)) {
+					var titlechar = _8
+					p = position + 1
+					_8 = get_8(p)
+					while (p < len && isident[_8] != 0) _8 = get_8(++p)
+					s = bytes.toString('ascii', position, p)
+					var t = ((_16 & 0xFF) <= 90) ? null : kwd.get(s)
+					if (t != null) {
+						add(t)
+					} else {
+						if (titlechar >= 65 && titlechar <= 90) {
+							addn(Token.LUpper, s)
+						}
+						else {
+							addn(Token.LLower, s)
+						}
 					}
 					// new_line()
 					// addn(LCommentLine, bytes.toString('utf8', pos, position))
 					continue
 				}
-				// /** Doc **/
-				if (_16 == 10799 && get_8(position + 2) == "*".charCodeAt(0)) {
+
+				// ...
+				if (_16 == 11822 && (get_8(position + 2) == ".".charCodeAt(0))) {
+					add(Token.Interval)
 					position += 3
 					p = position
 					while (not_eof()) {
@@ -143,23 +178,17 @@ module {
 					if (!not_eof())
 						throw fail("Unclosed doc-comment")
 					addn(Token.LDoc, bytes.toString('utf8', p, position))
+					continue
+				}
+
+				// >>>
+				if (_16 == 15934 && (get_8(position + 2) == ">".charCodeAt(0))) {
+					add(Token.OpUShr)
 					position += 3
 					continue
 				}
-				// /* Comment */
-				if (_16 == 10799) {
-					var pos = position + 2
-					p = 0 // Nesting level
-					position += 2
-					while (not_eof()) {
-						_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 						if ((_16 & 0xFF) == /*"\n".charCodeAt(0)*/10) new_line()
-						else if (_16 == 12074 && p > 0) p--
-						else if (_16 == 10799) p++
-						else if (_16 == 12074 && p == 0) break
 						position++
-					}
-					// addn(LComment, bytes.toString('utf8', pos, position))
 
 				// 16 bit ops
 				// Verify & extract
@@ -170,24 +199,6 @@ module {
 					continue
 				}
 
-			// Identifiers and keywords
-			// A-z _
-			if (((_8 & 95) >= 65 && (_8 & 95) <= 90) || (_8 == 95)) {
-				var titlechar = _8
-				p = position + 1
-				_8 = get_8(p)
-				while (p < len && isident[_8] != 0) _8 = get_8(++p)
-				s = bytes.toString('ascii', position, p)
-				var t = ((_16 & 0xFF) <= 90) ? null : kwd.get(s)
-				if (t != null) {
-					add(t)
-				} else {
-					if (titlechar >= 65 && titlechar <= 90) {
-						addn(Token.LUpper, s)
-					}
-					else {
-						addn(Token.LLower, s)
-					}
 				// 8 bit ops
 				var found = ops8a[_8]
 				if (found != Token.Eof) {
@@ -197,18 +208,8 @@ module {
 				}
 				position = p
 				continue
-			}
 
-			// ...
-			if (_16 == 11822 && (get_8(position + 2) == ".".charCodeAt(0))) {
-				add(Token.Interval)
 				position += 3
-				continue
-			}
-
-			// >>>
-			if (_16 == 15934 && (get_8(position + 2) == ">".charCodeAt(0))) {
-				add(Token.OpUShr)
 				position += 3
 				continue
 			}
@@ -230,8 +231,8 @@ module {
 						if (get_8(position) == '\\'.charCodeAt(0)) {
 							position += 2
 							continue
+						_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 					}
-					_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 					position++
 				}
 				addn(Token.LString, bytes.toString('utf8', pos, position))
@@ -272,13 +273,8 @@ module {
 					) {
 						_8 = get_8(++p)
 					}
-					found = Token.LFloat
 				}
 
-				// exponent
-				if (_8 == "e".charCodeAt(0) || _8 == "E".charCodeAt(0)) {
-					_8 = get_8(++p)
-					if (_8 == "+".charCodeAt(0) || _8 == "-".charCodeAt(0)) _8 = get_8(++p)
 				// Float & Int
 				if (_8 < 58) {
 					p = position
@@ -289,10 +285,15 @@ module {
 					) {
 						_8 = get_8(++p)
 					}
-					found = Token.LFloat
+
 					// Float
 					// point
+						found = Token.LFloat
+					// exponent
+					if (_8 == "e".charCodeAt(0) || _8 == "E".charCodeAt(0)) {
 						_8 = get_8(++p)
+						if (_8 == "+".charCodeAt(0) || _8 == "-".charCodeAt(0)) _8 = get_8(++p)
+						found = Token.LFloat
 					addn(found, bytes.toString('ascii', position, p))
 					position = p
 					continue

@@ -17,64 +17,42 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 module {
-
-			''			 : '<!--null-->',
-			'  '		 : '<!--null-->',
-			'	'		 : '<!--null-->',
-			'   	'	 : '<!--null-->',
-
-			'\n'		 : '<!--null-->',
-			'\n\n'		 : '<!--null-->',
-			'\r\r\n\r\n\r\t' : '<!--null-->',
-
-			'{}' : 'TBlock([])',
-			'{{}}' : 'TBlock([TBlock([])])',
-			'{ 0 0 0 }' : 'TBlock([TInt(0),TInt(0),TInt(0)])',
-
-			'0' 		 : 'TInt(0)',
-			' 0 '		 : 'TInt(0)',
-			'123'		 : 'TInt(123)',
-			'12'		 : 'TInt(12)',
-			"0x1"		 : 'TInt(0x1)',
-			"0x0"		 : 'TInt(0x0)',
-			"0xF"		 : 'TInt(0xF)',
-			"0xFA"		 : 'TInt(0xFA)',
-			"0xFABCDEF" : 'TInt(0xFABCDEF)',
-
-			"0.0"		 : 'TFloat(0.0)',
-			"0.123" 	 : 'TFloat(0.123)',
-
-			"'s'"		 : 'TString(s)',
-			"\"s\"" 	 : 'TString(s)'
-		])
-
-		shouldAllEqual([
-			'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
-				'TBlock([
-				TInt(1),
-				TInt(2),
-				TInt(3),
-				TBinop(
-				TCall(TIdent(trace),[TString(Hello!),TString(World!)]),
-				+,
-				TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
-
-			'enum Test { Demo } hello World':
-				'TBlock([TEnum(Type(Test),[TIdent(Demo)]),
-				TIdent(hello),
-				TIdent(World)])'
 	class TestParser {
 		static function test() {
 			console.log("TestParser begin")
 
 			// Basics and indentaion
 			shouldAllEqual([
+				''			 : '<!--null-->',
+				'  '		 : '<!--null-->',
+				'	'		 : '<!--null-->',
+				'   	'	 : '<!--null-->',
+
+				'\n'		 : '<!--null-->',
+				'\n\n'		 : '<!--null-->',
+				'\r\r\n\r\n\r\t' : '<!--null-->',
+
+				'{}' : 'TBlock([])',
+				'{{}}' : 'TBlock([TBlock([])])',
+				'{ 0 0 0 }' : 'TBlock([TInt(0),TInt(0),TInt(0)])',
+
+				'0' 		 : 'TInt(0)',
+				' 0 '		 : 'TInt(0)',
+				'123'		 : 'TInt(123)',
+				'12'		 : 'TInt(12)',
+				"0x1"		 : 'TInt(0x1)',
+				"0x0"		 : 'TInt(0x0)',
+				"0xF"		 : 'TInt(0xF)',
+				"0xFA"		 : 'TInt(0xFA)',
+				"0xFABCDEF" : 'TInt(0xFABCDEF)',
+
+				"0.0"		 : 'TFloat(0.0)',
+				"0.123" 	 : 'TFloat(0.123)',
+
+				"'s'"		 : 'TString(s)',
+				"\"s\"" 	 : 'TString(s)'
 			])
 
-		shouldAllEqual([
-			'a + b': "TBinop(TIdent(a),+,TIdent(b))",
-			'a += b': "TAssignop(TIdent(a),+,TIdent(b))",
-			])
 		shouldAllEqual([
 			// '"\\\\\\(v) \\(v)"'
 			])
@@ -110,8 +88,28 @@ module {
 				"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false),TVar(otherfield,Type(Int),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)]),false)])",
 
 			])
+			shouldAllEqual([
+				'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
+					'TBlock([
+					TInt(1),
+					TInt(2),
+					TInt(3),
+					TBinop(
+					TCall(TIdent(trace),[TString(Hello!),TString(World!)]),
+					+,
+					TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
+
+				'enum Test { Demo } hello World':
+					'TBlock([TEnum(Type(Test),[TIdent(Demo)]),
+					TIdent(hello),
+					TIdent(World)])'
+				])
 
 			// Operators
+			shouldAllEqual([
+				'a + b': "TBinop(TIdent(a),+,TIdent(b))",
+				'a += b': "TAssignop(TIdent(a),+,TIdent(b))",
+				])
 
 		// External declarations
 		shouldAllEqual([
@@ -125,22 +123,22 @@ module {
 
 			// Modularity
 
-		shouldAllError([
-			"declare var a",
-			"declare var a = value",
-			"declare var a: T = value",
-			"declare function()",
-			"declare var a, b, c",
-			"declare anything",
-			])
 			// Enumerations
 
 
 
 			// Constructor
 
+			shouldAllError([
+				"declare var a",
+				"declare var a = value",
+				"declare var a: T = value",
+				"declare function()",
+				"declare var a, b, c",
+				"declare anything",
+				])
 
-		//test = "TBlock([" + test	 + "])"
+
 		var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
 		var parser = new Parser(lexe)
 		var res = stringify(parser.node)
@@ -191,20 +189,6 @@ module {
 		}
 
 		case null: return '<!--null-->'
-
-		// Have no sub-nodes
-		case Node.TString(s): return 'TString(\(s))'
-		case Node.TIdent(s): return 'TIdent(\(s))'
-		case Node.TBool(b): return 'TBool(\(b))'
-		case Node.TThis: return 'TThis'
-		case Node.TSuper: return 'TSuper'
-		case Node.TInt(s): return 'TInt(\(s))'
-		case Node.TFloat(s): return 'TFloat(\(s))'
-		case Node.TNull: return 'TNull'
-		case Node.TBreak: return 'TBreak'
-		case Node.TContinue: return 'TContinue'
-
-		// Have sub-nodes
 		case Node.TDeclare(name, expr): return 'TDeclare(\(name),' + TestParser.stringify(expr) + ")"
 		case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
 		case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
@@ -264,6 +248,20 @@ module {
 		// Creates a testable consistent string representation of node
 		static function stringify(node: Node): String {
 			switch (node) {
+
+			// Have no sub-nodes
+			case Node.TString(s): return 'TString(\(s))'
+			case Node.TIdent(s): return 'TIdent(\(s))'
+			case Node.TBool(b): return 'TBool(\(b))'
+			case Node.TThis: return 'TThis'
+			case Node.TSuper: return 'TSuper'
+			case Node.TInt(s): return 'TInt(\(s))'
+			case Node.TFloat(s): return 'TFloat(\(s))'
+			case Node.TNull: return 'TNull'
+			case Node.TBreak: return 'TBreak'
+			case Node.TContinue: return 'TContinue'
+
+			// Have sub-nodes
 			}
 		}
 
