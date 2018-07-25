@@ -64,8 +64,8 @@ module {
 				let parent = Project.mapNames.get(expr)
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType): if (valuesType != null) {
-						return getTag(parent, name) ?? NiceExpression.Dot(nodeToExpression(expr), name)
-					}
+						return getTag(parent, name) ?? NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
+					} else return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 				}
 				return NiceExpression.Dot(nodeToExpression(expr), name)
@@ -263,6 +263,7 @@ module {
 
 				// Types
 				case Node.TEnum(t, fields, valuesType):
+				renameClassFields(fields)
 				let isComplexEnum = valuesType == null
 				if (isComplexEnum) {
 					let type = new NiceComplexEnum()
@@ -754,7 +755,12 @@ module {
 				case Node.TClass(t, ext, impl, fields, external): for (f in fields) switch (f) {
 					case Node.TStatic(sf):
 					if (DataHelper.nameOf(sf) == name)
-					return parentNames.get(sf) ?? (name + '!!!!')
+					return parentNames.get(sf) ?? name
+				}
+				case Node.TEnum(t, fields, valuesType): for (f in fields) switch (f) {
+					case Node.TStatic(sf):
+					if (DataHelper.nameOf(sf) == name)
+					return parentNames.get(sf) ?? name
 				}
 			}
 		}
@@ -768,6 +774,8 @@ module {
 					case Node.TModule(path, el):
 						for (e in el) switch (e) {
 							case Node.TClass(t, ext, impl, fields, external):
+							renameClassFields(fields)
+							case Node.TEnum(t, fields, valuesType):
 							renameClassFields(fields)
 						}
 				}
