@@ -64,7 +64,7 @@ module {
 				let parent = Project.mapNames.get(expr)
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType): if (valuesType != null) {
-						return getTag(parent, name)
+						return getTag(parent, name) ?? NiceExpression.Dot(nodeToExpression(expr), name)
 					}
 					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 				}
@@ -299,8 +299,21 @@ module {
 								case Node.TInt(s): values.push(NiceExpression.Int(s))
 								case _: console.error("Unknown node field value kind:", b)
 							}
-						case Node.TStatic(field): // TODO
-							nodeToStatement(field)
+						case Node.TStatic(field):
+							switch (field) {
+							case Node.TVar(name, t, expr, const):
+								let uname = parentNames.get(field) ?? unique(name, field)
+								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
+								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
+							case Node.TFunction(name, expr, vars, rettype):
+								let uname = parentNames.get(field) ?? unique(name, field)
+								let a = []
+								for (arg in vars) {
+									a.push(unique(DataHelper.nameOf(arg), arg))
+								}
+								type.staticMethods.push(NiceStatement.Function(uname, nodeToStatement(expr), a))
+							case _: console.error("Unknown enum static field kind:", field)
+						}
 						case _: console.error("Unknown simple enum field kind:", f)
 					}
 					type.names = names
@@ -813,6 +826,8 @@ module {
 		var external: Bool
 		var names: [String]
 		var values: [NiceExpression]
+		var staticMethods = []
+		var staticVars = []
 	}
 
 	class NiceComplexEnum  {
