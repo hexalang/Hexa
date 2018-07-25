@@ -16,31 +16,16 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-// class TokenData {
-// 	public var token(default, null): Token
-// 	public var value(default, null): String
-// 	public var line(default, null): Int
-// 	public var column(default, null): Int
-// 	public var fileName(default, null): String
-// 	public function new(token, line, column, fileName, ?value) {
-// 		this.token = token
-// 		this.value = value
-// 		this.line = line
-// 		this.column = column
-// 		this.fileName = fileName
-// 	}
-// }
 module {
-	public var token(default, null): Buffer<Token>
-	public var value(default, null): Array<String>
-	public var length(default, null): Int
-	public var line(default, null): Array<Int>
-	public var column(default, null): Array<Int>
-	public var fileName(default, null): String
-	// public var tokenData(default, null): Array<TokenData>
 	// Array of resulting tokens
 	class Tokens {
+		var token: Buffer<Token> // let = new.
 		// Values of an unique lexemes, like integers and strings
+		var value: [String]
+		var length: Int
+		var line: [Int]
+		var column: [Int]
+		var fileName: String
 
 		new (tokens, length, values, lines, columns, fileName) {
 			this.token = tokens
@@ -52,12 +37,6 @@ module {
 		}
 	}
 
-		var params = new Array<String>(/*bytes.length*/)
-		// var tokenDatas = Buffer.alloc(bytes.length)
-			// tokenDatas[to] = new TokenData(t, line, position - columnBase - 1, fileName)
-			//tokens[to++] = t
-			//lines.push(line)
-			//columns.push(position - columnBase)
 	// Takes UTF-8 text and returns tokens
 	class Lexer {
 		static function tokenize(bytes: Buffer<Int>, fileName: String): Tokens {
@@ -71,6 +50,7 @@ module {
 			var columnBase = 0
 
 			// Prefetch
+			var params = [] // new Array<String>(/*bytes.length*/)
 			var tokens = Buffer.alloc(len + 1)
 			var lines = []
 			var columns = []
@@ -99,22 +79,13 @@ module {
 				columnBase = position
 			}
 
-		inline function fail(message: String, ?erline, ?column, ?filename) {
+			@inline function fail(message: String, erline: Int? = null, column: Int? = null, filename: String? = null) {
 				var erline = erline != null ? erline : line
 				var column = column != null ? column : curPos()
 				var filename = filename != null ? filename : fileName
 				return new CompilerError(Fail.LexerError, message, erline, column, filename)
 			}
 
-			/*var _8 = get_8(position)
-			while ((_8 <= 32) && (position < len)) {
-				if (_8 == "\n".charCodeAt(0)) {
-					new_line()
-					//position++
-				}
-				position++
-				_8 = get_8(position)
-			}*/
 				if (_8 == /*"\n".charCodeAt(0)*/10) {
 			// UTF-8 with BOM
 			if (len > 2 && get_8(0) == 239 && get_8(1) == 187 && get_8(2) == 191) position += 3
@@ -124,6 +95,15 @@ module {
 				var _8 = 0 // Current byte value
 
 				// Whitespace
+				/*var _8 = get_8(position)
+				while ((_8 <= 32) && (position < len)) {
+					if (_8 == "\n".charCodeAt(0)) {
+						new_line()
+						//position++
+					}
+					position++
+					_8 = get_8(position)
+				}*/
 
 				do {
 					// \r\n case works fine, but we dont support \r-only case!
@@ -180,6 +160,12 @@ module {
 						position++
 					}
 					// addn(LComment, bytes.toString('utf8', pos, position))
+
+				// 16 bit ops
+				// Verify & extract
+				var hash = simplehash(_16)
+				if (_16 == op16token.readUInt16LE(hash * 2)) {
+					add(op16token[hash + 512])
 					position += 2
 					continue
 				}
@@ -202,6 +188,12 @@ module {
 					else {
 						addn(Token.LLower, s)
 					}
+				// 8 bit ops
+				var found = ops8a[_8]
+				if (found != Token.Eof) {
+					add(found)
+					position++
+					continue
 				}
 				position = p
 				continue
@@ -220,38 +212,24 @@ module {
 				position += 3
 				continue
 			}
-
-			// 16 bit ops
-			// Verify & extract
-			var hash = simplehash(_16)
-			if (_16 == op16token.readUInt16LE(hash * 2)) {
-				add(op16token[hash + 512])
 				position += 2
 				continue
 			}
 
-			// 8 bit ops
-			var found = ops8a[_8]
-			if (found != Token.Eof) {
-				add(found)
-				position++
-				continue
-			}
-
-			if (_8 < 40) {
-				p = _8 // Remember, if double/singlequoted
-				position++
-				var pos = position
-
-				// We don't do string \() interpolation here,
-				// coz pretty printer
-				while (get_8(position) != p && not_eof()) {
 					if (get_8(position) == /*"\n".charCodeAt(0)*/10) new_line()
-					if (get_8(position) == '\\'.charCodeAt(0)) {
-						position += 2
-						continue
 				// Strings
 				// "" and ''
+				if (_8 < 40) {
+					p = _8 // Remember, if double/singlequoted
+					position++
+					var pos = position
+
+					// We don't do string \() interpolation here,
+					// coz pretty printer
+					while (get_8(position) != p && not_eof()) {
+						if (get_8(position) == '\\'.charCodeAt(0)) {
+							position += 2
+							continue
 					}
 					_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 					position++
@@ -261,11 +239,6 @@ module {
 				continue
 			}
 
-			// Int Hex 0x123ABC
-			if (_16 == 30768) {
-				p = position
-				p += 2
-				_8 = get_8(position)
 				while (
 					(_8 >= 65 && _8 <= 70) // A...F
 					||
@@ -282,21 +255,18 @@ module {
 				continue
 			}
 
-			// Float & Int
-			if (_8 < 58) {
-				p = position
-				_8 = get_8(p)
-				var found: Token = Token.LInt
 				while (
 					_8 >= 48 && _8 <= 57 // 0...9
 				) {
 					_8 = get_8(++p)
 				}
 
-				// Float
-				// point
 				if (_8 == ".".charCodeAt(0) && get_8(p + 1) != ".".charCodeAt(0)) {
-					_8 = get_8(++p)
+				// Int Hex 0x123ABC
+				if (_16 == 30768) {
+					p = position
+					p += 2
+					_8 = get_8(position)
 					while (
 						_8 >= 48 && _8 <= 57 // 0...9
 					) {
@@ -309,12 +279,20 @@ module {
 				if (_8 == "e".charCodeAt(0) || _8 == "E".charCodeAt(0)) {
 					_8 = get_8(++p)
 					if (_8 == "+".charCodeAt(0) || _8 == "-".charCodeAt(0)) _8 = get_8(++p)
+				// Float & Int
+				if (_8 < 58) {
+					p = position
+					_8 = get_8(p)
+					var found: Token = Token.LInt
 					while (
 						_8 >= 48 && _8 <= 57 // 0...9
 					) {
 						_8 = get_8(++p)
 					}
 					found = Token.LFloat
+					// Float
+					// point
+						_8 = get_8(++p)
 					addn(found, bytes.toString('ascii', position, p))
 					position = p
 					continue
@@ -328,8 +306,6 @@ module {
 			return new Tokens(tokens, to, params, lines, columns, fileName)
 		}
 
-	static function init() {
-		// Aplhanumeric _
 		isident = Buffer.alloc(256)
 		for (_8 in 256)
 			isident[_8] =
@@ -364,115 +340,116 @@ module {
 				 (_8 >= 97 && _8 <= 122) // a...z
 				 || _8 == 95) ? 128 : 0
 				 // _
-		// Keywords
-		kwd =
-			[
-				"_" : Token.Underscore,
-				"as" : Token.KAs,
-				"break" : Token.KBreak,
-				"case" : Token.KCase,
-				"catch" : Token.KCatch,
-				"class" : Token.KClass,
-				"continue" : Token.KContinue,
-				"do" : Token.KDo,
-				"else" : Token.KElse,
-				"enum" : Token.KEnum,
-				"extends" : Token.KExtends,
-				"declare" : Token.KDeclare,
-				"false" : Token.KFalse,
-				"for" : Token.KFor,
-				"function" : Token.KFunction,
-				"if" : Token.KIf,
-				"implements" : Token.KImplements,
-				//"import" : Token.KImport,
-				"in" : Token.KIn,
-				"interface" : Token.KInterface,
-				"let" : Token.KLet,
-				"new" : Token.KNew,
-				"null" : Token.KNull,
-				"module" : Token.KModule,
-				"private" : Token.KPrivate,
-				"return" : Token.KReturn,
-				"static" : Token.KStatic,
-				"super" : Token.KSuper,
-				"switch" : Token.KSwitch,
-				"this" : Token.KThis,
-				"throw" : Token.KThrow,
-				"true" : Token.KTrue,
-				"try" : Token.KTry,
-				"using" : Token.KUsing,
-				"var" : Token.KVar,
-				"while" : Token.KWhile,
-				"is" : Token.KIs
-			]
+		static function init() {
+			// Aplhanumeric _
+			// Keywords
+			kwd =
+				[
+					"_" : Token.Underscore,
+					"as" : Token.KAs,
+					"break" : Token.KBreak,
+					"case" : Token.KCase,
+					"catch" : Token.KCatch,
+					"class" : Token.KClass,
+					"continue" : Token.KContinue,
+					"do" : Token.KDo,
+					"else" : Token.KElse,
+					"enum" : Token.KEnum,
+					"extends" : Token.KExtends,
+					"declare" : Token.KDeclare,
+					"false" : Token.KFalse,
+					"for" : Token.KFor,
+					"function" : Token.KFunction,
+					"if" : Token.KIf,
+					"implements" : Token.KImplements,
+					"in" : Token.KIn,
+					"interface" : Token.KInterface,
+					"let" : Token.KLet,
+					"new" : Token.KNew,
+					"null" : Token.KNull,
+					"module" : Token.KModule,
+					"private" : Token.KPrivate,
+					"return" : Token.KReturn,
+					"static" : Token.KStatic,
+					"super" : Token.KSuper,
+					"switch" : Token.KSwitch,
+					"this" : Token.KThis,
+					"throw" : Token.KThrow,
+					"true" : Token.KTrue,
+					"try" : Token.KTry,
+					"using" : Token.KUsing,
+					"var" : Token.KVar,
+					"while" : Token.KWhile,
+					"is" : Token.KIs
+				]
 
-		// 1-byte op
-		var ops8: Map<Int, Token> =
-			[
-				"@".charCodeAt(0)  : Token.At,
-				"$".charCodeAt(0)  : Token.Query,
-				"#".charCodeAt(0)  : Token.Sharp,
-				"!".charCodeAt(0)  : Token.OpNot,
-				"%".charCodeAt(0)  : Token.OpMod,
-				"&".charCodeAt(0)  : Token.OpAnd,
-				"(".charCodeAt(0)  : Token.POpen,
-				")".charCodeAt(0)  : Token.PClose,
-				"*".charCodeAt(0)  : Token.OpMult,
-				"+".charCodeAt(0)  : Token.OpAdd,
-				",".charCodeAt(0)  : Token.Comma,
-				"-".charCodeAt(0)  : Token.OpSub,
-				".".charCodeAt(0)  : Token.Dot,
-				"/".charCodeAt(0)  : Token.OpDiv,
-				":".charCodeAt(0)  : Token.DblDot,
-				";".charCodeAt(0)  : Token.Semicolon,
-				"<".charCodeAt(0)  : Token.OpLt,
-				"=".charCodeAt(0)  : Token.OpAssign,
-				">".charCodeAt(0)  : Token.OpGt,
-				"?".charCodeAt(0)  : Token.Question,
-				"[".charCodeAt(0)  : Token.BkOpen,
-				"\\".charCodeAt(0) : Token.OpIntDiv,
-				"]".charCodeAt(0)  : Token.BkClose,
-				"^".charCodeAt(0)  : Token.OpXor,
-				"{".charCodeAt(0)  : Token.BrOpen,
-				"|".charCodeAt(0)  : Token.OpOr,
-				"}".charCodeAt(0)  : Token.BrClose,
-				"~".charCodeAt(0)  : Token.OpNegBits,
-			]
-		ops8a = Buffer.alloc(256)
-		for (key in ops8.keys()) ops8a[key] = ops8[key]
+			// 1-byte op
+			var ops8: [Int : Token] =
+				[
+					"@".charCodeAt(0)  : Token.At,
+					"$".charCodeAt(0)  : Token.Query,
+					"#".charCodeAt(0)  : Token.Sharp,
+					"!".charCodeAt(0)  : Token.OpNot,
+					"%".charCodeAt(0)  : Token.OpMod,
+					"&".charCodeAt(0)  : Token.OpAnd,
+					"(".charCodeAt(0)  : Token.POpen,
+					")".charCodeAt(0)  : Token.PClose,
+					"*".charCodeAt(0)  : Token.OpMult,
+					"+".charCodeAt(0)  : Token.OpAdd,
+					",".charCodeAt(0)  : Token.Comma,
+					"-".charCodeAt(0)  : Token.OpSub,
+					".".charCodeAt(0)  : Token.Dot,
+					"/".charCodeAt(0)  : Token.OpDiv,
+					":".charCodeAt(0)  : Token.DblDot,
+					";".charCodeAt(0)  : Token.Semicolon,
+					"<".charCodeAt(0)  : Token.OpLt,
+					"=".charCodeAt(0)  : Token.OpAssign,
+					">".charCodeAt(0)  : Token.OpGt,
+					"?".charCodeAt(0)  : Token.Question,
+					"[".charCodeAt(0)  : Token.BkOpen,
+					"\\".charCodeAt(0) : Token.OpIntDiv,
+					"]".charCodeAt(0)  : Token.BkClose,
+					"^".charCodeAt(0)  : Token.OpXor,
+					"{".charCodeAt(0)  : Token.BrOpen,
+					"|".charCodeAt(0)  : Token.OpOr,
+					"}".charCodeAt(0)  : Token.BrClose,
+					"~".charCodeAt(0)  : Token.OpNegBits,
+				]
+			ops8a = Buffer.alloc(256)
+			for (key in ops8.keys()) ops8a[key] = ops8.get(key)
 
-		// 2-byte op
-		// Hash = charCodeAt(0) + charCodeAt(1)*256
-		var ops16: Map<Int, Token> =
-			[
-				11051 : Token.OpIncrement, // ++
-				11565 : Token.OpDecrement, // --
-				15420 : Token.OpShl,       // <<
-				15649 : Token.OpNotEq,     // !=
-				15676 : Token.OpLte,       // <=
-				15677 : Token.OpEq,        // ==
-				15678 : Token.OpGte,       // >=
-				15934 : Token.OpShr,       // >>
-				31868 : Token.OpBoolOr,    // ||
-				9766  : Token.OpBoolAnd,   // &&
-				15933 : Token.OpArrow,     // =>
-				11839 : Token.OpChain,     // ?.
-			]
-		for (key1 in ops16.keys()) {
-			for (key2 in ops16.keys()) {
-				if (key1 != key2 && simplehash(key1) == simplehash(key2)) {
-					throw new CompilerError(Fail.LexerError, "2-byte op hash collision: " + key1 + " " + key2, 0, 0, "INTERNAL")
+			// 2-byte op
+			// Hash = charCodeAt(0) + charCodeAt(1)*256
+			var ops16: [Int : Token] =
+				[
+					11051 : Token.OpIncrement, // ++
+					11565 : Token.OpDecrement, // --
+					15420 : Token.OpShl,       // <<
+					15649 : Token.OpNotEq,     // !=
+					15676 : Token.OpLte,       // <=
+					15677 : Token.OpEq,        // ==
+					15678 : Token.OpGte,       // >=
+					15934 : Token.OpShr,       // >>
+					31868 : Token.OpBoolOr,    // ||
+					9766  : Token.OpBoolAnd,   // &&
+					15933 : Token.OpArrow,     // =>
+					11839 : Token.OpChain,     // ?.
+				]
+			for (key1 in ops16.keys()) {
+				for (key2 in ops16.keys()) {
+					if (key1 != key2 && simplehash(key1) == simplehash(key2)) {
+						throw new CompilerError(Fail.LexerError, "2-byte op hash collision: " + key1 + " " + key2, 0, 0, "INTERNAL")
 					}
 				}
 			}
 
-			op16token[hash + 512] = ops16[key]
 			op16token = Buffer.alloc(768)
 			for (key in ops16.keys()) {
 				var hash = simplehash(key)
 				// Verify
 				op16token.writeUInt16LE(key, hash * 2)
 				// Tokens
+				op16token[hash + 512] = ops16.get(key)
 			}
 			return
 		}
