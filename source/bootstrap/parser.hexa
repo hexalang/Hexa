@@ -143,6 +143,14 @@ module {
 				throw fail("Parser Internal Error: Same token parsed too many times: " + '`\(print())`')
 			}
 		}
+		// TODO
+		if(t == Token.Sharp) {
+			i++ // #
+			t = lex.token[i]
+			if(t == Token.KIf) i++
+			i++ // if/value
+			t = lex.token[i]
+		}
 		return t
 	}
 
@@ -150,7 +158,7 @@ module {
 
 	function expect(t) if (t != tok()) expected(Token.stringify(t))
 
-	function fail(message: String, ?line, ?column, ?filename) {
+	function fail(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
@@ -652,28 +660,26 @@ module {
 		case Token.KSwitch:
 			i++
 			step(Token.POpen)
-			var exprs = []
-			while (tok() != Token.PClose) {
+			var exprs = [parseExpr()]
+			while (tok() == Token.Comma) {
+				i++
 				exprs.push(parseExpr())
-				if (tok() == Token.Comma) i++
 			}
 			step(Token.PClose)
 			step(Token.BrOpen)
 
 			var cases = []
 			var conds = []
+			var guards = []
 
 			while (tok() != Token.BrClose) {
 				step(Token.KCase)
-				var cond = []
-				while (tok() != Token.DblDot) {
-					if (tok() == Token.Underscore) {
-						i++
-						cond.push(Node.TUnderscore)
-					} else cond.push(parseExpr())
-					if (tok() == Token.Comma) i++
-				}
-				conds.push(cond)
+				if (tok() == Token.Underscore) {
+					conds.push(Node.TUnderscore)
+					i++
+				} else conds.push(parseExpr())
+				guards.push(null)
+
 				step(Token.DblDot)
 				var exs = []
 				while (tok()!=Token.KCase && tok()!=Token.BrClose) {
@@ -730,7 +736,7 @@ module {
 		//--------------
 		// POSTFIX STEP
 		//--------------
-		var done = false
+		var done = i >= lex.length
 		while (!done) {
 			switch (tok()) {
 			case Token.Eof: done = true
@@ -982,8 +988,8 @@ module {
 		return vars
 	}
 
-	function parseFunction(?parseBody): Node {
-		parseBody = parseBody != null ? parseBody : true
+	function parseFunction(parseBody: Bool? = null): Node {
+		let parseBody = (parseBody != null) ? parseBody : true
 		i++
 		var expr = null
 		var name = null
@@ -1067,51 +1073,65 @@ module {
 	}
 
 	function parseInterpolations(str: String): Node {
-		var chars = str.split("")
-		var resStr = "\""
-		var i = 0
-		var inScopes = false
-		var scopes = ""
-		var scopeCount = 0
-		while (i < chars.length) {
-			var char = chars[i]
-			switch (char) {
-				case "\"":
-					resStr += "\\\""
-					i++
-					continue
-				case "\\":
-					if (i+1 < chars.length)
-						if (chars[i+1] == "\\") {
-							i++
-							char += "\\"
-						}
-						else if (chars[i+1] == "(") {
-							inScopes = true
-							resStr += "\" + ("
-							i += 2
-							continue
-						}
-				case "(":
-					if (inScopes)
-						scopeCount++
-				case ")":
-					if (scopeCount > 0) {
-						scopeCount--
-					}
-					else {
-						resStr += scopes + ") + \""
-						inScopes = false
-						scopes = ""
-						i++ continue
-					}
-				case _:
-			}
-			if (inScopes) scopes += char
-			else { resStr += char }
-			i++
-		}
-		resStr += "\""
+		function interpolate(s: String): String {
+            var out = ['"']
+            if(s.length < 2) return s
+            var i = 0
+            let s = s.split('"').join('\\"')
+            function pushInterpolator() {
+                i++
+                i++
+                function pushParen(): Void {
+                    i++
+                    while(i < s.length) {
+                        out.push(s.charAt(i))
+                        if (s.charAt(i) == '(') {
+                            pushParen()
+                            continue
+                        }
+                        if (s.charAt(i) == ')') {
+                            i++
+                            return
+                        }
+                        i++
+                    }
+                    throw 'String interpolation error: unclosed inner parenthesis'
+                }
+                while(i < s.length) {
+                    out.push(s.charAt(i))
+                	if (s.charAt(i) == '(') {
+						pushParen()
+                        continue
+                	}
+                    if (s.charAt(i) == ')') {
+                        i++
+						return
+                	}
+                    i++
+            	}
+                throw 'String interpolation error: unclosed parenthesis'
+            }
+            var result = ['"']
+            while(i < s.length) {
+                if (s.charAt(i) == '\\' && s.charAt(i+1) == '(') {
+                    result.push('" + ')
+                    out.push('" + (')
+                    var ii = i + 1
+					pushInterpolator()
+                    result.push(s.substring(ii, i + 1))
+                    result.push(' + "')
+                    out.push(' + "')
+                } else  {
+                    out.push(s.charAt(i))
+                    result.push(s.charAt(i))
+                	i++
+                }
+            }
+            result.push('"')
+            out.push('"')
+            return out.join('')
+        }
+        var resStr = interpolate(str)
 		var tokens = Lexer.tokenize(Buffer.from(resStr), "")
 		try {
 			var parsed = new Parser(tokens)
