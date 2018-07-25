@@ -33,7 +33,7 @@ Download latest [Node.js LTS](https://nodejs.org/)
 ```sh
 npm i -g nexe
 cd hexa
-node hexa.js hexa.json
+node bootstrap.js hexa.json
 nexe-build.bat
 ```
 
