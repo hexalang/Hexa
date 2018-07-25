@@ -78,13 +78,25 @@ module {
 
 			// String interpolation
 			shouldAllEqual([
+				'"\\\\(v)"': "TString(\\\\(v))",
+				'"\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))',
+				'"\\(((v)))"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TParenthesis(TParenthesis(TIdent(v)))),+,TString())))',
+				'"\\( v )"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))',
+				'"\\(V)\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(V)),+,TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))',
+				'"\\(V)\\(v)s\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(V)),+,TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TBinop(TString(s),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))))',
+				'"\\(V)s\\(v)s\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(V)),+,TBinop(TString(s),+,TBinop(TParenthesis(TIdent(v)),+,TBinop(TString(s),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))))',
 				])
 
 			shouldAllEqualWithoutTrim([
+				'"\\( v )"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))',
+				'"\\(V)\r\n\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(V)),+,TBinop(TString(\r\n),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))',
+				'"\\(V) \\(v) \\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(V)),+,TBinop(TString( ),+,TBinop(TParenthesis(TIdent(v)),+,TBinop(TString( ),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))))',
 				])
 
 			// Usings
 			shouldAllEqual([
+				'using A': 'TUsing(A)',
+				'using A, B, C': 'TUsing(A,B,C)',
 				])
 
 			// Modularity
@@ -99,15 +111,30 @@ module {
 
 			// Types parsing in expressions
 			shouldAllEqual([
+				'var a = new Array<A>()' : 'TVar(a,null,TNew([],ParametricType(Array,[Type(A)]),[],[],[]),false)',
+				'a = Array<A>.staticField()' : 'TBinop(TIdent(a),=,TCall(TDot(NodeTypeValue(ParametricType(Array,[Type(A)])),staticField),[]))',
+				'a = EnumTest.EnumField' : 'TBinop(TIdent(a),=,TDot(TIdent(EnumTest),EnumField))',
+				'a = EnumTest.EnumField(arg)' : 'TBinop(TIdent(a),=,TCall(TDot(TIdent(EnumTest),EnumField),[TIdent(arg)]))',
+				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'TBinop(TIdent(a),=,TCall(TDot(TIdent(EnumTest),EnumField),[argName:TIdent(argValue),TIdent(arg2),arg3:TIdent(arg3)]))',
+				'a = EnumTest<A,B>.EnumField' : 'TBinop(TIdent(a),=,TDot(NodeTypeValue(ParametricType(EnumTest,[Type(A),Type(B)])),EnumField))',
+				'var a = b as B, c = d as! B, e = f as? B' : 'TVars([TVar(a,null,TAs(TIdent(b),<!--default-->,Type(B)),false),TVar(c,null,TAs(TIdent(d),!,Type(B)),false),TVar(e,null,TAs(TIdent(f),?,Type(B)),false)])',
+				'var a = b is B, c = d is B, e = f is B' : 'TVars([TVar(a,null,TAs(TIdent(b),Type(B)),false),TVar(c,null,TAs(TIdent(d),Type(B)),false),TVar(e,null,TAs(TIdent(f),Type(B)),false)])',
 				])
 
 			// Types parsing in declarations
 			shouldAllEqual([
+				'var x:[Array<T>]' : 'TVar(x,ParametricType(Array,[ParametricType(Array,[Type(T)])]),null,false)',
+				'var x:[Map<K,V> : Array<T>]' : 'TVar(x,ParametricType(Map,[ParametricType(Map,[Type(K),Type(V)]),ParametricType(Array,[Type(T)])]),null,false)',
+				'var x:{:}, y:[], z:[:], w:()=>{:}' : 'TVars([TVar(x,Object([],[]),null,false),TVar(y,ParametricType(Array,[Object([],[])]),null,false),TVar(z,ParametricType(Map,[Object([],[]),Object([],[])]),null,false),TVar(w,Function([],Object([],[])),null,false)])',
+				'let x:()=>()=>()=>()=>Void' : 'TVar(x,Function([],Function([],Function([],Function([],Type(Void))))),null,true)',
 				])
 
 			// Enumerations
 			shouldAllEqual([
 				'enum A {}' : 'TEnum(Type(A),[])',
+				'enum A { A B C }' : 'TEnum(Type(A),[TIdent(A),TIdent(B),TIdent(C)])',
+				'enum A { A(v:Int) B C(v:[K:V], a:Array<T>) }' :
+					'TEnum(Type(A),[TCall(TIdent(A),[v:TIdent(Int)]),TIdent(B),TCall(TIdent(C),[v:TMap([TIdent(K)],[TIdent(V)]),a:NodeTypeValue(ParametricType(Array,[Type(T)]))])])',
 				])
 
 
@@ -190,57 +217,12 @@ module {
 			throw 'TestParser test fail: `\(input)` did not throw exception.'
 		}
 
-		case null: return '<!--null-->'
-		case Node.TDeclare(name, expr): return 'TDeclare(\(name),' + TestParser.stringify(expr) + ")"
-		case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
-		case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
-		case Node.TBinop(a, op, b): return 'TBinop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
-		case Node.TAssignop(a, op, b): return 'TAssignop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
-		case Node.TBlock(els): return 'TBlock(' + TestParser.stringifyNodeArray(els) + ')'
-		case Node.TVar(name, t, expr, const):
-		return 'TVar(\(name),' + ((t != null) ? TestParser.stringifyType(t) : "null") +
-		"," + ((expr != null) ? TestParser.stringify(expr) : "null") +',\(const))'
-		case Node.TVars(vars): return 'TVars(' + TestParser.stringifyNodeArray(vars) + ")"
-
-		case Node.TFunction(name, expr, vars, rettype):
-			return 'TFunction(\(name),'
-			+ (expr == null ? "null" : TestParser.stringify(expr))
-			+ "," + TestParser.stringifyNodeArray(vars) + ',' + ((rettype != null) ? TestParser.stringifyType(rettype) : "null") + ")"
-
-		case Node.TCall(e, el, argNames):
-			var res = 'TCall(' + TestParser.stringify(e) + ',['
-			for (i in el.length) {
-				res += argNames[i] == null ? "" : argNames[i] + ":"
-				res += TestParser.stringify(el[i]) + ((i != el.length - 1) ? "," : "")
 		static function shouldAllError(input: [String]) {
 			for (str in input) {
 				shouldError(str)
 			}
-			return res + "])"
+		}
 
-		case Node.TParenthesis(e): return 'TParenthesis(' + TestParser.stringify(e) + ')'
-		case Node.TReturn(e): return 'TReturn(' + TestParser.stringify(e) + ')'
-		case Node.TThrow(e): return 'TThrow(' + TestParser.stringify(e) + ')'
-		case Node.TEnum(t, els): return 'TEnum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
-		case Node.TUsing(a): return 'TUsing(' + a.join(',') + ")"
-		case Node.TModule(paths, els):
-			return "TModule(" + paths.join('.') + "," + TestParser.stringifyNodeArray(els) + ")"
-
-		case Node.TMap(k, v): return 'TMap([' + [for(p in k) TestParser.stringify(p)].join(',') + '],[' + [for(p in v) TestParser.stringify(p)].join(',') + '])'
-
-		case Node.TClass(type, extend, implement, fields, external):
-			var res = "TClass(" + TestParser.stringifyType(type) + ","
-			res += extend != null ? TestParser.stringifyType(extend) : "null" + ","
-			res += TestParser.stringifyNodeTypeArray(implement) + ","
-			res += TestParser.stringifyNodeArray(fields) + ","
-			res += external + ")"
-			return res
-
-		case Node.TNew(path, t, args, names, values):
-			return 'TNew([' + path.join('.') + '],' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(args) + ',[' + names.join(",") + "]," + TestParser.stringifyNodeArray(values) + ")"
-
-		case Node.NodeTypeValue(type): return 'NodeTypeValue(' + TestParser.stringifyType(type) + ")"
-		case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
 		// Removes all internal and trailing whitespace and newlines
 		static function deepTrim(s: String) {
 			return s.split('\n').join('').split('\r').join('').split('\t').join('').split(' ').join('')
@@ -249,6 +231,7 @@ module {
 		// Creates a testable consistent string representation of node
 		static function stringify(node: Node): String {
 			switch (node) {
+			case null: return '<!--null-->'
 
 			// Have no sub-nodes
 			case Node.TString(s): return 'TString(\(s))'
@@ -263,6 +246,53 @@ module {
 			case Node.TContinue: return 'TContinue'
 
 			// Have sub-nodes
+			case Node.TDeclare(name, expr): return 'TDeclare(\(name),' + TestParser.stringify(expr) + ")"
+			case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
+			case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
+			case Node.TBinop(a, op, b): return 'TBinop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
+			case Node.TAssignop(a, op, b): return 'TAssignop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
+			case Node.TBlock(els): return 'TBlock(' + TestParser.stringifyNodeArray(els) + ')'
+			case Node.TVar(name, t, expr, const):
+			return 'TVar(\(name),' + ((t != null) ? TestParser.stringifyType(t) : "null") +
+			"," + ((expr != null) ? TestParser.stringify(expr) : "null") +',\(const))'
+			case Node.TVars(vars): return 'TVars(' + TestParser.stringifyNodeArray(vars) + ")"
+
+			case Node.TFunction(name, expr, vars, rettype):
+				return 'TFunction(\(name),'
+				+ (expr == null ? "null" : TestParser.stringify(expr))
+				+ "," + TestParser.stringifyNodeArray(vars) + ',' + ((rettype != null) ? TestParser.stringifyType(rettype) : "null") + ")"
+
+			case Node.TCall(e, el, argNames):
+				var res = 'TCall(' + TestParser.stringify(e) + ',['
+				for (i in el.length) {
+					res += argNames[i] == null ? "" : argNames[i] + ":"
+					res += TestParser.stringify(el[i]) + ((i != el.length - 1) ? "," : "")
+				}
+				return res + "])"
+
+			case Node.TParenthesis(e): return 'TParenthesis(' + TestParser.stringify(e) + ')'
+			case Node.TReturn(e): return 'TReturn(' + TestParser.stringify(e) + ')'
+			case Node.TThrow(e): return 'TThrow(' + TestParser.stringify(e) + ')'
+			case Node.TEnum(t, els): return 'TEnum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
+			case Node.TUsing(a): return 'TUsing(' + a.join(',') + ")"
+			case Node.TModule(paths, els):
+				return "TModule(" + paths.join('.') + "," + TestParser.stringifyNodeArray(els) + ")"
+
+			case Node.TMap(k, v): return 'TMap([' + [for(p in k) TestParser.stringify(p)].join(',') + '],[' + [for(p in v) TestParser.stringify(p)].join(',') + '])'
+
+			case Node.TClass(type, extend, implement, fields, external):
+				var res = "TClass(" + TestParser.stringifyType(type) + ","
+				res += extend != null ? TestParser.stringifyType(extend) : "null" + ","
+				res += TestParser.stringifyNodeTypeArray(implement) + ","
+				res += TestParser.stringifyNodeArray(fields) + ","
+				res += external + ")"
+				return res
+
+			case Node.TNew(path, t, args, names, values):
+				return 'TNew([' + path.join('.') + '],' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(args) + ',[' + names.join(",") + "]," + TestParser.stringifyNodeArray(values) + ")"
+
+			case Node.NodeTypeValue(type): return 'NodeTypeValue(' + TestParser.stringifyType(type) + ")"
+			case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
 
 			case _: return '<!--' + node + '-->'
 			}
