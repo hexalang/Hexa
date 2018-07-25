@@ -49,7 +49,17 @@ module {
 			switch (tok()) {
 			case Token.KPrivate:
 				i++
-			case KVar, KFunction, KLet:
+			case Token.KVar:
+				var f = parseExpr()
+				if (_static) f = Node.TStatic(f)
+				Project.mapAttributes.set(f, atts)
+				fields.push(f)
+			case Token.KFunction:
+				var f = parseExpr()
+				if (_static) f = Node.TStatic(f)
+				Project.mapAttributes.set(f, atts)
+				fields.push(f)
+			case Token.KLet:
 				var f = parseExpr()
 				if (_static) f = Node.TStatic(f)
 				Project.mapAttributes.set(f, atts)
@@ -198,7 +208,7 @@ module {
 		// PREFIX STEP
 		//-------------
 		var nodePosition = { line: lex.line[i], column: lex.column[i] }
-		var result: Node =
+		var result: Node = null
 		switch (node) {
 		case Token.KUsing:
 			//
@@ -212,30 +222,30 @@ module {
 				names.push(getgo(Token.LUpper))
 				// names.push(getgo(LLower))
 			}
-			TUsing(names)
+			result = Node.TUsing(names)
 
 		// if (tok() == BrOpen)
 		// 	fail('Incorrect `declare` syntax! Use `declare function name(): T`')
 
 		// declare class C {}
-		case KDeclare if (lex.token[i + 1] == KClass):
-			i++
-			var c = parseExpr()
-			switch (c) {
-				case TClass(t, ext, impl, fields, _): TClass(t, ext, impl, fields, true)
-				case _: throw "Error KDeclare TClass"
-			}
 
-		case KDeclare:
+		case Token.KDeclare:
 			i++
-			var e = switch (tok()) {
-				case KFunction: parseFunction(false)
-				case LUpper:
+			var e = null
+			switch (tok()) {
+				case Token.KFunction:
+				e = parseFunction(false)
+				case Token.LUpper:
 					var left = parseType()
-					step(OpAssign)
-					TBinop(NodeTypeValue(left), OpAssign, NodeTypeValue(parseType()))
+					step(Token.OpAssign)
+					e = Node.TBinop(Node.NodeTypeValue(left), Token.OpAssign, Node.NodeTypeValue(parseType()))
 				case _:
-					parseExpr()
+					e = parseExpr()
+
+					switch (e) {
+						case Node.TClass(t, ext, impl, fields, _): e = Node.TClass(t, ext, impl, fields, true)
+						case _:
+					}
 			}
 
 			var name: String = null
@@ -251,30 +261,32 @@ module {
 			}
 
 			switch (extracted) {
-				case TBinop(NodeTypeValue(Type(n)), OpAssign, _): name = n
-				case TBinop(NodeTypeValue(ParametricType(n, _)), OpAssign, _): name = n
-				case TBinop(TIdent(n), OpAssign, _): name = n
+				case Node.TBinop(a, op, b):
+					if(op != Token.OpAssign) throw fail('declare =')
+					switch(a) {
+						case Node.NodeTypeValue(t):
+							switch (t) {
+								case NodeType.Type(n): name = n
+								case NodeType.ParametricType(n, _): name = n
+							}
+						case Node.TIdent(n): name = n
+					}
 
-				case TClass(Type(n), _): name = n
-				case TClass(ParametricType(n, _), _): name = n
-				case TVar(n, t, e, _):
-					switch [t, e] {
-						case [null, _]:
-							throw fail('Variable `\(n)` in `declare` should have a type')
-						case [_,null]:
-							name = n // Correct
-						case _:
-							throw fail('Variable `\(n)` in `declare` should *not* have a value')
-					}
-				case TFunction(n, e, _, _):
-					switch [n, e] {
-						case [null, _]:
-							throw fail('Function in `declare` should have a name')
-						case [_, null]:
-							name = n // Correct
-						case _:
-							throw fail('Functions in `declare` should *not* have a body')
-					}
+				case Node.TClass(t, _):
+				switch (t) {
+					case NodeType.Type(n): name = n
+					case NodeType.ParametricType(n, _): name = n
+				}
+
+				case Node.TVar(n, t, e, _):
+					if(t == null) throw fail('Variable `\(n)` in `declare` should have a type')
+					if(e != null) throw fail('Variable `\(n)` in `declare` should *not* have a value')
+					name = n
+
+				case Node.TFunction(n, e, _, _):
+					if(n == null) throw fail('Function in `declare` should have a name')
+					if(e != null) throw fail('Functions in `declare` should *not* have a body')
+					name = n
 				// TODO binop assign
 				// Types-to-types `T = T` or idents-to-idents `name = name` should be assigned
 				// TODO require type for var and func args / retT?
@@ -284,7 +296,7 @@ module {
 					throw fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare function name(): T`')
 			}
 			// Having name is ok here, coz we search by name in scopes
-			TDeclare(name, e)
+			result = Node.TDeclare(name, e)
 
 			//switch (tok()) {
 			//	case LUpper:
@@ -317,11 +329,11 @@ module {
 			i++
 			if (tok() == Token.BrClose) { // Empty block
 				i++
-				TBlock([])
+				result = Node.TBlock([])
 			} else if (tok() == Token.DblDot) { // Empty object
 				i++
-				TObject([], [])
 				step(Token.BrClose)
+				result = Node.TObject([], [])
 			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object
 				var names: [String] = [], el: [Node] = []
 				while (tok() != Token.BrClose) {
@@ -330,15 +342,15 @@ module {
 					el.push(parseExpr())
 					if (tok() == Token.Comma) i++
 				}
-				TObject(names, el)
 				step(Token.BrClose)
+				result = Node.TObject(names, el)
 			} else { // Block
 				var el = []
 				while (tok() != Token.BrClose) {
 					el.push(parseExpr())
 				}
-				TBlock(el)
 				step(Token.BrClose)
+				result = Node.TBlock(el)
 			}
 		case Token.KIf:
 			i++
@@ -358,7 +370,7 @@ module {
 				i++
 				eelse = parseExpr()
 			}
-			TIf(econd, eif, eelse)
+			result = Node.TIf(econd, eif, eelse)
 		// while () {}
 		case Token.KWhile:
 			i++
@@ -366,7 +378,7 @@ module {
 			var econd = parseExpr()
 			step(Token.PClose)
 			var e = parseExpr()
-			TWhile(econd, e, true)
+			result = Node.TWhile(econd, e, true)
 		// do {} while ()
 		case Token.KDo:
 			i++
@@ -374,8 +386,8 @@ module {
 			step(Token.KWhile)
 			step(Token.POpen)
 			var econd = parseExpr()
-			TWhile(econd, e, false)
 			step(Token.PClose)
+			result = Node.TWhile(econd, e, false)
 		case Token.POpen:
 			next()
 			if (
@@ -412,56 +424,87 @@ module {
 				result = Node.TArrow(parseExpr(), v, null)
 			} else {
 				var expr = parseExpr()
-				TParenthesis(expr)
 				step(Token.PClose)
+				result = Node.TParenthesis(expr)
 			}
 		// return e
 		// return
 		case Token.KReturn: i++
 			switch (tok()) {
-				case BrClose, KVar: TReturn(null)
-				case _: TReturn(parseExpr())
+				case Token.BrClose: result = Node.TReturn(null)
+				case Token.KVar: result = Node.TReturn(null)
+				case _: result = Node.TReturn(parseExpr())
 			}
-		case KThrow: i++; TThrow(parseExpr())
-		case KContinue: i++; TContinue
-		case KBreak: i++; TBreak
-		case Underscore: i++; TUnderscore
-		case OpNegBits: i++; TUnop(OpNegBits, false, parseExpr())
-		case OpSub: i++; TUnop(OpSub, false, parseExpr())
-		case OpNot: i++; TUnop(OpNot, false, parseExpr())
-		case OpIncrement: i++; TUnop(OpIncrement, false, parseExpr())
-		case OpDecrement: i++; TUnop(OpDecrement, false, parseExpr())
-		case Interval: i++; TUnop(Interval, false, parseExpr())
-		case LFloat: TFloat(getgo(LFloat))
-		case LInt: TInt(getgo(LInt))
-		case LUpper:
-			if (lex.token[i+1] == OpLt) {
+		case Token.KThrow:
+			i++
+			result = Node.TThrow(parseExpr())
+		case Token.KContinue:
+			i++
+			result = Node.TContinue
+		case Token.KBreak:
+			i++
+			result = Node.TBreak
+		case Token.Underscore:
+			i++
+			result = Node.TUnderscore
+		case Token.OpNegBits:
+			i++
+			result = Node.TUnop(Token.OpNegBits, false, parseExpr())
+		case Token.OpSub:
+			i++
+			result = Node.TUnop(Token.OpSub, false, parseExpr())
+		case Token.OpNot:
+			i++
+			result = Node.TUnop(Token.OpNot, false, parseExpr())
+		case Token.OpIncrement:
+			i++
+			result = Node.TUnop(Token.OpIncrement, false, parseExpr())
+		case Token.OpDecrement:
+			i++
+			result = Node.TUnop(Token.OpDecrement, false, parseExpr())
+		case Token.Interval:
+			i++
+			result = Node.TUnop(Token.Interval, false, parseExpr())
+		case Token.LFloat:
+			result = Node.TFloat(getgo(Token.LFloat))
+		case Token.LInt:
+			result = Node.TInt(getgo(Token.LInt))
+		case Token.LUpper:
+			if (lex.token[i+1] == Token.OpLt) {
 				var res = parseType()
-				NodeTypeValue(res)
+				result = Node.NodeTypeValue(res)
 			} else {
-				TIdent(name)
 				var name = getgo(Token.LUpper)
+				result = Node.TIdent(name)
 			}
 		case Token.LLower:
 			var name = getgo(Token.LLower)
 			if (tok() == Token.OpArrow) {
 				next()
-			} else TIdent(name)
 				result = Node.TArrow(parseExpr(), [Node.TVar(name, null, null, true)], null)
+			} else result = Node.TIdent(name)
 		case Token.LString:
 			var str = getgo(Token.LString)
 			// TODO Check have interpolations in string
 			if (hasInterpolation(str))
-				TParenthesis(parseInterpolations(str))
-			else TString(str)
-		case KTrue:  i++; TBool(true)
-		case KFalse: i++; TBool(false)
-		case KThis: i++; TThis
-		case KNull:  i++; TNull
-		case KSuper:  i++; TSuper
-		case KVar, KLet:
+				result = Node.TParenthesis(parseInterpolations(str))
+			else result = Node.TString(str)
+		case Token.KTrue:
+			i++ result = Node.TBool(true)
+		case Token.KFalse:
+			i++ result = Node.TBool(false)
+		case Token.KThis:
+			i++ result = Node.TThis
+		case Token.KNull:
+			i++ result = Node.TNull
+		case Token.KSuper:
+			i++ result = Node.TSuper
+		case Token.KVar:
 			var parsed = parseVar()
-			(parsed.length > 1) ? TVars(parsed) : parsed[0]
+			if (parsed.length > 1) result = Node.TVars(parsed) else result = parsed[0]
+		case Token.KLet:
+			var parsed = parseVar()
+			if (parsed.length > 1) result = Node.TVars(parsed) else result = parsed[0]
 		case Token.KTry:
 			i++
 			var expr = parseExpr()
@@ -483,7 +526,7 @@ module {
 				step(Token.PClose)
 				catches.push(parseExpr())
 			}
-			TTry(expr, t, v, catches)
+			result = Node.TTry(expr, t, v, catches)
 
 		case Token.KModule:
 			i++
@@ -501,15 +544,16 @@ module {
 			while (tok() != Token.BrClose) {
 				el.push(parseExpr())
 			}
-			TModule(path, el)
 			step(Token.BrClose)
+			result = Node.TModule(path, el)
 
 		case Token.KEnum:
 			i++
 			var t = parseType()
+			var valuesType = null
 			if (tok() == Token.DblDot) {
 				i++
-				parseType()
+				valuesType = parseType()
 			}
 			step(Token.BrOpen)
 			var names = []
@@ -518,8 +562,8 @@ module {
 				atts = []
 				names.push(parseExpr())
 			}
-			TEnum(t, names)
 			step(Token.BrClose)
+			result = Node.TEnum(t, names, valuesType)
 
 		case Token.KClass | Token.KInterface:
 			var isInterface = tok() == Token.KInterface
@@ -545,9 +589,9 @@ module {
 			var me = Node.TClass(t, ext, impl, fields, class_external)
 			//Project.mapAttributes.set(me, atts)
 			Project.mapAttributes.set(me, att)
-			me
-			parseFunction()
+			result = me
 		case Token.KFunction:
+			result = parseFunction()
 		case Token.BkOpen:
 			i++
 			var el = []
@@ -571,8 +615,8 @@ module {
 			step(Token.BkClose)
 
 			if (isMap)
-				TMap(el, values)
-			else TArray(el)
+				result = Node.TMap(el, values)
+			else result = Node.TArray(el)
 		case Token.KNew:
 			i++
 			var t = parseType()
@@ -604,7 +648,7 @@ module {
 			}
 			step(Token.PClose)
 
-			TNew([], t, args, names, values)
+			result = Node.TNew([], t, args, names, values)
 		case Token.KSwitch:
 			i++
 			step(Token.POpen)
@@ -638,8 +682,8 @@ module {
 				cases.push(Node.TBlock(exs))
 			}
 
-			TSwitch(exprs, conds, cases)
 			step(Token.BrClose)
+			result = Node.TSwitch(exprs, conds, guards, cases)
 
 		case Token.KFor:
 			i++
@@ -649,14 +693,14 @@ module {
 			var a = parseExpr()
 			step(Token.PClose)
 			var b = parseExpr()
-			TFor(n, a, b)
+			result = Node.TFor(n, a, b)
 
 		case Token.KStatic:
 			next()
-			TStatic(parseExpr())
+			result = Node.TStatic(parseExpr())
 		case Token.KPrivate:
 			next()
-			TPrivate(parseExpr())
+			result = Node.TPrivate(parseExpr())
 
 		// case LComment:
 		// 	next()
@@ -688,27 +732,28 @@ module {
 		//--------------
 		var done = false
 		while (!done) {
-			result = switch (tok()) {
+			switch (tok()) {
+			case Token.Eof: done = true
 			case Token.BkOpen:
 				i++
 				var index = parseExpr()
-				TIndex(result, index)
 				step(Token.BkClose)
+				result = Node.TIndex(result, index)
 			case Token.KIs:
 				i++
 				switch (tok()) {
-						TIs(result, parseType())
 					case Token.LUpper:
+						result = Node.TIs(result, parseType())
 					case _:
 						throw fail("Cannot parse type `" + Token.stringify(tok()) + "`")
 				}
 			case Token.KAs:
 				i++
 				var kind = tok()
-				TAs(result, kind, parseType())
 				if (tok() == Token.OpNot) i++
 				else if (tok() == Token.Question) i++
 				else kind = Token.Default
+				result = Node.TAs(result, kind, parseType())
 			case Token.POpen: { // call
 				var args: [Node] = []
 				var argNames: [String] = []
@@ -734,49 +779,56 @@ module {
 					}
 					if (tok() != Token.PClose) step(Token.Comma)
 				}
-				TCall(result, args, argNames)
 				step(Token.PClose)
+				result = Node.TCall(result, args, argNames)
 			}
 			case Token.OpArrow:
 				next()
-				TFunction(null, parseExpr(), [result], null)
+				result = Node.TArrow(parseExpr(), [result], null)
 
-			case OpIncrement: i++; TUnop(OpIncrement, true, result)
-			case OpDecrement: i++; TUnop(OpDecrement, true, result)
-			case Dot: i++
-				var name = switch (tok()) { // TODO Refact
-					case LUpper: getgo(LUpper)
-					case _: getgo(LLower)
+			case Token.OpIncrement:
+				i++ result = Node.TUnop(Token.OpIncrement, true, result)
+			case Token.OpDecrement:
+				i++ result = Node.TUnop(Token.OpDecrement, true, result)
+			case Token.Dot: i++
+				var name = null
+				switch (tok()) { // TODO Refact
+					case Token.LUpper:
+						name = getgo(Token.LUpper)
+					case _:
+						name = getgo(Token.LLower)
 				}
-				TDot(result, name)
+				result = Node.TDot(result, name)
 
 			// a ? b : c
 			// a ?? b
 			// a ?. b
-					TDot(result, name)
 			case Token.Question: i++
 				if (tok() == Token.Dot) {
 					var name = getgo(Token.LLower)
+					result = Node.TDot(result, name)
 				} else if (tok() == Token.Question) {
 					i++
-					TElvis(result, parseExpr())
+					result = Node.TElvis(result, parseExpr())
 				} else {
 					var eif = parseExpr()
 					step(Token.DblDot)
 					var eelse = parseExpr()
-					TIf([result], eif, eelse)
+					result = Node.TIf([result], eif, eelse)
 				}
-				parseExpr()
 			case Token.OpChain: i++
+				result = parseExpr()
 			// a += b
-			case t if (isBinop(t) && offset(1) == OpAssign):
+			case _: let t = tok()
+			if (isBinop(t) && offset(1) == Token.OpAssign) {
 				var op = tok()
 				i++
 				i++
 				var b = parseExpr()
-				TAssignop(result, op, b)
+				result = Node.TAssignop(result, op, b)
+			}
 			// a + b
-			case t if (isBinop(t)):
+			else if (isBinop(t)) {
 				i++
 				//if (tok() == OpAssign) { // +=
 				//	i++
@@ -792,13 +844,13 @@ module {
 					var bLeft = bp > 99
 					bp = bp % 100
 					if (bp > tp)
-						TBinop(TBinop(result, t, aa), op, bb)
+						result = Node.TBinop(Node.TBinop(result, t, aa), op, bb)
 					else
-						TBinop(result, t, b)
+						result = Node.TBinop(result, t, b)
 
-				case _: TBinop(result, t, b)
+				case _: result = Node.TBinop(result, t, b)
 				}
-			case _: done = true result
+			} else done = true
 			}
 		}
 		if (result == null) {
@@ -975,8 +1027,11 @@ module {
 		}
 
 		if (parseBody) switch (tok()) {
-			case KNew if (lex.token[i+1] == POpen): {}
-			case BrClose, KStatic, KPrivate, KFunction: {}
+			case Token.KNew: if (lex.token[i+1] == Token.POpen) {} else expr = parseExpr()
+			case Token.BrClose: {}
+			case Token.KStatic: {}
+			case Token.KPrivate: {}
+			case Token.KFunction: {}
 			case Token.At: {
 				var tmp = i
 				while (tok() == Token.At) parseAttribute()
@@ -1061,7 +1116,7 @@ module {
 		try {
 			var parsed = new Parser(tokens)
 			switch (parsed.node) {
-				case TParenthesis(TBlock(_)), TBlock(_): throw null
+				case Node.TBlock(_): throw "Parse interpolation error: got a block"
 				case _: return parsed.node
 			}
 		}
@@ -1094,7 +1149,7 @@ module {
 			i++
 		}
 
-		var result =
+		var result = null
 		switch (tok()) {
 		case Token.LUpper:
 			var name = getgo(Token.LUpper)
@@ -1103,7 +1158,7 @@ module {
 				i++
 				getgo(Token.LUpper)
 			}
-			var result = if (tok() == OpLt) {
+			var sresult = if (tok() == Token.OpLt) {
 				i++
 				parametricTypeNesting++
 				var params: [NodeType] = [parseType()]
@@ -1123,51 +1178,51 @@ module {
 				if (parametricTypeNesting < 0)
 					throw fail("parametricTypeNesting < 0")
 
-				ParametricType(name, params)
-			} else Type(name)
+				NodeType.ParametricType(name, params)
+			} else NodeType.Type(name)
 
 			// A => B
 			if (tok() == Token.OpArrow) {
 				i++
-				result = Function([result], parseType())
+				sresult = NodeType.Function([sresult], parseType())
 			}
 
-			result
-		case BkOpen if (path.length == 0): // [Type]
+			result = sresult
+		case Token.BkOpen: if (path.length != 0) throw fail("Token.BkOpen")// [Type]
 			i++
 			var res: NodeType = null
-			res = switch (tok()) {
+			switch (tok()) {
 				case Token.BkClose:
 					i++
-					ParametricType("Array", [Object([], [])])
+					res = NodeType.ParametricType("Array", [NodeType.Object([], [])])
 				case Token.DblDot:
 					i++
 					if (tok() == Token.BkClose) {
 						i++
-						ParametricType("Map", [Object([], []), Object([], [])])
+						res = NodeType.ParametricType("Map", [NodeType.Object([], []), NodeType.Object([], [])])
 					}
 					else {
-						ParametricType("Map", [Object([], []), parseType()])
+						res = NodeType.ParametricType("Map", [NodeType.Object([], []), parseType()])
 					}
 				case _:
 					var key = parseType()
 					var innerRes = if (tok() == Token.DblDot) { // Map
 						i++
-						ParametricType("Map", [key, parseType()])
-					} else ParametricType("Array", [key])
+						NodeType.ParametricType("Map", [key, parseType()])
+					} else NodeType.ParametricType("Array", [key])
 					step(Token.BkClose)
 					if (tok() == Token.OpArrow) {
 						i++
 						innerRes = NodeType.Function([res], parseType())
 					}
-					innerRes
+					res = innerRes
 			}
-			res
-		case BrOpen if (path.length == 0): // {}
+			result = res
+		case Token.BrOpen: if (path.length != 0) throw fail("Token.BrOpen") // {}
 			i++
-			var result = if (tok() == DblDot) { // Empty
+			var sresult = if (tok() == Token.DblDot) { // Empty
 				i++
-				Object([], [])
+				NodeType.Object([], [])
 			} else {
 				var names: [String] = []
 				var types: [NodeType] = []
@@ -1179,15 +1234,15 @@ module {
 					}
 					if (tok() == Token.Comma) i++
 				}
-				Object(names, types)
+				NodeType.Object(names, types)
 			}
 			step(Token.BrClose)
 			if (tok() == Token.OpArrow) {
 				i++
-				result = Function([result], parseType())
+				sresult = NodeType.Function([sresult], parseType())
 			}
-			result
-		case POpen if (path.length == 0): // ()
+			result = sresult
+		case Token.POpen: if (path.length != 0) throw fail("Token.POpen")// ()
 			i++
 			var args = []
 			while (tok() != Token.PClose) {
@@ -1198,19 +1253,20 @@ module {
 				}
 				if (tok() == Token.Comma) i++
 			}
-			Function(args, parseType())
 			step(Token.PClose)
 			step(Token.OpArrow)
+			result = NodeType.Function(args, parseType())
 		// var.invar
 		// var.Invar
 		//
-			var res: NodeType = switch (offset(1)) {
 		case Token.LLower:
+			var res: NodeType = null
+			switch (offset(1)) {
 				case Token.DblDot: {
 					var argName = getgo(tok())
 					step(Token.DblDot)
 					var argType = parseType()
-					FunctionArg(argName, argType, null)
+					res = NodeType.FunctionArg(argName, argType, null)
 				}
 				//case Dot: {
 				//	i += 2
@@ -1220,7 +1276,7 @@ module {
 					throw fail("Typename can not start with lowercase")
 				}
 			}
-			res
+			result = res
 
 		case _:
 			throw fail("Expected Type, parsed `" + Token.stringify(tok()) + "`")
@@ -1237,48 +1293,58 @@ module {
 		return result
 	}
 
-		return switch (op) {
-			case OpMod: 0 + left
-			case OpMult | OpDiv: 1 + left
-			case OpAdd | OpSub: 2 + left
-			case OpShl | OpShr | OpUShr: 3 + left
-			case OpOr | OpAnd | OpXor: 4 + left
-			case OpEq | OpNotEq | OpGt | OpLt | OpGte | OpLte: 5 + left
-			case OpBoolAnd: 7 + left
-			case OpBoolOr: 8 + left
-			case OpAssign: 10 + right
-			case _: // TODO proper message, this is internal error
 		function precedence(op: Token) {
 			let left = 100
 			let right = 0
+			switch (op) {
+				case Token.OpMod: return 0 + left
+				case Token.OpMult: return 1 + left
+				case Token.OpDiv: return 1 + left
+				case Token.OpAdd: return 2 + left
+				case Token.OpSub: return 2 + left
+				case Token.OpShl: return 3 + left
+				case Token.OpShr: return 3 + left
+				case Token.OpUShr: return 3 + left
+				case Token.OpOr: return 4 + left
+				case Token.OpAnd: return 4 + left
+				case Token.OpXor: return 4 + left
+				case Token.OpEq: return 5 + left
+				case Token.OpNotEq: return 5 + left
+				case Token.OpGt: return 5 + left
+				case Token.OpLt: return 5 + left
+				case Token.OpGte: return 5 + left
+				case Token.OpLte: return 5 + left
+				case Token.OpBoolAnd: return 7 + left
+				case Token.OpBoolOr: return 8 + left
+				case Token.OpAssign: return 10 + right
+				case _: // TODO proper message, this is internal error
 					throw fail("No precedence for " + Token.stringify(op))
 			}
 		}
 
-		return switch (t) {
-		case	OpAdd,
-				OpMult,
-				OpDiv,
-				OpSub,
-				OpAssign,
-				OpEq,
-				OpNotEq,
-				OpGt,
-				OpGte,
-				OpLt,
-				OpLte,
-				OpAnd,
-				OpOr,
-				OpXor,
-				OpBoolAnd,
-				OpBoolOr,
-				OpShl,
-				OpShr,
-				OpUShr,
-				OpMod
-				: true
-		case _: false
 		static function isBinop(t: Token): Bool {
+			switch (t) {
+			case Token.OpAdd: return true
+			case Token.OpMult: return true
+			case Token.OpDiv: return true
+			case Token.OpSub: return true
+			case Token.OpAssign: return true
+			case Token.OpEq: return true
+			case Token.OpNotEq: return true
+			case Token.OpGt: return true
+			case Token.OpGte: return true
+			case Token.OpLt: return true
+			case Token.OpLte: return true
+			case Token.OpAnd: return true
+			case Token.OpOr: return true
+			case Token.OpXor: return true
+			case Token.OpBoolAnd: return true
+			case Token.OpBoolOr: return true
+			case Token.OpShl: return true
+			case Token.OpShr: return true
+			case Token.OpUShr: return true
+			case Token.OpMod: return true
+			case _: return false
 			}
 		}
 	}

@@ -27,14 +27,22 @@ module {
 		var namespaces: [String : Node] = [:]
 
 		function nameOfModuleItem(node: Node): String {
-					TPrivate(TClass(Type(name), _)),
-					TClass(Type(name), _),
-					TEnum(Type(name), _),
-					TClass(ParametricType(name, _), _),
-					TPrivate(TClass(ParametricType(name, _), _))
-					: name
 			switch (node) {
 				case Node.TVar(name, _): return name
+				case Node.TPrivate(node): switch (node) {
+					case Node.TClass(t, _): switch (t) {
+						case NodeType.Type(name): return name
+						case NodeType.ParametricType(name): return name
+					}
+				}
+				case Node.TClass(t, _): switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name): return name
+				}
+				case Node.TEnum(t, _): switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name): return name
+				}
 				case Node.TDeclare(name, _): return name
 				case _: throw '' + node
 			}
@@ -273,17 +281,9 @@ module {
 						case Node.TVar(name,_): addScope(name, e)
 						case _: throw 'TEnumExtract contains not a var: ' + e
 					}
-					switch (expr) {
-						case _ if (expr.isVoidValue()): throw fail('There should be a non-void value instead of ', expr)
-						case _: fill(expr)
-					}
-					//fill(e)
-
+					if (DataHelper.isVoidValue(expr)) throw fail('There should be a non-void value instead of ', expr)
+					fill(expr)
 				}
-				case TBlock([]): {}
-				case TIdent(null), TVar(null,_,_), TFor(null,_,_):
-					throw new CompilerError(Fail.TyperError, '' + node)
-				case Node.TVars(e): for (e in e) fill(e)
 				case Node.TBlock(el):
 					pushScope()
 					for (e in el) fill(e)
@@ -321,39 +321,29 @@ module {
 
 				//case TVar(name = 'valueg',t,e,c): throw fail('' + name+' ' + t + ' ' + e + ' ' + c, node)
 
-				case TVar(name,_,TVar(name2,_),_):
-					throw fail('Cannot assign var to another var `var \(name) = var \(name2)`', node)
 
-				case TVar(name,_,TBlock(el),_) if (el.length == 0):
-					throw fail('Cannot assign empty block to a var `var \(name) = {}`', node)
 
 				// TODO Hexa case TVar(name,_,TBlock([..., TVar(name2,_)]),_):
-				case TVar(name,_,TBlock(el),_) if (el[el.length - 1].match(TVar(_))):
-					throw fail('Cannot assign var to another var as a block value `var \(name) = { ... var }`', node)
 
-				case TVar(name,_,TBlock(el),_)
-					if (el[el.length - 1].match(TReturn(_)) || el[el.length - 1].match(TBreak)):
-					throw fail('Cannot assign var to a void as a block value `var \(name) = { ... void }`', node)
 
-				//case TVar(name,_,TReturn(_)|TBreak|TContinue,_):
-				case TVar(name,_,v,_) if (v.isVoidValue()):
-					throw fail('Cannot assign var to a void `var \(name) = void`', node)
 
-				case TVar(name,_,null, true):
-					throw fail('Constant should have a value `let \(name) = value`', node)
-
-				case TVar(name,_,null, const):
-					addScope(name, node)
 
 				case Node.TVar(name,_,e, const):
+					if (e == null && const)
+					throw fail('Constant should have a value `let \(name) = value`', node)
 
+					if(e != null) {
 					// Disallow class as a variable expression
 					switch (e) {
 						case Node.TClass(_, _, _, _, _):
 							throw fail('Variable should not have class as a value', node)
 						case _:
 					}
+					if (DataHelper.isVoidValue(e))
+						throw fail('Cannot assign var to a void `var \(name) = void`', node)
 					fill(e)
+					}
+
 					addScope(name, node)
 
 				case Node.TArray(el): for (e in el) fill(e)
@@ -364,11 +354,9 @@ module {
 					}
 				case Node.TAs(e, _, _): fill(e)
 				// Constant `let`s
-				//case TBinop(a,_,_): trace(a)
-				//case TBinop(TIdent(name),OpAssign,_): trace(name)
-				//case TBinop(OpAssign,a,_) if (().match(TVar(name,_,_,true))): throw 'Cannot reassign a constant `\(name)`'
-				case TAssignop(a = TIdent(_),_,b): fill(a) fill(b) // TODO const
-				case Node.TAssignop(a, _, b): fill(a) fill(b)
+				case Node.TAssignop(a, _, b):
+					if (DataHelper.isVoidValue(b)) throw fail('Cannot use void as value', node)
+					fill(a)
 					var parent: Node = Project.mapNames.get(a)
 					switch (parent) {
 						case Node.TVar(name,_,_,const):
@@ -378,24 +366,10 @@ module {
 							throw fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
 					}
+					fill(b)
 
 
 					switch (node) {
-						case TBinop(TDot(_),_,_): // Ok
-						case TBinop(TIndex(_),OpAssign,_): // Ok
-						case TBinop(TIdent(_),OpAssign,_):
-							var parent: Node = Project.mapNames.get(a)
-							if (parent == null)
-								throw fail('null for node \(a)', node)
-							switch (parent) {
-								case TVar(name,_,_,true), TFunction(name,_):
-									throw fail('Cannot reassign a constant `\(name)`', node)
-								case _: // Ok
-							}
-
-						case TBinop(_,OpAssign,_):
-							throw fail('Cannot assign value to `\(a)`', node)
-				case Node.TBinop(a,_,b): fill(a) fill(b)
 						case _: // Ok
 					}
 				case Node.TBreak: {}
@@ -412,15 +386,16 @@ module {
 					pushScope()
 					// Fill class scope, also check for existence of field
 					for (field in f) {
-						var name = switch (field) {
-							case TFunction(null,_): 'new'
-							case
-							TStatic(TVar(name,_)),
-							TVar(name,_),
-							TStatic(TFunction(name,_)),
-							TFunction(name,_):
-								//trace('Class field fill \(name)')
-								name
+						var name = null
+						switch (field) {
+							case Node.TVar(fname,_): name = fname
+							case Node.TFunction(fname,_):
+							if (fname == null) name = 'new'
+							else name = fname
+							case Node.TStatic(f): switch (f) {
+								case Node.TVar(fname,_): name = fname
+								case Node.TFunction(fname,_): name = fname
+							}
 							case _:
 								throw fail('Incorrect class field node: \(field)', node)
 						}
@@ -435,14 +410,19 @@ module {
 					// Fill expressions
 					for (field in f) {
 						switch (field) {
-							case
-							TFunction(_,null,_), TStatic(TFunction(_,null,_)),
-							TVar(_,_,null,_), TStatic(TVar(_,_,null,_)):
-								{}
-							case TFunction(_,e,v,r), TStatic(TFunction(_,e,v,r)):
-								fill(TFunction(null,e,v,r))
-							case TVar(_,_,e,_), TStatic(TVar(_,_,e,_)):
-								fill(e)
+							case Node.TFunction(_,e,v,r):
+							if (e != null) fill(Node.TFunction(null,e,v,r))
+
+							case Node.TVar(_,_,e,_):
+							if (e != null) fill(e)
+
+							case Node.TStatic(e):
+							switch(e) {
+								case Node.TFunction(_,e,v,r):
+								if (e != null) fill(Node.TFunction(null,e,v,r))
+								case Node.TVar(_,_,e,_):
+								if (e != null) fill(e)
+							}
 							case _: {}
 						}
 					}
@@ -451,28 +431,18 @@ module {
 					currentClass.pop()
 					isInExternalClass = iiec
 
-				case TDeclare(name, v = TVar(vname, t, null, true)):
-					addScope(name, node)
-					//addScope(vname, v)
-					//fill(TVar(vname, t, null, false))
+				case Node.TDeclare(name, vnode):
+					switch (vnode) {
+						case Node.TVar(vname, t, expr, const):
+						if (const && expr == null) addScope(name, node)
 
-				case TDeclare(name, TBinop(NodeTypeValue(t), OpAssign, NodeTypeValue(value))):
-					switch (t) {
-						case Type(name), ParametricType(name, _): addScope(name, node)
-						case _: {}
+
+						case Node.TFunction(fname, expr, vars, rettype):
+							addScope(name, node)
+							addScope(name, vnode)
+
+						case _: addScope(name, node) fill(vnode)
 					}
-
-				case TDeclare(name, t = TFunction(fname, expr, vars, rettype)):
-					//if (name != null)
-					addScope(name, node)
-					addScope(name, t)
-					//fill(t)
-					//throw '' + name + ' ' + fname
-
-				case TDeclare(name, t):
-					//Project.mapNames[node] = node
-					addScope(name, node)
-					fill(t)
 
 				case Node.TDot(e, n): fill(e)
 				case Node.TElvis(a,b): fill(a) fill(b)
@@ -531,27 +501,61 @@ module {
 				case Node.TModule(_): throw fail('Modules should be at a file\' upper scope', node)
 
 				//TODO vames and values added
-				case TNew(path, Type(name)|ParametricType(name,_), el, names, values):
-					for (e in el) fill(e)
 
 				case Node.TNew(path, _, el, names, values):
 					// TODO parent names and path check
 					for (e in el) fill(e)
-				case TReturn(null): {}
-				case TReturn(TReturn(_)): throw fail('Cannot return another return. Try `{ return 1 } return 2`', node)
-					fill(e)
-					//trace('TStatic \(e)')
 				case Node.TObject(names, el): for (e in el) fill(e)
 				case Node.TParenthesis(e): fill(e)
 				case Node.TReturn(e):
+					if (e != null && DataHelper.isVoidValue(e)) throw fail('Cannot use void as a returning value', node)
+					if (e != null) fill(e)
 				case Node.TStatic(e):
 					fill(e) // throw! not in class!
 				case Node.TSuper: Project.mapNames.set(node, currentClass[currentClass.length-1])
 				case Node.TThis: Project.mapNames.set(node, currentClass[currentClass.length-1])
-				case Node.TSwitch(exprs, conds, cases): {
+				case Node.TSwitch(exprs, conds, guards, cases): {
 					for (e in exprs) { pushScope() fill(e) popScope() }
-					for (e in conds) for (e in e) { pushScope() fill(e) popScope() }
-					for (e in cases) { pushScope() fill(e) popScope() }
+					var i = 0
+					while(i < cases.length) {
+						pushScope()
+						var e = conds[i]
+						// Fill case condition
+						function follow(e: Node) {
+							switch (e) {
+								case Node.TDot(ex, name): {fill(e)}
+								case Node.TParenthesis(e): {fill(e)}
+								case Node.TUnderscore: {}
+								case Node.TNull: {}
+								case Node.TBool(_): {}
+								case Node.TInt(_): {}
+								case Node.TString(_): {}
+								case Node.TCall(ex, args, argNames): {
+									follow(ex)
+									for (ee in args) follow(ee)
+								}
+								case Node.TIdent(name): // bind var
+								{
+									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
+									else {
+										addScope(name, e)
+									}
+								}
+								case Node.TBinop(a, op, b):
+								if (op == Token.OpOr) {follow(a) follow(b)}
+								else throw fail('' + e, e)
+								case Node.TIf(econd, _, _):
+								pushScope() fill(econd[0]) popScope()
+								case _: throw fail('' + e, e)
+							}
+						}
+
+						// Fill case result expression
+						var e = cases[i]
+						pushScope() fill(e) popScope()
+						popScope()
+						i++
+					}
 				}
 				case Node.TThrow(e): fill(e)
 				case Node.TTry(e, t, v, ca):
