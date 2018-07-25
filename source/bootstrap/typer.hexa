@@ -236,7 +236,7 @@ module {
 			var el = null
 			switch (m) {
 				case Node.TModule(_, els): el = els
-				case _: throw 'module?!'
+				case _: return null // No root
 			}
 			for (e in el) if (name == nameOfModuleItem(e)) return e
 			// TODO module{a} conflicts to module a {}, otherwise merge those globals
@@ -284,6 +284,7 @@ module {
 					if (DataHelper.isVoidValue(expr)) throw fail('There should be a non-void value instead of ', expr)
 					fill(expr)
 				}
+				case Node.TVars(e): for (ee in e) fill(ee)
 				case Node.TBlock(el):
 					pushScope()
 					for (e in el) fill(e)
@@ -368,6 +369,20 @@ module {
 					}
 					fill(b)
 
+				case Node.TBinop(a,op,b):
+					if (DataHelper.isVoidValue(a)) throw fail('Cannot use void as value', node)
+					if (DataHelper.isVoidValue(b)) throw fail('Cannot use void as value', node)
+					fill(a) fill(b)
+					var parent: Node = Project.mapNames.get(a)
+					if (op == Token.OpAssign)
+					switch (parent) {
+						case Node.TVar(name,_,_,const):
+						if (const)
+							throw fail('Cannot reassign a constant `\(name)`', node)
+						case Node.TFunction(name,_):
+							throw fail('Cannot reassign a function `\(name)`', node)
+						case _: // Ok
+					}
 
 					switch (node) {
 						case _: // Ok
@@ -449,7 +464,19 @@ module {
 				case Node.TEnum(t,f):
 					var name = extractTypeName(t)
 					addScope(name, node)
+
+					// Fill expressions
+					for(field in f) {
+						switch (field) {
+							case Node.TStatic(e): switch (e) {
+								case Node.TFunction(_,e,v,r): if (e != null) fill(Node.TFunction(null,e,v,r))
+							}
+							case Node.TFunction(_,e,v,r): if (e != null) fill(Node.TFunction(null,e,v,r))
+							case _: {}
+						}
+					}
 				case Node.TFor(name, over, by):
+					if(DataHelper.isVoidValue(over)) throw fail('Cannot use void as value', node)
 					pushScope()
 					fill(over)
 					addScope(name, node)
@@ -459,6 +486,21 @@ module {
 				case Node.TFunction(name, expr, vars, rettype):
 					if (expr == null && !isInExternalClass) throw fail('Non-external function should have a body', node)
 					if (name != null) addScope(name, node)
+					pushScope()
+					for (v in vars) {
+						switch (v) {
+							case Node.TVar(vname, _, _): addScope(vname, v)
+							case Node.TIdent(vname): addScope(vname, v)
+							case Node.TParenthesis(e): if (e != null) throw fail(v+'', node)
+							case _:
+								throw fail(v+'', node)
+						}
+					}
+					if (expr != null) fill(expr)
+					popScope()
+
+				case Node.TArrow(expr, vars, rettype):
+					if (expr == null && !isInExternalClass) throw fail('Arrow function should have a body', node)
 					pushScope()
 					for (v in vars) {
 						switch (v) {
@@ -549,6 +591,7 @@ module {
 								case _: throw fail('' + e, e)
 							}
 						}
+						follow(e)
 
 						// Fill case result expression
 						var e = cases[i]
