@@ -18,7 +18,7 @@
 
 module {
 	class Parser {
-		new(lexe: Tokens) {
+		new (lexe: Tokens) {
 			lex = lexe
 
 			var el = []
@@ -114,6 +114,7 @@ module {
 	private var lex: Tokens
 	// The pointer
 	private var i = 0
+	private var endif = 0 // Nesting level of #end's
 	private var lasttok = -1
 	private var lasttokchecks = 10
 
@@ -143,15 +144,37 @@ module {
 				throw fail("Parser Internal Error: Same token parsed too many times: " + '`\(print())`')
 			}
 		}
-		// TODO
-		if(t == Token.Sharp) {
+
+		// Nested #end
+		if (t == Token.Sharp, lex.value[i + 1] == 'end') if (endif > 0) {
 			i++ // #
-			t = lex.token[i]
-			if(t == Token.KIf) i++
-			i++ // if/value
-			t = lex.token[i]
+			i++ // end
+			endif--
+			//t = lex.token[i]
+			tok()
+		} else throw fail("Unexpected `#end`")
+
+		// #if
+		if (t == Token.Sharp, offset(1) == Token.KIf) {
+			i++ // #
+			i++ // if
+			let defName = getgo(Token.LLower)
+			let def = Project.defines[defName]
+			if (def == null) throw fail("`#if` tests for `" + defName + "` parameter which is *not* defined in project file")
+			if (def == true) endif++
+			if (def == false) {
+				while (i < lex.length) {
+					if (t == Token.Sharp, lex.value[i + 1] == 'end') {
+						i++ // #
+						i++ // end
+						break
+					}
+					i++
+				}
+			}
+			tok()
 		}
-		return t
+		return lex.token[i]
 	}
 
 	function print() return Token.stringify(lex.token[i], lex.value[i])
