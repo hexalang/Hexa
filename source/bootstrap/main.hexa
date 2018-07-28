@@ -201,9 +201,15 @@ class Main {
 
 		// Self-test
 		#if debug
+			#if times
+				let beginTests = Date.now()
+			#end
 			TestLexer.test()
 			TestParser.test()
 			TestTyper.test()
+			#if times
+				console.log("[Tests finished in \(Date.now() - beginTests) ms]")
+			#end
 		#end
 
 		// Usage examples
@@ -250,6 +256,10 @@ class Main {
 		}
 
 		// Perform compilation
+		#if times
+			let beginParsing = Date.now()
+		#end
+
 		var codes: [Node] = []
 		if (input.files != null) {
 			var files = input.files.map(function(file) {
@@ -262,7 +272,14 @@ class Main {
 		codes.push(processFile(main))
 		var collected: Node = Node.TBlock(codes)
 
+		#if times
+			console.log("[Parsing finished in \(Date.now() - beginParsing) ms]")
+			let beginTyper = Date.now()
+		#end
 		Typer.fillScopes(collected)
+		#if times
+			console.log("[Typer finished in \(Date.now() - beginTyper) ms]")
+		#end
 
 		var parsedMain = collected
 
@@ -274,7 +291,23 @@ class Main {
 					target = packageFolder + Path.sep + Path.parse(input.output).name + ".js"
 				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
 
-				let outs = GenJs.stringifyProject(Normalizer.normalize(collected, GenJs.reserved))
+				#if times
+					let beginNormalizer = Date.now()
+				#end
+
+				let normal = Normalizer.normalize(collected, GenJs.reserved)
+
+				#if times
+					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
+					let beginGenJs = Date.now()
+				#end
+
+				let outs = GenJs.stringifyProject(normal)
+
+				#if times
+					console.log("[GenJs finished in \(Date.now() - beginGenJs) ms]")
+				#end
+
 				Fs.writeFileSync(target, license + outs)
 			case Generator.C:
 			case Generator.Haxe:
