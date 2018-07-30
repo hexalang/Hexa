@@ -19,12 +19,13 @@ module {
 	// Generates simplified view of syntax tree
 	// for easier later generation
 	class Normalizer {
-		static function normalize(collected: Node, keywords: [String]): NiceProject {
-			return (new Normalizer(collected, keywords)).project
+		static function normalize(collected: Node, keywords: [String], nativeEnums: Bool = false): NiceProject {
+			return (new Normalizer(collected, keywords, nativeEnums)).project
 		}
 
 		let project = new NiceProject()
 		var keywords = []
+		var nativeEnums = false
 
 		function nodeToExpression(e: Node): NiceExpression {
 			if (e == null) return null
@@ -614,12 +615,49 @@ module {
 
 				case Node.TSwitch(exprs, conds, guards, cases):
 				if (exprs.length > 1) console.error('Multiple switch values not supported:', e, Project.data.get(e))
-				let temp = unique('temp')
-				let value = nodeToExpression(exprs[0])
-				var index = NiceExpression.Ident(temp)
 				let s = []
 				let c = []
 
+				if (nativeEnums) {
+					let index = nodeToExpression(exprs[0])
+					for (i in cases.length) {
+
+						function toCase(co) switch (co) {
+							case Node.TNull(_): return NiceExpression.Null
+							case Node.TUnderscore(_): return NiceExpression.Underscore
+							case Node.TString(v): return NiceExpression.String(v)
+							case Node.TInt(v): return NiceExpression.Int(v)
+							case Node.TFloat(v): return NiceExpression.Float(v)
+							case Node.TBool(v): return NiceExpression.Bool(v)
+							case Node.TDot(expr, name): return nodeToExpression(co)
+							case Node.TBinop(a, op, b): switch (op) {
+							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b))
+								case _: console.error('Unknown native case binop kind:', e, Project.mapNames.get(e))
+							}
+							case Node.TCall(e, args, argNames): switch (e) {
+								case Node.TDot(expr, name):
+									let a = []
+									for (arg in args.length) switch (args[arg]) {
+										case Node.TIdent(name): a.push(nodeToExpression(args[arg]))
+										case Node.TUnderscore: a.push(NiceExpression.Underscore)
+										case _: console.log('Unknown native case extract value kind:', args[arg])
+									}
+									return NiceExpression.Call(nodeToExpression(e), a)
+								case _: console.error('Unknown case extract kind:', e, Project.mapNames.get(e))
+							}
+							case _:
+							console.error('Unknown native enum case kind:', co, Project.data.get(co))
+						}
+
+						c.push([toCase(conds[i])])
+						s.push(nodeToStatement(cases[i]))
+					}
+					return NiceStatement.Switch(index, c, s)
+				}
+
+				let temp = unique('temp')
+				let value = nodeToExpression(exprs[0])
+				var index = NiceExpression.Ident(temp)
 
 				var i = 0
 				for (ec in cases) {
@@ -790,8 +828,9 @@ module {
 			}
 		}
 
-		new (collected: Node, keywords: [String]) {
+		new (collected: Node, keywords: [String], nativeEnums) {
 			this.keywords = keywords
+			this.nativeEnums = nativeEnums
 			switch (collected) {
 			case Node.TBlock(el): // File
 				// Rename classes upfront to avoid race condition
@@ -921,6 +960,7 @@ module {
 		Index(expr: NiceExpression, index: NiceExpression)
 		Assignop(name: NiceExpression, op: Token, value: NiceExpression)
 		NativeOperator(kind: NativeOperatorKind, args: [NiceExpression], name: String)
+		Underscore
 	}
 
 	enum NativeOperatorKind : Int {
