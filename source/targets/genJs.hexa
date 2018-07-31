@@ -45,9 +45,9 @@ module {
 						out += ' = ' + printExpression(expr)
 				}
 				for (v in e.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args):
+					case NiceStatement.Function(name, expr, args, defaults):
 						out += '\n\t' + e.name + '.' + name + ' = '
-						out += '(' + args.join(', ') + ') => { ' + printStatement(expr) + ' };'
+						out += printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };'
 				}
 			}
 
@@ -111,9 +111,9 @@ module {
 						out += ' = ' + printExpression(expr)
 				}
 				for (v in c.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args):
+					case NiceStatement.Function(name, expr, args, defaults):
 						out += '\n\t' + c.name + '.' + name + ' = '
-						out += '(' + args.join(', ') + ') => { ' + printStatement(expr) + ' };'
+						out += printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };'
 				}
 			}
 
@@ -179,8 +179,8 @@ module {
 				case NiceStatement.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceStatement.Const(name, expr): return 'const ' + name + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Var(name, expr): return 'let ' + name + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Function(name, expr, args):
-					return 'const ' + name + ' = (' + args.join(', ') + ') => ' + printBlock(expr)
+				case NiceStatement.Function(name, expr, args, defaults):
+					return 'const ' + name + ' = ' + printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
 					return 'return ' + printExpression(e)
@@ -246,6 +246,12 @@ module {
 			return '(' + [for (a in args) printExpression(a)].join(', ') + ')'
 		}
 
+		function printFunctionArguments(args: [String], defaults: [NiceExpression]) {
+			return '(' + [for (a in args.length)
+				args[a] + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
+			].join(', ') + ')'
+		}
+
 		function printExpression(e: NiceExpression) {
 			switch (e) {
 				case NiceExpression.Null: return 'null'
@@ -289,12 +295,12 @@ module {
 				case NiceExpression.Bool(v): return '' + v
 				case NiceExpression.Dot(expr, name): return printExpression(expr) + '.' + name
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
-				case NiceExpression.Function(name, expr, args):
-					if (name == null) return '(' + args.join(', ') + ') => ' + printBlock(expr)
-					return '((() => { const ' + name + ' = (' + args.join(', ') + ') => '
+				case NiceExpression.Function(name, expr, args, defaults):
+					if (name == null) return printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
+					return '((() => { const ' + name + ' = ' + printFunctionArguments(args, defaults) + ' => '
 					+ printBlock(expr) + '; return ' + name + ' })())'
-				case NiceExpression.Arrow(expr, args):
-					return '(' + args.join(', ') + ') => (' + printExpression(expr) + ')'
+				case NiceExpression.Arrow(expr, args, defaults):
+					return printFunctionArguments(args, defaults) + ' => (' + printExpression(expr) + ')'
 				case NiceExpression.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceExpression.Array(el): return '[' + [for (a in el) printExpression(a)].join(', ') + ']'
 				case NiceExpression.Unop(op, postfix, e):
