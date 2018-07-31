@@ -125,17 +125,25 @@ module {
 
 				case Node.TFunction(name, expr, vars, rettype):
 				let a = []
-				for (arg in vars) {
-					a.push(unique(DataHelper.nameOf(arg), arg))
+				let defaults = []
+				for (arg in vars) switch (arg) {
+					case Node.TVar(name, t, expr, const):
+						a.push(unique(name, arg))
+						if (expr != null) defaults.push(nodeToExpression(expr))
+						else defaults.push(null)
 				}
-				return NiceExpression.Function(name?unique(name, e):null, nodeToStatement(expr), a)
+				return NiceExpression.Function(name?unique(name, e):null, nodeToStatement(expr), a, defaults)
 
 				case Node.TArrow(expr, vars, rettype):
 				let a = []
-				for (arg in vars) {
-					a.push(DataHelper.nameOf(arg))
+				let defaults = []
+				for (arg in vars) switch (arg) {
+					case Node.TVar(name, t, expr, const):
+						a.push(unique(name, arg))
+						if (expr != null) defaults.push(nodeToExpression(expr))
+						else defaults.push(null)
 				}
-				return NiceExpression.Arrow(nodeToExpression(expr), a)
+				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults)
 
 				case Node.TBlock(el):
 				let block = []
@@ -433,11 +441,15 @@ module {
 
 				case Node.TFunction(name, expr, vars, rettype):
 				let a = []
-				for (arg in vars) {
-					a.push(unique(DataHelper.nameOf(arg), arg))
+				let defaults = []
+				for (arg in vars) switch (arg) {
+					case Node.TVar(name, t, expr, const):
+						a.push(unique(name, arg))
+						if (expr != null) defaults.push(nodeToExpression(expr))
+						else defaults.push(null)
 				}
-				if (name == 'new') return NiceStatement.Function(null, nodeToStatement(expr), a)
-				return NiceStatement.Function(name?unique(name, e):null, nodeToStatement(expr), a)
+				if (name == 'new') return NiceStatement.Function(null, nodeToStatement(expr), a, defaults)
+				return NiceStatement.Function(name?unique(name, e):null, nodeToStatement(expr), a, defaults)
 
 				case Node.TFor(name, over, by): switch (over) {
 					case Node.TDot(expr, f): // TODO remove after proper type info
@@ -918,7 +930,7 @@ module {
 		New(e: NiceExpression, args: [NiceExpression])
 		Var(name: String, expr: NiceExpression)
 		Const(name: String, expr: NiceExpression)
-		Function(name: String, expr: NiceStatement, args: [String])
+		Function(name: String, expr: NiceStatement, args: [String], defaults: [NiceExpression])
 		Return(e: NiceExpression) // TODO Null?
 		If(econd: NiceExpression, eif: NiceStatement, eelse: NiceStatement) // TODO Null?
 		Try(expr: NiceExpression, t: [String], v: [String], catches: [NiceStatement])
@@ -948,8 +960,8 @@ module {
 		Call(e: NiceExpression, args: [NiceExpression])
 		New(e: NiceExpression, args: [NiceExpression])
 		Binop(a: NiceExpression, op: Token, b: NiceExpression)
-		Function(name: String, expr: NiceStatement, args: [String])
-		Arrow(expr: NiceExpression, args: [String])
+		Function(name: String, expr: NiceStatement, args: [String], defaults: [NiceExpression])
+		Arrow(expr: NiceExpression, args: [String], defaults: [NiceExpression])
 		Parenthesis(inner: NiceExpression)
 		Object(names: [String], el: [NiceExpression])
 		Array(el: [NiceExpression])
