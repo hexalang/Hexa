@@ -315,6 +315,29 @@ class Main {
 			case Generator.Haxe:
 				console.error("Haxe target is not yet supported")
 
+				var target = packageFolder + Path.sep + Path.parse(input.main).name + ".hx"
+				if (input.output != null)
+					target = packageFolder + Path.sep + Path.parse(input.output).name + ".hx"
+				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
+
+				#if times
+					let beginNormalizer = Date.now()
+				#end
+
+				let normal = Normalizer.normalize(collected, GenHaxe.reserved, nativeEnums: true)
+
+				#if times
+					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
+					let beginGenJs = Date.now()
+				#end
+
+				let outs = GenHaxe.stringifyProject(normal)
+
+				#if times
+					console.log("[GenHaxe finished in \(Date.now() - beginGenJs) ms]")
+				#end
+
+				Fs.writeFileSync(target, license + outs)
 			case _: throw "Generator is not defined or unknown. Is there `target.generator` field in `hexa.json`?"
 		}
 
