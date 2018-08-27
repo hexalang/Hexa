@@ -8,6 +8,7 @@
 [![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg)](https://t.me/hexalang)
 [![Twitter](https://img.shields.io/badge/Twitter-@hexalang-blue.svg)](https://twitter.com/hexalang)
 [![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/blog/)
+[![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/master?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/master)
 
 Hexa is a programming language in an early stage of development. Inspired by Haxe.
 
