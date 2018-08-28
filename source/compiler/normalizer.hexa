@@ -27,6 +27,38 @@ module {
 		var keywords = []
 		var nativeEnums = false
 
+		new (collected: Node, keywords: [String], nativeEnums) {
+			this.keywords = keywords
+			this.nativeEnums = nativeEnums
+			switch (collected) {
+			case Node.TBlock(el): // File
+				// Rename classes upfront to avoid race condition
+				for (e in el) switch (e) {
+					case Node.TModule(path, el):
+						for (e in el) switch (e) {
+							case Node.TClass(t, ext, impl, fields, external):
+							renameClassFields(fields)
+							case Node.TEnum(t, fields, valuesType):
+							renameClassFields(fields)
+						}
+				}
+
+				// Fill statements
+				for (e in el) switch (e) {
+					case Node.TModule(path, el):
+						for (e in el) fillStatement(e)
+					case _:
+					let statement = fillStatement(e)
+					if (statement != null) switch (statement) {
+						case NiceStatement.Block(el):
+						if (el.length > 0) // Don't output empty blocks
+						project.init.push(statement)
+						case _: project.init.push(statement)
+					}
+				}
+			}
+		}
+
 		function nodeToExpression(e: Node): NiceExpression {
 			if (e == null) return null
 
@@ -840,36 +872,6 @@ module {
 			}
 		}
 
-		new (collected: Node, keywords: [String], nativeEnums) {
-			this.keywords = keywords
-			this.nativeEnums = nativeEnums
-			switch (collected) {
-			case Node.TBlock(el): // File
-				// Rename classes upfront to avoid race condition
-				for (e in el) switch (e) {
-					case Node.TModule(path, el):
-						for (e in el) switch (e) {
-							case Node.TClass(t, ext, impl, fields, external):
-							renameClassFields(fields)
-							case Node.TEnum(t, fields, valuesType):
-							renameClassFields(fields)
-						}
-				}
-
-				// Fill statements
-				for (e in el) switch (e) {
-					case Node.TModule(path, el):
-						for (e in el) fillStatement(e)
-					case _:
-					let statement = fillStatement(e)
-					if (statement != null) switch (statement) {
-						case NiceStatement.Block(el):
-						if (el.length > 0) // Don't output empty blocks
-						project.init.push(statement)
-						case _: project.init.push(statement)
-					}
-				}
-			}
 		}
 	}
 
