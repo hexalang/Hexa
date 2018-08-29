@@ -5277,7 +5277,7 @@
     }
     GenJs.id = 0;
     GenJs.tabs = '';
-    GenJs.reserved = ['with', 'const'];
+    GenJs.reserved = ['with', 'const', 'arguments'];
     GenJs.rename = (name) => {
         if (GenJs.reserved.indexOf(name) != -1) {
             return '$' + name;
