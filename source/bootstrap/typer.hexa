@@ -271,6 +271,11 @@ module {
 
 		}
 
+
+		var functionAllowedToThrow = false // @noThrow is *not* set
+		var functionThrows = false // `throw` is happened
+		var insideTry = false // `try { insideTry } catch (...) { ... }`
+		var insideFunction = false // `function () { insideFunction }`
 		function fill(node: Node) {
 			prevnode = node
 			switch (node) {
@@ -329,11 +334,11 @@ module {
 
 
 
-				case Node.TVar(name,_,e, const):
+				case Node.TVar(name, t, e, const):
 					if (e == null && const)
 					throw fail('Constant should have a value `let \(name) = value`', node)
 
-					if(e != null) {
+					if (e != null) {
 					// Disallow class as a variable expression
 					switch (e) {
 						case Node.TClass(_, _, _, _, _):
@@ -414,7 +419,7 @@ module {
 							case _:
 								throw fail('Incorrect class field node: \(field)', node)
 						}
-						var map = scopes[scopes.length-1]
+						let map = scopes[scopes.length-1]
 						if (map.has(name))
 							throw fail('Class field `\(name)` already exists', node)
 						map.set(name, field)
@@ -484,6 +489,18 @@ module {
 					popScope()
 
 				case Node.TFunction(name, expr, vars, rettype):
+					// Save stack
+					let _functionAllowedToThrow = functionAllowedToThrow
+					let _functionThrows = functionThrows
+					let _insideFunction = insideFunction
+					let _insideTry = insideTry
+
+					// Reset stack
+					functionAllowedToThrow = true // TODO
+					functionThrows = false
+					insideTry = false
+					insideFunction = true
+
 					if (expr == null && !isInExternalClass) throw fail('Non-external function should have a body', node)
 					if (name != null) addScope(name, node)
 					pushScope()
@@ -498,6 +515,12 @@ module {
 					}
 					if (expr != null) fill(expr)
 					popScope()
+
+					// Restore stack
+					functionAllowedToThrow = _functionAllowedToThrow
+					functionThrows = _functionThrows
+					insideTry = _insideTry
+					insideFunction = _insideFunction
 
 				case Node.TArrow(expr, vars, rettype):
 					if (expr == null && !isInExternalClass) throw fail('Arrow function should have a body', node)
@@ -600,9 +623,22 @@ module {
 						i++
 					}
 				}
-				case Node.TThrow(e): fill(e)
-				case Node.TTry(e, t, v, ca):
+				case Node.TThrow(e):
+					if (!insideFunction && !insideTry)
+						throw fail('Cannot throw outside of `function` or `try`', node)
+					if (insideFunction && !functionAllowedToThrow)
+						throw fail('Cannot throw in a @noThrow function', node)
+					if (insideFunction)
+						functionThrows = true // Infer that function throws
+					// TODO handle types
+
 					fill(e)
+				case Node.TTry(e, t, v, ca):
+					let _insideTry = insideTry
+					insideTry = true
+					fill(e)
+					insideTry = _insideTry
+
 					for (e in ca.length) {
 						pushScope()
 						scopes[scopes.length-1].set(DataHelper.varName(v[e]), v[e])
