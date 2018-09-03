@@ -276,6 +276,8 @@ module {
 		var functionThrows = false // `throw` is happened
 		var insideTry = false // `try { insideTry } catch (...) { ... }`
 		var insideFunction = false // `function () { insideFunction }`
+		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
+
 		function fill(node: Node) {
 			prevnode = node
 			switch (node) {
@@ -586,7 +588,9 @@ module {
 				case Node.TStatic(e):
 					fill(e) // throw! not in class!
 				case Node.TSuper: Project.mapNames.set(node, currentClass[currentClass.length-1])
-				case Node.TThis: Project.mapNames.set(node, currentClass[currentClass.length-1])
+				case Node.TThis:
+					if (!insideClassMethod) throw fail('Cannot access `this` outside of class method', node)
+					Project.mapNames.set(node, currentClass[currentClass.length-1])
 				case Node.TSwitch(exprs, conds, guards, cases): {
 					for (e in exprs) { pushScope() fill(e) popScope() }
 					var i = 0
