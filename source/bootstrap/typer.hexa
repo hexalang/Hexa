@@ -201,7 +201,7 @@ module {
 		}
 
 		// TODO module: [Node] ->> :Map<Node>
-			var intermediate = []
+		var intermediate = []
 
 		// Fill intermediate non-existsing modules (module aaa.not_exists.bbb {})
 		{
@@ -277,6 +277,7 @@ module {
 		var insideTry = false // `try { insideTry } catch (...) { ... }`
 		var insideFunction = false // `function () { insideFunction }`
 		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
+		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
 
 		function fill(node: Node) {
 			prevnode = node
@@ -399,7 +400,8 @@ module {
 					if (DataHelper.isVoidValue(e)) throw fail('Cannot use void as argument value', node)
 					fill(e)
 				}
-				case Node.TClass(t,ex,i,f,external):
+				case Node.TClass(t, ex, i, f, external):
+					allowSuper = false
 					var iiec = isInExternalClass
 					isInExternalClass = external
 					var name = extractTypeName(t)
@@ -433,7 +435,11 @@ module {
 					for (field in f) {
 						switch (field) {
 							case Node.TFunction(_,e,v,r):
+							allowSuper = (ex != null)
+							insideClassMethod = true
 							if (e != null) fill(Node.TFunction(null,e,v,r))
+							insideClassMethod = false
+							allowSuper = false
 
 							case Node.TVar(_,_,e,_):
 							if (e != null) fill(e)
@@ -586,8 +592,10 @@ module {
 					if (e != null && DataHelper.isVoidValue(e)) throw fail('Cannot use void as a returning value', node)
 					if (e != null) fill(e)
 				case Node.TStatic(e):
-					fill(e) // throw! not in class!
-				case Node.TSuper: Project.mapNames.set(node, currentClass[currentClass.length-1])
+					fill(e)
+				case Node.TSuper:
+					if (!allowSuper) throw fail('Cannot access `super` here', node)
+					Project.mapNames.set(node, currentClass[currentClass.length-1])
 				case Node.TThis:
 					if (!insideClassMethod) throw fail('Cannot access `this` outside of class method', node)
 					Project.mapNames.set(node, currentClass[currentClass.length-1])
