@@ -278,6 +278,7 @@ module {
 		var insideFunction = false // `function () { insideFunction }`
 		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
 		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
+		var allowBreakAndContinue = false // Used in loops
 
 		function fill(node: Node) {
 			prevnode = node
@@ -395,7 +396,8 @@ module {
 					switch (node) {
 						case _: // Ok
 					}
-				case Node.TBreak: {}
+				case Node.TBreak:
+					if (!allowBreakAndContinue) throw fail('Cannot use `break` outside of loop', node)
 				case Node.TCall(e, el, elnames):
 					switch (e) {
 						case Node.TSuper(_):
@@ -510,7 +512,10 @@ module {
 					pushScope()
 					fill(over)
 					addScope(name, node)
+					let _allowBreakAndContinue = allowBreakAndContinue
+					allowBreakAndContinue = true
 					fill(by)
+					allowBreakAndContinue = _allowBreakAndContinue
 					popScope()
 
 				case Node.TFunction(name, expr, vars, rettype):
@@ -681,19 +686,25 @@ module {
 						fill(ca[e])
 						popScope()
 					}
-				case Node.TWhile(econd, e, _): fill(econd) fill(e)
 				case Node.TUnop(_, _, e): fill(e)
+				case Node.TWhile(econd, e, pre):
+					fill(econd)
+					let _allowBreakAndContinue = allowBreakAndContinue
+					allowBreakAndContinue = true
+					fill(e)
+					allowBreakAndContinue = _allowBreakAndContinue
 
 				// TODO
 				case Node.TIs(el, el2): {}
 				case Node.NodeTypeValue(t): {}
 				case Node.TUnderscore: {}
 				case Node.TNull: {}
-				case Node.TContinue: {}
 				case Node.TString(_): {}
 				case Node.TBool(_): {}
 				case Node.TInt(_): {}
 				case Node.TFloat(_): {}
+				case Node.TContinue:
+					if (!allowBreakAndContinue) throw fail('Cannot use `continue` outside of loop', node)
 				case Node.TExport(f): fill(f)
 				case Node.TPrivate(f):
 					throw fail('Cannot use `private` here', node)
