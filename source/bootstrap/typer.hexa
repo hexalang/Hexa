@@ -572,8 +572,17 @@ module {
 								throw fail(v+'', node)
 						}
 					}
-					if (expr != null) fill(expr)
+
+					// Save stack
+					let _insideFunction = insideFunction
+					// Reset stack
+					insideFunction = true
+
+					fill(expr)
 					popScope()
+
+					// Restore stack
+					insideFunction = _insideFunction
 
 				case Node.TIf(econd, eif, eelse):
 					var depth = 0
@@ -611,6 +620,7 @@ module {
 				case Node.TObject(names, el): for (e in el) fill(e)
 				case Node.TParenthesis(e): fill(e)
 				case Node.TReturn(e):
+					if (!insideFunction) throw fail('Cannot use `return` outside of function', node)
 					if (e != null && DataHelper.isVoidValue(e)) throw fail('Cannot use void as a returning value', node)
 					if (e != null) fill(e)
 				case Node.TStatic(e):
