@@ -396,10 +396,19 @@ module {
 						case _: // Ok
 					}
 				case Node.TBreak: {}
-				case Node.TCall(e, el, elnames): fill(e) for (e in el) {
-					if (DataHelper.isVoidValue(e)) throw fail('Cannot use void as argument value', node)
-					fill(e)
-				}
+				case Node.TCall(e, el, elnames):
+					switch (e) {
+						case Node.TSuper(_):
+							if (!allowSuper) throw fail('Cannot access `super` here', node)
+							Project.mapNames.set(node, currentClass[currentClass.length-1])
+						case _:
+							fill(e)
+					}
+					for (e in el) {
+						if (DataHelper.isVoidValue(e)) throw fail('Cannot use void as argument value', node)
+						fill(e)
+					}
+
 				case Node.TClass(t, ex, i, f, external):
 					allowSuper = false
 					var iiec = isInExternalClass
@@ -472,7 +481,15 @@ module {
 						case _: addScope(name, node) fill(vnode)
 					}
 
-				case Node.TDot(e, n): fill(e)
+				case Node.TDot(e, n):
+					switch (e) {
+						case Node.TSuper(_):
+							if (!allowSuper) throw fail('Cannot access `super` here', node)
+							Project.mapNames.set(node, currentClass[currentClass.length-1])
+						case _:
+							fill(e)
+					}
+
 				case Node.TElvis(a,b): fill(a) fill(b)
 				case Node.TEnum(t,f):
 					var name = extractTypeName(t)
@@ -594,8 +611,7 @@ module {
 				case Node.TStatic(e):
 					fill(e)
 				case Node.TSuper:
-					if (!allowSuper) throw fail('Cannot access `super` here', node)
-					Project.mapNames.set(node, currentClass[currentClass.length-1])
+					throw fail('Cannot use `super` as value', node)
 				case Node.TThis:
 					if (!insideClassMethod) throw fail('Cannot access `this` outside of class method', node)
 					Project.mapNames.set(node, currentClass[currentClass.length-1])
