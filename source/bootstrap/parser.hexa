@@ -245,7 +245,7 @@ module {
 	//   EXPRESSIONS
 	//-----------------
 
-	var class_external = false
+	var classExternal = false
 	function parseExpr(): Node {
 		var atts: Array < { name: String, values: [Node] } > = []
 		while (tok() == Token.At) atts.push(parseAttribute())
@@ -284,7 +284,13 @@ module {
 				case Token.LUpper:
 					var left = parseType()
 					step(Token.OpAssign)
-					e = Node.TBinop(Node.NodeTypeValue(left), Token.OpAssign, Node.NodeTypeValue(parseType()))
+					let leftNode = Node.NodeTypeValue(left)
+					Project.data.set(leftNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+
+					let rightNode = Node.NodeTypeValue(parseType())
+					Project.data.set(rightNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+
+					e = Node.TBinop(leftNode, Token.OpAssign, rightNode)
 				case _:
 					e = parseExpr()
 
@@ -354,9 +360,9 @@ module {
 			//	// 	step(OpAssign)
 			//	// 	TDeclare(name, parseExpr())
 			//	case KClass:
-			//	class_external = true
+			//	classExternal = true
 			//	var f = parseExpr()
-			//	class_external = false
+			//	classExternal = false
 			//	f
 			//	case KFunction:
 			//	var name = lex.value[i+1]
@@ -640,7 +646,7 @@ module {
 			step(Token.BrOpen)
 			var fields = parseFields()
 			step(Token.BrClose)
-			var me = Node.TClass(t, ext, impl, fields, class_external)
+			var me = Node.TClass(t, ext, impl, fields, classExternal)
 			//Project.mapAttributes.set(me, atts)
 			Project.mapAttributes.set(me, att)
 			result = me
@@ -816,6 +822,7 @@ module {
 					var argname = null
 					switch (tok()) {
 						case Token.LUpper:
+							argNames.push(null)
 							args.push(parseExpr())
 							if (tok() == Token.DblDot) {
 								step(Token.DblDot)
