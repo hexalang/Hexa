@@ -680,10 +680,10 @@ module {
 			var values: [Node] = []
 			if (tok() == Token.BrOpen) { // {}
 				i++
-				if (tok() == Token.DblDot) { // Empty object
+				if (tok() == Token.DblDot) { // Empty object {:}
 					i++
 					step(Token.BrClose)
-				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object
+				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object { k:v }
 					while (tok() != Token.BrClose) {
 						names.push(getgo(Token.LLower))
 						step(Token.DblDot)
@@ -808,11 +808,11 @@ module {
 				else if (tok() == Token.Question) i++
 				else kind = Token.Default
 				result = Node.TAs(result, kind, parseType())
-			case Token.POpen: { // call
+			case Token.POpen: { // call(a, name: b, c)
 				var args: [Node] = []
 				var argNames: [String] = []
 				i++
-				while (tok() != Token.PClose) {
+				if (tok() != Token.PClose) while (true) {
 					var argname = null
 					switch (tok()) {
 						case Token.LUpper:
@@ -831,7 +831,9 @@ module {
 							}
 							args.push(parseExpr())
 					}
-					if (tok() != Token.PClose) step(Token.Comma)
+					if (tok() == Token.Comma) {
+						i++
+					} else break
 				}
 				step(Token.PClose)
 				result = Node.TCall(result, args, argNames)
