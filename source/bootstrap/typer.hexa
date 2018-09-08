@@ -20,9 +20,8 @@ module {
     // Fills type information, checks for errors
     class Typer {
     	static function fillScopes(allCode: Node) {
-		//var insideLoop, insideModule, insideClass, insideFunction
 
-		//--- Modularity
+		// Modularity
 
 		var namespaces: [String : Node] = [:]
 
@@ -55,12 +54,8 @@ module {
 				case Node.TModule(path, els):
 				el = els
 				root = path.join('.')
-				case _: throw 'module?!'
+				case _: throw 'Unreachable #2'
 			}
-
-			//function exists(el: [Node], name: String) {
-			//	for (e in el) if (name == nameOf(e)) throw ('Type `\(name)` already exists in module')
-			//}
 
 			if (namespaces[root] == null) {
 				namespaces[root] = m
@@ -68,7 +63,7 @@ module {
 				var els = null
 				switch (namespaces[root]) {
 					case Node.TModule(_, el): els = el
-					case _: throw 'module?!'
+					case _: throw 'Unreachable #1'
 				}
 				while (el.length > 0) els.push(el.pop())
 			}
@@ -77,15 +72,8 @@ module {
 				var els = null
 				switch (namespaces[root]) {
 					case Node.TModule(_, el): els = el
-					case _: throw 'module?!'
+					case _: throw 'Unreachable #4'
 				}
-
-				//var i = 0
-				//while (i < els.length) {
-				//	var name = nameOf(els[i])
-				//	var found = false
-				//
-				//}
 
 				for (e in els) {
 					var name = nameOfModuleItem(e)
@@ -200,12 +188,10 @@ module {
 			case _: throw 'Typer expects all files to be collected into a block'
 		}
 
-		// TODO module: [Node] ->> :Map<Node>
 		var intermediate = []
 
 		// Fill intermediate non-existsing modules (module aaa.not_exists.bbb {})
 		{
-			// TODO check(add to tests) for name clash: module aaa.bbb {} module { var aaa }
 			var intermediateSubs = []
 			for (ns in namespaces.keys()) {
 				var path = ns.split('.')
@@ -340,18 +326,18 @@ module {
 
 				case Node.TVar(name, t, e, const):
 					if (e == null && const)
-					throw fail('Constant should have a value `let \(name) = value`', node)
+						throw fail('Constant should have a value `let \(name) = value`', node)
 
 					if (e != null) {
-					// Disallow class as a variable expression
-					switch (e) {
-						case Node.TClass(_, _, _, _, _):
-							throw fail('Variable should not have class as a value', node)
-						case _:
-					}
-					if (DataHelper.isVoidValue(e))
-						throw fail('Cannot assign var to a void `var \(name) = void`', node)
-					fill(e)
+						// Disallow class as a variable expression
+						switch (e) {
+							case Node.TClass(_, _, _, _, _):
+								throw fail('Variable should not have class as a value', node)
+							case _:
+						}
+						if (DataHelper.isVoidValue(e))
+							throw fail('Cannot assign var to a void `var \(name) = void`', node)
+						fill(e)
 					}
 
 					addScope(name, node)
@@ -362,7 +348,8 @@ module {
 						fill(keys[i])
 						fill(values[i])
 					}
-				case Node.TAs(e, _, _): fill(e)
+				case Node.TAs(e, kind, t):
+					fill(e)
 				// Constant `let`s
 				case Node.TAssignop(a, _, b):
 					if (DataHelper.isVoidValue(b)) throw fail('Cannot use void as value', node)
@@ -383,11 +370,10 @@ module {
 					if (DataHelper.isVoidValue(b)) throw fail('Cannot use void as value', node)
 					fill(a) fill(b)
 					var parent: Node = Project.mapNames.get(a)
-					if (op == Token.OpAssign)
-					switch (parent) {
+					if (op == Token.OpAssign) switch (parent) {
 						case Node.TVar(name, _, _, const):
-						if (const)
-							throw fail('Cannot reassign a constant `\(name)`', node)
+							if (const)
+								throw fail('Cannot reassign a constant `\(name)`', node)
 						case Node.TFunction(name, _):
 							throw fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
@@ -398,7 +384,7 @@ module {
 					}
 				case Node.TBreak:
 					if (!allowBreakAndContinue) throw fail('Cannot use `break` outside of loop', node)
-				case Node.TCall(e, el, elnames):
+				case Node.TCall(e, el, elNames):
 					switch (e) {
 						case Node.TSuper(_):
 							if (!allowSuper) throw fail('Cannot access `super` here', node)
@@ -452,7 +438,7 @@ module {
 							insideClassMethod = false
 							allowSuper = false
 
-							case Node.TVar(_, _, e, _):
+							case Node.TVar(vname, t, e, _):
 							if (e != null) fill(e)
 
 							case Node.TStatic(e):
@@ -473,8 +459,7 @@ module {
 				case Node.TDeclare(name, vnode):
 					switch (vnode) {
 						case Node.TVar(vname, t, expr, const):
-						if (const && expr == null) addScope(name, node)
-
+							if (const && expr == null) addScope(name, node)
 
 						case Node.TFunction(fname, expr, vars, rettype):
 							addScope(name, node)
@@ -501,9 +486,11 @@ module {
 					for (field in f) {
 						switch (field) {
 							case Node.TStatic(e): switch (e) {
-								case Node.TFunction(_, e, v, r): if (e != null) fill(Node.TFunction(null, e, v, r))
+								case Node.TFunction(_, e, v, r):
+									if (e != null) fill(Node.TFunction(null, e, v, r))
 							}
-							case Node.TFunction(_, e, v, r): if (e != null) fill(Node.TFunction(null, e, v, r))
+							case Node.TFunction(_, e, v, r):
+								if (e != null) fill(Node.TFunction(null, e, v, r))
 							case _: {}
 						}
 					}
@@ -565,7 +552,8 @@ module {
 					pushScope()
 					for (v in vars) {
 						switch (v) {
-							case Node.TVar(vname, _, _): addScope(vname, v)
+							case Node.TVar(vname, t, _):
+								addScope(vname, v)
 							case Node.TIdent(vname): addScope(vname, v)
 							case Node.TParenthesis(e): if (e != null) throw fail(v + '', node)
 							case _:
@@ -588,7 +576,7 @@ module {
 					var depth = 0
 					for (e in econd) {
 						switch (e) {
-							case Node.TVar(_, _, _, const):
+							case Node.TVar(_, t, _, const):
 								if (!const) throw fail('Only if-let bindings supported', node)
 								depth++
 								pushScope()
@@ -696,10 +684,10 @@ module {
 					fill(e)
 					insideTry = _insideTry
 
-					for (e in ca.length) {
+					for (i in ca.length) {
 						pushScope()
-						scopes[scopes.length - 1].set(DataHelper.varName(v[e]), v[e])
-						fill(ca[e])
+						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
+						fill(ca[i])
 						popScope()
 					}
 				case Node.TUnop(_, _, e): fill(e)
@@ -710,9 +698,8 @@ module {
 					fill(e)
 					allowBreakAndContinue = _allowBreakAndContinue
 
-				// TODO
-				case Node.TIs(el, el2): {}
 				case Node.NodeTypeValue(t): {}
+				case Node.TIs(expr, t):
 				case Node.TUnderscore: {}
 				case Node.TNull: {}
 				case Node.TString(_): {}
