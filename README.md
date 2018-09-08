@@ -12,6 +12,8 @@
 
 Hexa is a programming language in an early stage of development. Inspired by Haxe.
 
+![Screenshot](preview.png?raw=true)
+
 WORK IN PROGRESS
 
 ## ENJOY!
