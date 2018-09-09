@@ -14,7 +14,7 @@ Hexa is a programming language in an early stage of development. Inspired by Hax
 
 ![Screenshot](preview.png?raw=true)
 
-WORK IN PROGRESS
+[![AUR GIT](https://img.shields.io/badge/AUR-hexa--git-0088CC.svg)](https://aur.archlinux.org/packages/hexa-git)
 
 ## ENJOY!
 
