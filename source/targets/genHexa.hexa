@@ -46,8 +46,8 @@ module {
 				}
 				for (v in e.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						out += '\n\tstatic function ' + name + ''
-						out += printFunctionArguments(args, defaults) + '' + printStatement(expr) + ''
+						out += '\n\tstatic function ' + name
+						out += printFunctionArguments(args, defaults) + ' ' + printStatement(expr)
 				}
 				out += '\n\t}'
 			}
@@ -56,9 +56,13 @@ module {
 				out += '\n\t' + 'enum ' + e.name + ' {'
 				var i = 0
 				for (name in e.names) {
-					out += '\n\t\t' + name + ''
+					out += '\n\t\t' + name
 					if (e.constructors[i] != null) {
-						out += '(' + e.constructors[i].join(', ') + ')'
+						out += '('
+						out += [for (k in e.constructors[i].length) {
+							e.constructors[i][k] + printType(e.types[i][k], true)
+						}].join(', ')
+						out += ')'
 					}
 					i++
 				}
@@ -72,49 +76,47 @@ module {
 			for (c in project.classes) {
 				if (c.external) {
 					if (c.jsRequire != null) {
-						out += '\n\t' + '//var ' + c.name + ' = require("' + c.jsRequire + '")'
+						out += '\n\t' + '// @require("' + c.jsRequire + '") declare class ' + c.name + ' {}'
 						continue
 					}
-					out += '\n\t' + '//var ' + c.name + ' = global.' + (c.jsNative ?? c.name)
+					out += '\n\t// '
+					if (c.jsNative) out +='@require("' + c.jsNative + '") '
+					out += 'declare class ' + c.name + ' {}'
 					continue
 				}
 
 				out += '\n\t' + 'class ' + c.name + ' {'
+				pushTab()
+				for (v in c.vars) switch (v) {
+					case NiceStatement.Var(name, expr):
+					out += '\n\t\tvar ' + name
+					if (expr != null) out += ' = ' + printExpression(expr)
+					case NiceStatement.Const(name, expr):
+					out += '\n\t\tlet ' + name + ' = ' + printExpression(expr)
+				}
+
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args):
 					if (name == null || name == 'new') out += '\n\t\tnew '
 					else out += '\n\t\tfunction ' + name
-					out += '(' + args.join(', ') + ') {'
-
-					if (name == null || name == 'new') {
-						// Init fields
-						for (v in c.vars) switch (v) {
-							case NiceStatement.Var(name, expr):
-							if (expr != null)
-							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ''
-							case NiceStatement.Const(name, expr):
-							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ''
-						}
-						out += '\n\t\t'
-					}
-
-					out += printStatement(expr) + ' }'
+					out += '(' + args.join(', ') + ') '
+					out += printStatement(expr)
 				}
 
 				for (v in c.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr):
-						out += '\n\tstatic var ' + name
+						out += '\n\t\tstatic var ' + name
 						if (expr != null) out += ' = ' + printExpression(expr)
 					case NiceStatement.Const(name, expr):
-						out += '\n\tstatic let ' + name
+						out += '\n\t\tstatic let ' + name
 						out += ' = ' + printExpression(expr)
 				}
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						out += '\n\tstatic function ' + name + ''
-						out += printFunctionArguments(args, defaults) + ' ' + printStatement(expr) + ''
+						out += '\n\t\tstatic function ' + name
+						out += printFunctionArguments(args, defaults) + ' ' + printStatement(expr)
 				}
-
+				popTab()
 				out += '\n\t}'
 			}
 
@@ -147,23 +149,14 @@ module {
 
 		// Surrounds with { brackets } single statement
 		function printBlock(s: NiceStatement): String {
-			switch (s) {
-				case NiceStatement.Block(el):
-					if (el.length == 1) return '{ ' + printStatement(el[0]) + ' }'
-					if (el.length == 0) return '{}'
-					return printStatement(s)
-				case _:
-					return '{ ' + printStatement(s) + ' }'
-			}
+			return printStatement(s)
 		}
 
-		var last = ''
 		function printStatement(s: NiceStatement) {
-			last = s ?? last
 			switch (s) {
 				case NiceStatement.Statements(els):
 					var r = ''
-					for (s in els) if (s != null) r += '\n' + tabs + printStatement(s) + ''
+					for (s in els) if (s != null) r += '\n' + tabs + printStatement(s)
 					return r
 
 				case NiceStatement.Break: return 'break'
@@ -175,18 +168,18 @@ module {
 					for (e in el) switch (e) {
 						case null:
 						case NiceStatement.Statements(els):
-							for (s in els) if (s != null) r += '\n' + tabs + printStatement(s) + ''
+							for (s in els) if (s != null) r += '\n' + tabs + printStatement(s)
 						case _:
-							r += '\n' + tabs + printStatement(e) + ''
+							r += '\n' + tabs + printStatement(e)
 					}
 
 					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceStatement.Const(name, expr): return 'let ' + name + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Var(name, expr): return 'let ' + name + (expr == null? '' : ' = ' + printExpression(expr))
+				case NiceStatement.Var(name, expr): return 'var ' + name + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Function(name, expr, args, defaults, async):
-					return 'let ' + name + ' = ' + ((async==true)?'async ':'') + printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
+					return 'function ' + name + printFunctionArguments(args, defaults) + ' ' + printBlock(expr)
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
 					return 'return ' + printExpression(e)
@@ -253,8 +246,25 @@ module {
 			].join(', ') + ')'
 		}
 
+		function printType(t: NodeType, prefix: Bool) {
+			let prefix = prefix? ': ' : ''
+			if (t == null) return ''
+
+			switch (t) {
+				case NodeType.ParametricType(name, params):
+					return prefix + name + '<' + [for (param in params) printType(param, false)].join(', ') + '>'
+				case NodeType.Type(name):
+					return prefix + name
+				case NodeType.Object(_):
+					return prefix + '{:}'
+				case NodeType.Optional(t):
+					return prefix + printType(t, false) + '?'
+			}
+
+			return prefix + 'Any'
+		}
+
 		function printExpression(e: NiceExpression) {
-			last = e ?? last
 			switch (e) {
 				case NiceExpression.Null: return 'null'
 				case NiceExpression.This: return 'this'
@@ -299,11 +309,11 @@ module {
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
 				case NiceExpression.Enum(name, tag, args): return name + '.' + 'tag' + printCallArguments(args)
 				case NiceExpression.Function(name, expr, args, defaults):
-					if (name == null) return printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
-					return '((() => { let ' + name + ' = ' + printFunctionArguments(args, defaults) + ' => '
-					+ printBlock(expr) + ' return ' + name + ' })())'
+					if (name == null) return 'function' + printFunctionArguments(args, defaults) + ' ' + printBlock(expr)
+					return 'function ' + name + printFunctionArguments(args, defaults) + ' '
+					+ printBlock(expr)
 				case NiceExpression.Arrow(expr, args, defaults):
-					return printFunctionArguments(args, defaults) + ' => (' + printExpression(expr) + ')'
+					return printFunctionArguments(args, defaults) + ' => ' + printExpression(expr)
 				case NiceExpression.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceExpression.Array(el): return '[' + [for (a in el) printExpression(a)].join(', ') + ']'
 				case NiceExpression.Unop(op, postfix, e):
@@ -330,10 +340,10 @@ module {
 				case NiceExpression.Object(names, el):
 					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
-					if (keys.length == 0) return 'new Map()'
-					return 'new Map([' +
-					[for (i in keys.length) '[' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ']'].join(', ')
-					+ '])'
+					if (keys.length == 0) return '[:]'
+					return '[' +
+						[for (i in keys.length) printExpression(keys[i]) + ' : ' + printExpression(values[i])].join(', ')
+					+ ']'
 				case NiceExpression.Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 				case NiceExpression.NativeOperator(kind, args, s): switch (kind) {
@@ -344,7 +354,7 @@ module {
 					case NativeOperatorKind.Keyword: return s
 				}
 				case NiceExpression.Await(expr): return 'await ' + printExpression(expr)
-				case _: console.error("Unknown expression kind:", (e||[])[0], e, last) return '<!-- undefined -->'
+				case _: console.error("Unknown expression kind:", (e||[])[0], e) return '<!-- undefined -->'
 			}
 		}
 	}

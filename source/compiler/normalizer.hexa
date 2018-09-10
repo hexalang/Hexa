@@ -330,19 +330,23 @@ module {
 					type.name = DataHelper.extractTypeName(t)
 					let names = []
 					let constructors = []
+					let types = []
 					for (f in fields) switch (f) {
 						case Node.TIdent(name):
 							names.push(name)
 							constructors.push(null)
+							types.push(null)
 						case Node.TCall(e, args, argNames):
 							switch (e) {
 								case Node.TIdent(name): names.push(name)
 							}
 							constructors.push([for (arg in argNames) unique(arg)])
+							types.push([for (arg in args) unique(arg)])
 						case _: console.error("Unknown complex enum field kind:", f)
 					}
 					type.names = names
 					type.constructors = constructors
+					type.types = types
 					project.enumsComplex.push(type)
 					return null //type
 				} else {
@@ -372,7 +376,7 @@ module {
 								for (arg in vars) {
 									a.push(unique(DataHelper.nameOf(arg), arg))
 								}
-								type.staticMethods.push(NiceStatement.Function(uname, nodeToStatement(expr), a))
+								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a))
 							case _: console.error("Unknown enum static field kind:", field)
 						}
 						case _: console.error("Unknown simple enum field kind:", f)
@@ -415,7 +419,7 @@ module {
 						for (arg in vars) {
 							a.push(unique(DataHelper.nameOf(arg), arg))
 						}
-						type.methods.push(NiceStatement.Function(uname, nodeToStatement(expr), a))
+						type.methods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a))
 					case Node.TStatic(field):
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
@@ -428,7 +432,7 @@ module {
 								for (arg in vars) {
 									a.push(unique(DataHelper.nameOf(arg), arg))
 								}
-								type.staticMethods.push(NiceStatement.Function(uname, nodeToStatement(expr), a))
+								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a))
 							case _: console.error("Unknown class static field kind:", field)
 						}
 					case _: console.error("Unknown class field kind:", f)
@@ -480,8 +484,8 @@ module {
 						if (expr != null) defaults.push(nodeToExpression(expr))
 						else defaults.push(null)
 				}
-				if (name == 'new') return NiceStatement.Function(null, nodeToStatement(expr), a, defaults)
 				return NiceStatement.Function(name?unique(name, e):null, nodeToStatement(expr), a, defaults)
+				if (name == 'new') return NiceStatement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults)
 
 				case Node.TFor(name, over, by): switch (over) {
 					case Node.TDot(expr, f): // TODO remove after proper type info
@@ -743,8 +747,8 @@ module {
 					addTag(co)
 
 					c.push(cx)
-					block.push(nodeToStatement(ec))
-					s.push(NiceStatement.Block(block))
+					block.push(unwrapNestingBlocks(nodeToStatement(ec)))
+					s.push(unwrapNestingBlocks(NiceStatement.Block(block)))
 					i++
 				}
 
@@ -873,6 +877,14 @@ module {
 			}
 		}
 
+		// Converts `{ { { ... } } }` into just `...`
+		function unwrapNestingBlocks(block) switch (block) {
+			case NiceStatement.Block(el):
+				if (el.length == 1) return unwrapNestingBlocks(el[0])
+				return block
+			case _:
+				return block
+		}
 	}
 
 	class NiceProject {
@@ -922,6 +934,7 @@ module {
 		var external: Bool
 		var names: [String]
 		var constructors: [[String]]
+		var types: [[NodeType]]
 	}
 
 	// Does not return a value
