@@ -19,7 +19,7 @@
 module {
 	// Fills type information, checks for errors
 	class Typer {
-		static function fillScopes(allCode: Node) {
+		static function fillScopes(collected: Node) {
 
 		// Modularity
 
@@ -152,40 +152,15 @@ module {
 //		}
 
 		// Let's fill global namespaces first to avoid delayed expansion
-		switch (allCode) {
-			case Node.TBlock(files):
-				// Fill module scopes of all files at first
-			//	pushScope()
-				for (file in files) {
-					var didInit = false
-					switch (file) {
-						case Node.TBlock(el): for (e in el) switch (e) {
-							case Node.TModule(_):
-								if (didInit) throw 'Expressions should follow after modules2 ' + e +'\n!! ' + file
-								fillModuleNamespace(e)
-							case _: didInit = true
-						}
-						case Node.TModule(_):
-							if (didInit) throw 'Expressions should follow after modules1' + file
-							fillModuleNamespace(file)
-						case _: didInit = true // Not always?// throw 'Typer expects each file to be a block'
-					}
-				}
-			//	popScope()
-			//	// Fill initialization code at files roots
-			//	for (file in files) {
-			//		pushScope()
-			//		switch (file) {
-			//			case TBlock(el): for (e in el) switch (e) {
-			//				case TModule(_): {}
-			//				case _: fill(e)
-			//			}
-			//			case TModule(_): {}
-			//			case _: fill(file)
-			//		}
-			//		popScope()
-			//	}
-			case _: throw 'Typer expects all files to be collected into a block'
+		for (file in collected) {
+			var didInit = false
+			for (e in file) switch (e) {
+				case Node.TModule(path, el):
+					if (didInit) throw 'Modules should follow before expressions'
+					fillModuleNamespace(e)
+				case _:
+					didInit = true
+			}
 		}
 
 		var intermediate = []
@@ -728,37 +703,26 @@ module {
 			}
 		}
 
-		switch (allCode) {
-			case Node.TBlock(files):
-				// Fill module scopes of all files at first
-				pushScope()
+		// Fill module scopes of all files at first
+		pushScope()
 
-				//for (i in in)
+		for (file in collected) for (e in file) switch (e) {
+			case Node.TModule(path, el): fillModule(e)
+			case _:
+		}
 
-				for (file in files) switch (file) {
-					case Node.TBlock(el): for (e in el) switch (e) {
-						case Node.TModule(_): fillModule(e)
-						case _: {}
+		popScope()
+
+		// Fill initialization code at files roots
+		for (file in collected) {
+			pushScope()
+			for (e in file) switch (e) {
+				case Node.TModule(path, el):
+				case _: fill(e)
+			}
+			popScope()
+		}
 					}
-					case Node.TModule(_): fillModule(file)
-					case _: {} // Not always?// throw 'Typer expects each file to be a block'
-				}
-				popScope()
-
-				// Fill initialization code at files roots
-				for (file in files) {
-					pushScope()
-					switch (file) {
-						case Node.TBlock(el): for (e in el) switch (e) {
-							case Node.TModule(_): {}
-							case _: fill(e)
-						}
-						case Node.TModule(_): {}
-						case _: fill(file)
-					}
-					popScope()
-				}
-			case _: throw 'Typer expects all files to be collected into a block'
 		}
     	}
 
