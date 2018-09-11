@@ -111,10 +111,10 @@ class Main {
 
 	// Parses a file
 	function processFile(target: String): Node {
-		var content = Fs.readFileSync(target)
-		var tokens = Lexer.tokenize(content, target)
-		var parser = new Parser(tokens)
-		return parser.node
+		let content = Fs.readFileSync(target)
+		let tokens = Lexer.tokenize(content, target)
+		let parsed = Parser.parseNodes(tokens)
+		return parsed
 	}
 
 	// Read-eval-print loop, starts if hexa called without arguments
@@ -135,9 +135,9 @@ class Main {
 				try {
 					let content = lines.join('\n')
 					let tokens = Lexer.tokenize(Buffer.from(content), "REPL")
-					let parser = new Parser(tokens)
-					var collected = Node.TBlock([js, nodejs, parser.node])
-					if (parser.node == null) continue
+					let parser = Parser.toNode(Parser.parseNodes(tokens))
+					var collected = Node.TBlock([js, nodejs, parser])
+					if (parser == null) continue
 					Typer.fillScopes(collected)
 					code += GenJs.stringifyProject(Normalizer.normalize(collected, GenJs.reserved))
 				} catch (e: Any) {
@@ -157,8 +157,8 @@ class Main {
 	}
 
 	// Parses all files, shows errors and stops if any
-	function processFiles(targets: [String]): [Node] {
-		var res: [Node] = []
+	function processFiles(targets: [String]): [[Node]] {
+		var res: [[Node]] = []
 		for (target in targets) {
 			try {
 				res.push(processFile(target))
@@ -210,6 +210,7 @@ class Main {
 					try {
 						let tokens = Lexer.tokenize(content, file)
 						try {
+							let parser = Parser.parseNodes(tokens)
 						} catch (e: Any) console.log("\(e)")
 					} catch (e: Any) console.log("\(e)")
 				} catch (e: Any) console.log("ERROR: Unable to open file \(file)")
@@ -276,16 +277,16 @@ class Main {
 			let beginParsing = Date.now()
 		#end
 
-		var codes: [Node] = []
+		var files: [[Node]] = []
 		if (input.files != null) {
-			var files = input.files.map(function(file) {
+			let fileList = input.files.map(function(file) {
 				// Avoid global paths
 				if (file.startsWith('/') || file.charAt(1) == ':') return Path.resolve(file)
 				return Path.resolve(packageFolder + Path.sep + file)
 			})
-			codes = processFiles(files)
+			files = processFiles(fileList)
 		}
-		var collected: Node = Node.TBlock(codes)
+		var collected: Node = Node.TBlock([for (file in files) Parser.toNode(file)])
 
 		#if times
 			console.log("[Parsing finished in \(Date.now() - beginParsing) ms]")
@@ -312,7 +313,7 @@ class Main {
 					let beginNormalizer = Date.now()
 				#end
 
-				let normal = Normalizer.normalize(collected, GenJs.reserved)
+				let normal = Normalizer.normalize(files, GenJs.reserved)
 
 				#if times
 					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
@@ -336,7 +337,7 @@ class Main {
 					let beginNormalizer = Date.now()
 				#end
 
-				let normal = Normalizer.normalize(collected, GenC.reserved)
+				let normal = Normalizer.normalize(files, GenC.reserved)
 
 				#if times
 					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
@@ -360,7 +361,7 @@ class Main {
 					let beginNormalizer = Date.now()
 				#end
 
-				let normal = Normalizer.normalize(collected, GenHaxe.reserved, nativeEnums: true)
+				let normal = Normalizer.normalize(files, GenHaxe.reserved, nativeEnums: true)
 
 				#if times
 					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
@@ -381,7 +382,7 @@ class Main {
 					let beginNormalizer = Date.now()
 				#end
 
-				let normal = Normalizer.normalize(collected, GenHexa.reserved)
+				let normal = Normalizer.normalize(files, GenHexa.reserved)
 
 				#if times
 					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")

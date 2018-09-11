@@ -19,7 +19,7 @@ module {
 	// Generates simplified view of syntax tree
 	// for easier later generation
 	class Normalizer {
-		static function normalize(collected: Node, keywords: [String], nativeEnums: Bool = false): NiceProject {
+		static function normalize(collected: [[Node]], keywords: [String], nativeEnums: Bool = false): NiceProject {
 			return (new Normalizer(collected, keywords, nativeEnums)).project
 		}
 
@@ -27,35 +27,34 @@ module {
 		var keywords = []
 		var nativeEnums = false
 
-		new (collected: Node, keywords: [String], nativeEnums) {
+		new (collected: [[Node]], keywords: [String], nativeEnums) {
 			this.keywords = keywords
 			this.nativeEnums = nativeEnums
-			switch (collected) {
-			case Node.TBlock(el): // File
-				// Rename classes upfront to avoid race condition
-				for (e in el) switch (e) {
-					case Node.TModule(path, el):
-						for (e in el) switch (e) {
-							case Node.TClass(t, ext, impl, fields, external):
-							renameClassFields(fields)
-							case Node.TEnum(t, fields, valuesType):
-							renameClassFields(fields)
-						}
-				}
 
-				// Fill statements
-				for (e in el) switch (e) {
-					case Node.TModule(path, el):
-						for (e in el) fillStatement(e)
-					case _:
+			// Rename classes upfront to avoid race condition
+			for (file in collected) for (e in file) switch (e) {
+				case Node.TModule(path, el):
+					for (e in el) switch (e) {
+						case Node.TClass(t, ext, impl, fields, external):
+						renameClassFields(fields)
+						case Node.TEnum(t, fields, valuesType):
+						renameClassFields(fields)
+					}
+			}
+
+			// Fill statements
+			for (file in collected) for (e in file) switch (e) {
+				case Node.TModule(path, el):
+					for (e in el) fillStatement(e)
+				case _:
 					let statement = fillStatement(e)
 					if (statement != null) switch (statement) {
 						case NiceStatement.Block(el):
 						if (el.length > 0) // Don't output empty blocks
-						project.init.push(statement)
-						case _: project.init.push(statement)
+							project.init.push(statement)
+						case _:
+							project.init.push(statement)
 					}
-				}
 			}
 		}
 
