@@ -20,7 +20,6 @@ module {
 	// Fills type information, checks for errors
 	class Typer {
 		static function fillScopes(collected: Node) {
-
 		// Modularity
 
 		var namespaces: [String : Node] = [:]
@@ -43,7 +42,7 @@ module {
 					case NodeType.ParametricType(name): return name
 				}
 				case Node.TDeclare(name, _): return name
-				case _: throw '' + node
+				case _: throw 'Improper module item format ' + TestParser.stringify(node)
 			}
 		}
 
@@ -86,70 +85,7 @@ module {
 					}
 				}
 			}
-
-			// else {
-			//	var els = null
-			//	switch (namespaces[root]) {
-			//		case TModule(_, el): els = el
-			//		case _: throw 'module?!'
-			//	}
-			//	while (el.length > 0) {
-			//		var e = el.pop()
-			//		exists(els, nameOf(e))
-			//		els.push(e)
-			//	}
-			//}
-
-			//if (namespaces[root] == null) {
-			//	namespaces[root] = m
-			//} else {
-			//	var els = switch (namespaces[root]) {
-			//		case TModule(_, els): els
-			//		case _: throw 'module?!'
-			//	}
-			//	while (el.length > 0) {
-			//		var e = el.pop()
-			//		exists(els, nameOf(e))
-			//		els.push(e)
-			//	}
-			//	// TODO join attributes
-			//}
 		}
-
-//		var namespaces: Map<String, [String : Node]> = [:]
-//
-//		function fillModuleNamespace(m: Node) {
-//			var el = null
-//			var root: String = switch (m) {
-//				case TModule([], els): el = els ''
-//				case TModule(path, els): el = els path.join('.')
-//				case _: throw 'module?!'
-//			}
-//
-//			//if (root != null) namespaces[root] = m // TODO modules combine selfves, classes cannt override
-//
-//			if (namespaces[root] == null) namespaces[root] = [:]
-//
-//			for (e in el) switch (e) {
-//				case
-//					TVar(name, _),
-//					TPrivate(TClass(Type(name), _)),
-//					TClass(Type(name), _),
-//					TEnum(Type(name), _),
-//					TDeclare(name, _),
-//					TClass(ParametricType(name, _), _),
-//					TPrivate(TClass(ParametricType(name, _), _))
-//					:
-//					if (namespaces[root][name] != null)
-//					{
-//						var where = root == ''? 'global scope' : '`\(root)`'
-//						throw ('Type `\(name)` already exists in \(where)')
-//					}
-//					namespaces[root][name] = e
-//				case _: throw 'Modules cannot contain ' + e
-//			}
-//
-//		}
 
 		// Let's fill global namespaces first to avoid delayed expansion
 		for (file in collected) {
@@ -204,8 +140,6 @@ module {
 		// TODO intermediate non-existsing modules (module aaa.not_exists.bbb {})
 			return null//namespaces[''][name]
 		}
-
-		//---
 
 		var scopes: [[String : Node]] = [[:]]
 		var currentClass: [Node] = []
@@ -453,7 +387,7 @@ module {
 					}
 
 				case Node.TElvis(a, b): fill(a) fill(b)
-				case Node.TEnum(t, f):
+				case Node.TEnum(t, f, valuesType):
 					var name = extractTypeName(t)
 					addScope(name, node)
 
@@ -580,7 +514,7 @@ module {
 
 				//TODO vames and values added
 
-				case Node.TNew(path, _, el, names, values):
+				case Node.TNew(path, t, el, names, values):
 					// TODO parent names and path check
 					for (e in el) fill(e)
 				case Node.TObject(names, el): for (e in el) fill(e)
@@ -673,8 +607,8 @@ module {
 					fill(e)
 					allowBreakAndContinue = _allowBreakAndContinue
 
-				case Node.NodeTypeValue(t): {}
 				case Node.TIs(expr, t):
+				case Node.NodeTypeValue(t):
 				case Node.TUnderscore: {}
 				case Node.TNull: {}
 				case Node.TString(_): {}
@@ -689,17 +623,12 @@ module {
 			}
 		}
 
-		function fillFile(file) {
-			//pushScope()
-			fill(file)
-			//popScope()
-		}
-
 		function fillModule(mod) {
 			switch (mod) {
 				case Node.TModule(path, el):
 					for (e in el) fill(e)
-				case _: console.log('-------> fillModule \(mod)')
+				case _:
+					console.log('fillModule expects module, but got \(mod)')
 			}
 		}
 
@@ -722,10 +651,10 @@ module {
 			}
 			popScope()
 		}
+		}
+
 					}
 		}
-    	}
-
         // Returns the only name of type
     	static function extractTypeName(t: NodeType): String {
     		switch (t) {
@@ -734,5 +663,5 @@ module {
     		case _: throw 'Type has no name: ' + t
     		}
     	}
-    }
+	}
 }
