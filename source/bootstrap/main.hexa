@@ -19,6 +19,7 @@
 enum Generator: String {
 	JavaScript = "JavaScript"
 	C = "C"
+	CSharp = "C#"
 	Haxe = "Haxe"
 	Hexa = "Hexa"
 }
@@ -184,8 +185,31 @@ class Main {
 
 		// Add standard library
 		if (pack.files == null) pack.files = []
-		pack.files.unshift(Path.resolve(__dirname + '/library/js/js.hexa'))
-		pack.files.unshift(Path.resolve(__dirname + '/library/nodejs/nodejs.hexa'))
+
+		switch (pack.target.generator) {
+			case Generator.JavaScript:
+				Project.defines.js = Project.defines.js ?? true
+				if (pack.noLib == true) {
+				} else {
+					pack.files.unshift(Path.resolve(__dirname + '/library/js/js.hexa'))
+					pack.files.unshift(Path.resolve(__dirname + '/library/nodejs/nodejs.hexa'))
+				}
+			case Generator.C:
+				Project.defines.c = Project.defines.c ?? true
+				Project.defines.native = Project.defines.native ?? true
+			case Generator.Haxe:
+				Project.defines.haxe = Project.defines.haxe ?? true
+			case Generator.Hexa:
+				Project.defines.hexa = Project.defines.hexa ?? true
+				if (pack.noLib == true) {
+				} else {
+					pack.files.unshift(Path.resolve(__dirname + '/library/js/js.hexa'))
+					pack.files.unshift(Path.resolve(__dirname + '/library/nodejs/nodejs.hexa'))
+				}
+			case Generator.CSharp:
+				Project.defines.cs = Project.defines.cs ?? true
+				pack.files.unshift(Path.resolve(__dirname + '/library/cs/cs.hexa'))
+		}
 		return pack
 	}
 
@@ -393,6 +417,28 @@ class Main {
 
 				#if times
 					console.log("[GenHexa finished in \(Date.now() - beginGenHexa) ms]")
+				#end
+
+				Fs.writeFileSync(target, license + outs)
+			case Generator.CSharp:
+				var target = packageFolder + Path.sep + Path.parse(input.output).name + ".cs"
+				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
+
+				#if times
+					let beginNormalizer = Date.now()
+				#end
+
+				let normal = Normalizer.normalize(files, GenCSharp.reserved, nativeEnums: false)
+
+				#if times
+					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
+					let beginGenCSharp = Date.now()
+				#end
+
+				let outs = GenCSharp.stringifyProject(normal)
+
+				#if times
+					console.log("[GenCSharp finished in \(Date.now() - beginGenCSharp) ms]")
 				#end
 
 				Fs.writeFileSync(target, license + outs)
