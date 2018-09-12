@@ -854,13 +854,24 @@ module {
 		function renameClassFields(fields: [Node]) {
 			pushScope()
 			for (f in fields) switch (f) {
-				case Node.TVar(name, t, expr, const): if (parentNames.get(f) == null) unique(name, f)
+				case Node.TVar(name, t, expr, const):
+					if (parentNames.get(f) == null) unique(name, f)
 				case Node.TFunction(name, expr, vars, rettype):
 					if (name == 'new') parentNames.set(f, 'new')
 					else if (parentNames.get(f) == null) unique(name, f)
 				case Node.TStatic(field): switch (field) {
-					case Node.TVar(name, t, expr, const): if (parentNames.get(field) == null) unique(name, field)
-					case Node.TFunction(name, expr, vars, rettype): if (parentNames.get(field) == null) unique(name, field)
+					case Node.TVar(name, t, expr, const):
+						if (parentNames.get(field) == null) unique(name, field)
+					case Node.TFunction(name, expr, vars, rettype):
+						let atts = Project.mapAttributes.get(f)
+
+						let native = getAtt(atts, 'native')
+						if (native != null) switch (native.values[0]) {
+							case Node.TString(s): if (parentNames.get(field) == null) unique(s, field)
+							case _: throw '@native takes string as argument'
+						} else
+
+						if (parentNames.get(field) == null) unique(name, field)
 				}
 			}
 			popScope()
