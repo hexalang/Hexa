@@ -28,6 +28,9 @@ module {
 			this.project = project
 		}
 
+		var dictionaryName = "global::System.Collections.Generic.Dictionary"
+		var listName = "global::System.Collections.Generic.List"
+
 		function stringify() {
 			var out = ''
 
@@ -80,9 +83,13 @@ module {
 						out += '\n\t' + '// @require("' + c.jsRequire + '") declare class ' + c.name + ' {}'
 						continue
 					}
-					out += ''
-					if (c.jsNative)
+					if (c.jsNative) {
 						out +='using \(c.name) = ' + c.jsNative + ';'
+						if(c.jsNative == "global::System.Collections.Generic.Dictionary")
+							dictionaryName = "Dictionary"
+						else if (c.jsNative == "global::System.Collections.Generic.List")
+							listName = "List"
+					}
 					continue
 				}
 
@@ -331,7 +338,7 @@ module {
 				case NiceExpression.Arrow(expr, args, defaults):
 					return printFunctionArguments(args, defaults) + ' => ' + printExpression(expr)
 				case NiceExpression.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
-				case NiceExpression.Array(el): return 'new global::System.Collections.Generic.List<dynamic>() {' + [for (a in el) printExpression(a)].join(', ') + '}'
+				case NiceExpression.Array(el): return 'new \(listName)<dynamic>() {' + [for (a in el) printExpression(a)].join(', ') + '}'
 				case NiceExpression.Unop(op, postfix, e):
 					if (postfix) return printExpression(e) + Token.stringify(op)
 					return Token.stringify(op) + printExpression(e)
@@ -356,7 +363,7 @@ module {
 				case NiceExpression.Object(names, el):
 					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
-					var r = "new global::System.Collections.Generic.Dictionary<dynamic, dynamic>()"
+					var r = "new \(dictionaryName)<dynamic, dynamic>()"
 					if(keys.length == 0) return r
 
 					r += " {\n"
