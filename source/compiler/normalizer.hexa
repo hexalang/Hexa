@@ -43,19 +43,26 @@ module {
 			}
 
 			// Fill statements
-			for (file in collected) for (e in file) switch (e) {
+			let init = []
+			for (file in collected) {
+				let initial = []
+				for (e in file) switch (e) {
 				case Node.TModule(path, el):
 					for (e in el) fillStatement(e)
 				case _:
 					let statement = fillStatement(e)
-					if (statement != null) switch (statement) {
+					switch (statement) {
+						case null:
 						case NiceStatement.Block(el):
 						if (el.length > 0) // Don't output empty blocks
-							project.init.push(statement)
+							initial.push(statement)
 						case _:
-							project.init.push(statement)
+							initial.push(statement)
 					}
+				}
+				if (initial.length > 0) init.push(NiceStatement.Block(initial))
 			}
+			project.init.push(NiceStatement.Block(init))
 		}
 
 		function nodeToExpression(e: Node): NiceExpression {
