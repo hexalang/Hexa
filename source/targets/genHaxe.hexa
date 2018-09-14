@@ -34,6 +34,9 @@ module {
 			for (e in project.enumsSimple) {
 				// No need to output simple enum values
 				out += '\n' + '@:enum abstract ' + e.name + '(Dynamic) {'
+				for (v in e.names.length) {
+					out += '\n\t\tvar ' + e.names[v] + ' = ' + printExpression(e.values[v]) + ';'
+				}
 				for (v in e.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr):
 						out += '\n\t' + e.name + '.' + name
@@ -199,14 +202,10 @@ module {
 					return r
 				case NiceStatement.Call(e, args): return printExpression(e) + printCallArguments(args)
 				case NiceStatement.Try(expr, t, v, catches):
-					pushTab()
 					var r = 'try {\n' + tabs
 					r += printStatement(expr)
-					popTab()
 					r += '\n' + tabs + '} catch (' + v[0] + ': Dynamic) {\n' + tabs + '\t'
-					pushTab()
 					r += printStatement(catches[0])
-					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.Assign(a, v):
 					return printExpression(a) + ' = ' + printExpression(v)
@@ -218,7 +217,7 @@ module {
 				case NiceStatement.Decrement(e): return printExpression(e) + '--'
 				case NiceStatement.While(econd, e, pre):
 					if (pre) return 'while (' + printExpression(econd) + ') ' + printStatement(e)
-					return 'do {' + printStatement(e) + '} while (' + printExpression(econd) + ')'
+					return 'do ' + printStatement(e) + ' while (' + printExpression(econd) + ')'
 				case NiceStatement.Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 				case NiceStatement.Dot(expr, name): return printExpression(expr) + '.' + name
@@ -308,7 +307,7 @@ module {
 					if (postfix) return printExpression(e) + Token.stringify(op)
 					return Token.stringify(op) + printExpression(e)
 				case NiceExpression.Elvis(nullable, othewise):
-					return '((' + printExpression(nullable) + ') || (' + printExpression(othewise) + '))'
+					return '(function(){var _ = ' + printExpression(nullable) + '; if (_ != null) return _; return ' + printExpression(othewise) + ';}())'
 				case NiceExpression.Parenthesis(e): return '(' + printExpression(e) + ')'
 				case NiceExpression.Binop(a, op, b):
 					return printExpression(a) + ' ' + Token.stringify(op) + ' ' + printExpression(b)
