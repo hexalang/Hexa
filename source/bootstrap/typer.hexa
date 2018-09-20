@@ -48,7 +48,7 @@ module {
 
 		function fillModuleNamespace(m: Node) {
 			var el = null
-			var root: String = null
+			var root: String? = null
 			switch (m) {
 				case Node.TModule(path, els):
 				el = els
@@ -260,7 +260,7 @@ module {
 				case Node.TAs(e, kind, t):
 					fill(e)
 				// Constant `let`s
-				case Node.TAssignop(a, _, b):
+				case Node.TAssignop(a, op, b):
 					if (DataHelper.isVoidValue(b)) throw fail('Cannot use void as value', node)
 					fill(a)
 					var parent: Node = Project.mapNames.get(a)
@@ -275,9 +275,11 @@ module {
 					fill(b)
 
 				case Node.TBinop(a, op, b):
-					if (DataHelper.isVoidValue(a)) throw fail('Cannot use void as value', node)
+					if (DataHelper.isVoidValue(a)) throw fail('Cannot use void as assignee', node)
 					if (DataHelper.isVoidValue(b)) throw fail('Cannot use void as value', node)
-					fill(a) fill(b)
+					fill(a)
+					fill(b)
+
 					var parent: Node = Project.mapNames.get(a)
 					if (op == Token.OpAssign) switch (parent) {
 						case Node.TVar(name, _, _, const):
@@ -518,7 +520,8 @@ module {
 					// TODO parent names and path check
 					for (e in el) fill(e)
 				case Node.TObject(names, el): for (e in el) fill(e)
-				case Node.TParenthesis(e): fill(e)
+				case Node.TParenthesis(e):
+					fill(e)
 				case Node.TReturn(e):
 					if (!insideFunction) throw fail('Cannot use `return` outside of function', node)
 					if (e != null && DataHelper.isVoidValue(e)) throw fail('Cannot use void as a returning value', node)
