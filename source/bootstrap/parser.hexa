@@ -710,13 +710,33 @@ module {
 			}
 			step(Token.POpen)
 			var args = []
-			while (tok() != Token.PClose) {
-				args.push(parseExpr())
-				if (tok() == Token.Comma) i++
+			var argNames: [String] = []
+			if (tok() != Token.PClose) while (true) {
+				switch (tok()) {
+					case Token.LUpper:
+						argNames.push(null)
+						args.push(parseExpr())
+						if (tok() == Token.DblDot) {
+							step(Token.DblDot)
+							parseType()
+						}
+					case _:
+						if (lex.token[i + 1] == Token.DblDot) {
+							argNames.push(getgo(Token.LLower))
+							step(Token.DblDot)
+						}
+						else {
+							argNames.push(null)
+						}
+						args.push(parseExpr())
+				}
+				if (tok() == Token.Comma) {
+					i++
+				} else break
 			}
 			step(Token.PClose)
 
-			result = Node.TNew([], t, args, names, values)
+			result = Node.TNew([], t, args, names, values, argNames)
 		case Token.KSwitch:
 			i++
 			step(Token.POpen)
