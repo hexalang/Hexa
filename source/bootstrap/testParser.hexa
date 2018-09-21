@@ -111,7 +111,7 @@ module {
 
 			// Types parsing in expressions
 			shouldAllEqual([
-				'var a = new Array<A>()' : 'TVar(a,null,TNew([],ParametricType(Array,[Type(A)]),[],[],[]),false)',
+				'var a = new Array<A>()' : 'TVar(a,null,TNew([],ParametricType(Array,[Type(A)]),[],[],[],[]),false)',
 				'a = Array<A>.staticField()' : 'TBinop(TIdent(a),=,TCall(TDot(NodeTypeValue(ParametricType(Array,[Type(A)])),staticField),[]))',
 				'a = EnumTest.EnumField' : 'TBinop(TIdent(a),=,TDot(NodeTypeValue(Type(EnumTest)),EnumField))',
 				'a = EnumTest.EnumField(arg)' : 'TBinop(TIdent(a),=,TCall(TDot(NodeTypeValue(Type(EnumTest)),EnumField),[TIdent(arg)]))',
@@ -148,11 +148,12 @@ module {
 
 			// Constructor
 			shouldAllEqual([
-				'class A {} var a = new A { } ()' : "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[]),false)])",
+				'new A(a: 1, b: 2)' : 'TNew([],Type(A),[TInt(1),TInt(2)],[],[],[a,b])',
+				'class A {} var a = new A { } ()' : "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[],[]),false)])",
 				'class A { var field: String } var a = new A { field: "Value" } ()' :
-					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[TString(Value)]),false)])",
+					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[TString(Value)],[]),false)])",
 				'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' :
-					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false),TVar(otherfield,Type(Int),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)]),false)])"
+					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false),TVar(otherfield,Type(Int),null,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)],[]),false)])"
 				])
 
 			// Functions
@@ -169,6 +170,10 @@ module {
 
 			// Commas
 			shouldAllError([
+				'new T(,)',
+				'new T(a b,)',
+				'new T(a,b,)',
+				'new T(a b)',
 				'call(1 2)',
 				'call(1 2,)',
 				'call(1,2,)',
@@ -343,8 +348,8 @@ module {
 				res += external + ")"
 				return res
 
-			case Node.TNew(path, t, args, names, values):
-				return 'TNew([' + path.join('.') + '],' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(args) + ',[' + names.join(",") + "]," + TestParser.stringifyNodeArray(values) + ")"
+			case Node.TNew(path, t, args, names, values, argNames):
+				return 'TNew([' + path.join('.') + '],' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(args) + ',[' + names.join(",") + "]," + TestParser.stringifyNodeArray(values) + ",[" + argNames.join(',') + "])"
 
 			case Node.NodeTypeValue(type): return 'NodeTypeValue(' + TestParser.stringifyType(type) + ")"
 			case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
