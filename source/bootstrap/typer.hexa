@@ -27,6 +27,9 @@ module {
 		function nameOfModuleItem(node: Node): String {
 			switch (node) {
 				case Node.TVar(name, _): return name
+				case Node.TFunction(name, _):
+					if (let named = name) return named
+					else throw 'Module function should have a name'
 				case Node.TPrivate(node): switch (node) {
 					case Node.TClass(t, _): switch (t) {
 						case NodeType.Type(name): return name
@@ -151,7 +154,7 @@ module {
 		function addScope(name, node)
 			scopes[scopes.length-1].set(name, node)
 
-		function fail(msg: String, node: Node) {
+		function fail(msg: String, node: Node = null) {
 			var data = Project.data.get(node)
 			if (data == null)
 				data = Project.data.get(prevnode)
@@ -350,7 +353,7 @@ module {
 							allowSuper = false
 
 							case Node.TVar(vname, t, e, _):
-							if (e != null) fill(e)
+								if (e != null) fill(e)
 
 							case Node.TStatic(e):
 							switch (e) {
@@ -440,7 +443,8 @@ module {
 					if (expr == null && !isInExternalClass) throw fail('Non-external function should have a body', node)
 					if (name != null) addScope(name, node)
 					pushScope()
-					for (v in vars) {
+					for (i in vars.length) {
+						let v = vars[i]
 						switch (v) {
 							case Node.TVar(vname, _, _): addScope(vname, v)
 							case Node.TIdent(vname): addScope(vname, v)

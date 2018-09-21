@@ -83,6 +83,8 @@ module {
 			shouldNotError('try { throw 1 } catch(e: Any) { 2 }')
 			shouldError('var a = throw 1')
 			shouldError('var a = { throw 1 }')
+			shouldError('{ throw 1 }') // Unhandled at file level
+			shouldError('throw 1') // Unhandled at file level
 
 			// Unhandled exceptions in functions
 			shouldNotError('function f() throw 123') // Infers @throws(Int)
@@ -124,7 +126,9 @@ module {
 
 			// Module namespaces
 			shouldError('module hi { function hi() }') // Non-declare should have a body
-			shouldError('module hi { function hi() }')
+			shouldError('module hi { function () {} }') // Module function should have a name
+			shouldError('function hi() { static var x = 1 }')
+			shouldError('function hi() { private var x = 1 }')
 
 			// Classes
 			shouldError('class A { static function hi() { this } }')
@@ -159,6 +163,10 @@ module {
 
 		static var passed = 0
 		static var overall = 0
+
+		//
+		// Helpers
+		//
 
 		static function shouldNotError(input: String): Void {
 			overall++
@@ -201,19 +209,11 @@ module {
 			for (test in template(code, a, b, c, d)) shouldNotError(test)
 		}
 
+		static var library = Fs.readFileSync(__dirname + '/library/js/js.hexa')
+
 		static function didError(input: String): String {
 			let input =
-			"module { " +
-			"@untypedFields declare class Any {} " +
-			"@untypedFields declare class Void {} " +
-			"@untypedFields declare class Null<T> {} " +
-			"@untypedFields declare class Array<T> {} " +
-			"@untypedFields declare class Map<K, V> {}" +
-			"@untypedFields declare class Bool {}" +
-			"@untypedFields declare class Int {}" +
-			"@untypedFields declare class String {}" +
-			"}" +
-			input
+			library + input
 
 			var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
 			try {
