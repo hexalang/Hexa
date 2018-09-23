@@ -18,7 +18,138 @@
 module {
 	class Typer2 {
 		new () {}
-		function fillScopes(collected: Node): Void {
+		function fillFiles(collected: Node): Void {
+			// Fill module scopes of all files at first
+			pushScope()
+			for (file in collected) for (e in file) switch (e) {
+				case Node.TModule(path, el):
+					for (node in el) {
+						fill(node)
+					}
+				case _:
+			}
+			popScope()
+
+			// Fill initialization code at files roots
+			for (file in collected) {
+				pushScope()
+				for (e in file) switch (e) {
+					case Node.TModule(path, el):
+					case _: fill(e)
+				}
+				popScope()
+			}
+		}
+
+		private function fail(msg: String, node: Node = null) {
+			var data = Project.data.get(node)
+			if (data == null) {
+				throw new CompilerError(Fail.TyperError, msg, 0, 0, "")
+			}
+			throw new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName)
+		}
+
+		// Scopes
+		private var scopes: [[String : Node]] = [[:]]
+		private function pushScope() scopes.push(([:]))
+		private function popScope() scopes.pop()
+		private function addScope(name, node) scopes[scopes.length - 1].set(name, node)
+
+		// Syntax tree traverse
+		private function fill(node: Node): Void {
+			switch (node) {
+				case Node.TVars(e):
+					for (ee in e) fill(ee)
+				case Node.TBlock(el):
+					pushScope()
+					for (e in el) fill(e)
+					popScope()
+				case Node.TIdent(name):
+				case Node.TVar(name, t, e, const):
+					addScope(name, node)
+
+				case Node.TArray(el):
+				case Node.TMap(keys, values):
+					for (i in keys.length) {
+						fill(keys[i])
+						fill(values[i])
+					}
+				case Node.TAs(e, kind, t):
+					fill(e)
+				case Node.TAssignop(a, op, b):
+					fill(a)
+					fill(b)
+
+				case Node.TBinop(a, op, b):
+					fill(a)
+					fill(b)
+				case Node.TBreak:
+				case Node.TCall(e, el, elNames):
+				case Node.TClass(t, extend, implement, f, external):
+				case Node.TDeclare(name, vnode):
+				case Node.TDot(e, n):
+				case Node.TElvis(a, b):
+					fill(a)
+					fill(b)
+				case Node.TEnum(t, f, valuesType):
+				case Node.TFor(name, over, by):
+					pushScope()
+					fill(over)
+					addScope(name, node)
+					fill(by)
+					popScope()
+
+				case Node.TFunction(name, expr, vars, rettype):
+
+				case Node.TArrow(expr, vars, rettype):
+					fill(expr)
+
+				case Node.TIf(econd, eif, eelse):
+					fill(eif)
+					if (eelse != null) fill(eelse)
+
+				case Node.TIndex(e, i):
+					fill(e)
+					fill(i)
+				case Node.TModule:
+					throw fail('Modules should be at a file\' upper scope', node)
+				case Node.TNew(path, t, el, names, values):
+					for (e in el) fill(e)
+				case Node.TObject(names, el):
+					for (e in el) fill(e)
+				case Node.TParenthesis(e):
+					fill(e)
+				case Node.TReturn(e):
+				case Node.TStatic(e):
+					throw fail('Cannot use `static` here', node)
+				case Node.TSuper:
+				case Node.TThis:
+				case Node.TSwitch(exprs, conds, guards, cases):
+				case Node.TThrow(e):
+					fill(e)
+				case Node.TTry(e, t, v, ca):
+				case Node.TUnop(_, _, e): fill(e)
+				case Node.TWhile(econd, e, pre):
+					fill(econd)
+					fill(e)
+				case Node.TIs(expr, t):
+				case Node.NodeTypeValue(t):
+				case Node.TUnderscore:
+					throw fail('Cannot use `_` outside of case pattern', node)
+				case Node.TNull:
+				case Node.TContinue:
+				case Node.TString(s):
+				case Node.TBool(_):
+				case Node.TInt(v):
+				case Node.TFloat(_):
+				case Node.TExport(f):
+				case Node.TPrivate(_):
+					throw fail('Cannot use `private` here', node)
+				case null:
+					throw fail('Got null node', node)
+				case _:
+					throw fail('Unknown node kind ' + node, node)
+			}
 		}
 	}
 }
