@@ -112,6 +112,16 @@ module {
 				}
 				return NiceExpression.Dot(nodeToExpression(expr), name)
 
+				case Node.TDotUpper(expr, name):
+				let parent = Project.mapNames.get(expr)
+				switch (parent) {
+					case Node.TEnum(t, fields, valuesType):
+						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
+						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
+					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
+				}
+				return NiceExpression.Dot(nodeToExpression(expr), name)
+
 				case Node.TCall(e, args, argNames):
 
 				// Optimize `'String'.charCodeAt(0)`
@@ -543,6 +553,7 @@ module {
 				return NiceStatement.Return(nodeToExpression(e))
 
 				case Node.TDot(expr, name): return NiceStatement.Dot(nodeToExpression(expr), name)
+				case Node.TDotUpper(expr, name): return NiceStatement.Dot(nodeToExpression(expr), name)
 
 				case Node.TIf(econd, eif, eelse):
 				// Check if it contains if-let bindings
@@ -699,12 +710,13 @@ module {
 								if (v) return NiceExpression.True
 								return NiceExpression.False
 							case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
+							case Node.TDotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
 							case Node.TBinop(a, op, b): switch (op) {
 							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b))
 								case _: console.error('Unknown native case binop kind:', e, Project.mapNames.get(e))
 							}
 							case Node.TCall(e, args, argNames): switch (e) {
-								case Node.TDot(expr, name):
+								case Node.TDotUpper(expr, name):
 									let a = []
 									for (arg in args.length) switch (args[arg]) {
 										case Node.TIdent(name): a.push(NiceExpression.Ident(unique(name, args[arg])))
@@ -744,7 +756,10 @@ module {
 							if (v) cx.push(NiceExpression.True)
 							else cx.push(NiceExpression.False)
 						case Node.TCall(e, args, argNames): switch (e) {
-							case Node.TDot(expr, name): cx.push(getTag(Project.mapNames.get(expr), name))
+							case Node.TDotUpper(expr, name):
+								let parent = Project.mapNames.get(expr)
+								let tag = getTag(parent, name)
+								cx.push(tag)
 							// Promote to complex enum
 							index = NiceExpression.Binop(NiceExpression.Ident(temp), Token.OpBoolAnd, NiceExpression.Index(NiceExpression.Ident(temp), NiceExpression.Int(1)))
 							for (arg in args.length) switch (args[arg]) {
@@ -754,7 +769,7 @@ module {
 							}
 							case _: console.error('Unknown case extract kind:', e, Project.mapNames.get(e))
 						}
-						case Node.TDot(expr, name):
+						case Node.TDotUpper(expr, name):
 							cx.push(getTag(Project.mapNames.get(expr), name))
 						case Node.TBinop(a, op, b): switch (op) {
 							case Token.OpOr:
