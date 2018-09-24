@@ -18,12 +18,124 @@
 module {
 	class Typer2 {
 		new () {}
-		function fillFiles(collected: Node): Void {
+		function fillFiles(collected: [Node]): Void {
+			function fillModuleNamespace(m: Node) {
+				var el = null
+				var root: String? = null
+				switch (m) {
+					case Node.TModule(path, els):
+					el = els
+					root = path.join('.')
+					case _: throw 'Unreachable #2'
+				}
+
+				if (namespaces[root] == null) {
+					namespaces[root] = m
+				} else {
+					var els = null
+					switch (namespaces[root]) {
+						case Node.TModule(_, el): els = el
+						case _: throw 'Unreachable #1'
+					}
+					while (el.length > 0) els.push(el.pop())
+				}
+
+				{
+					var els = null
+					switch (namespaces[root]) {
+						case Node.TModule(_, el): els = el
+						case _: throw 'Unreachable #4'
+					}
+
+					for (e in els) {
+						var name = nameOfModuleItem(e)
+						var found = false
+						for (e in els) {
+							if (nameOfModuleItem(e) == name) {
+								if (found) throw ('Type `\(name)` already exists in module')
+								if (!found) found = true
+							}
+						}
+					}
+				}
+			}
+
+			// Let's fill global namespaces first to avoid delayed expansion
+			for (file in collected) {
+				var didInit = false
+				for (e in file) switch (e) {
+					case Node.TModule(path, el):
+						if (didInit) throw 'Modules should follow before expressions'
+						fillModuleNamespace(e)
+					case _:
+						didInit = true
+				}
+			}
+
+			var intermediate = []
+
+			// Fill intermediate non-existsing modules (module aaa.not_exists.bbb {})
+			{
+				var intermediateSubs = []
+				for (ns in namespaces.keys()) {
+					var path = ns.split('.')
+					var namespace = path.shift()
+					function check(namespace) {
+						if (namespaces[namespace] == null && intermediate.indexOf(namespace) == -1) {
+							intermediate.push(namespace)
+						}
+					}
+					check(namespace)
+					while (path.length > 0) {
+						namespace += '.' + path.shift()
+						check(namespace)
+					}
+				}
+
+				for (path in intermediate) {
+					var m = Node.TModule(path.split('.'), [])
+					namespaces[path] = m
+				}
+			}
+
+			function findType(name: String) {
+				var subj = null
+				for (i in scopes.length) {
+					subj = scopes[scopes.length - i - 1].get(name)
+					if (subj != null) {
+						break
+					}
+				}
+				if (subj == null) subj = findInNamespaceRoots(name)
+				return subj
+			}
+
+			function findBasicType(name: String) {
+				let subj = findInNamespaceRoots(name)
+				if (subj == null)
+					throw fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
+				switch (subj) {
+					case Node.TDeclare(_, t):
+						return registerClassType(t)
+				}
+				return registerClassType(subj)
+			}
+
+			typeInt = findBasicType('Int').instantiate()
+			typeBool = findBasicType('Bool').instantiate()
+			typeFloat = findBasicType('Float').instantiate()
+			typeString = findBasicType('String').instantiate()
+			typeArray = findBasicType('Array').instantiate()
+			typeMap = findBasicType('Map').instantiate()
+			typeAny = findBasicType('Any').instantiate()
+			typeVoid = findBasicType('Void').instantiate()
+
 			// Fill module scopes of all files at first
 			pushScope()
 			for (file in collected) for (e in file) switch (e) {
 				case Node.TModule(path, el):
 					for (node in el) {
+						Project.mapNames.set(node, e)
 						fill(node)
 					}
 				case _:
@@ -41,7 +153,10 @@ module {
 			}
 		}
 
-		private function fail(msg: String, node: Node = null) {
+		function registerClassType(node: Node): Type {
+		}
+
+		static function fail(msg: String, node: Node = null) {
 			var data = Project.data.get(node)
 			if (data == null) {
 				throw new CompilerError(Fail.TyperError, msg, 0, 0, "")
@@ -49,107 +164,247 @@ module {
 			throw new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName)
 		}
 
+		function nameOfModuleItem(node: Node): String {
+			switch (node) {
+				case Node.TVar(name, _): return name
+				case Node.TFunction(name, _):
+					if (let named = name) return named
+					else throw 'Module function should have a name'
+				case Node.TPrivate(node): switch (node) {
+					case Node.TClass(t, _): switch (t) {
+						case NodeType.Type(name): return name
+						case NodeType.ParametricType(name): return name
+					}
+				}
+				case Node.TClass(t, _): switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name): return name
+				}
+				case Node.TEnum(t, _): switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name): return name
+				}
+				case Node.TDeclare(name, _): return name
+				case _: throw 'Improper module item format ' + TestParser.stringify(node)
+			}
+		}
+
+		function findInNamespaceRoots(name: String): Node {
+			if (namespaces[name] != null) return namespaces[name]
+			var m = namespaces['']
+			var el = null
+			switch (m) {
+				case Node.TModule(_, els): el = els
+				case _: return null // No root
+			}
+			for (e in el) if (name == nameOfModuleItem(e)) return e
+			return null
+		}
+
 		// Scopes
-		private var scopes: [[String : Node]] = [[:]]
+		private let scopes: [[String : Node]] = [[:]]
 		private function pushScope() scopes.push(([:]))
 		private function popScope() scopes.pop()
 		private function addScope(name, node) scopes[scopes.length - 1].set(name, node)
 
+		// Types
+		private let types: [String : Type] = [:]
+		private var typeString: Type? = null
+		private var typeInt: Type? = null
+		private var typeFloat: Type? = null
+		private var typeBool: Type? = null
+		private var typeArray: Type? = null // Type instantiators
+		private var typeMap: Type? = null // Type instantiators
+		private var typeAny: Type? = null
+		private var typeVoid: Type? = null
+		private var namespaces: [String : Node] = [:]
+
 		// Syntax tree traverse
 		private function fill(node: Node): Void {
 			switch (node) {
+				// Types
+				case Node.TClass(t, extend, implement, f, external):
+					var name = DataHelper.extractTypeName(t)
+					addScope(name, node)
+
+				case Node.TEnum(t, f, valuesType):
+					var name = DataHelper.extractTypeName(t)
+					addScope(name, node)
+
+				case Node.TDeclare(name, vnode):
+					switch (vnode) {
+						case Node.TClass(_):
+							addScope(name, vnode)
+					}
+
+				// Statements do not return value
 				case Node.TVars(e):
 					for (ee in e) fill(ee)
 				case Node.TBlock(el):
 					pushScope()
 					for (e in el) fill(e)
 					popScope()
-				case Node.TIdent(name):
 				case Node.TVar(name, t, e, const):
+					if (e == null && const)
+						throw fail('Constant should have a value `let \(name) = value`', node)
 					addScope(name, node)
 
-				case Node.TArray(el):
-				case Node.TMap(keys, values):
-					for (i in keys.length) {
-						fill(keys[i])
-						fill(values[i])
-					}
-				case Node.TAs(e, kind, t):
-					fill(e)
+
 				case Node.TAssignop(a, op, b):
 					fill(a)
-					fill(b)
+					fillExpression(b)
 
 				case Node.TBinop(a, op, b):
 					fill(a)
-					fill(b)
+					fillExpression(b)
 				case Node.TBreak:
 				case Node.TCall(e, el, elNames):
-				case Node.TClass(t, extend, implement, f, external):
 				case Node.TDeclare(name, vnode):
 				case Node.TDot(e, n):
+
 				case Node.TElvis(a, b):
-					fill(a)
-					fill(b)
-				case Node.TEnum(t, f, valuesType):
+					fillExpression(a)
+					fillExpression(b)
 				case Node.TFor(name, over, by):
 					pushScope()
-					fill(over)
+					fillExpression(over)
 					addScope(name, node)
 					fill(by)
 					popScope()
 
 				case Node.TFunction(name, expr, vars, rettype):
+					addScope(name, node)
 
-				case Node.TArrow(expr, vars, rettype):
-					fill(expr)
 
 				case Node.TIf(econd, eif, eelse):
+					var depth = 0
+					for (e in econd) {
+						switch (e) {
+							case Node.TVar(_, t, _, const):
+								if (!const)
+									throw fail('Only if-let bindings supported', node)
+								if (t != null)
+									throw fail('Do not specify a type in if-let bindings', node)
+								depth++
+								pushScope()
+								fill(e)
+							case _:
+								fillExpression(e)
+						}
+					}
 					fill(eif)
+					while (depth > 0) {
+						depth--
+						popScope()
+					}
+
 					if (eelse != null) fill(eelse)
 
 				case Node.TIndex(e, i):
-					fill(e)
-					fill(i)
-				case Node.TModule:
-					throw fail('Modules should be at a file\' upper scope', node)
+					fillExpression(e)
+					fillExpression(i)
 				case Node.TNew(path, t, el, names, values):
-					for (e in el) fill(e)
+					for (e in el) fillExpression(e)
 				case Node.TObject(names, el):
-					for (e in el) fill(e)
-				case Node.TParenthesis(e):
-					fill(e)
+					for (e in el) fillExpression(e)
 				case Node.TReturn(e):
+					if (e != null) fillExpression(e)
 				case Node.TStatic(e):
 					throw fail('Cannot use `static` here', node)
 				case Node.TSuper:
 				case Node.TThis:
 				case Node.TSwitch(exprs, conds, guards, cases):
 				case Node.TThrow(e):
-					fill(e)
+					fillExpression(e)
 				case Node.TTry(e, t, v, ca):
+					fill(e)
 				case Node.TUnop(_, _, e): fill(e)
 				case Node.TWhile(econd, e, pre):
-					fill(econd)
+					fillExpression(econd)
 					fill(e)
 				case Node.TIs(expr, t):
+					fillExpression(expr)
 				case Node.NodeTypeValue(t):
-				case Node.TUnderscore:
-					throw fail('Cannot use `_` outside of case pattern', node)
-				case Node.TNull:
 				case Node.TContinue:
+
+				// Expressions and errors
+				case _:
+					fillExpression(node)
+			}
+		}
+
+
+		// Expressions return values
+		function fillExpression(node) {
+			switch (node) {
+				case Node.TIdent(name):
+					var subj = null
+					for (i in scopes.length) {
+						subj = scopes[scopes.length - i - 1].get(name)
+						if (subj != null) {
+							break
+						}
+					}
+
+					if (subj == null) subj = findInNamespaceRoots(name)
+					if (subj == null)
+						throw fail('Cannot find name `\(name)` for \(node)', node)
+					if (Project.mapNames.get(node) != null && Project.mapNames.get(node) != subj)
+						throw fail('mapNames overwitten from \(Project.mapNames.get(node)) to \(subj) for node \(node)', node)
+					Project.mapNames.set(node, subj)
+
+				case Node.TArrow(expr, vars, rettype):
+				case Node.TFunction(name, expr, vars, rettype):
+				case Node.TArray(el):
+				case Node.TMap(keys, values):
+					for (i in keys.length) {
+					}
+				case Node.TAs(e, kind, t):
+					fillExpression(e)
+
+				// Simple nodes
+				case Node.TNull:
 				case Node.TString(s):
 				case Node.TBool(_):
 				case Node.TInt(v):
 				case Node.TFloat(_):
+				case Node.TParenthesis(e):
+					fillExpression(e)
+
+				// Errors
+				case Node.TUnderscore:
+					throw fail('Cannot use underscore `_` outside of case pattern', node)
 				case Node.TExport(f):
+					throw fail('Cannot use `export` here: only applicable to module types', node)
 				case Node.TPrivate(_):
-					throw fail('Cannot use `private` here', node)
+					throw fail('Cannot use `private` here: only applicable to class fields and module types', node)
+				case Node.TModule:
+					throw fail('Modules should be at a file\' upper scope', node)
+
+				// Not expressions
+				case Node.TBreak:
+					throw fail('Cannot use `break` as a value', node)
+				case Node.TContinue:
+					throw fail('Cannot use `continue` as a value', node)
+				case Node.TClass:
+					throw fail('Cannot use `class` as a value', node)
+				case Node.TEnum:
+					throw fail('Cannot use `enum` as a value', node)
+				case Node.TDeclare:
+					throw fail('Cannot use `declare` as a value', node)
+
+				// Fails
 				case null:
-					throw fail('Got null node', node)
+					throw fail('Got null node. This should never happen. Ping a compiler developer with a code sample.', node)
 				case _:
-					throw fail('Unknown node kind ' + node, node)
+					throw fail('Unknown node expression kind to type ' + node, node)
 			}
 		}
+	}
+
+	enum Type {
+	}
+
+	class ClassType {
 	}
 }
