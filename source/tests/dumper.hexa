@@ -1,0 +1,84 @@
+// The Hexa Compiler
+// Copyright (C) 2018  Oleg Petrenko
+//
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+module {
+	class Dumper {
+		new () {}
+		private var types: [String : Type]
+		function dumpFiles(collected: [Node], types: [String : Type]): String {
+			this.types = types
+			let out = []
+			for (file in collected) {
+				out.push('// file\n')
+				for (e in file) {
+					out.push('// file.node\n')
+					out.push(dump(e))
+				}
+			}
+			return out.join('\n')
+		}
+
+		var tabs = ''
+		@inline function pushTab() tabs += '\t'
+		@inline function popTab() tabs = tabs.substring(0, tabs.length - 1)
+
+		private function dump(node: Node): String {
+			return '〈' + dumpWrapped(node) + '⭐⎰' + dumpType(types.get(node)) + '⎱〉'
+		}
+
+		private function dumpWrapped(node: Node): String {
+			switch (node) {
+				// Only types
+				case Node.TModule(path, el):
+					return 'module ' + path.join('.') + '{\n' + [for (e in el) dump(e)].join('\n') + '\n}'
+				case Node.TVar(_):
+					return 'var'
+				case Node.TBinop(_):
+					return 'TBinop'
+				case Node.TClass(_):
+					return '⋉' //dumpType(types.get(node))
+
+				// Expressions
+				case Node.TCall(_):
+					return 'call()'
+				case Node.TEnum(_):
+					return 'enum'
+				case Node.TFunction(_):
+					return 'function'
+				case Node.TBlock(_):
+					return '{}'
+				case Node.TIf(_):
+					return 'if'
+				case Node.TTry(_):
+					return 'try'
+				case Node.TDeclare(_):
+					return 'declare'
+				case Node.TNew(_):
+					return 'new'
+
+				case null:
+					throw 'Trying to dump null node'
+				case _:
+					throw 'Trying to dump unknown node: ' + node
+			}
+		}
+
+		private function dumpType(type: Type): String {
+			return type
+		}
+	}
+}
