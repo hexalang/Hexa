@@ -22,12 +22,18 @@ module {
 
 		let project = new NiceProject()
 		var keywords: [String] = []
+		var reservedGlobals: [String] = []
+		var collected: [[Node]] = []
 		var nativeEnums = false
+		var globalAccessor = '<!-- global -->'
 		var typer: Typer
 
 		new () {
 		}
 
+		function normalize() {
+			// Reserve globals
+			for (global in reservedGlobals) addToScope(global)
 
 			// Rename classes upfront to avoid race condition
 			for (file in collected) for (e in file) switch (e) {
@@ -44,23 +50,31 @@ module {
 			let init = []
 			for (file in collected) {
 				let initial = []
-				for (e in file) switch (e) {
-				case Node.TModule(path, el):
-					for (e in el) fillStatement(e)
-				case _:
-					let statement = fillStatement(e)
-					switch (statement) {
-						case null:
-						case NiceStatement.Block(el):
-						if (el.length > 0) // Don't output empty blocks
-							initial.push(statement)
+				pushScope()
+				for (e in file) {
+					switch (e) {
+						case Node.TModule(path, el):
+							pushScope()
+							for (e in el) fillStatement(e, path)
+							popScope()
 						case _:
-							initial.push(statement)
+							let statement = fillStatement(e, null)
+							switch (statement) {
+								case null:
+								case NiceStatement.Block(el):
+								if (el.length > 0) // Don't output empty blocks
+									initial.push(statement)
+								case _:
+									initial.push(statement)
+							}
 					}
 				}
+				popScope()
 				if (initial.length > 0) init.push(NiceStatement.Block(initial))
 			}
 			project.init.push(NiceStatement.Block(init))
+			if (project.init.length > 1) throw "too many inits"
+			return project
 		}
 
 		function nodeToExpression(e: Node): NiceExpression {
