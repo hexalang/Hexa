@@ -98,25 +98,14 @@ module {
 				}
 			}
 
-			function findType(name: String) {
-				var subj = null
-				for (i in scopes.length) {
-					subj = scopes[scopes.length - i - 1].get(name)
-					if (subj != null) {
-						break
-					}
-				}
-				if (subj == null) subj = findInNamespaceRoots(name)
-				return subj
-			}
-
 			function findBasicType(name: String) {
 				let subj = findInNamespaceRoots(name)
 				if (subj == null)
 					throw fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
 				switch (subj) {
 					case Node.TDeclare(_, t):
-						return registerClassType(t)
+						let node = registerClassType(t)
+						return node
 				}
 				return registerClassType(subj)
 			}
@@ -135,7 +124,7 @@ module {
 			for (file in collected) for (e in file) switch (e) {
 				case Node.TModule(path, el):
 					for (node in el) {
-						Project.mapNames.set(node, e)
+						parents.set(node, e)
 						fill(node)
 					}
 				case _:
@@ -155,6 +144,11 @@ module {
 
 		function registerClassType(node: Node): Type {
 		}
+
+		function registerEnumType(node: Node): Type {
+		}
+
+		static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
 
 		static function fail(msg: String, node: Node = null) {
 			var data = Project.data.get(node)
@@ -203,6 +197,7 @@ module {
 
 		// Scopes
 		private let scopes: [[String : Node]] = [[:]]
+		private let parents: [Node : Node] = [:]
 		private function pushScope() scopes.push(([:]))
 		private function popScope() scopes.pop()
 		private function addScope(name, node) scopes[scopes.length - 1].set(name, node)
@@ -219,6 +214,21 @@ module {
 		private var typeVoid: Type? = null
 		private var namespaces: [String : Node] = [:]
 
+		// Stack
+		var insideFunction = false // `function () { insideFunction }`
+
+		function findType(name: String) {
+			var subj = null
+			for (i in scopes.length) {
+				subj = scopes[scopes.length - i - 1].get(name)
+				if (subj != null) {
+					break
+				}
+			}
+			if (subj == null) subj = findInNamespaceRoots(name)
+			return subj
+		}
+
 		// Syntax tree traverse
 		private function fill(node: Node): Void {
 			switch (node) {
@@ -226,15 +236,18 @@ module {
 				case Node.TClass(t, extend, implement, f, external):
 					var name = DataHelper.extractTypeName(t)
 					addScope(name, node)
+					registerClassType(node)
 
 				case Node.TEnum(t, f, valuesType):
 					var name = DataHelper.extractTypeName(t)
 					addScope(name, node)
+					registerEnumType(node)
 
 				case Node.TDeclare(name, vnode):
 					switch (vnode) {
 						case Node.TClass(_):
 							addScope(name, vnode)
+							registerClassType(vnode)
 					}
 
 				// Statements do not return value
@@ -245,26 +258,49 @@ module {
 					for (e in el) fill(e)
 					popScope()
 				case Node.TVar(name, t, e, const):
-					if (e == null && const)
+					if (e == null, const)
 						throw fail('Constant should have a value `let \(name) = value`', node)
+					if (e != null) {
+						pushScope()
+						fillExpression(e)
+						popScope()
+					}
 					addScope(name, node)
 
 
 				case Node.TAssignop(a, op, b):
 					fill(a)
+					var parent: Node = parents.get(a)
+					switch (parent) {
+						case Node.TVar(name, _, _, const):
+							if (const)
+							throw fail('Cannot reassign a constant `\(name)`', node)
+						case Node.TFunction(name, _):
+							throw fail('Cannot reassign a function `\(name)`', node)
+						case _: // Ok
+					}
 					fillExpression(b)
 
 				case Node.TBinop(a, op, b):
-					fill(a)
-					fillExpression(b)
-				case Node.TBreak:
-				case Node.TCall(e, el, elNames):
-				case Node.TDeclare(name, vnode):
-				case Node.TDot(e, n):
-
-				case Node.TElvis(a, b):
 					fillExpression(a)
 					fillExpression(b)
+
+					var parent: Node = parents.get(a)
+					if (op == Token.OpAssign) switch (parent) {
+						case null:
+							throw fail('No parent node for `\(a)`', node)
+						case Node.TVar(name, _, _, const):
+							if (const)
+								throw fail('Cannot reassign a constant `\(name)`', node)
+						case Node.TIdent(name):
+							throw fail('Cannot reassign case parameter `\(name)`', node)
+						case Node.TFunction(name, _):
+							throw fail('Cannot reassign a function `\(name)`', node)
+						case _: // Ok
+					}
+				case Node.TBreak:
+				case Node.TDeclare(name, vnode):
+
 				case Node.TFor(name, over, by):
 					pushScope()
 					fillExpression(over)
@@ -275,6 +311,16 @@ module {
 				case Node.TFunction(name, expr, vars, rettype):
 					addScope(name, node)
 
+					// Save stack
+					let _insideFunction = insideFunction
+					// Reset stack
+					insideFunction = true
+					pushScope()
+					if (expr != null) fill(expr)
+					popScope()
+
+					// Restore stack
+					insideFunction = _insideFunction
 
 				case Node.TIf(econd, eif, eelse):
 					var depth = 0
@@ -303,17 +349,16 @@ module {
 				case Node.TIndex(e, i):
 					fillExpression(e)
 					fillExpression(i)
-				case Node.TNew(path, t, el, names, values):
-					for (e in el) fillExpression(e)
-				case Node.TObject(names, el):
-					for (e in el) fillExpression(e)
 				case Node.TReturn(e):
+					if (!insideFunction)
+						throw fail('Cannot use `return` outside of function', node)
 					if (e != null) fillExpression(e)
 				case Node.TStatic(e):
 					throw fail('Cannot use `static` here', node)
 				case Node.TSuper:
 				case Node.TThis:
 				case Node.TSwitch(exprs, conds, guards, cases):
+					for (e in exprs) { pushScope() fill(e) popScope() }
 				case Node.TThrow(e):
 					fillExpression(e)
 				case Node.TTry(e, t, v, ca):
@@ -324,7 +369,6 @@ module {
 					fill(e)
 				case Node.TIs(expr, t):
 					fillExpression(expr)
-				case Node.NodeTypeValue(t):
 				case Node.TContinue:
 
 				// Expressions and errors
@@ -348,37 +392,146 @@ module {
 
 					if (subj == null) subj = findInNamespaceRoots(name)
 					if (subj == null)
-						throw fail('Cannot find name `\(name)` for \(node)', node)
-					if (Project.mapNames.get(node) != null && Project.mapNames.get(node) != subj)
-						throw fail('mapNames overwitten from \(Project.mapNames.get(node)) to \(subj) for node \(node)', node)
-					Project.mapNames.set(node, subj)
+						throw fail('Cannot find parent by name `\(name)` for \(node)', node)
+					if (parents.get(node) != null, parents.get(node) != subj)
+						throw fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
+					parents.set(node, subj)
 
 				case Node.TArrow(expr, vars, rettype):
+					pushScope()
+					// Save stack
+					let _insideFunction = insideFunction
+
+					// Reset stack
+					insideFunction = true
+					fillExpression(expr)
+					popScope()
+
+					// Restore stack
+					insideFunction = _insideFunction
+
 				case Node.TFunction(name, expr, vars, rettype):
+					pushScope()
+					addScope(name, node)
+
+					// Save stack
+					let _insideFunction = insideFunction
+
+					// Reset stack
+					insideFunction = true
+
+					if (expr != null) fill(expr)
+					popScope()
+
+					// Restore stack
+					insideFunction = _insideFunction
+
 				case Node.TArray(el):
+					switch (el[0]) {
+						case Node.TFor(name, over, by):
+							if (el.length > 1)
+								throw fail('Cannot use loop `for` within array of more than one element `[for(), ...]`', el[1])
+
+							pushScope()
+							fillExpression(over)
+							addScope(name, el[0])
+							fillExpression(by)
+							popScope()
+						case _:
+							for (e in el) fillExpression(e)
+					}
+
 				case Node.TMap(keys, values):
 					for (i in keys.length) {
+						fillExpression(keys[i])
+						fillExpression(values[i])
 					}
 				case Node.TAs(e, kind, t):
 					fillExpression(e)
 
+				case Node.TBlock(el):
+					if (el.length == 0)
+						throw fail('Cannot use empty block `{}` as a value', node)
+					pushScope()
+					for (i in el.length) if (i < el.length - 1) {
+						fill(el[i])
+					}
+					let latest = el[el.length - 1]
+					fillExpression(latest)
+					popScope()
+
+				case Node.TDot(e, n):
+					fillExpression(e)
+
+				case Node.TDotUpper(e, n):
+					fillExpression(e)
+
+				case Node.NodeTypeValue(t): switch (t) {
+					case NodeType.Type(name):
+						var subj = null
+						for (i in scopes.length) {
+							subj = scopes[scopes.length - i - 1].get(name)
+							if (subj != null) {
+								break
+							}
+						}
+						if (subj == null) subj = findInNamespaceRoots(name)
+						if (subj == null)
+							throw fail('Cannot find type by name `\(name)` for \(node)', node)
+						if (parents.get(node) != null, parents.get(node) != subj)
+							throw fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
+						parents.set(node, subj)
+					case NodeType.ParametricType(name, _):
+						throw fail('Cannot use generic type `\(name)` as a value', node)
+					case _:
+						throw fail('Cannot use this type as a value', node)
+				}
+
+				case Node.TNew(path, t, el, names, values):
+					for (e in el) fillExpression(e)
+
+				case Node.TObject(names, el):
+					for (e in el) fillExpression(e)
+
+				case Node.TTry(e, t, v, ca):
+					fillExpression(e)
+
 				// Simple nodes
 				case Node.TNull:
-				case Node.TString(s):
+
+				case Node.TString(_):
+
 				case Node.TBool(_):
-				case Node.TInt(v):
+
+				case Node.TInt(_):
+
 				case Node.TFloat(_):
+
 				case Node.TParenthesis(e):
 					fillExpression(e)
+
+				case Node.TElvis(a, b):
+					fillExpression(a)
+					fillExpression(b)
+
+				case Node.TCall(e, el, elNames):
+				 	fillExpression(e)
+					for (e in el) fillExpression(e)
+
+				case Node.TBinop(a, op, b):
+					fill(a)
+					fillExpression(b)
 
 				// Errors
 				case Node.TUnderscore:
 					throw fail('Cannot use underscore `_` outside of case pattern', node)
-				case Node.TExport(f):
-					throw fail('Cannot use `export` here: only applicable to module types', node)
+				case Node.TExport(_):
+					throw fail('Cannot use `export` here: only applicable to module declarations', node)
+				case Node.TStatic(_):
+					throw fail('Cannot use `static` here: only applicable to class fields', node)
 				case Node.TPrivate(_):
-					throw fail('Cannot use `private` here: only applicable to class fields and module types', node)
-				case Node.TModule:
+					throw fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
+				case Node.TModule(_):
 					throw fail('Modules should be at a file\' upper scope', node)
 
 				// Not expressions
@@ -386,18 +539,24 @@ module {
 					throw fail('Cannot use `break` as a value', node)
 				case Node.TContinue:
 					throw fail('Cannot use `continue` as a value', node)
-				case Node.TClass:
+				case Node.TClass(_):
 					throw fail('Cannot use `class` as a value', node)
-				case Node.TEnum:
+				case Node.TEnum(_):
 					throw fail('Cannot use `enum` as a value', node)
-				case Node.TDeclare:
+				case Node.TDeclare(_):
 					throw fail('Cannot use `declare` as a value', node)
+				case Node.TVar(_):
+					throw fail('Cannot use `var` as a value', node)
+				case Node.TSwitch(_):
+					throw fail('Cannot use `switch` as a value', node)
+				case Node.TFor(_):
+					throw fail('Cannot use `for` as a value. To build array from loop, surround with `[for()]` brackets.', node)
 
 				// Fails
 				case null:
-					throw fail('Got null node. This should never happen. Ping a compiler developer with a code sample.', node)
+					throw fail('Got null node' + never, node)
 				case _:
-					throw fail('Unknown node expression kind to type ' + node, node)
+					throw fail('Unknown node expression kind to type ' + node + never, node)
 			}
 		}
 	}
