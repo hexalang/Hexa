@@ -16,7 +16,7 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
 module {
-	class Typer2 {
+	class Typer {
 		new () {}
 		function fillFiles(collected: [Node]): Void {
 			function fillModuleNamespace(m: Node) {
@@ -217,16 +217,13 @@ module {
 		// Stack
 		var insideFunction = false // `function () { insideFunction }`
 
-		function findType(name: String) {
-			var subj = null
+		function findType(name: String): Node? {
 			for (i in scopes.length) {
-				subj = scopes[scopes.length - i - 1].get(name)
-				if (subj != null) {
-					break
+				if (let subj = scopes[scopes.length - i - 1].get(name)) {
+					return subj
 				}
 			}
-			if (subj == null) subj = findInNamespaceRoots(name)
-			return subj
+			return findInNamespaceRoots(name)
 		}
 
 		// Syntax tree traverse
@@ -234,13 +231,11 @@ module {
 			switch (node) {
 				// Types
 				case Node.TClass(t, extend, implement, f, external):
-					var name = DataHelper.extractTypeName(t)
-					addScope(name, node)
+					addScope(DataHelper.extractTypeName(t), node)
 					registerClassType(node)
 
 				case Node.TEnum(t, f, valuesType):
-					var name = DataHelper.extractTypeName(t)
-					addScope(name, node)
+					addScope(DataHelper.extractTypeName(t), node)
 					registerEnumType(node)
 
 				case Node.TDeclare(name, vnode):
@@ -248,6 +243,10 @@ module {
 						case Node.TClass(_):
 							addScope(name, vnode)
 							registerClassType(vnode)
+						case Node.TFunction(name, _):
+							addScope(name, vnode)
+						case Node.TVar(name, t, _):
+							addScope(name, vnode)
 					}
 
 				// Statements do not return value
@@ -299,7 +298,6 @@ module {
 						case _: // Ok
 					}
 				case Node.TBreak:
-				case Node.TDeclare(name, vnode):
 
 				case Node.TFor(name, over, by):
 					pushScope()
@@ -346,29 +344,65 @@ module {
 
 					if (eelse != null) fill(eelse)
 
-				case Node.TIndex(e, i):
-					fillExpression(e)
-					fillExpression(i)
 				case Node.TReturn(e):
 					if (!insideFunction)
 						throw fail('Cannot use `return` outside of function', node)
 					if (e != null) fillExpression(e)
-				case Node.TStatic(e):
-					throw fail('Cannot use `static` here', node)
-				case Node.TSuper:
-				case Node.TThis:
 				case Node.TSwitch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fill(e) popScope() }
+
+					var i = 0
+					while (i < cases.length) {
+						pushScope()
+						var e = conds[i]
+						// Fill case condition
+						function follow(e: Node) {
+							switch (e) {
+								case Node.TParenthesis(e): {fill(e)}
+								case Node.TUnderscore: {}
+								case Node.TNull: {}
+								case Node.TBool(_): {}
+								case Node.TInt(_): {}
+								case Node.TString(_): {}
+								case Node.TCall(ex, args, argNames): {
+									follow(ex)
+									for (ee in args) follow(ee)
+								}
+								case Node.TIdent(name): // bind var
+								{
+									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
+									else {
+										addScope(name, e)
+									}
+								}
+								case Node.TBinop(a, op, b):
+								if (op == Token.OpOr) {follow(a) follow(b)}
+								else throw fail('' + e, e)
+								case Node.TIf(econd, _, _):
+									pushScope()
+									fill(econd[0])
+									popScope()
+								case _:
+									throw fail('' + e, e)
+							}
+						}
+						follow(e)
+						// Fill case result expression
+						var e = cases[i]
+						pushScope() fill(e) popScope()
+						popScope()
+						i++
+					}
 				case Node.TThrow(e):
 					fillExpression(e)
 				case Node.TTry(e, t, v, ca):
 					fill(e)
-				case Node.TUnop(_, _, e): fill(e)
 				case Node.TWhile(econd, e, pre):
 					fillExpression(econd)
 					fill(e)
 				case Node.TIs(expr, t):
 					fillExpression(expr)
+
 				case Node.TContinue:
 
 				// Expressions and errors
@@ -496,6 +530,11 @@ module {
 				case Node.TTry(e, t, v, ca):
 					fillExpression(e)
 
+				case Node.TIf(econd, eif, eelse):
+					fillExpression(econd[0])
+					fillExpression(eif)
+					fillExpression(eelse)
+
 				// Simple nodes
 				case Node.TNull:
 
@@ -515,12 +554,34 @@ module {
 					fillExpression(b)
 
 				case Node.TCall(e, el, elNames):
-				 	fillExpression(e)
 					for (e in el) fillExpression(e)
+				 	fillExpression(e) // JavaScript evaluates arguments first
 
 				case Node.TBinop(a, op, b):
 					fill(a)
 					fillExpression(b)
+
+				case Node.TUnop(_, _, e):
+					fillExpression(e)
+
+				case Node.TIndex(e, i):
+					fillExpression(e)
+					fillExpression(i)
+
+				case Node.TAssignop(a, op, b):
+					fillExpression(a)
+					var parent: Node = parents.get(a)
+					switch (parent) {
+						case Node.TVar(name, _, _, const):
+							if (const)
+							throw fail('Cannot reassign a constant `\(name)`', node)
+						case Node.TFunction(name, _):
+							throw fail('Cannot reassign a function `\(name)`', node)
+						case _: // Ok
+					}
+					fillExpression(b)
+
+				case Node.TThis:
 
 				// Errors
 				case Node.TUnderscore:
