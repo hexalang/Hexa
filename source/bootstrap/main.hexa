@@ -161,6 +161,8 @@ class Main {
 	function processFiles(targets: [String]): [[Node]] {
 		var res: [[Node]] = []
 		for (target in targets) {
+			if (!Fs.existsSync(target))
+				throw 'No such source file `\(target)`'
 			try {
 				res.push(processFile(target))
 			} catch (e: Any) {
@@ -318,7 +320,7 @@ class Main {
 
 		let typer = new Typer()
 		try {
-			typer.fillScopes(files)
+			typer.fillFiles(files)
 		} catch (e: Any) {
 			console.log(e.toString())
 			Process.exit(1)
@@ -328,121 +330,51 @@ class Main {
 			console.log("[Typer finished in \(Date.now() - beginTyper) ms]")
 		#end
 
+		#if times
+			let beginNormalizer = Date.now()
+		#end
+
 		let normalizer = new Normalizer()
 
+		#if times
+			console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
+			let beginGenJs = Date.now()
+		#end
+
+		let generators = [:]
+
+		function registerTarget(name: String, generator) {
+			if (let generator = generators.get(name))
+				console.log('Note: generator `\(name)` was overridden')
+			generators.set(name, generator)
+		}
+
+
+		registerTarget('JavaScript', GenJs.spawn)
+		registerTarget('Haxe', GenHaxe.spawn)
+		registerTarget('Hexa', GenHexa.spawn)
+
 		// Perform code generation
-		switch (input.target.generator) {
-			case Generator.JavaScript:
-				var target = packageFolder + Path.sep + Path.parse(input.output).name + ".js"
-				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
-
-				#if times
-					let beginNormalizer = Date.now()
-				#end
-
-				let normal = Normalizer.normalize(files, GenJs.reserved)
-
-				#if times
-					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
-					let beginGenJs = Date.now()
-				#end
-
-				let outs = GenJs.stringifyProject(normal)
-
-				#if times
-					console.log("[GenJs finished in \(Date.now() - beginGenJs) ms]")
-				#end
-
-				Fs.writeFileSync(target, license + outs)
-			case Generator.C:
-				var target = packageFolder + Path.sep + Path.parse(input.output).name + ".c"
-				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
-
-				#if times
-					let beginNormalizer = Date.now()
-				#end
-
-				let normal = Normalizer.normalize(files, GenC.reserved)
-
-				#if times
-					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
-					let beginGenC = Date.now()
-				#end
-
-				let outs = GenC.stringifyProject(normal)
-
-				#if times
-					console.log("[GenC finished in \(Date.now() - beginGenC) ms]")
-				#end
-
-				Fs.writeFileSync(target, license + outs)
-			case Generator.Haxe:
-				var target = packageFolder + Path.sep + Path.parse(input.output).name + ".hx"
-				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
-
-				#if times
-					let beginNormalizer = Date.now()
-				#end
-
-				let normal = Normalizer.normalize(files, GenHaxe.reserved, nativeEnums: true)
-
-				#if times
-					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
-					let beginGenJs = Date.now()
-				#end
-
-				let outs = GenHaxe.stringifyProject(normal)
-
-				#if times
-					console.log("[GenHaxe finished in \(Date.now() - beginGenJs) ms]")
-				#end
-
-				Fs.writeFileSync(target, license + outs)
-			case Generator.Hexa:
-				var target = packageFolder + Path.sep + Path.parse(input.output).name + ".hexa"
-				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
-
-				#if times
-					let beginNormalizer = Date.now()
-				#end
-
-				let normal = Normalizer.normalize(files, GenHexa.reserved, nativeEnums: true)
-
-				#if times
-					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
-					let beginGenHexa = Date.now()
-				#end
-
-				let outs = GenHexa.stringifyProject(normal)
-
-				#if times
-					console.log("[GenHexa finished in \(Date.now() - beginGenHexa) ms]")
-				#end
-
-				Fs.writeFileSync(target, license + outs)
-			case Generator.CSharp:
-				var target = packageFolder + Path.sep + Path.parse(input.output).name + ".cs"
-				let license = input.license != null? "// LICENSE \(input.license)\r\n" : ''
-
-				#if times
-					let beginNormalizer = Date.now()
-				#end
-
-				let normal = Normalizer.normalize(files, GenCSharp.reserved, nativeEnums: false)
-
-				#if times
-					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
-					let beginGenCSharp = Date.now()
-				#end
-
-				let outs = GenCSharp.stringifyProject(normal)
-
-				#if times
-					console.log("[GenCSharp finished in \(Date.now() - beginGenCSharp) ms]")
-				#end
-
-				Fs.writeFileSync(target, license + outs)
-			case _: throw "Generator is not defined or unknown. Is there `target.generator` field in `hexa.json`?"
+		if (let generatorName = input.target.generator) {
+			if (let generatorSpawner = generators.get(generatorName)) {
+				let generator = generatorSpawner()
+				let target = packageFolder + Path.sep + Path.parse(input.output).name + generator.extension
+				normalizer.keywords = generator.reserved
+				normalizer.collected = files
+				normalizer.nativeEnums = generator.nativeEnums
+				normalizer.reservedGlobals = generator.reservedGlobals ?? normalizer.reservedGlobals
+				if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
+				normalizer.typer = typer
+				let normal = normalizer.normalize()
+				let outs = generator.perform(normal)
+				Fs.writeFileSync(target, outs)
+			} else {
+				console.log("Generator for `\(generatorName)` is not registered.")
+				Process.exit(1)
+			}
+		} else {
+			console.log("Generator is not defined or unknown. Is there `target.generator` field in `hexa.json`?")
+			Process.exit(1)
 		}
 
 		console.log("[Finished in \(Date.now() - begin) ms]")
