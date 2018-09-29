@@ -23,6 +23,7 @@ module {
 		let project = new NiceProject()
 		var keywords: [String] = []
 		var nativeEnums = false
+		var typer: Typer
 
 		new () {
 		}
@@ -81,7 +82,7 @@ module {
 
 				// Transform
 				case Node.TIdent(name):
-					var source = Project.mapNames.get(e)
+					var source = typer.parents.get(e)
 					switch (source) {
 						case null:
 							throw 'Unmapped \(e) ' + JSON.stringify(Project.data.get(e))
@@ -89,10 +90,10 @@ module {
 							if (Project.mapNames.get(source) != null)
 							return NiceExpression.Dot(NiceExpression.This, name)
 						case Node.TFunction(name, _):
-							if (Project.mapNames.get(source) != null)
+							if (typer.parents.get(source) != null)
 							return NiceExpression.Dot(NiceExpression.This, name)
 						case Node.TStatic(f):
-							let staticSource = Project.mapNames.get(source)
+							let staticSource = typer.parents.get(source)
 							switch (staticSource) {
 								case Node.TClass(t, _):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name))
@@ -103,7 +104,7 @@ module {
 					}
 					return NiceExpression.Ident(parentNames.get(source) ?? name)
 				case Node.TDot(expr, name):
-				let parent = Project.mapNames.get(expr)
+				let parent = typer.parents.get(expr)
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
 						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
@@ -113,7 +114,7 @@ module {
 				return NiceExpression.Dot(nodeToExpression(expr), name)
 
 				case Node.TDotUpper(expr, name):
-				let parent = Project.mapNames.get(expr)
+				let parent = typer.parents.get(expr)
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
 						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
@@ -139,7 +140,7 @@ module {
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
 				}
-				let atts = Project.mapAttributes.get(Project.mapNames.get(e))
+				let atts = Project.mapAttributes.get(typer.parents.get(e))
 
 				let infix = getAtt(atts, 'infix')
 				if (infix != null) switch (infix.values[0]) {
@@ -757,7 +758,7 @@ module {
 							else cx.push(NiceExpression.False)
 						case Node.TCall(e, args, argNames): switch (e) {
 							case Node.TDotUpper(expr, name):
-								let parent = Project.mapNames.get(expr)
+								let parent = typer.parents.get(expr)
 								let tag = getTag(parent, name)
 								cx.push(tag)
 							// Promote to complex enum
@@ -767,15 +768,15 @@ module {
 								case Node.TUnderscore: {}
 								case _: console.log('Unknown case extract value kind:', arg)
 							}
-							case _: console.error('Unknown case extract kind:', e, Project.mapNames.get(e))
+							case _: console.error('Unknown case extract kind:', e, typer.parents.get(e))
 						}
 						case Node.TDotUpper(expr, name):
-							cx.push(getTag(Project.mapNames.get(expr), name))
+							cx.push(getTag(typer.parents.get(expr), name))
 						case Node.TBinop(a, op, b): switch (op) {
 							case Token.OpOr:
 							addTag(a)
 							addTag(b)
-							case _: console.error('Unknown case binop kind:', e, Project.mapNames.get(e))
+							case _: console.error('Unknown case binop kind:', e, typer.parents.get(e))
 						}
 						case _:
 						console.error('Unknown case kind:', co, Project.data.get(co))
@@ -831,7 +832,7 @@ module {
 					}
 					i++
 				}
-				throw 'Enum has no tag or field `\(name)`' + t
+				throw 'Enum has no tag or field `\(name)` ' + t
 			}
 		}
 
