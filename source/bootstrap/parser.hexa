@@ -107,7 +107,7 @@ module {
 
 				var v = []
 				for (i in vars.length) {
-					v.push(Node.TVar(vars[i], types[i], values[i], true))
+					v.push(Node.TVar(vars[i], types[i], values[i], true, false))
 				}
 				fields.push(Node.TFunction('new', expr, v, null))
 			case _:
@@ -277,6 +277,30 @@ module {
 
 		// declare class C {}
 		case Token.KDeclare:
+		// declare T = V
+		// declare class
+		// declare let
+		// declare var
+		// declare function
+
+			i++
+			switch (tok()) {
+				case Token.KFunction:
+					result = parseFunction(false, external: true)
+				case Token.KVar | Token.KLet:
+					let parsed = parseVar(external: true)
+					if (parsed.length > 1) result = Node.TVars(parsed) else result = parsed[0]
+				case Token.KClass | Token.KInterface:
+					result = parseClass(external: true)
+				case Token.LUpper:
+					let alias = parseType()
+					step(Token.OpAssign)
+					let value = parseType()
+					result = Node.TTypeAlias(alias, value)
+				case _:
+					throw fail('Wrong `declare` format, got `\(Token.stringify(tok()))`')
+			}
+/*
 			i++
 			var e = null
 			switch (tok()) {
@@ -350,7 +374,7 @@ module {
 			}
 			// Having name is ok here, coz we search by name in scopes
 			result = Node.TDeclare(name, e)
-
+*/
 			//switch (tok()) {
 			//	case LUpper:
 			//		var name = getgo(LUpper)
@@ -627,27 +651,9 @@ module {
 			result = Node.TEnum(t, names, valuesType)
 
 		case Token.KClass | Token.KInterface:
-			var isInterface = tok() == Token.KInterface
 			var att = atts
 			atts = []
-			i++
-			var t = parseType()
-
-			var ext = if (tok() == Token.KExtends) {
-				i++
-				parseType()
-			} else null
-
-			var impl = []
-			while (tok() == Token.KImplements) {
-				i++
-				impl.push(parseType())
-			}
-
-			step(Token.BrOpen)
-			var fields = parseFields()
-			step(Token.BrClose)
-			var me = Node.TClass(t, ext, impl, fields, classExternal)
+			let me = parseClass()
 			//Project.mapAttributes.set(me, atts)
 			Project.mapAttributes.set(me, att)
 			result = me
@@ -947,7 +953,7 @@ module {
 		return result
 	}
 
-	function parseVar(): [Node] {
+	function parseVar(external: Bool = false): [Node] {
 
 		// let data.Node.TIdent(s1) = node
 
@@ -960,7 +966,7 @@ module {
 			if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
 			var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
 			var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
-			return Node.TVar(varname, type, expr, const)
+			return Node.TVar(varname, type, expr, const, external ?? false)
 		}
 
 		function parseSingleBinding(): Node {
@@ -1023,7 +1029,7 @@ module {
 
 					var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
 					var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
-					vars.push(Node.TVar(varname, type, expr, const))
+					vars.push(Node.TVar(varname, type, expr, const, external))
 
 					if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.DblDot))
 						i++
@@ -1063,7 +1069,7 @@ module {
 		return vars
 	}
 
-	function parseFunction(parseBody: Bool? = null): Node {
+	function parseFunction(parseBody: Bool = true, external: Bool = false): Node {
 		let parseBody = (parseBody != null) ? parseBody : true
 		i++
 		var expr = null
@@ -1115,6 +1121,8 @@ module {
 			case Token.KStatic: {}
 			case Token.KPrivate: {}
 			case Token.KFunction: {}
+			case Token.KVar: {}
+			case Token.KLet: {}
 			case Token.At: {
 				var tmp = i
 				while (tok() == Token.At) parseAttribute()
@@ -1129,9 +1137,35 @@ module {
 
 		var v = []
 		for (i in vars.length) {
-			v.push(Node.TVar(vars[i], types[i], values[i], true))
+			v.push(Node.TVar(vars[i], types[i], values[i], true, false))
 		}
-		return (Node.TFunction(name, expr, v, rettype))
+		return Node.TFunction(name, expr, v, rettype, external)
+	}
+
+	function parseClass(external: Bool = false): Node {
+		let _classExternal = classExternal
+		classExternal = external
+		var isInterface = tok() == Token.KInterface
+		i++
+		var t = parseType()
+
+		var ext = if (tok() == Token.KExtends) {
+			i++
+			parseType()
+		} else null
+
+		var impl = []
+		while (tok() == Token.KImplements) {
+			i++
+			impl.push(parseType())
+		}
+
+		step(Token.BrOpen)
+		var fields = parseFields()
+		step(Token.BrClose)
+		var me = Node.TClass(t, ext, impl, fields, external ?? false)
+		classExternal = _classExternal
+		return me
 	}
 
 	function hasInterpolation(str: String): Bool {

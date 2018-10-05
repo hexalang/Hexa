@@ -103,9 +103,6 @@ module {
 				if (subj == null)
 					throw fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
 				switch (subj) {
-					case Node.TDeclare(_, t):
-						let node = registerClassType(t)
-						return node
 				}
 				return registerClassType(subj)
 			}
@@ -178,7 +175,10 @@ module {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
-				case Node.TDeclare(name, _): return name
+				case Node.TTypeAlias(t, _): switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name): return name
+				}
 				case _: throw 'Improper module item format ' + TestParser.stringify(node)
 			}
 		}
@@ -238,16 +238,9 @@ module {
 					addScope(DataHelper.extractTypeName(t), node)
 					registerEnumType(node)
 
-				case Node.TDeclare(name, vnode):
-					switch (vnode) {
-						case Node.TClass(_):
-							addScope(name, vnode)
-							registerClassType(vnode)
-						case Node.TFunction(name, _):
-							addScope(name, vnode)
-						case Node.TVar(name, t, _):
-							addScope(name, vnode)
-					}
+				case Node.TTypeAlias(alias, value):
+					types.set(node, Type.Alias(null))
+					addScope(nameOfModuleItem(node), node)
 
 				// Statements do not return value
 				case Node.TVars(e):
@@ -306,7 +299,7 @@ module {
 					fill(by)
 					popScope()
 
-				case Node.TFunction(name, expr, vars, rettype):
+				case Node.TFunction(name, expr, vars, rettype, external):
 					addScope(name, node)
 
 					// Save stack
@@ -447,8 +440,8 @@ module {
 
 					// Restore stack
 					insideFunction = _insideFunction
+				case Node.TFunction(name, expr, vars, rettype, external):
 
-				case Node.TFunction(name, expr, vars, rettype):
 					pushScope()
 					addScope(name, node)
 
@@ -608,7 +601,7 @@ module {
 					throw fail('Cannot use `class` as a value', node)
 				case Node.TEnum(_):
 					throw fail('Cannot use `enum` as a value', node)
-				case Node.TDeclare(_):
+				case Node.TTypeAlias(_):
 					throw fail('Cannot use `declare` as a value', node)
 				case Node.TVar(_):
 					throw fail('Cannot use `var` as a value', node)

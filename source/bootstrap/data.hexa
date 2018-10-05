@@ -72,6 +72,9 @@ module {
 		/// Syntax Tree ///
 		///////////////////
 
+		// declare T = V
+		TTypeAlias(alias: NodeType, value: NodeType)
+
 		// a op b
 		TBinop(a: Node, op: Token, b: Node)
 
@@ -101,15 +104,15 @@ module {
 
 
 
-		// function name(vars): rettype { expr }
-		TFunction(name: String, expr: Node, vars: [Node], retType: NodeType)
+		// [declare] function name(vars): rettype { expr }
+		TFunction(name: String, expr: Node, vars: [Node], retType: NodeType, external: Bool)
 
 		// (vars): rettype => { expr }
 		TArrow(expr: Node, vars: [Node], retType: NodeType)
 
 
-		// (const ? let : var) name: t = expr
-		TVar(name: String, t: NodeType, expr: Node, const: Bool)
+		// [declare] (const ? let : var) name: t = expr
+		TVar(name: String, t: NodeType, expr: Node, const: Bool, external: Bool)
 
 		// var TVar[0], ..., TVar[n]
 		TVars(vars: [Node])
@@ -155,9 +158,6 @@ module {
 
 		// let expr(extract[0], ..., extract[n]) = name
 		TEnumExtract(path: [String], bind: [Node/*.TVar*/], expr: Node)
-
-		// declare name t
-		TDeclare(name: String, t: Node)
 
 		// using path[0], ..., path[n]
 		TUsing(path: [String])
@@ -212,7 +212,10 @@ module {
 					}
 					throw "unreachable"
 
-				case Node.TDeclare(name, _): return name
+				case Node.TTypeAlias(t, _): switch (t) {
+					case NodeType.Type(name): return name
+					case NodeType.ParametricType(name): return name
+				}
 				case _: throw 'nameOf expected named node, but got `\(v)`'
 			}
 		}
