@@ -99,13 +99,21 @@ module {
 					var source = typer.parents.get(e)
 					switch (source) {
 						case null:
-							throw 'Unmapped \(e) ' + JSON.stringify(Project.data.get(e))
+							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(Project.data.get(e))
 						case Node.TVar(name, _, _):
-							if (Project.mapNames.get(source) != null)
-							return NiceExpression.Dot(NiceExpression.This, name)
+							if (let map = typer.parents.get(source)) switch (map) {
+								case Node.TModule(path, _):
+									return NiceExpression.Ident(globalAccessor + name)
+								case _:
+									return NiceExpression.Dot(NiceExpression.This, name)
+							}
 						case Node.TFunction(name, _):
-							if (typer.parents.get(source) != null)
-							return NiceExpression.Dot(NiceExpression.This, name)
+							if (let map = typer.parents.get(source)) switch (map) {
+								case Node.TModule(path, _):
+									return NiceExpression.Ident(globalAccessor + name)
+								case _:
+									return NiceExpression.Dot(NiceExpression.This, name)
+							}
 						case Node.TStatic(f):
 							let staticSource = typer.parents.get(source)
 							switch (staticSource) {
@@ -113,7 +121,8 @@ module {
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name))
 								case Node.TEnum(t,_):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), name)
-								case _: throw 'staticSource is \(staticSource)'
+								case _:
+									throw 'staticSource is \(staticSource) for \(name)'
 							}
 					}
 					return NiceExpression.Ident(parentNames.get(source) ?? name)
@@ -483,19 +492,7 @@ module {
 				project.classes.push(type)
 				return null //type
 
-				case Node.TDeclare(name, t):
-					switch (t) {
-						case Node.TBinop(a, op, b): // op == OpAssign
-						case Node.TFunction(_):
-							Project.mapAttributes.set(t, Project.mapAttributes.get(e))
-						case Node.TClass(_):
-							// This is a bit hacky
-							Project.mapAttributes.set(t, Project.mapAttributes.get(e))
-							nodeToStatement(t)
-						case Node.TVar(name, t, expr, const):
-							Project.mapAttributes.set(t, Project.mapAttributes.get(e))
-						case _: console.error("Unknown declare kind:", t)
-					}
+				case Node.TTypeAlias(_):
 
 				// Expressions
 				case Node.TNew(path, t, args, fields, el):
@@ -728,7 +725,7 @@ module {
 							case Node.TDotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
 							case Node.TBinop(a, op, b): switch (op) {
 							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b))
-								case _: console.error('Unknown native case binop kind:', e, Project.mapNames.get(e))
+								case _: console.error('Unknown native case binop kind:', e, typer.parents.get(e))
 							}
 							case Node.TCall(e, args, argNames): switch (e) {
 								case Node.TDotUpper(expr, name):
@@ -739,7 +736,7 @@ module {
 										case _: console.log('Unknown native case extract value kind:', args[arg])
 									}
 									return NiceExpression.Call(nodeToExpression(e), a)
-								case _: console.error('Unknown case extract kind:', e, Project.mapNames.get(e))
+								case _: console.error('Unknown case extract kind:', e, typer.parents.get(e))
 							}
 							case _:
 							console.error('Unknown native enum case kind:', co, Project.data.get(co))
@@ -842,7 +839,8 @@ module {
 							case Node.TIdent(n): if (n == name) return nodeToExpression(b)
 						}
 						case Node.TStatic(_): return null // Not a tag
-						case _: console.error('Unknown enum tag kind:', f)
+						case _:
+							console.error('Unknown enum tag kind:', f)
 					}
 					i++
 				}
@@ -859,7 +857,8 @@ module {
 
 		var scopes: [[String : Bool]] = [[:]]
 
-		var id = 0
+		// Randomization for the un-hack-ability
+		var id = Math.round(Math.random() * 123.0)
 
 		function pushScope() {
 			scopes.push(new Map())
