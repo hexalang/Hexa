@@ -34,7 +34,7 @@ module {
 		}
 
 		function stringify() {
-			var out = 'package;\n'
+			var out = 'package hexa;\n\nusing StringTools;\n'
 
 			// Types
 			for (e in project.enumsSimple) {
@@ -44,16 +44,16 @@ module {
 					out += '\n\t\tvar ' + e.names[v] + ' = ' + printExpression(e.values[v]) + ';'
 				}
 				for (v in e.staticVars) switch (v) {
-					case NiceStatement.Var(name, expr):
+					case NiceStatement.Var(name, expr, type):
 						out += '\n\t' + e.name + '.' + name
 						if (expr != null) out += ' = ' + printExpression(expr)
-					case NiceStatement.Const(name, expr):
+					case NiceStatement.Const(name, expr, type):
 						out += '\n\t' + e.name + '.' + name
 						out += ' = ' + printExpression(expr)
 				}
 				for (v in e.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args):
 						out += '\n\tpublic static function ' + name + '(' + args.join(', ') + ') ' + printBlock(expr) + ';'
+					case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				}
 				out += '\n}\n'
 			}
@@ -80,23 +80,21 @@ module {
 			for (c in project.classes) {
 				if (c.external) {
 					if (c.jsRequire != null) {
-						out += '\n\t' + '//var ' + c.name + ' = require("' + c.jsRequire + '")'
 						continue
 					}
-					out += '\n\t' + '//var ' + c.name + ' = $global$.' + (c.jsNative ?? c.name)
 					continue
 				}
 
 				out += '\n' + 'class ' + c.name + ' {'
 				for (v in c.vars) switch (v) {
-					case NiceStatement.Var(name, expr):
 					out += '\n\tpublic var ' + name + ': Dynamic;'
 					case NiceStatement.Const(name, expr):
 					out += '\n\tpublic var ' + name + ': Dynamic;'
+					case NiceStatement.Var(name, expr, type):
 				}
 
 				for (v in c.methods) switch (v) {
-					case NiceStatement.Function(name, expr, args):
+					case NiceStatement.Function(name, expr, args, defaults, types, returns):
 					if (name == null || name == 'new') out += '\n\tpublic function new'
 					else out += '\n\tpublic function ' + name
 					out += '(' + args.join(', ') + ') '
@@ -117,17 +115,17 @@ module {
 				}
 
 				for (v in c.staticVars) switch (v) {
-					case NiceStatement.Var(name, expr):
 						out += '\n\tpublic static var ' + name
+					case NiceStatement.Var(name, expr, type):
 						if (expr != null) out += ' = ' + printExpression(expr)
 						out += ';'
-					case NiceStatement.Const(name, expr):
 						out += '\n\tpublic static var ' + name
+					case NiceStatement.Const(name, expr, type):
 						out += ' = ' + printExpression(expr) + ';'
 				}
 
 				for (v in c.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args):
+					case NiceStatement.Function(name, expr, args, defaults, types, returns):
 						out += '\n\tpublic static function ' + name
 						out += '(' + args.join(', ') + ') ' + printBlock(expr) + ';'
 				}
@@ -199,8 +197,8 @@ module {
 				case NiceStatement.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceStatement.Const(name, expr): return 'var ' + name + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Var(name, expr): return 'var ' + name + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Function(name, expr, args):
 					return 'function ' + name + '(' + args.join(', ') + ') ' + printBlock(expr)
+				case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
 					return 'return ' + printExpression(e)
@@ -250,6 +248,8 @@ module {
 
 				case _: console.error("Unknown statement kind:", (s||[])[0])
 			}
+
+			return '<!-- undefined -->'
 		}
 
 		function printCallArguments(args: [NiceExpression]) {
@@ -304,11 +304,11 @@ module {
 				case NiceExpression.False: return 'false'
 				case NiceExpression.Dot(expr, name): return printExpression(expr) + '.' + name
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
-				case NiceExpression.Function(name, expr, args):
 					if (name == null) return 'function (' + args.join(', ') + ') ' + printBlock(expr)
 					return 'function ' + name + '(' + args.join(', ') + ') ' + printBlock(expr)
 				case NiceExpression.Arrow(expr, args):
 					return 'function (' + args.join(', ') + ') return (' + printExpression(expr) + ')'
+				case NiceExpression.Function(name, expr, args, defaults, types, returns):
 				case NiceExpression.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceExpression.Array(el): return '[' + [for (a in el) printExpression(a)].join(', ') + ']'
 				case NiceExpression.Unop(op, postfix, e):
@@ -323,15 +323,10 @@ module {
 					return printExpression(expr) + '[' + printExpression(index) + ']'
 				case NiceExpression.If(econd, eif, eelse):
 					var r = ''
-					try {
-						r += '(' + printExpression(econd) + ')?'
-						r += ' (' + printExpression(eif) + ')'
-						r += ' : ' + printExpression(eelse)
-						return r
-					} catch (error: Any) {
-						console.log('If =>', e, error)
-						return r + '<!-- If => error -->'
-					}
+					r += '(' + printExpression(econd) + ')?'
+					r += ' (' + printExpression(eif) + ')'
+					r += ' : ' + printExpression(eelse)
+					return r
 				case NiceExpression.Object(names, el):
 					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
@@ -348,8 +343,11 @@ module {
 					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
 				case NiceExpression.Underscore: return '_'
-				case _: console.error("Unknown expression kind:", (e||[])[0], e)
+				case _:
+					console.error("Unknown expression kind:", (e||[])[0], e)
 			}
+
+			return '<!-- undefined -->'
 		}
 	}
 }
