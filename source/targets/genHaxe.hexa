@@ -132,23 +132,42 @@ module {
 				out += '\n}\n'
 			}
 
-			for (g in project.globalFuncs) {
-				throw g
+			let globals = []
+
+			for (g in project.globalFuncs) switch (g) {
+				case NiceStatement.Function(name, expr, args, defaults, types, returns):
+					globals.push('\n\tpublic static function ' + name)
+					globals.push(printFunctionArguments(args, defaults, types) + printType(returns))
+					globals.push(' ' + printBlock(expr) + ';')
 			}
 
-			for (g in project.globalVars) {
-				throw g
+			for (g in project.globalVars) switch (g) {
+				case NiceStatement.Var(name, expr, type):
+					globals.push('\n\tpublic static var ' + name + printType(type))
+					if (expr != null)
+						globals.push(' = ' + printExpression(expr))
+					globals.push(';')
+				case NiceStatement.Const(name, expr, type):
+					globals.push('\n\tpublic static var ' + name + printType(type))
+					globals.push(' = ' + printExpression(expr) + ';')
 			}
 
 			// Init
 			out += 'class HexaHaxe {\n\tpublic static function main() {'
+			tabs = '\t\t\t'
 			for (init in project.init) {
-				out += '\n\t\t{\n\t\t'
+				out += '\n\t\t{\n\t\t\t'
 				out += printStatement(init)
 				out += '\n\t\t}'
 			}
 
-			return out + '\n\t}\n}'
+			out += '\n\t}'
+
+			for (g in globals) {
+				out += g
+			}
+
+			return out + '\n}'
 		}
 
 		var tabs = '\t'
