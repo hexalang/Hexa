@@ -299,17 +299,19 @@ module {
 					pushScope()
 					for (e in el) fill(e)
 					popScope()
+
 				case Node.TVar(name, t, e, const, external):
 					if (e == null, const, !external)
 						throw fail('Constant should have a value `let \(name) = value`', node)
 					if (e != null, external)
-						throw fail('External variable should not have a value `let \(name)`', node)
+						throw fail('External variable should not have a value `declare let \(name)`', node)
+					if (t == null, external)
+						throw fail('External variable should have a type `declare let \(name): T`', node)
 					if (e != null) {
 						pushScope()
 						fillExpression(e)
 						popScope()
 					}
-
 
 				case Node.TAssignop(a, op, b):
 					fill(a)
@@ -361,7 +363,9 @@ module {
 
 				case Node.TFunction(name, expr, vars, rettype, external):
 					if (!external, expr == null)
-						throw fail('Non-external function should have a body', node)
+						throw fail('Non-external function `\(name)` should have a body', node)
+					if (external, rettype == null)
+						throw fail('External function `\(name)` should have a returning type', node)
 					addScope(name, node)
 					fillFunction(node, expr, vars, rettype)
 					if(false){
@@ -403,10 +407,6 @@ module {
 
 					if (eelse != null) fill(eelse)
 
-				case Node.TReturn(e):
-					if (!insideFunction)
-						throw fail('Cannot use `return` outside of function', node)
-					if (e != null) fillExpression(e)
 				case Node.TSwitch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fill(e) popScope() }
 
@@ -456,6 +456,7 @@ module {
 						popScope()
 						i++
 					}
+
 				case Node.TTry(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
@@ -526,6 +527,9 @@ module {
 					insideFunction = _insideFunction
 }
 				case Node.TFunction(name, expr, vars, rettype, external):
+					if (external)
+						throw fail('External function `declare function \(name)` cannot be taken as a value', node)
+
 					fillFunction(node, expr, vars, rettype)
 
 					if(false){
@@ -547,6 +551,7 @@ module {
 
 
 				case Node.TArray(el):
+
 					switch (el[0]) {
 						case Node.TFor(name, over, by):
 							if (el.length > 1)
@@ -569,6 +574,7 @@ module {
 						fillExpression(keys[i])
 						fillExpression(values[i])
 					}
+
 				case Node.TAs(e, kind, t):
 					fillExpression(e)
 
@@ -631,7 +637,20 @@ module {
 					for (e in el) fillExpression(e)
 
 				case Node.TTry(e, t, v, ca):
+					// Save stack
+					let _insideTry = insideTry
+					// Reset stack
+					insideTry = true
 					fillExpression(e)
+					// Restore stack
+					insideTry = _insideTry
+
+					for (i in ca.length) {
+						pushScope()
+						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
+						fill(ca[i])
+						popScope()
+					}
 
 				case Node.TIf(econd, eif, eelse):
 					if (econd.length > 1)
@@ -709,9 +728,20 @@ module {
 					fillExpression(e)
 
 				case Node.TThis:
+					if (!insideClassMethod)
+						throw fail('Cannot access `this` outside of class method', node)
 
 				case Node.TSuper(_):
 					throw fail('Cannot use `super` as value', node)
+
+				case Node.TReturn(e):
+					switch (e) {
+						case Node.TReturn(_):
+							throw fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
+					}
+					if (!insideFunction)
+						throw fail('Cannot use `return` outside of function', node)
+					if (e != null) fillExpression(e)
 
 				// Errors
 				case Node.TUnderscore:
@@ -740,6 +770,8 @@ module {
 					throw fail('Cannot use `var` as a value', node)
 				case Node.TSwitch(_):
 					throw fail('Cannot use `switch` as a value', node)
+				case Node.TWhile(_):
+					throw fail('Cannot use `while` as a value', node)
 				case Node.TFor(_):
 					throw fail('Cannot use `for` as a value. To build array from loop, surround with `[for()]` brackets.', node)
 
