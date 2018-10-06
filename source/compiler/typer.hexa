@@ -98,7 +98,7 @@ module {
 				}
 			}
 
-			function findBasicType(name: String) {
+			function findBasicType(name: String): ClassType {
 				let subj = findInNamespaceRoots(name)
 				if (subj == null)
 					throw fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
@@ -112,7 +112,7 @@ module {
 			typeFloat = findBasicType('Float').instantiate()
 			typeString = findBasicType('String').instantiate()
 			typeArray = findBasicType('Array').instantiate()
-			typeMap = findBasicType('Map').instantiate()
+			typeMap = findBasicType('Map')
 			typeAny = findBasicType('Any').instantiate()
 			typeVoid = findBasicType('Void').instantiate()
 
@@ -139,10 +139,200 @@ module {
 			}
 		}
 
-		function registerClassType(node: Node): Type {
+		function registerClassType(node: Node): ClassType {
+			if (let type = types.get(node)) {
+				switch (type) {
+					case Type.Class(t): return t
+				}
+			} else {
+				let type = new ClassType()
+				type.parent = node
+				types.set(node, Type.Class(type))
+
+				switch (node) {
+					case Node.TClass(t, extend, implement, f, external):
+						if (let ext = extend) toType(ext, node)
+						for (impl in implement) toType(impl, node)
+						pushScope()
+
+						// Fill scopes
+						for (field in f) {
+							switch (field) {
+								case Node.TFunction(name, _):
+									if (type.fieldNames.includes(name))
+										throw fail('Field `\(name)` already exists', field)
+									type.fieldNames.push(name)
+									if (name == 'new') type.constructor = type.fieldNames.length - 1
+									addScope(name, field)
+								case Node.TVar(name, _):
+									if (type.fieldNames.includes(name))
+										throw fail('Field `\(name)` already exists', field)
+									type.fieldNames.push(name)
+									addScope(name, field)
+								case Node.TStatic(f): switch (f) {
+									case Node.TFunction(name, _):
+										if (type.fieldNames.includes(name))
+											throw fail('Field `\(name)` already exists', field)
+										type.fieldNames.push(name)
+										type.fieldStatic[type.fieldNames.length - 1] = true
+										addScope(name, field)
+									case Node.TVar(name, _):
+										if (type.fieldNames.includes(name))
+											throw fail('Field `\(name)` already exists', field)
+										type.fieldNames.push(name)
+										type.fieldStatic[type.fieldNames.length - 1] = true
+										addScope(name, field)
+								}
+								case _:
+									throw fail('Wrong class field format', field)
+							}
+							parents.set(field, node)
+						}
+
+						// Fill expressions
+						for (field in f) switch (field) {
+							case Node.TFunction(name, expr, vars, rettype):
+								if (name == 'new') type.constructor = type.fieldNames.length - 1
+								if (external, expr != null) {
+									if (name == 'new')
+										throw fail('External class constructor `new()` cannot have a body', field)
+									else
+										throw fail('External class field `function \(name)` cannot have a body', field)
+								}
+								let _insideClassMethod = insideClassMethod
+								let _allowSuper = allowSuper
+								insideClassMethod = true
+								allowSuper = (extend != null)
+								if (!external) fillFunction(field, expr, vars, rettype)
+								insideClassMethod = _insideClassMethod
+								allowSuper = _allowSuper
+							case Node.TVar(name, t, e, const):
+								if (external, e != null)
+									throw fail('External class field `var \(name)` cannot have expression', field)
+								let _insideClassMethod = insideClassMethod
+								insideClassMethod = true
+								if (e != null) fillExpression(e)
+								insideClassMethod = _insideClassMethod
+							case Node.TStatic(f): switch (f) {
+								case Node.TFunction(name, expr, vars, rettype):
+									if (external, expr != null)
+										throw fail('External class field `static function \(name)` cannot have a body', field)
+									let _insideClassMethod = insideClassMethod
+									insideClassMethod = false
+									if (!external) fillFunction(field, expr, vars, rettype)
+									insideClassMethod = _insideClassMethod
+								case Node.TVar(name, t, e, const):
+									if (external, e != null)
+										throw fail('External class field `static var \(name)` cannot have expression', field)
+									if (e != null) fillExpression(e)
+							}
+							case _:
+								throw fail('Wrong class field format', node)
+						}
+
+						popScope()
+					case _:
+						throw fail('ClassType expects (declare) class node, but got ' + node, node)
+				}
+
+				return type
+			}
 		}
 
 		function registerEnumType(node: Node): Type {
+			if (let type = types.get(node)) {
+				switch (type) {
+					case Type.Enum(t): return t
+				}
+			} else {
+				let type = new EnumType(node)
+				types.set(node, Type.Enum(type))
+
+				var tag = 0
+
+				switch (node) {
+					case Node.TEnum(t, f, valuesType):
+
+					// Check for incompatible tag format and fill scopes
+					for (field in f) {
+						switch (field) {
+							// `enum E { A }`
+							case Node.NodeTypeValue(t): switch (t) {
+								case NodeType.Type(name):
+									if (type.fieldNames.includes(name))
+										throw Typer.fail('Field `\(name)` already exists', node)
+									type.fieldNames.push(name)
+									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(this, tag)
+									tag++
+								case _:
+							}
+							// `enum E { A(b: C) }`
+							case Node.TCall(e, args, argNames):
+								if (valuesType != null)
+									throw Typer.fail('Cannot use `Value(args)` format for simple enum', node)
+								switch (e) {
+									case Node.NodeTypeValue(t): switch (t) {
+										case NodeType.Type(name):
+											if (type.fieldNames.includes(name))
+												throw Typer.fail('Field `\(name)` already exists', node)
+											type.fieldNames.push(name)
+											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+										case _:
+									}
+								}
+							// `enum E { A = b }`
+							case Node.TBinop(a, op, b):
+								if (valuesType == null)
+									throw fail('Cannot use `Value = value` format for complex enum', node)
+								switch (a) {
+									case Node.NodeTypeValue(t): switch (t) {
+										case NodeType.Type(name):
+											if (type.fieldNames.includes(name))
+												throw fail('Field `\(name)` already exists', node)
+											type.fieldNames.push(name)
+											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+									}
+								}
+							// `enum E { a }`
+							case Node.TIdent(name):
+								throw fail('Cannot use lowercase `\(name)` format for enum values', node)
+							// `enum E { static ... }`
+							case Node.TStatic(f): switch (f) {
+								case Node.TFunction(name, _):
+									if (type.fieldNames.includes(name))
+										throw fail('Field `\(name)` already exists', node)
+									type.fieldNames.push(name)
+									type.fieldStatic[type.fieldNames.length - 1] = true
+								case Node.TVar(name, _):
+									if (type.fieldNames.includes(name))
+										throw fail('Field `\(name)` already exists', node)
+									type.fieldNames.push(name)
+									type.fieldStatic[type.fieldNames.length - 1] = true
+							}
+							case _:
+								throw fail('Wrong enum field format', node)
+						}
+
+						parents.set(field, node)
+					}
+
+					// Fill expressions
+					for (field in f) switch (field) {
+						case Node.TFunction(name, expr, vars, rettype):
+							fillFunction(field, expr, vars, rettype)
+						case Node.TVar(name, _):
+						case Node.TStatic(f): switch (f) {
+							case Node.TFunction(name, expr, vars, rettype):
+								fillFunction(field, expr, vars, rettype)
+							case Node.TVar(name, _):
+						}
+						case _:
+					}
+				}
+
+				return type
+			}
 		}
 
 		static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
@@ -224,6 +414,54 @@ module {
 		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
 		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
 
+		// var to = from
+		function unify(to: Type, from: Type, node: Node): Type {
+			// Short path
+			if (to == from) return to
+			if (to == typeAny) return to
+
+			// Nullability
+			function isNullable(t: Type): Bool {
+				switch (t) {
+					case Type.UnknownNullable(_): return true
+					case Type.Nullable(_): return true
+				}
+				return false
+			}
+
+			function unwrapNullable(t: Type): Type {
+				switch (t) {
+					case Type.UnknownNullable(handle): return handle.value
+					case Type.Nullable(t): return t
+				}
+				return t
+			}
+
+			function instanceOfClass(t: Type): ClassType {
+				switch (unwrapNullable(t)) {
+					case Type.ClassInstance(t): return t
+				}
+				return null
+			}
+
+			var toNullable = isNullable(to)
+			var fromNullable = isNullable(from)
+
+			if (fromNullable, !toNullable)
+				throw fail('Cannot assign nullable type to non-nullable', node)
+
+			var toInstance = instanceOfClass(to)
+			var fromInstance = instanceOfClass(from)
+			if (toInstance == null || fromInstance == null) {
+				return to ?? from
+			}
+
+			if (toInstance != fromInstance)
+				throw fail('Incompatible types', node)
+
+			return to ?? from
+		}
+
 		function findType(name: String): Node? {
 			for (i in scopes.length) {
 				if (let subj = scopes[scopes.length - i - 1].get(name)) {
@@ -231,6 +469,42 @@ module {
 				}
 			}
 			return findInNamespaceRoots(name)
+		}
+
+		function toType(t: NodeType, node: Node): Type {
+			switch (t) {
+				case NodeType.Type(name):
+					let nodeType: Node = findType(name)
+					if (types.get(nodeType) == null) switch (nodeType) {
+						case Node.TClass(_): registerClassType(nodeType)
+						case Node.TEnum(_): registerEnumType(nodeType)
+					}
+					switch (types.get(nodeType)) {
+						case Type.Class(type):
+							return type.instantiate()
+						case null:
+							throw fail('Cannot find type `\(name)`', node)
+						case _:
+					}
+				case NodeType.Optional(t):
+					return Type.Nullable(toType(t, node))
+				case NodeType.Function(args, ret):
+					return Type.Function([for (arg in args) toType(arg, node)], toType(ret, node), null)
+				case NodeType.Object(names, el):
+					let els = [for (e in el) toType(e, node)]
+					return Type.Struct(names, els)
+				case NodeType.ParametricType(_):
+				case _:
+					throw fail('Unsupported node type ' + t + never, node)
+			}
+		}
+
+		// var node: NodeType = e
+		function mixVarTypes(t: NodeType?, e: Node?, node: Node): Type {
+			if (t != null, e != null) types.set(node, unify(toType(t, node), types.get(e), e))
+			if (t == null, e != null) types.set(node, types.get(e))
+			if (t == null, e == null) types.set(node, Type.UnknownNullable({value: null}))
+			if (t != null, e == null) types.set(node, toType(t, node))
 		}
 
 		private function fillFunction(node, expr, vars, rettype, arrow = false): Void {
@@ -250,6 +524,8 @@ module {
 						addScope(vname, v)
 				}
 			}
+
+			if (rettype != null) toType(rettype, node)
 
 			// Reset stack
 			let atts = Project.mapAttributes.get(node)
@@ -313,16 +589,23 @@ module {
 						popScope()
 					}
 
-				case Node.TAssignop(a, op, b):
-					fill(a)
-					var parent: Node = parents.get(a)
-					switch (parent) {
-						case Node.TVar(name, _, _, const):
-							if (const)
-							throw fail('Cannot reassign a constant `\(name)`', node)
-						case Node.TFunction(name, _):
-							throw fail('Cannot reassign a function `\(name)`', node)
-						case _: // Ok
+					mixVarTypes(t, e, node)
+
+					if (t != null, e != null) types.set(node, unify(toType(t, node), types.get(e), e))
+					if (t == null, e != null) types.set(node, types.get(e))
+					if (t == null, e == null) types.set(node, Type.UnknownNullable({value: null}))
+					if (t != null, e == null) types.set(node, toType(t, node))
+
+					function isValue(t: Type): Bool {
+						switch (t) {
+							case Type.Struct(_): return true
+							case Type.Nullable(_): return true
+							case Type.UnknownNullable(_): return true
+							case Type.ClassInstance(_): return true
+							case Type.EnumInstance(_): return true
+							case Type.Function(_): return true
+						}
+						return false
 					}
 					addScope(name, node)
 
@@ -337,6 +620,7 @@ module {
 						case Node.TVar(name, _, _, const):
 							if (const)
 								throw fail('Cannot reassign a constant `\(name)`', node)
+							types.set(node, unify(types.get(a), types.get(b), b))
 						case Node.TIdent(name):
 							throw fail('Cannot reassign case parameter `\(name)`', node)
 						case Node.TFunction(name, _):
@@ -381,6 +665,7 @@ module {
 					// Restore stack
 					insideFunction = _insideFunction
 
+					types.set(node, Type.Function(null, null))
 				}
 
 				case Node.TIf(econd, eif, eelse):
@@ -478,10 +763,13 @@ module {
 					allowBreakAndContinue = true
 					fill(e)
 					allowBreakAndContinue = _allowBreakAndContinue
+					types.set(node, typeVoid)
+
 				case Node.TIs(expr, t):
 					fillExpression(expr)
 
 				case Node.TContinue:
+					types.set(node, typeVoid)
 					if (!allowBreakAndContinue)
 						throw fail('Cannot use `continue` outside of loop', node)
 
@@ -510,6 +798,9 @@ module {
 					if (parents.get(node) != null, parents.get(node) != subj)
 						throw fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 					parents.set(node, subj)
+					if (let type = types.get(subj)) {
+						types.set(node, type)
+					}
 
 				case Node.TArrow(expr, vars, rettype):
 					fillFunction(node, expr, vars, rettype, arrow: true)
@@ -559,24 +850,39 @@ module {
 
 							pushScope()
 							fillExpression(over)
+							types.set(el[0], types.get(over))
 							addScope(name, el[0])
 							let _allowBreakAndContinue = allowBreakAndContinue
 							allowBreakAndContinue = false
 							fillExpression(by)
 							allowBreakAndContinue = _allowBreakAndContinue
 							popScope()
+
+							types.set(node, types.get(by))
 						case _:
 							for (e in el) fillExpression(e)
 					}
 
 				case Node.TMap(keys, values):
+					if (keys.length == 0) {
+						types.set(node, typeMap.instantiateGeneric(
+							Type.Unknown({value: null}),
+							Type.Unknown({value: null})
+						))
+						return
+					}
 					for (i in keys.length) {
 						fillExpression(keys[i])
 						fillExpression(values[i])
 					}
+					types.set(node,
+						typeMap.instantiateGeneric(types.get(keys[0]), types.get(values[0]))
+					)
 
 				case Node.TAs(e, kind, t):
+					let type = toType(t, node)
 					fillExpression(e)
+					types.set(node, type)
 
 				case Node.TBlock(el):
 					if (el.length == 0)
@@ -587,6 +893,7 @@ module {
 					}
 					let latest = el[el.length - 1]
 					fillExpression(latest)
+					types.set(node, types.get(latest))
 					popScope()
 
 				case Node.TDot(e, n):
@@ -597,6 +904,33 @@ module {
 						case _:
 							fillExpression(e)
 					}
+					if (let etype = types.get(e)) switch (etype) {
+						case Type.ClassInstance(type):
+							if (etype == typeAny) { return }
+							let index = type.fieldNames.indexOf(n)
+							if (index < 0)
+								throw fail('Class `\(nameOfModuleItem(type.parent))` has no field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
+							if (type.fieldStatic[index] == true)
+								throw fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is static', node)
+						case Type.Class(type):
+							let index = type.fieldNames.indexOf(n)
+							if (index < 0)
+								throw fail('Class `\(nameOfModuleItem(type.parent))` has no static field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
+							if (type.fieldStatic[index] != true)
+								throw fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
+						case Type.Enum(type):
+							let index = type.fieldNames.indexOf(n)
+							if (index < 0)
+								throw fail('Enum has no field `.\(n)`', node)
+							if (type.fieldStatic[index] != true)
+								throw fail('Enum field `.\(n)` is not static', node)
+						case Type.Struct(names, els):
+							let index = names.indexOf(n)
+							if (index < 0)
+								throw fail('Object has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
+							types.set(node, els[index])
+						case _:
+					}// else throw fail('Got node without type `\(e)`' + never, node)
 
 				case Node.TDotUpper(e, n):
 					switch (e) {
@@ -604,6 +938,22 @@ module {
 							throw fail('Cannot access `super` here', node)
 					}
 					fillExpression(e)
+					if (let type = types.get(e)) switch (type) {
+						case Type.Class(type):
+							let index = type.fieldNames.indexOf(n)
+							if (index < 0)
+								throw fail('Class has no field `.\(n)`', node)
+							if (type.fieldStatic[index] != true)
+								throw fail('Class field `.\(n)` is not static', node)
+						case Type.Enum(type):
+							let index = type.fieldNames.indexOf(n)
+							if (index < 0)
+								throw fail('Enum has no value constructor `.\(n)`', node)
+							if (type.fieldEnumConstructor[index] != true)
+								throw fail('Enum field `.\(n)` is not a value constructor', node)
+							types.set(node, type.fieldType[index])
+						case _:
+					}// else throw fail('Got node without type `\(e)`' + never, node)
 
 				case Node.NodeTypeValue(t): switch (t) {
 					case NodeType.Type(name):
@@ -620,6 +970,9 @@ module {
 						if (parents.get(node) != null, parents.get(node) != subj)
 							throw fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 						parents.set(node, subj)
+						if (let type = types.get(subj)) {
+							types.set(node, type)
+						}// else throw fail('Cannot find type `\(name)` for \(subj)' + never, node)
 					case NodeType.ParametricType(name, _):
 						throw fail('Cannot use generic type `\(name)` as a value', node)
 					case _:
@@ -627,7 +980,17 @@ module {
 				}
 
 				case Node.TNew(path, t, el, names, values):
+					let type = toType(t, node)
 					for (e in el) fillExpression(e)
+					switch (type) {
+						case Type.ClassInstance(type):
+							if (type.constructor == -1)
+								throw fail('Cannot construct class without `new () {}` constructor', node)
+						case _:
+							throw fail('Constructor `new` may instantiate only classes', node)
+					}
+
+					types.set(node, type)
 
 				case Node.TObject(names, el):
 					for (name in names.length)
@@ -635,6 +998,8 @@ module {
 							throw fail('Field `\(names[name])` already exists', node)
 
 					for (e in el) fillExpression(e)
+					let els = [for (e in el) types.get(e)]
+					types.set(node, Type.Struct(names, els))
 
 				case Node.TTry(e, t, v, ca):
 					// Save stack
@@ -651,6 +1016,7 @@ module {
 						fill(ca[i])
 						popScope()
 					}
+					types.set(node, types.get(e))
 
 				case Node.TIf(econd, eif, eelse):
 					if (econd.length > 1)
@@ -667,21 +1033,28 @@ module {
 
 				// Simple nodes
 				case Node.TNull:
+					types.set(node, Type.UnknownNullable({value:null}))
 
 				case Node.TString(_):
+					types.set(node, typeString)
 
 				case Node.TBool(_):
+					types.set(node, typeBool)
 
 				case Node.TInt(_):
+					types.set(node, typeInt)
 
 				case Node.TFloat(_):
+					types.set(node, typeFloat)
 
 				case Node.TParenthesis(e):
 					fillExpression(e)
+					types.set(node, types.get(e))
 
 				case Node.TElvis(a, b):
 					fillExpression(a)
 					fillExpression(b)
+					types.set(node, types.get(b))
 
 				case Node.TCall(e, el, elNames):
 					// JavaScript evaluates arguments first
@@ -692,6 +1065,13 @@ module {
 								throw fail('Cannot access `super` here', node)
 						case _:
 				 			fillExpression(e)
+				 	}
+				 	switch (types.get(e)) {
+				 		case Type.Function(args, returns):
+				 			for (e in el) unify(args, types.get(e), e)
+				 			types.set(node, returns)
+				 		case null:
+				 		case _:
 				 	}
 
 				case Node.TBinop(a, op, b):
@@ -742,6 +1122,7 @@ module {
 					if (!insideFunction)
 						throw fail('Cannot use `return` outside of function', node)
 					if (e != null) fillExpression(e)
+					if (e != null) functionReturnsNonVoid = true
 
 				// Errors
 				case Node.TUnderscore:
@@ -785,8 +1166,41 @@ module {
 	}
 
 	enum Type {
+		Unknown(handle: { value: Type })
+		UnknownNullable(handle: { value: Type })
+		Nullable(type: Type) // Non-void
+		Class(type: ClassType) // Type of `class` node itself
+		Enum(type: EnumType) // Type of `enum` node itself
+		Alias(value: Type) // Type of `declare T = A` node itself
+		ClassInstance(type: ClassType, generic: [Type]) // Instance of class (constructed with `new`)
+		EnumInstance(type: EnumType, tag: Int) // Instance of enum value
+		EnumConstructor(type: EnumType, tag: Int) // EnumType.EnumConstructor without call (...)
+		SuperOf(type: ClassType) // `super` of current class (not parent)
+		Function(args: [Type], returns: Type, lazyTypeCheck: Node)
+		Struct(names: [String], types: [Type])
 	}
 
 	class ClassType {
+		var parent: Node
+		var owner: ModuleType = null // Non-null if in a module, not in a block
+		let fieldNames: [String] = []
+		let fieldStatic: [Bool] = []
+		let protected: [Bool] = [] // `private`
+		let immutable: [Bool] = [] // `let` or `function`
+		var constructor = -1
+		var indexKeyType = null
+		var indexValueType = null
+		new () {
+		}
+	}
+
+	class EnumType {
+		let fieldNames: [String] = []
+		let fieldStatic: [Bool] = []
+		let fieldEnumConstructor: [Bool] = []
+		let fieldType: [Type] = []
+	}
+
+	class ModuleType {
 	}
 }
