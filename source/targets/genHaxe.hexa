@@ -52,8 +52,10 @@ module {
 						out += ' = ' + printExpression(expr)
 				}
 				for (v in e.staticMethods) switch (v) {
-						out += '\n\tpublic static function ' + name + '(' + args.join(', ') + ') ' + printBlock(expr) + ';'
 					case NiceStatement.Function(name, expr, args, defaults, types, returns):
+						out += '\n\tpublic static function ' + name
+						out += printFunctionArguments(args, defaults, types) + printType(returns)
+						out += ' ' + printBlock(expr) + ';'
 				}
 				out += '\n}\n'
 			}
@@ -65,7 +67,9 @@ module {
 					out += '\n\t' + name
 					if (e.constructors[i] != null) {
 						out += '('
-						out += [for (c in e.constructors[i]) c + ': Dynamic'].join(',')
+						out += [for (k in e.constructors[i].length) {
+							e.constructors[i][k] + printNodeAsType(e.types[i][k], ': ')
+						}].join(', ')
 						out += ');'
 					} else out += ';'
 					i++
@@ -85,49 +89,44 @@ module {
 					continue
 				}
 
-				out += '\n' + 'class ' + c.name + ' {'
+				out += '\n' + 'class ' + c.name
+				if (let params = c.genericParams) out += '<' + params.join(', ') + '>'
+				if (let implement = c.implement) out += ' implements ' + implement
+				if (let params = c.implementParams) out += '<' + params.join(', ') + '>'
+				out += ' {'
 				for (v in c.vars) switch (v) {
-					out += '\n\tpublic var ' + name + ': Dynamic;'
-					case NiceStatement.Const(name, expr):
-					out += '\n\tpublic var ' + name + ': Dynamic;'
 					case NiceStatement.Var(name, expr, type):
+					out += '\n\tpublic var ' + name + printType(type)
+					if (expr != null) out += ' = ' + printExpression(expr)
+					out += ';'
+					case NiceStatement.Const(name, expr, type):
+					out += '\n\tpublic var ' + name + printType(type) + ' = ' + printExpression(expr) + ';'
 				}
 
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults, types, returns):
 					if (name == null || name == 'new') out += '\n\tpublic function new'
 					else out += '\n\tpublic function ' + name
-					out += '(' + args.join(', ') + ') '
-
-					if (name == null || name == 'new') {
-						out += '{ '
-						// Init fields
-						for (v in c.vars) switch (v) {
-							case NiceStatement.Var(name, expr):
-							if (expr != null)
-							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ';'
-							case NiceStatement.Const(name, expr):
-							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ';'
-						}
-						out += '\n\t\t'
-						out += printBlock(expr) + ' };'
-					} else out += printBlock(expr)
+					out += printFunctionArguments(args, defaults, types)
+ 					if (name != null && name != 'new') out += printType(returns)
+					out += ' ' + printBlock(expr) + ';'
 				}
 
 				for (v in c.staticVars) switch (v) {
-						out += '\n\tpublic static var ' + name
 					case NiceStatement.Var(name, expr, type):
+						out += '\n\tpublic static var ' + name + printType(type)
 						if (expr != null) out += ' = ' + printExpression(expr)
 						out += ';'
-						out += '\n\tpublic static var ' + name
 					case NiceStatement.Const(name, expr, type):
+						out += '\n\tpublic static var ' + name + printType(type)
 						out += ' = ' + printExpression(expr) + ';'
 				}
 
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults, types, returns):
 						out += '\n\tpublic static function ' + name
-						out += '(' + args.join(', ') + ') ' + printBlock(expr) + ';'
+						out += printFunctionArguments(args, defaults, types) + printType(returns)
+						out += ' ' + printBlock(expr) + ';'
 				}
 
 				out += '\n}\n'
@@ -195,10 +194,10 @@ module {
 					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
-				case NiceStatement.Const(name, expr): return 'var ' + name + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Var(name, expr): return 'var ' + name + (expr == null? '' : ' = ' + printExpression(expr))
-					return 'function ' + name + '(' + args.join(', ') + ') ' + printBlock(expr)
+				case NiceStatement.Const(name, expr, type): return 'var ' + name + printType(type) + (expr == null? '' : ' = ' + printExpression(expr))
+				case NiceStatement.Var(name, expr, type): return 'var ' + name + printType(type) + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Function(name, expr, args, defaults, types, returns):
+					return 'function ' + name + printFunctionArguments(args, defaults, types) + printType(returns) + ' ' + printBlock(expr)
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
 					return 'return ' + printExpression(e)
@@ -208,11 +207,11 @@ module {
 					return r
 				case NiceStatement.Call(e, args): return printExpression(e) + printCallArguments(args)
 				case NiceStatement.Try(expr, t, v, catches):
-					var r = 'try {\n' + tabs
+					var r = 'try '
 					r += printStatement(expr)
-					r += '\n' + tabs + '} catch (' + v[0] + ': Dynamic) {\n' + tabs + '\t'
+					r += ' catch (' + v[0] + (printType(t[0]) || ': Dynamic') + ') '
 					r += printStatement(catches[0])
-					return r + '\n' + tabs + '}'
+					return r
 				case NiceStatement.Assign(a, v):
 					return printExpression(a) + ' = ' + printExpression(v)
 				case NiceStatement.Throw(e):
@@ -254,6 +253,49 @@ module {
 
 		function printCallArguments(args: [NiceExpression]) {
 			return '(' + [for (a in args) printExpression(a)].join(', ') + ')'
+		}
+
+		function printFunctionArguments(args: [String], defaults: [NiceExpression], types) {
+			return '(' + [for (a in args.length)
+				args[a] + printType(types[a]) + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
+			].join(', ') + ')'
+		}
+
+		function stringType(t: NodeType, prefix: Bool) {
+			let prefix = prefix? ': ' : ''
+			if (t == null) return ''
+			if (t == null) return prefix + 'Dynamic'
+
+			switch (t) {
+				case NodeType.ParametricType(name, params):
+					if (name == 'Buffer') return prefix + name
+					return prefix + name + '<' + [for (param in params) stringType(param, false)].join(', ') + '>'
+				case NodeType.Type(name):
+					if (name == 'Any') return prefix + 'Dynamic'
+					return prefix + name
+				case NodeType.Object(_):
+					return prefix + '{}'
+				case NodeType.Optional(t):
+					return prefix + 'Null<' + stringType(t, false) + '>'
+			}
+
+			return prefix + 'Dynamic'
+		}
+
+		function printType(t: NodeType) {
+			let type = stringType(t, ': ')
+			if (type == ': Array<Dynamic>') return ''
+			return type
+		}
+
+		function printNodeAsType(t: Node, prefix: String) {
+			switch (t) {
+				case Node.TIdent(name): return prefix + name
+				case Node.TArray(el): return prefix + 'Array<' + printNodeAsType(el[0], '') + '>'
+
+				case null: return prefix + 'Dynamic'
+				case _: return prefix + 'Dynamic'
+			}
 		}
 
 		function printExpression(e: NiceExpression) {
@@ -304,11 +346,11 @@ module {
 				case NiceExpression.False: return 'false'
 				case NiceExpression.Dot(expr, name): return printExpression(expr) + '.' + name
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
-					if (name == null) return 'function (' + args.join(', ') + ') ' + printBlock(expr)
-					return 'function ' + name + '(' + args.join(', ') + ') ' + printBlock(expr)
-				case NiceExpression.Arrow(expr, args):
-					return 'function (' + args.join(', ') + ') return (' + printExpression(expr) + ')'
 				case NiceExpression.Function(name, expr, args, defaults, types, returns):
+					let name = name ?? ''
+					return 'function ' + name + printFunctionArguments(args, defaults, types) + printType(returns) + ' ' + printBlock(expr)
+				case NiceExpression.Arrow(expr, args, defaults, types, returns):
+					return 'function ' + printFunctionArguments(args, defaults, types) + printType(returns) + ' return ' + printExpression(expr)
 				case NiceExpression.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceExpression.Array(el): return '[' + [for (a in el) printExpression(a)].join(', ') + ']'
 				case NiceExpression.Unop(op, postfix, e):
