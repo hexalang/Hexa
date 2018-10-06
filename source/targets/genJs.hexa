@@ -123,11 +123,11 @@ module {
 			}
 
 			for (g in project.globalFuncs) {
-				throw g
+				throw 'Global functions are not yet supporetd: ' + g
 			}
 
 			for (g in project.globalVars) {
-				throw g
+				throw 'Global vars are not yet supporetd: ' + g
 			}
 
 			// Init
@@ -144,6 +144,7 @@ module {
 		@inline function pushTab() tabs += '\t'
 		@inline function popTab() tabs = tabs.substring(0, tabs.length - 1)
 
+		let globalAccessor = ''
 		let reserved = [
 			'with', 'const', 'instanceof', 'typeof', 'delete', 'undefined', 'package',
 			'async', 'await', 'arguments'
@@ -153,10 +154,11 @@ module {
 		function printBlock(s: NiceStatement): String {
 			switch (s) {
 				case NiceStatement.Block(el):
-				if (el.length == 1) return '{ ' + printStatement(el[0]) + ' }'
-				if (el.length == 0) return '{}'
-				return printStatement(s)
-				case _: return '{ ' + printStatement(s) + ' }'
+					if (el.length == 1) return '{ ' + printStatement(el[0]) + ' }'
+					if (el.length == 0) return '{}'
+					return printStatement(s)
+				case _:
+					return '{ ' + printStatement(s) + ' }'
 			}
 		}
 
@@ -229,6 +231,10 @@ module {
 						r += '\n' + tabs
 						for (cc in cases[i]) switch (cc) {
 							case NiceExpression.Null(_):
+								// JavaScript is very strict on this
+								// in `switch` null != undefined
+								// In Hexa we do not have `undefined`
+								// and undefined considered to be == null
 								r += 'case null: case undefined: '
 							case _:
 								r += 'case ' + printExpression(cc) + ': '
@@ -254,7 +260,7 @@ module {
 			}
 		}
 
-		function printCallArguments(args: [NiceExpression]) {
+		function printCallArguments(args: [NiceExpression]): String {
 			return '(' + [for (a in args) printExpression(a)].join(', ') + ')'
 		}
 
@@ -352,7 +358,10 @@ module {
 					case NativeOperatorKind.Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
 					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
-				case _: console.error("Unknown expression kind:", (e||[])[0], e)
+				case NiceExpression.Enum(type, tagName, tag, args):
+					return ('(["' + tagName + '",' + printExpression(tag) + ',' + [for (a in args) printExpression(a)].join(',') + '])')
+				case _:
+					console.error("Unknown expression kind:", (e||[])[0], e)
 			}
 		}
 	}
