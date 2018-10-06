@@ -43,6 +43,80 @@ module {
 			shouldError('let a = break')
 			shouldError('var a = 1, b = return 2')
 
+			shouldError('enum E { A B A }') // Duplicate
+			shouldError('enum E { A(value: Int) B A(value: Int) }') // Duplicate
+			shouldError('enum E { B(value: Int) A = 1 }') // Mixing complex and simple enum values
+			shouldError('enum E { lowercase }') // Values should be upper case
+			shouldNotError('class A { static function x() {} } A.x()')
+			shouldError('class A { static function x() {} static function x() {} }') // Duplicate
+			shouldError('class A { static function x() {} static var x = 1 }') // Duplicate
+			shouldError('class A { static function x() {} var x = 1 }') // Duplicate
+			shouldError('class A { static let x = 1 static var x = 1 }') // Duplicate
+			shouldError('class A { static let x = 1 function x() {} }') // Duplicate
+			shouldNotError('module { class A { static function x() {} } } A.x()')
+			shouldError('class A { static function x() {} } B.y()')
+			shouldError('class A { static function x() {} } A.y()')
+			shouldError('module { class A { static function x() {} } } A.y()')
+
+			// Enum static
+			shouldNotError('enum E : Int { static function x() {} } E.x()')
+			shouldError('enum E : Int { static function x() {} } E.y()')
+			shouldNotError('enum E { A } let a = E.A')
+			shouldError('enum E { A } let a = E.B')
+
+			shouldNotError('class A { static var x = 0 } A.x = 1')
+			shouldError('class A { static var x = 0 } A.y = 1')
+
+			shouldNotError('var x = 1 x = 2')
+			shouldNotError('var x: Bool = true')
+			shouldError('var x: Bool = 1')
+			shouldNotError('var x: Bool? = null')
+			shouldError('var x: Bool = null')
+			shouldNotError('var x: Int = 1 x = 1')
+			shouldError('var x: Int = 1 x = true')
+			shouldError('var x = 1 x = true')
+			shouldError('var x = (1) x = (true)')
+			shouldNotError('var x = 1 var y = 2 x = y')
+			shouldError('var x: Int = 1 var y: Bool = true x = y')
+			shouldError('var x = 1 var y = true x = y')
+			shouldNotError('var x = null x = null')
+			shouldNotError('var x = null x = true')
+			shouldError('var x = 1 x = null')
+			shouldError('var x = 1 var y = x y = true') // Simple inference
+			shouldNotError('var x = null var y = true x = y')
+			shouldError('var x = null var y = true y = x')
+			shouldNotError('function x() {} var y = x y = x')
+			shouldNotError('function x() {} var y: ()=>Void = x y = x')
+
+			shouldNotError('class A { new() {} } let a = new A()')
+			shouldError('class A { } let a = new A()') // No constructor
+			shouldNotError('class A { new() {} var x = 0 } let a = new A() a.x = 1')
+
+			shouldNotError('let a = { b: true } let c = a.b')
+			shouldNotError('let a: { b: Bool } = { b: true } let c = a.b')
+			shouldNotError('let a = { b: true } a.b = false')
+			shouldNotError('let a: { b: Bool } = { b: true } let c: { b: Bool } = a')
+			shouldNotError('let a = { b: true } let c: { b: Bool } = a')
+
+			shouldError('let a = { b: true } let c = a.x') // No field
+			shouldError('let a = { b: true } let c: Int = a.b')
+			shouldError('let a = { b: true } let c = a.b c = 123')
+			shouldError('let a = {a: 1, b: 2, a: 3}') // Duplicate
+
+			// Conditions
+			shouldNotError('if (true) {}')
+			shouldNotError('if (true == false) {}')
+			shouldNotError('if (1 == 2) {}')
+			shouldNotError('if (1 != 2) {}')
+			shouldNotError('if (1 >= 2) {}')
+
+			shouldErrorTemplate(
+				'$d$ a = $a$',
+				['$b$', '{ $b$ }'],
+				['break', 'continue', 'return $c$'],
+				['1', "abc"],
+				['let', '"var"']
+			)
 			// Function
 			shouldNotError('var x = function() {return 1} var x = 1')
 			shouldError('let x = function() {return 1} x = 1')
@@ -50,6 +124,7 @@ module {
 			shouldError('function x() {return 1} x = function() {return 1}')
 			shouldError('{ function x() {return 1} } x()')
 			shouldError('{ function x() {return return 1} }')
+			shouldError('{ function x(y: Int) { y = 1 } }') // Arguments are immutable
 			shouldError('return 1') // Outside of function
 			shouldError('{ return }') // Outside of function
 			shouldNotError('{ () => { return 1 } }')
@@ -62,10 +137,12 @@ module {
 
 			// Arrays
 			shouldNotError('let a = [2, 4, 1, 2, 5]')
+			shouldNotError('let a = [null, 2, 4, 1, 2]')
 			shouldNotError('var a = [2, 4, 1, 2, 5] a = [2, 3, 4]')
 			shouldError('let a = [2, 4, 1, 2, 5] a = [2, 3, 4]')
-			shouldNotError('var a = for (b in [1, 2, 3, 4]) b')
-			shouldError('var a = for (b in [1, 2, 3, 4]) a')
+			shouldNotError('var a = 4, b = 2, c = 4 let arr = [a, b, c]')
+			shouldNotError('var a = [for (b in [1, 2, 3, 4]) b]')
+			shouldError('var a = [for (b in [1, 2, 3, 4]) a]')
 
 			// Maps
 			shouldNotError('var a = [ 1: "a", 2: "b", 3: "c" ]')
@@ -110,6 +187,7 @@ module {
 			shouldNotError('do { continue } while (true)')
 			shouldError('do { } while ({ continue })')
 			shouldNotError('for (a in []) { continue }')
+			shouldError('for (continue in []) { }')
 			shouldError('for (a in continue) { }')
 
 			// Global modules
@@ -129,12 +207,18 @@ module {
 			shouldError('module hi { function () {} }') // Module function should have a name
 			shouldError('function hi() { static var x = 1 }')
 			shouldError('function hi() { private var x = 1 }')
+			shouldError('class A {} A = null')
+			shouldError('class A {} A = A')
+			shouldError('class A {new(){}} A = new A()')
+			shouldError('module { class A {} } A = null')
+			shouldError('module { class A {new(){}} } A = new A()')
 
 			// Classes
 			shouldError('class A { static function hi() { this } }')
 			shouldError('function hi() { this }')
 			shouldError('{ this }')
 			shouldNotError('class A { function hi() { this } }')
+			shouldNotError('class A { new() { this } }')
 			shouldNotError('class A { function hi() { return this } }')
 			shouldError('static function hi() { }')
 			shouldError('private function hi() { }')
@@ -157,6 +241,12 @@ module {
 			shouldNotError('
 				class B { function hi() { } }
 				class A extends B { function hi() { super.hi() } }')
+
+			// Type existence
+			shouldError('var a: Unknown = 1')
+			shouldError('function a(): Unknown {}')
+			shouldError('class A extends Unknown {}')
+			shouldError('class A implements Unknown {}')
 
 			console.log('TestTyper done \(Math.round((passed/overall)*100))% (\(passed)/\(overall))')
 		}
@@ -217,7 +307,7 @@ module {
 
 			var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
 			try {
-				(new Typer()).fillScopes([Parser.parseNodes(lexe)])
+				(new Typer()).fillFiles([Parser.parseNodes(lexe)])
 			} catch(e: Any) {
 				return '' + e
 			}

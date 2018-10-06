@@ -215,7 +215,14 @@ module {
 		private var namespaces: [String : Node] = [:]
 
 		// Stack
+		var functionAllowedToThrow = false // @noThrow is *not* set
+		var functionThrows = false // `throw` is happened
+		var insideTry = false // `try { insideTry } catch (...) { ... }`
 		var insideFunction = false // `function () { insideFunction }`
+		var allowBreakAndContinue = false // Used in loops
+		var functionReturnsNonVoid = false // `return something` is happened, ignoring `{ return }`
+		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
+		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
 
 		function findType(name: String): Node? {
 			for (i in scopes.length) {
@@ -224,6 +231,49 @@ module {
 				}
 			}
 			return findInNamespaceRoots(name)
+		}
+
+		private function fillFunction(node, expr, vars, rettype, arrow = false): Void {
+			pushScope()
+			// Save stack
+			let _insideFunction = insideFunction
+			let _functionAllowedToThrow = functionAllowedToThrow
+			let _functionThrows = functionThrows
+			let _functionReturnsNonVoid = functionReturnsNonVoid
+			let _insideTry = insideTry
+
+			for (i in vars.length) {
+				let v = vars[i]
+				switch (v) {
+					case Node.TVar(vname, t, e, const):
+						if (e != null) fillExpression(e)
+						addScope(vname, v)
+				}
+			}
+
+			// Reset stack
+			let atts = Project.mapAttributes.get(node)
+
+			if (let noThrow = DataHelper.getAttribute(atts, 'noThrow')) {
+				if (noThrow.values.length > 0) throw fail('Attribute `@noThrow` should have no parameters', node)
+				functionAllowedToThrow = false
+			} else functionAllowedToThrow = true
+
+			if (let throws = DataHelper.getAttribute(atts, 'throws')) {
+				if (functionAllowedToThrow == false) throw fail('Attribute `@noThrow` cannot be used with `@throws`', node)
+				functionThrows = true
+			} else functionThrows = false
+
+			insideFunction = true
+			insideTry = false
+			functionReturnsNonVoid = false
+
+			if (arrow, expr != null) fillExpression(expr)
+			if (!arrow, expr != null) fill(expr)
+			popScope()
+
+			// Restore stack
+			insideFunction = _insideFunction
 		}
 
 		// Syntax tree traverse
@@ -249,15 +299,16 @@ module {
 					pushScope()
 					for (e in el) fill(e)
 					popScope()
-				case Node.TVar(name, t, e, const):
-					if (e == null, const)
+				case Node.TVar(name, t, e, const, external):
+					if (e == null, const, !external)
 						throw fail('Constant should have a value `let \(name) = value`', node)
+					if (e != null, external)
+						throw fail('External variable should not have a value `let \(name)`', node)
 					if (e != null) {
 						pushScope()
 						fillExpression(e)
 						popScope()
 					}
-					addScope(name, node)
 
 
 				case Node.TAssignop(a, op, b):
@@ -271,7 +322,7 @@ module {
 							throw fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
 					}
-					fillExpression(b)
+					addScope(name, node)
 
 				case Node.TBinop(a, op, b):
 					fillExpression(a)
@@ -288,19 +339,32 @@ module {
 							throw fail('Cannot reassign case parameter `\(name)`', node)
 						case Node.TFunction(name, _):
 							throw fail('Cannot reassign a function `\(name)`', node)
+						case Node.TClass(_):
+							throw fail('Cannot reassign class', node)
+						case Node.TEnum(_):
+							throw fail('Cannot reassign enum', node)
 						case _: // Ok
 					}
 				case Node.TBreak:
+					if (!allowBreakAndContinue)
+						throw fail('Cannot use `break` outside of loop', node)
 
 				case Node.TFor(name, over, by):
 					pushScope()
 					fillExpression(over)
 					addScope(name, node)
+					let _allowBreakAndContinue = allowBreakAndContinue
+					allowBreakAndContinue = true
 					fill(by)
+					allowBreakAndContinue = _allowBreakAndContinue
 					popScope()
 
 				case Node.TFunction(name, expr, vars, rettype, external):
+					if (!external, expr == null)
+						throw fail('Non-external function should have a body', node)
 					addScope(name, node)
+					fillFunction(node, expr, vars, rettype)
+					if(false){
 
 					// Save stack
 					let _insideFunction = insideFunction
@@ -312,6 +376,8 @@ module {
 
 					// Restore stack
 					insideFunction = _insideFunction
+
+				}
 
 				case Node.TIf(econd, eif, eelse):
 					var depth = 0
@@ -390,17 +456,33 @@ module {
 						popScope()
 						i++
 					}
-				case Node.TThrow(e):
-					fillExpression(e)
 				case Node.TTry(e, t, v, ca):
+					// Save stack
+					let _insideTry = insideTry
+					// Reset stack
+					insideTry = true
 					fill(e)
+					// Restore stack
+					insideTry = _insideTry
+
+					for (i in ca.length) {
+						pushScope()
+						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
+						fill(ca[i])
+						popScope()
+					}
 				case Node.TWhile(econd, e, pre):
 					fillExpression(econd)
+					let _allowBreakAndContinue = allowBreakAndContinue
+					allowBreakAndContinue = true
 					fill(e)
+					allowBreakAndContinue = _allowBreakAndContinue
 				case Node.TIs(expr, t):
 					fillExpression(expr)
 
 				case Node.TContinue:
+					if (!allowBreakAndContinue)
+						throw fail('Cannot use `continue` outside of loop', node)
 
 				// Expressions and errors
 				case _:
@@ -429,6 +511,8 @@ module {
 					parents.set(node, subj)
 
 				case Node.TArrow(expr, vars, rettype):
+					fillFunction(node, expr, vars, rettype, arrow: true)
+					if(false){
 					pushScope()
 					// Save stack
 					let _insideFunction = insideFunction
@@ -440,8 +524,11 @@ module {
 
 					// Restore stack
 					insideFunction = _insideFunction
+}
 				case Node.TFunction(name, expr, vars, rettype, external):
+					fillFunction(node, expr, vars, rettype)
 
+					if(false){
 					pushScope()
 					addScope(name, node)
 
@@ -456,6 +543,8 @@ module {
 
 					// Restore stack
 					insideFunction = _insideFunction
+}
+
 
 				case Node.TArray(el):
 					switch (el[0]) {
@@ -466,7 +555,10 @@ module {
 							pushScope()
 							fillExpression(over)
 							addScope(name, el[0])
+							let _allowBreakAndContinue = allowBreakAndContinue
+							allowBreakAndContinue = false
 							fillExpression(by)
+							allowBreakAndContinue = _allowBreakAndContinue
 							popScope()
 						case _:
 							for (e in el) fillExpression(e)
@@ -492,9 +584,19 @@ module {
 					popScope()
 
 				case Node.TDot(e, n):
-					fillExpression(e)
+					switch (e) {
+						case Node.TSuper(_):
+							if (!allowSuper)
+								throw fail('Cannot access `super` here', node)
+						case _:
+							fillExpression(e)
+					}
 
 				case Node.TDotUpper(e, n):
+					switch (e) {
+						case Node.TSuper(_):
+							throw fail('Cannot access `super` here', node)
+					}
 					fillExpression(e)
 
 				case Node.NodeTypeValue(t): switch (t) {
@@ -522,12 +624,24 @@ module {
 					for (e in el) fillExpression(e)
 
 				case Node.TObject(names, el):
+					for (name in names.length)
+						if (names.indexOf(names[name]) != name)
+							throw fail('Field `\(names[name])` already exists', node)
+
 					for (e in el) fillExpression(e)
 
 				case Node.TTry(e, t, v, ca):
 					fillExpression(e)
 
 				case Node.TIf(econd, eif, eelse):
+					if (econd.length > 1)
+						throw fail('More than one condition is not yet supported', econd[1])
+					switch (econd[0]) {
+						case Node.TVar(_):
+							throw fail('Variable bindings in conditions are not yet supported', econd[0])
+					}
+					if (eelse == null)
+						throw fail('Expression `if` should have an `else` clause', eif)
 					fillExpression(econd[0])
 					fillExpression(eif)
 					fillExpression(eelse)
@@ -551,8 +665,15 @@ module {
 					fillExpression(b)
 
 				case Node.TCall(e, el, elNames):
+					// JavaScript evaluates arguments first
 					for (e in el) fillExpression(e)
-				 	fillExpression(e) // JavaScript evaluates arguments first
+					switch (e) {
+						case Node.TSuper(_):
+							if (!allowSuper)
+								throw fail('Cannot access `super` here', node)
+						case _:
+				 			fillExpression(e)
+				 	}
 
 				case Node.TBinop(a, op, b):
 					fill(a)
@@ -578,7 +699,19 @@ module {
 					}
 					fillExpression(b)
 
+				case Node.TThrow(e):
+					if (!insideFunction && !insideTry)
+						throw fail('Cannot throw outside of `function` or `try`', node)
+					if (insideFunction && !functionAllowedToThrow)
+						throw fail('Cannot throw in a @noThrow function', node)
+					if (insideFunction)
+						functionThrows = true // Infer that function throws
+					fillExpression(e)
+
 				case Node.TThis:
+
+				case Node.TSuper(_):
+					throw fail('Cannot use `super` as value', node)
 
 				// Errors
 				case Node.TUnderscore:
