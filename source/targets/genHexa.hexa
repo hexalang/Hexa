@@ -66,7 +66,7 @@ module {
 					if (e.constructors[i] != null) {
 						out += '('
 						out += [for (k in e.constructors[i].length) {
-							e.constructors[i][k] + printType(e.types[i][k], true)
+							e.constructors[i][k] + printNodeAsType(e.types[i][k], ': ')
 						}].join(', ')
 						out += ')'
 					}
@@ -94,8 +94,8 @@ module {
 				out += '\n\t' + 'class ' + c.name + ' {'
 				pushTab()
 				for (v in c.vars) switch (v) {
-					case NiceStatement.Var(name, expr):
-					out += '\n\t\tvar ' + name
+					case NiceStatement.Var(name, expr, type):
+					out += '\n\t\tvar ' + name + printType(type, ': ')
 					if (expr != null) out += ' = ' + printExpression(expr)
 					case NiceStatement.Const(name, expr):
 					out += '\n\t\tlet ' + name + ' = ' + printExpression(expr)
@@ -153,6 +153,7 @@ module {
 		// returns __diranme/lib/cs/cs.h
 		let reserved = [
 		]
+		let globalAccessor = ''
 
 		// Surrounds with { brackets } single statement
 		function printBlock(s: NiceStatement): String {
@@ -185,7 +186,7 @@ module {
 				case NiceStatement.New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case NiceStatement.Const(name, expr): return 'let ' + name + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Var(name, expr): return 'var ' + name + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Function(name, expr, args, defaults, async):
+				case NiceStatement.Function(name, expr, args, defaults):
 					return 'function ' + name + printFunctionArguments(args, defaults) + ' ' + printBlock(expr)
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
@@ -241,6 +242,8 @@ module {
 
 				case _: console.error("Unknown statement kind:", (s||[])[0])
 			}
+
+			return '<!-- undefined -->'
 		}
 
 		function printCallArguments(args: [NiceExpression]) {
@@ -269,6 +272,16 @@ module {
 			}
 
 			return prefix + 'Any'
+		}
+
+		function printNodeAsType(t: Node, prefix: String) {
+			switch (t) {
+				case Node.TIdent(name): return prefix + name
+				case Node.TArray(el): return prefix + '[' + printNodeAsType(el[0], '') + ']'
+
+				case null: return prefix + 'Any'
+				case _: return prefix + 'Any'
+			}
 		}
 
 		function printExpression(e: NiceExpression) {
@@ -327,7 +340,7 @@ module {
 					if (postfix) return printExpression(e) + Token.stringify(op)
 					return Token.stringify(op) + printExpression(e)
 				case NiceExpression.Elvis(nullable, othewise):
-					return '((' + printExpression(nullable) + ') || (' + printExpression(othewise) + '))'
+					return '((' + printExpression(nullable) + ') ?? (' + printExpression(othewise) + '))'
 				case NiceExpression.Parenthesis(e): return '(' + printExpression(e) + ')'
 				case NiceExpression.Binop(a, op, b):
 					return printExpression(a) + ' ' + Token.stringify(op) + ' ' + printExpression(b)
@@ -345,6 +358,7 @@ module {
 						return r + '<!-- If => error -->'
 					}
 				case NiceExpression.Object(names, el):
+					if (el.length == 0) return '{:}'
 					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
 					if (keys.length == 0) return '[:]'
@@ -360,8 +374,11 @@ module {
 					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
 				case NiceExpression.Underscore: return '_'
-				case _: console.error("Unknown expression kind:", (e||[])[0], e) return '<!-- undefined -->'
+				case _:
+					console.error("Unknown expression kind:", (e||[])[0], e)
 			}
+
+			return '<!-- undefined -->'
 		}
 	}
 }
