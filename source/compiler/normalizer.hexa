@@ -140,7 +140,8 @@ module {
 				let parent = typer.parents.get(expr)
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
-						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
+						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name))
+							return tag
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 				}
@@ -162,6 +163,17 @@ module {
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
+				}
+
+				// Enum constructor
+				if (!nativeEnums) switch (e) {
+					case Node.TDotUpper(expr, name):
+						let parent = typer.parents.get(expr)
+						switch (parent) {
+							case Node.TEnum(t, fields, valuesType):
+								if (let tag = getTag(parent, name))
+									return NiceExpression.Enum(null, name, tag, a)
+						}
 				}
 				let atts = Project.mapAttributes.get(typer.parents.get(e))
 
@@ -831,12 +843,21 @@ module {
 				var i = 0
 				for (f in fields) {
 					switch (f) {
-						case Node.TIdent(n): if (n == name) return NiceExpression.Int(i)
+						case Node.NodeTypeValue(t): switch (t) {
+							case NodeType.Type(n):
+								if (n == name) return NiceExpression.Int(i)
+						}
 						case Node.TCall(e, _): switch (e) {
-							case Node.TIdent(n): if (n == name) return NiceExpression.Int(i)
+							case Node.NodeTypeValue(t): switch (t) {
+								case NodeType.Type(n):
+									if (n == name) return NiceExpression.Int(i)
+							}
 						}
 						case Node.TBinop(a, op, b): switch (a) {
-							case Node.TIdent(n): if (n == name) return nodeToExpression(b)
+							case Node.NodeTypeValue(t): switch (t) {
+								case NodeType.Type(n):
+									if (n == name) return nodeToExpression(b)
+							}
 						}
 						case Node.TStatic(_): return null // Not a tag
 						case _:
