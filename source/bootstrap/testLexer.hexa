@@ -54,14 +54,50 @@ module {
 			compare("0xFA", [Token.LInt], ["0xFA"])
 			compare("0xFABCDEF", [Token.LInt], ["0xFABCDEF"])
 			compare("0x1F2A3B4C5D6E7F0", [Token.LInt], ["0x1F2A3B4C5D6E7F0"])
+			compare("-123", [Token.OpSub, Token.LInt], ["-", "123"])
+			compare("+123", [Token.OpAdd, Token.LInt], ["+", "123"])
 
 			// Float
 			compare("0.123", [Token.LFloat], ["0.123"])
 			compare("0.0", [Token.LFloat], ["0.0"])
+			compare("0.0e+1", [Token.LFloat], ["0.0e+1"])
+			compare("0.0E-1", [Token.LFloat], ["0.0E-1"])
+			compare("0E-123", [Token.LFloat], ["0E-123"])
+			compare("123e123", [Token.LFloat], ["123e123"])
+			compare("1 2.0 3", [Token.LInt, Token.LFloat, Token.LInt], ["1", "2.0", "3"])
 
 			// String
-			compare("'s'", [Token.LString], ["s"])
-			compare("\"s\"", [Token.LString], ["s"])
+			compare("'s'", [Token.LString], ["'s'"])
+			compare('"s"', [Token.LString], ["'s'"]) // TODO Quotes `"` and `'` should be differentiated for pretty printing
+			compare("\"s\"", [Token.LString], ["'s'"]) // TODO All `\*` should be kept for pretty printing
+			compare("`s`", [Token.LBacktick], ["`s`"])
+
+			// Identifiers
+			compare("T", [Token.LUpper], ["T"])
+			compare("T val", [Token.LUpper, Token.LLower], ["T", "val"])
+			compare("T val Type", [Token.LUpper, Token.LLower, Token.LUpper], ["T", "val", "Type"])
+			compare("_T", [Token.LLower], ["_T"])
+			compare("v", [Token.LLower], ["v"])
+			compare("_v", [Token.LLower], ["_v"])
+			compare("_123", [Token.LLower], ["_123"])
+
+			// Multichar tokens
+			compare(" } ", [Token.BrClose], ["}"])
+			compare("==", [Token.OpEq], ["=="])
+			compare("===", [Token.OpEq, Token.OpAssign], ["==", "="])
+			compare("== =", [Token.OpEq, Token.OpAssign], ["==", "="])
+			compare("= ==", [Token.OpAssign, Token.OpEq], ["=", "=="])
+			compare("=====", [Token.OpEq, Token.OpEq, Token.OpAssign], ["==", "==", "="])
+			compare(
+				"> >> >>> . .. ...",
+				[Token.OpGt, Token.OpShr, Token.OpUShr, Token.Dot, Token.Dot, Token.Dot, Token.Interval],
+				[">", ">>", ">>>", ".", ".", ".", "..."]
+			)
+			compare(
+				">>>>>>.......",
+				[Token.OpUShr, Token.OpUShr, Token.Interval, Token.Interval, Token.Dot],
+				[">>>", ">>>", "...", "...", "."]
+			)
 
 			// Position of tokens
 
@@ -86,6 +122,7 @@ module {
 			var pos = 0
 			for (ex in expect) {
 				if (ex == Token.Eof) break
+				overall++
 
 				function incorrect(text: String) {
 					var got = Token.stringify(output.token[pos], output.value[pos])
@@ -97,12 +134,12 @@ module {
 					return incorrect('Expected `\(Token.stringify(ex))`')
 				}
 
-				if (expectValue[pos] != output.value[pos]) {
+				if (expectValue[pos] != Token.stringify(output.token[pos], output.value[pos])) {
 					return incorrect('Expected value `\(expectValue[pos])` but got `\(output.value[pos])`')
 				}
 
 				passed++
-				overall++
+				pos++
 			}
 		}
 	}
