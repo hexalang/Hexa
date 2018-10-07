@@ -106,6 +106,8 @@ module {
 				'code module { } module { } code': 'TBlock([TIdent(code),TModule(,[]),TModule(,[]),TIdent(code)])',
 				'module a { }': 'TModule(a, [])',
 				'module a.b { }': 'TModule(a.b, [])',
+				'module { class Inner {} }': 'TModule(,[TClass(Type(Inner),null,[],[],false)])',
+				'module { private class Inner {} }' : 'TModule(,[TPrivate(TClass(Type(Inner),null,[],[],false))])',
 				'module a { module b { } }': 'TModule(a,[TModule(b,[])])'
 			])
 
@@ -170,6 +172,15 @@ module {
 
 			// Commas
 			shouldAllError([
+				'if(,) {}',
+				'if(a,) {}',
+				'switch (,) {}',
+				'switch (a,) {}',
+				'@att(,) x',
+				'@att(a,) x',
+				'@att(a,b,) x',
+				'@att(a b,) x',
+				'@att(a b) x',
 				'new T(,)',
 				'new T(a b,)',
 				'new T(a,b,)',
@@ -195,12 +206,21 @@ module {
 			 	'{a:1,b:2,}'
 			])
 
+			// Conditions
+			shouldAllEqual([
+				'if (this) this' : 'TIf([TThis],TThis,<!--null-->)',
+				'if (this, this) this else break' : 'TIf([TThis,TThis],TThis,TBreak)',
+				'if (this, let a = this) this else break' : 'TIf([TThis,TVar(a,null,TThis,true,false)],TThis,TBreak)',
+				'if (let a = this, let b = this, this) this' : 'TIf([TVar(a,null,TThis,true,false),TVar(b,null,TThis,true,false),TThis],TThis,<!--null-->)'
+			])
+
 			// External declarations
 			shouldAllEqual([
 				'declare var a: T' : 'TVar(a,Type(T),null,false,true)',
 				'declare let a: T' : 'TVar(a,Type(T),null,true,true)',
 				'declare function name()' : 'TFunction(name,null,[],null,true)',
 				'declare function name() hi()' : 'TBlock([TFunction(name,null,[],null,true),TCall(TIdent(hi),[])])',
+				// External functions do not parse body
 				'declare function name() {}' : 'TBlock([TFunction(name,null,[],null,true),TBlock([])])',
 				'declare class A {}' : 'TClass(Type(A),null,[],[],true)',
 				'declare A = B' : 'TTypeAlias(Type(A),Type(B))'
@@ -361,6 +381,9 @@ module {
 			case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
 			case Node.TDotUpper(l, r): return "TDotUpper(" + TestParser.stringify(l) + "," + r + ")"
 
+			case Node.TPrivate(expr): return 'TPrivate(' + TestParser.stringify(expr) + ')'
+			case Node.TIf(econd, eif, eelse):
+				return 'TIf(' + TestParser.stringifyNodeArray(econd) + ',' + TestParser.stringify(eif) + ',' + TestParser.stringify(eelse) + ')'
 			case Node.TArray(el): return 'TArray(' + TestParser.stringifyNodeArray(el) + ')'
 
 			case _: throw '<!--' + node + '-->'
