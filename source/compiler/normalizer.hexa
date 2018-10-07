@@ -94,6 +94,11 @@ module {
 				case Node.TNull:
 					return NiceExpression.Null
 
+				case Node.NodeTypeValue(t): switch (t) {
+					case NodeType.Type(name):
+						return NiceExpression.Ident(name)
+				}
+
 				// Transform
 				case Node.TIdent(name):
 					var source = typer.parents.get(e)
@@ -215,24 +220,28 @@ module {
 				case Node.TFunction(name, expr, vars, rettype):
 				let a = []
 				let defaults = []
+				let types = []
 				for (arg in vars) switch (arg) {
 					case Node.TVar(name, t, expr, const):
 						a.push(unique(name, arg))
+						types.push(t)
 						if (expr != null) defaults.push(nodeToExpression(expr))
 						else defaults.push(null)
 				}
-				return NiceExpression.Function(name?unique(name, e):null, nodeToStatement(expr), a, defaults)
+				return NiceExpression.Function(name!=null?unique(name, e):null, nodeToStatement(expr), a, defaults, types, rettype)
 
 				case Node.TArrow(expr, vars, rettype):
 				let a = []
 				let defaults = []
+				let types = []
 				for (arg in vars) switch (arg) {
 					case Node.TVar(name, t, expr, const):
 						a.push(unique(name, arg))
+						types.push(t)
 						if (expr != null) defaults.push(nodeToExpression(expr))
 						else defaults.push(null)
 				}
-				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults)
+				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype)
 
 				case Node.TBlock(el):
 				let block = []
@@ -437,10 +446,16 @@ module {
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
-								for (arg in vars) {
-									a.push(unique(DataHelper.nameOf(arg), arg))
+								let defaults = []
+								let types = []
+								for (arg in vars) switch (arg) {
+									case Node.TVar(name, t, expr, const):
+										a.push(unique(name, arg))
+										types.push(t)
+										if (expr != null) defaults.push(nodeToExpression(expr))
+										else defaults.push(null)
 								}
-								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a))
+								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype))
 							case _: console.error("Unknown enum static field kind:", field)
 						}
 						case _: console.error("Unknown simple enum field kind:", f)
@@ -458,6 +473,19 @@ module {
 				type.name = name
 				type.external = external
 
+				for (implement in impl) switch (implement) {
+					case NodeType.Type(name):
+						type.implement = name
+					case NodeType.ParametricType(name, params):
+						type.implement = name
+						type.implementParams = [for(param in params) DataHelper.extractTypeName(param)]
+				}
+				switch (t) {
+					case NodeType.Type(name): // this name
+					case NodeType.ParametricType(name, params):
+						type.genericParams = [for(param in params) DataHelper.extractTypeName(param)]
+				}
+
 				let atts = Project.mapAttributes.get(e)
 
 				let require = getAtt(atts, 'require')
@@ -468,7 +496,7 @@ module {
 
 				let native = getAtt(atts, 'native')
 				if (native != null) switch (native.values[0]) {
-					case Node.TString(s): type.jsNative = s
+					case Node.TString(s): type.jsNative = s unique(s, e)
 					case _: throw '@native takes string as argument'
 				}
 
@@ -480,10 +508,16 @@ module {
 					case Node.TFunction(name, expr, vars, rettype):
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
 						let a = []
-						for (arg in vars) {
-							a.push(unique(DataHelper.nameOf(arg), arg))
+						let defaults = []
+						let types = []
+						for (arg in vars) switch (arg) {
+							case Node.TVar(name, t, expr, const):
+								a.push(unique(name, arg))
+								types.push(t)
+								if (expr != null) defaults.push(nodeToExpression(expr))
+								else defaults.push(null)
 						}
-						type.methods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a))
+						type.methods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype))
 					case Node.TStatic(field):
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
@@ -493,10 +527,16 @@ module {
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
-								for (arg in vars) {
-									a.push(unique(DataHelper.nameOf(arg), arg))
+								let defaults = []
+								let types = []
+								for (arg in vars) switch (arg) {
+									case Node.TVar(name, t, expr, const):
+										a.push(unique(name, arg))
+										types.push(t)
+										if (expr != null) defaults.push(nodeToExpression(expr))
+										else defaults.push(null)
 								}
-								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a))
+								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype))
 							case _: console.error("Unknown class static field kind:", field)
 						}
 					case _: console.error("Unknown class field kind:", f)
@@ -507,13 +547,21 @@ module {
 				case Node.TTypeAlias(_):
 
 				// Expressions
-				case Node.TNew(path, t, args, fields, el):
+				case Node.TNew(path, t, args, fields, values, _):
 				let v = NiceExpression.Ident(DataHelper.extractTypeName(t))
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
 				}
-				return NiceStatement.New(v, a)
+				let result = NiceStatement.New(v, a)
+				if (fields.length > 0) {
+					let temp = unique('temp')
+					let block = [NiceStatement.Const(temp, NiceExpression.New(v, a))]
+					for (field in fields.length)
+						block.push(NiceStatement.Assign(NiceExpression.Dot(NiceExpression.Ident(temp), fields[field]), nodeToExpression(values[field])))
+					return NiceStatement.Block(block)
+				}
+				return result
 
 				case Node.TCall(e, args, argNames):
 				let v = nodeToExpression(e)
@@ -523,21 +571,28 @@ module {
 				}
 				return NiceStatement.Call(v, a)
 
-				case Node.TVar(name, t, expr, const):
-				if (const) return NiceStatement.Const(unique(name, e), nodeToExpression(expr))
-				return NiceStatement.Var(unique(name, e), nodeToExpression(expr))
+				case Node.TVar(name, t, expr, const, external):
+				let uname = unique(name, e)
+				if (external) return null
+				if (const) return NiceStatement.Const(uname, nodeToExpression(expr), t)
+				return NiceStatement.Var(uname, nodeToExpression(expr), t)
 
-				case Node.TFunction(name, expr, vars, rettype):
+				case Node.TFunction(name, expr, vars, rettype, external):
+				let uname = name!=null?unique(name, e):null
+				if (external) return null
+				var rettype = rettype
 				let a = []
 				let defaults = []
+				var types = []
 				for (arg in vars) switch (arg) {
 					case Node.TVar(name, t, expr, const):
 						a.push(unique(name, arg))
+						types.push(t)
 						if (expr != null) defaults.push(nodeToExpression(expr))
 						else defaults.push(null)
 				}
-				return NiceStatement.Function(name?unique(name, e):null, nodeToStatement(expr), a, defaults)
-				if (name == 'new') return NiceStatement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults)
+				if (name == 'new') return NiceStatement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype)
+				return NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype)
 
 				case Node.TFor(name, over, by): switch (over) {
 					case Node.TDot(expr, f): // TODO remove after proper type info
@@ -611,7 +666,7 @@ module {
 					case Node.TVar(name, t, expr, const):
 					last = unique(name, econd[0])
 					nullable = true
-					block.push(NiceStatement.Const(last, nodeToExpression(expr)))
+					block.push(NiceStatement.Const(last, nodeToExpression(expr), t))
 					case _:
 					last = unique('temp')
 					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
@@ -817,7 +872,7 @@ module {
 
 				case Node.TVars(vars):
 				let s = []
-				for (v in vars) s.push(nodeToStatement(v))
+				for (v in vars) if (let st = nodeToStatement(v)) s.push(st)
 				return NiceStatement.Statements(s)
 
 				case Node.TIndex(v, index):
@@ -908,7 +963,7 @@ module {
 
 		// Returns new name if name occupied or reserved
 		// Returns same name and calls addToScope if name is free
-		function unique(name: String, node: Node): String {
+		function unique(name: String, node: Node = null): String {
 			var uname = name
 			while (hasInScope(uname) || (keywords.indexOf(uname) != -1)) uname = name + '_' + (++id)
 			addToScope(uname)
@@ -927,7 +982,17 @@ module {
 					if (parentNames.get(f) == null) unique(name, f)
 				case Node.TFunction(name, expr, vars, rettype):
 					if (name == 'new') parentNames.set(f, 'new')
-					else if (parentNames.get(f) == null) unique(name, f)
+					else {
+						let atts = Project.mapAttributes.get(f)
+
+						let native = getAtt(atts, 'native')
+						if (native != null) switch (native.values[0]) {
+							case Node.TString(s): if (parentNames.get(f) == null) unique(s, f)
+							case _: throw '@native takes string as argument'
+						} else
+
+						if (parentNames.get(f) == null) unique(name, f)
+					}
 				case Node.TStatic(field): switch (field) {
 					case Node.TVar(name, t, expr, const):
 						if (parentNames.get(field) == null) unique(name, field)
@@ -947,7 +1012,7 @@ module {
 		}
 
 		// Used for `something.name`
-		function getClassDotField(expr: Node, name: String) {
+		function getClassDotField(expr: Node, name: String): String? {
 			switch (expr) {
 				case Node.TClass(t, ext, impl, fields, external): for (f in fields) switch (f) {
 					case Node.TStatic(sf):
@@ -960,6 +1025,7 @@ module {
 					return parentNames.get(sf) ?? name
 				}
 			}
+			return null
 		}
 
 		// Converts `{ { { ... } } }` into just `...`
