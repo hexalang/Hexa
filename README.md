@@ -9,6 +9,7 @@
 [![GitHub Feed](https://img.shields.io/badge/GitHub-feed-green.svg)](https://t.me/hexalang_github)
 [![Twitter](https://img.shields.io/badge/Twitter-@hexalang-blue.svg)](https://twitter.com/hexalang)
 [![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/blog/)
+[![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
 [![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/master?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/master)
 [![Website](https://img.shields.io/badge/home-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
