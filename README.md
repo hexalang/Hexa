@@ -32,6 +32,11 @@ While compiler is in dev, here's some cool music to listen :headphones:
 
 :raised_hands:
 
+- [Getting started guide for beginners](https://hexalang.github.io/book/Hello.html)
+- [Some code examples](https://hexalang.github.io/book/Examples.html)
+- [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
+- [Why Hexa?](https://hexalang.github.io/book/Profit.html)
+
 ## BUILD
 
 You need to download latest long-term [Node.js LTS](https://nodejs.org/). 
