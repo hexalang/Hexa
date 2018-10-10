@@ -34,12 +34,20 @@ While compiler is in dev, here's some cool music to listen :headphones:
 
 ## BUILD
 
-Download latest [Node.js LTS](https://nodejs.org/)
+You need to download latest long-term [Node.js LTS](https://nodejs.org/). 
+The Hexa Compiler is written in Hexa itself. Pre-built compiler (bootstrapper) already included in the repo.  
+
+```sh
+cd hexa
+node bootstrap.js hexa.json
+# This results in a `hexa.js` file in the root of the repo
+# Call `node hexa.js project.json` to build your projects
+```
+
+Optionally to build .exe and add icon:
 
 ```sh
 npm i -g nexe
-cd hexa
-node bootstrap.js hexa.json
 nexe-build.bat
 ```
 
