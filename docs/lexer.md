@@ -4,8 +4,8 @@ Transforms input source files into array of simpler meaningful particles.
 
 ## Source code
 
-- [source/compiler/lexer.hexa](../source/compiler/lexer.hexa)
-- [source/data/token.hexa](../source/data/token.hexa)
+- [source/compiler/lexer.hexa](https://github.com/hexalang/hexa/blob/master/source/compiler/lexer.hexa)
+- [source/data/token.hexa](https://github.com/hexalang/hexa/blob/master/source/data/token.hexa)
 
 ## Tasks 0.1
 
