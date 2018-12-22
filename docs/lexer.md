@@ -1,6 +1,8 @@
 # Lexer
 
-Transforms input source files into array of simpler meaningful particles.
+Transforms input source files into array of simpler meaningful particles. Only [UTF-8](https://en.wikipedia.org/wiki/UTF-8) supported.
+
+Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header and `#!/bin` [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix)).
 
 ## Source code
 
