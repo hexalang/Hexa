@@ -8,6 +8,7 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 
 - [source/compiler/lexer.hexa](https://github.com/hexalang/hexa/blob/master/source/compiler/lexer.hexa)
 - [source/data/token.hexa](https://github.com/hexalang/hexa/blob/master/source/data/token.hexa)
+- [source/tests/testLexer.hexa](https://github.com/hexalang/hexa/blob/master/source/tests/testLexer.hexa)
 
 ## Tasks 0.1
 
