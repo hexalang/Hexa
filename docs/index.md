@@ -8,6 +8,7 @@ Feel free to contribute!
 
 - [Folder structure](#folder-structure)
 - [Compiler components](#compiler-components)
+- [Targets](#targets)
 
 ## Legend
 
@@ -26,3 +27,7 @@ Feel free to contribute!
 - [Parser](parser.md)
 - [Typer](typer.md)
 - [Normalizer](normalizer.md)
+
+## Targets
+
+- [Haxe](target-haxe.md)
