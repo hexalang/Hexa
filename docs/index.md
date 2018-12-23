@@ -4,14 +4,14 @@ Description of compiler internals with corresponding tasks (TODOs).
 
 Feel free to contribute!
 
-## Legend
-
-- `rfc` - request for comments (i. e. needs discussion)
-
 ## Table of contents
 
 - [Folder structure](#folder-structure)
 - [Compiler components](#compiler-components)
+
+## Legend
+
+- `rfc` - request for comments (i. e. needs discussion)
 
 ## Folder structure
 
