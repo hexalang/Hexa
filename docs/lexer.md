@@ -1,6 +1,6 @@
 # Lexer
 
-Transforms input source files into array of simpler meaningful particles. Only [UTF-8](https://en.wikipedia.org/wiki/UTF-8) supported.
+Transforms input source files into array of simpler [meaningful particles](https://github.com/hexalang/hexa/blob/master/source/data/token.hexa). Only [UTF-8](https://en.wikipedia.org/wiki/UTF-8) supported.
 
 Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header and `#!/bin` [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix)).
 
@@ -21,13 +21,14 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 - [ ] Parse all float representations
 - [ ] Add extra tokens
   - [ ] RegExp
-  - [ ] Comments
-  - [ ] Multi-line comments
   - [ ] Documentation comments
+  - [ ] Comments `//`
+  - [ ] Multi-line comments `/* */`
+    - [ ] Nesting
 
 ## Tasks 0.2
 
 - [ ] Validate integer representations
-	- [ ] Disallow trailing `_` underscore (rfc) example: `123_`, `123__`
+    - [ ] Disallow trailing `_` underscore (rfc) example: `123_`, `123__`
 - [ ] Validate float representations
-	- [ ] Disallow trailing `_` underscore (rfc) example: `123._`, `123.0__`, etc
+    - [ ] Disallow trailing `_` underscore (rfc) example: `123._`, `123.0__`, etc

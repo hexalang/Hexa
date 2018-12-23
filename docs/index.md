@@ -23,3 +23,4 @@ Feel free to contribute!
 ## Compiler components
 
 - [Lexer](lexer.md)
+- [Parser](parser.md)
