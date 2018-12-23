@@ -24,4 +24,5 @@ Feel free to contribute!
 
 - [Lexer](lexer.md)
 - [Parser](parser.md)
+- [Typer](typer.md)
 - [Normalizer](normalizer.md)
