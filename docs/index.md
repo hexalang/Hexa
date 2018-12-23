@@ -30,4 +30,5 @@ Feel free to contribute!
 
 ## Targets
 
+- [JavaScript](target-javascript.md)
 - [Haxe](target-haxe.md)
