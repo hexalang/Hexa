@@ -31,4 +31,5 @@ Feel free to contribute!
 ## Targets
 
 - [JavaScript](target-javascript.md)
+- [LLVM](target-llvm.md)
 - [Haxe](target-haxe.md)
