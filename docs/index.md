@@ -24,3 +24,4 @@ Feel free to contribute!
 
 - [Lexer](lexer.md)
 - [Parser](parser.md)
+- [Normalizer](normalizer.md)
