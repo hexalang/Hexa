@@ -6,9 +6,11 @@ Feel free to contribute!
 
 ## Table of contents
 
+- [Legend](#legend)
 - [Folder structure](#folder-structure)
 - [Compiler components](#compiler-components)
 - [Targets](#targets)
+- [Project home page](#project-home-page)
 
 ## Legend
 
@@ -33,3 +35,7 @@ Feel free to contribute!
 - [JavaScript](target-javascript.md)
 - [LLVM](target-llvm.md)
 - [Haxe](target-haxe.md)
+
+## Project home page
+
+Also visit [hexalang.github.io](https://hexalang.github.io)
