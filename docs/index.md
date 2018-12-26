@@ -11,6 +11,7 @@ Feel free to contribute!
 - [Compiler components](#compiler-components)
 - [Targets](#targets)
 - [Project home page](#project-home-page)
+- [Changelog and release notes](changelog/versions.md)
 
 ## Legend
 
