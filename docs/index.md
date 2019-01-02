@@ -22,6 +22,7 @@ Feel free to contribute!
 - [`docs`](https://github.com/hexalang/hexa/tree/master/docs) — This online documentation
 - [`source/compiler`](https://github.com/hexalang/hexa/tree/master/source/compiler) — Compiler itself
 - [`source/tests`](https://github.com/hexalang/hexa/tree/master/source/tests) — Integrated compiler tests, they compiled *into* `hexa` executable and run before compilation (managed by `define.debug` of [`hexa.json`](https://github.com/hexalang/hexa/blob/master/hexa.json))
+- [`source/localization`](https://github.com/hexalang/hexa/tree/master/source/localization) — Contribute translation to your native language
 - [`library`](https://github.com/hexalang/hexa/tree/master/library) — Standard library and target-specific libraries
 
 ## Compiler components
