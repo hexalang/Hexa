@@ -36,37 +36,37 @@ module {
 		}
 
 		function stringify() {
-			var out = '{\n\t"use strict"\n\tconst $global$ = typeof(window) === "undefined"?global:window'
+			let out = ['{\n\t"use strict"\n\tconst $global$ = typeof(window) === "undefined"?global:window']
 
 			// Types
 			for (e in project.enumsSimple) {
 				// No need to output simple enum values
-				out += '\n\t' + 'var ' + e.name + ' = {}'
+				out.push('\n\t' + 'var ' + e.name + ' = {}')
 				for (v in e.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr):
-						out += '\n\t' + e.name + '.' + name
-						if (expr != null) out += ' = ' + printExpression(expr)
+						out.push('\n\t' + e.name + '.' + name)
+						if (expr != null) out.push(' = ' + printExpression(expr))
 					case NiceStatement.Const(name, expr):
-						out += '\n\t' + e.name + '.' + name
-						out += ' = ' + printExpression(expr)
+						out.push('\n\t' + e.name + '.' + name)
+						out.push(' = ' + printExpression(expr))
 				}
 				for (v in e.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						out += '\n\t' + e.name + '.' + name + ' = '
-						out += printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };'
+						out.push('\n\t' + e.name + '.' + name + ' = ')
+						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };')
 				}
 			}
 
 			for (e in project.enumsComplex) {
-				out += '\n\t' + 'var ' + e.name + ' = {}'
+				out.push('\n\t' + 'var ' + e.name + ' = {}')
 				var i = 0
 				for (name in e.names) {
-					out += '\n\t' + e.name + '.' + name + ' = '
+					out.push('\n\t' + e.name + '.' + name + ' = ')
 					if (e.constructors[i] != null) {
-						out += '(' + e.constructors[i].join(',') + ')=>["'
-						out += name + '",' + i + ',' + e.constructors[i].join(',')
-						out += '];'
-					} else out += '["' + name + '",' + i + '];'
+						out.push('(' + e.constructors[i].join(',') + ')=>["')
+						out.push(name + '",' + i + ',' + e.constructors[i].join(','))
+						out.push('];')
+					} else out.push('["' + name + '",' + i + '];')
 					i++
 				}
 			}
@@ -78,48 +78,48 @@ module {
 			for (c in project.classes) {
 				if (c.external) {
 					if (c.jsRequire != null) {
-						out += '\n\t' + 'var ' + c.name + ' = require("' + c.jsRequire + '")'
+						out.push('\n\t' + 'var ' + c.name + ' = require("' + c.jsRequire + '")')
 						continue
 					}
-					out += '\n\t' + 'var ' + c.name + ' = $global$.' + (c.jsNative ?? c.name)
+					out.push('\n\t' + 'var ' + c.name + ' = $global$.' + (c.jsNative ?? c.name))
 					continue
 				}
 
-				out += '\n\t' + 'var ' + c.name + ' = class {'
+				out.push('\n\t' + 'var ' + c.name + ' = class {')
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args):
-					if (name == null || name == 'new') out += '\n\t\tconstructor'
-					else out += '\n\t\t' + name
-					out += '(' + args.join(', ') + ') { '
+					if (name == null || name == 'new') out.push('\n\t\tconstructor')
+					else out.push('\n\t\t' + name)
+					out.push('(' + args.join(', ') + ') { ')
 
 					if (name == null || name == 'new') {
 						// Init fields
 						for (v in c.vars) switch (v) {
 							case NiceStatement.Var(name, expr):
 							if (expr != null)
-							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ''
+							out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
 							case NiceStatement.Const(name, expr):
-							out += '\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + ''
+							out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
 						}
-						out += '\n\t\t'
+						out.push('\n\t\t')
 					}
 
-					out += printStatement(expr) + ' };'
+					out.push(printStatement(expr) + ' };')
 				}
-				out += '\n\t}'
+				out.push('\n\t}')
 
 				for (v in c.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr):
-						out += '\n\t' + c.name + '.' + name
-						if (expr != null) out += ' = ' + printExpression(expr)
+						out.push('\n\t' + c.name + '.' + name)
+						if (expr != null) out.push(' = ' + printExpression(expr))
 					case NiceStatement.Const(name, expr):
-						out += '\n\t' + c.name + '.' + name
-						out += ' = ' + printExpression(expr)
+						out.push('\n\t' + c.name + '.' + name)
+						out.push(' = ' + printExpression(expr))
 				}
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						out += '\n\t' + c.name + '.' + name + ' = '
-						out += printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };'
+						out.push('\n\t' + c.name + '.' + name + ' = ')
+						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };')
 				}
 			}
 
@@ -133,12 +133,13 @@ module {
 
 			// Init
 			for (init in project.init) {
-				out += '\n\t{\n\t\t'
-				out += printStatement(init)
-				out += '\n\t}'
+				out.push('\n\t{\n\t\t')
+				out.push(printStatement(init))
+				out.push('\n\t}')
 			}
 
-			return out + '\n}'
+			out.push('\n}')
+			return out.join('')
 		}
 
 		var tabs = '\t\t'
