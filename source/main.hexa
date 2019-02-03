@@ -16,6 +16,21 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
+module {
+	// Contents of hexa.json
+	declare Package = {
+		name: String,
+		output: String,
+		version: String,
+		description: String,
+		author: String,
+		license: String,
+		target: Target,
+		addLicenseNoticeToOutput: Bool,
+		files: [String]
+	}
+}
+
 enum Generator: String {
 	JavaScript = "JavaScript"
 	C = "C"
@@ -27,18 +42,6 @@ enum Generator: String {
 declare Target = {
 	generator: Generator,
 	instance: { generatePackageJson: Bool }
-}
-
-// Contents of hexa.json
-declare Package = {
-	name: String,
-	output: String,
-	version: String,
-	description: String,
-	author: String,
-	license: String,
-	target: Target,
-	files: [String]
 }
 
 class Main {
@@ -84,8 +87,8 @@ class Main {
 		var main = question("Enter main file (main.hexa): ")
 		if (main == "") main = "main.hexa"
 
-		var target: Target = { generator: Generator.JavaScript, instance: { generatePackageJson: false } }
-		var generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe")
+		let target: Target = { generator: Generator.JavaScript, instance: { generatePackageJson: false } }
+		let generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe")
 		if (generatorstr.toUpperCase() == "C" || generatorstr == "2") target.generator = Generator.C
 		else if (generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") target.generator = Generator.Haxe
 
@@ -94,16 +97,16 @@ class Main {
 			main = question("Enter main file (main.hexa): ")
 		}
 
-		var author = question("Enter package author name: ")
-		var license = question("Enter license: ")
+		let author = question("Enter package author name: ")
+		let license = question("Enter license: ")
 
-		var pack: Package = {
+		let pack: Package = {
 			name: name, version: version, description: description,
 			output: name,
 			main: main, author: author, license: license, target: target, files: []
 		}
-		var packageStr = JSON.stringify(pack, null, "\t")
-		var answ = question('About to write to: \(packageFileName):\n\(packageStr)\nIs this ok? (yes)')
+		let packageStr = JSON.stringify(pack, null, "\t")
+		let answ = question('About to write to: \(packageFileName):\n\(packageStr)\nIs this ok? (yes)')
 		if (answ != "") Process.exit(1)
 
 		Fs.writeFileSync("hexa.json", packageStr)
@@ -175,7 +178,7 @@ class Main {
 
 	// Loads hexa.json
 	function loadPackage(filename): Package {
-		var pack = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8'))
+		let pack = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8'))
 		function incorrect(what: String) {
 			Process.stdout.write("Incorrect package file! Field `\(what)` does not exists\n")
 			Process.exit(1)
@@ -187,6 +190,9 @@ class Main {
 
 		// Add standard library
 		if (pack.files == null) pack.files = []
+
+		// Defaults
+		if (pack.addLicenseNoticeToOutput == null) pack.addLicenseNoticeToOutput = true
 
 		switch (pack.target.generator) {
 			case Generator.JavaScript:
@@ -354,6 +360,7 @@ class Main {
 				normalizer.collected = files
 				normalizer.nativeEnums = generator.nativeEnums
 				normalizer.reservedGlobals = generator.reservedGlobals ?? normalizer.reservedGlobals
+				normalizer.package = input
 				if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
 				normalizer.typer = typer
 
