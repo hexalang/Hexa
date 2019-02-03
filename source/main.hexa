@@ -42,7 +42,7 @@ declare Package = {
 }
 
 class Main {
-	// Source https://stackoverflow.com/questions/3430939/node-js-readsync-from-stdin
+	// Based on https://stackoverflow.com/questions/3430939/node-js-readsync-from-stdin
 	static function question(query: String): String {
 		Process.stdout.write(query)
 		var bufsize = 256
@@ -331,16 +331,7 @@ class Main {
 			console.log("[Typer finished in \(Date.now() - beginTyper) ms]")
 		#end
 
-		#if times
-			let beginNormalizer = Date.now()
-		#end
-
 		let normalizer = new Normalizer()
-
-		#if times
-			console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
-			let beginGenJs = Date.now()
-		#end
 
 		let generators = [:]
 
@@ -349,7 +340,6 @@ class Main {
 				console.log('Note: generator `\(name)` was overridden')
 			generators.set(name, generator)
 		}
-
 
 		registerTarget('JavaScript', GenJs.spawn)
 		registerTarget('Haxe', GenHaxe.spawn)
@@ -366,8 +356,24 @@ class Main {
 				normalizer.reservedGlobals = generator.reservedGlobals ?? normalizer.reservedGlobals
 				if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
 				normalizer.typer = typer
+
+				#if times
+					let beginNormalizer = Date.now()
+				#end
+
 				let normal = normalizer.normalize()
+
+				#if times
+					console.log("[Normalizer finished in \(Date.now() - beginNormalizer) ms]")
+					let beginGenerator = Date.now()
+				#end
+
 				let outs = generator.perform(normal)
+
+				#if times
+					console.log("[Generator finished in \(Date.now() - beginGenerator) ms]")
+				#end
+
 				Fs.writeFileSync(target, outs)
 			} else {
 				console.log("Generator for `\(generatorName)` is not registered.")
