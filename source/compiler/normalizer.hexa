@@ -56,7 +56,20 @@ module {
 					switch (e) {
 						case Node.TModule(path, el):
 							pushScope()
-							for (e in el) fillStatement(e, path)
+							for (e in el) switch (e) {
+								case Node.TFunction(_):
+									if (let s = nodeToStatement(e)) // Non-declare ones
+										project.globalFuncs.push(s)
+								case Node.TVar(_):
+									if (let s = nodeToStatement(e)) // Non-declare ones
+										project.globalVars.push(s)
+								case Node.TVars(vars):
+									for (v in vars)
+										if (let s = nodeToStatement(v)) // Non-declare ones
+											project.globalVars.push(s)
+								case _:
+									fillStatement(e, path)
+							}
 							popScope()
 						case _:
 							let statement = fillStatement(e, null)
@@ -1044,8 +1057,8 @@ module {
 		let classes: [NiceClass] = []
 		let enumsSimple: [NiceSimpleEnum] = []
 		let enumsComplex: [NiceComplexEnum] = []
-		let globalVars = []
-		let globalFuncs = []
+		let globalVars: [NiceStatement] = []
+		let globalFuncs: [NiceStatement] = []
 		let init: [NiceNode] = []
 
 		new () {}
