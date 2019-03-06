@@ -3887,7 +3887,11 @@
                                         {
                                             {
                                                 s_660.shift();
-                                                if (s_660[0] == '\'') {
+                                                if (s_660[0] == '\\') {
+                                                    charsOut.push('\\');
+                                                    charsOut.push('\\');
+                                                    s_660.shift();
+                                                } else if (s_660[0] == '\'') {
                                                     charsOut.push('\\');
                                                     charsOut.push('\'');
                                                     s_660.shift();
