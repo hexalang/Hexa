@@ -13,7 +13,7 @@
 [![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/master?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/master)
 [![Website](https://img.shields.io/badge/home-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
-Hexa is a programming language in an early stage of development. Inspired by Haxe.
+Hexa is a programming language in an early stage of development. Inspired by [Haxe](https://haxe.org).
 
 ![Screenshot](preview.png?raw=true)
 
