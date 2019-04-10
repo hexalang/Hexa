@@ -6,19 +6,20 @@
 
 [![Join the Gitter chat](https://badges.gitter.im/hexalang/hexalang.svg)](https://gitter.im/hexalang?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg)](https://t.me/hexalang)
-[![GitHub Feed](https://img.shields.io/badge/GitHub-feed-green.svg)](https://t.me/hexalang_github)
-[![Twitter](https://img.shields.io/badge/Twitter-@hexalang-blue.svg)](https://twitter.com/hexalang)
+[![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg)](https://t.me/hexalang_github)
+[![Twitter](https://img.shields.io/badge/twitter-@hexalang-blue.svg)](https://twitter.com/hexalang)
 [![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/blog/)
 [![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
 [![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/master?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/master)
 [![Website](https://img.shields.io/badge/home-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
-Hexa is a programming language in an early stage of development. Inspired by Haxe.
+Hexa is a programming language in an early stage of development. Inspired by [Haxe](https://haxe.org).
 
 ![Screenshot](preview.png?raw=true)
 
-[![AUR GIT](https://img.shields.io/badge/AUR-hexa--git-0088CC.svg)](https://aur.archlinux.org/packages/hexa-git)
-[![DOCs and TODOs](https://img.shields.io/badge/Compiler-DOCs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
+[![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg)](https://aur.archlinux.org/packages/hexa-git)
+[![DOCs and TODOs](https://img.shields.io/badge/compiler-docs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
+[![Donate](https://img.shields.io/badge/donate-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
 
 ## ENJOY!
 
