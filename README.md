@@ -40,7 +40,7 @@ Hexa is a programming language in an early stage of development. Inspired by [Ha
 
 - [Sublime Text 3](https://packagecontrol.io/packages/Hexa) — [hexalang/hexa-sublime-bundle](https://github.com/hexalang/hexa-sublime-bundle)
 - [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle)
-- [Atom](https://github.com/hexalang/hexa-atom-bundle#install) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
+- [Atom](https://atom.io/packages/hexa) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
 
 ## Study
 
