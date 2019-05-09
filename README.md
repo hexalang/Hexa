@@ -21,7 +21,24 @@ Hexa is a programming language in an early stage of development. Inspired by [Ha
 [![DOCs and TODOs](https://img.shields.io/badge/compiler-docs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
 [![Donate](https://img.shields.io/badge/donate-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
 
-## ENJOY!
+## Download
+
+#### Stable
+
+`Coming Soon`
+
+#### Latest
+
+- [Build from source](https://github.com/hexalang/hexa#build)
+- [Install with Arch Linux AUR](https://aur.archlinux.org/packages/hexa-git)
+
+### Tools & IDE
+
+- [Sublime Text 3](https://packagecontrol.io/packages/Hexa) — [hexalang/hexa-sublime-bundle](https://github.com/hexalang/hexa-sublime-bundle)
+- [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle)
+- [Atom](https://github.com/hexalang/hexa-atom-bundle#install) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
+
+## Enjoy!
 
 While compiler is in dev, here's some cool music to listen :headphones:
 
@@ -32,7 +49,7 @@ While compiler is in dev, here's some cool music to listen :headphones:
 * [Paranoid](https://soundcloud.com/pistutm/dansette-junior-paranoid-official-video)
 * [Gifted](https://soundcloud.com/josecfmarques/n-a-s-a-feat-kanye-west)
 
-:raised_hands:
+## Study
 
 - [Follow 0.1 progress](https://github.com/orgs/hexalang/projects/1?fullscreen=true)
 - [Sources of inspiration](https://hexalang.github.io/blog/Syntax-and-Inspiration.html)
@@ -41,7 +58,7 @@ While compiler is in dev, here's some cool music to listen :headphones:
 - [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
 - [Why Hexa?](https://hexalang.github.io/book/Profit.html)
 
-## BUILD
+## Build
 
 You need to download latest long-term [Node.js LTS](https://nodejs.org/).
 The Hexa Compiler is written in Hexa itself. Pre-built compiler (bootstrapper) already included in the repo.
@@ -62,7 +79,7 @@ nexe-build.bat
 
 [Learn more about compiler development](https://hexalang.github.io/hexa/)
 
-## LICENSE
+## License
 
 See LICENSE files for full license texts and headers of each file
 (files in same directory may use different licensing models).
