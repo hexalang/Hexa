@@ -25,10 +25,14 @@ Hexa is a programming language in an early stage of development. Inspired by [Ha
 
 #### Stable
 
-`Coming Soon`
+`Coming Soon` — no releases actually available, yet
 
-#### Latest
+- [Latest stable release](https://github.com/hexalang/hexa/releases/latest)
+- [All releases](https://github.com/hexalang/hexa/releases)
 
+#### Unstable
+
+- [Latest build from git](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts)
 - [Build from source](https://github.com/hexalang/hexa#build)
 - [Install with Arch Linux AUR](https://aur.archlinux.org/packages/hexa-git)
 
