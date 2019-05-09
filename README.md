@@ -38,6 +38,15 @@ Hexa is a programming language in an early stage of development. Inspired by [Ha
 - [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle)
 - [Atom](https://github.com/hexalang/hexa-atom-bundle#install) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
 
+## Study
+
+- [Follow 0.1 progress](https://github.com/orgs/hexalang/projects/1?fullscreen=true)
+- [Sources of inspiration](https://hexalang.github.io/blog/Syntax-and-Inspiration.html)
+- [Getting started guide for beginners](https://hexalang.github.io/book/Hello.html)
+- [Some code examples](https://hexalang.github.io/book/Examples.html)
+- [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
+- [Why Hexa?](https://hexalang.github.io/book/Profit.html)
+
 ## Enjoy!
 
 While compiler is in dev, here's some cool music to listen :headphones:
@@ -48,15 +57,6 @@ While compiler is in dev, here's some cool music to listen :headphones:
 * [Standing Over Here](https://soundcloud.com/just-portals/standing-over-herexx)
 * [Paranoid](https://soundcloud.com/pistutm/dansette-junior-paranoid-official-video)
 * [Gifted](https://soundcloud.com/josecfmarques/n-a-s-a-feat-kanye-west)
-
-## Study
-
-- [Follow 0.1 progress](https://github.com/orgs/hexalang/projects/1?fullscreen=true)
-- [Sources of inspiration](https://hexalang.github.io/blog/Syntax-and-Inspiration.html)
-- [Getting started guide for beginners](https://hexalang.github.io/book/Hello.html)
-- [Some code examples](https://hexalang.github.io/book/Examples.html)
-- [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
-- [Why Hexa?](https://hexalang.github.io/book/Profit.html)
 
 ## Build
 
