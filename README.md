@@ -27,7 +27,7 @@ Hexa is a programming language in an early stage of development. Inspired by [Ha
 
 `Coming Soon` — no releases actually available, yet
 
-- [Latest stable release](https://github.com/hexalang/hexa/releases/latest)
+- [**Latest stable release**](https://github.com/hexalang/hexa/releases/latest)
 - [All releases](https://github.com/hexalang/hexa/releases)
 
 #### Unstable
