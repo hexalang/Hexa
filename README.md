@@ -20,6 +20,8 @@ Hexa is a programming language in an early stage of development. Inspired by [Ha
 [![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg)](https://aur.archlinux.org/packages/hexa-git)
 [![DOCs and TODOs](https://img.shields.io/badge/compiler-docs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
 [![Donate](https://img.shields.io/badge/donate-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
+[![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
+
 
 ## Download
 
