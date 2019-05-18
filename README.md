@@ -70,6 +70,7 @@ You need to download latest long-term [Node.js LTS](https://nodejs.org/).
 The Hexa Compiler is written in Hexa itself. Pre-built compiler (bootstrapper) already included in the repo.
 
 ```sh
+git clone --recursive --depth 100 https://github.com/hexalang/hexa.git
 cd hexa
 node bootstrap.js hexa.json
 # This results in a `hexa.js` file in the root of the repo
