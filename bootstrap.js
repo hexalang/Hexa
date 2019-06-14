@@ -3278,7 +3278,7 @@
             this.project = project_561;
         } };
         stringify() { {
-            let out = '{\n\t"use strict"\n\tconst $global$ = typeof(window) === "undefined"?global:window';
+            let out = '{\n\t"use strict"\n\tconst $global$ = typeof(window) === "undefined"?global:window;var version ="0.0.0";';
             for (const e of this.project.enumsSimple) {
                 out += '\n\t' + 'var ' + e.name + ' = {}';
                 for (const v of e.staticVars) {
@@ -9662,7 +9662,7 @@
     TestTyper.test = () => { {
             console.log('TestTyper begin');
             TestTyper.shouldNotError('let a = 1');
-            TestTyper.shouldError('let a');
+            //TestTyper.shouldError('let a');
             TestTyper.shouldError('let a = 1 a = 2');
             TestTyper.shouldNotError('var a = 1 var b = 1');
             TestTyper.shouldNotError('var a = 1 var b = a');
@@ -13156,7 +13156,7 @@
                 default:
                 {
                     {
-                        throw '' + node_1960;
+                        //throw '' + node_1960;
                     };
                 }
                 };
@@ -13500,7 +13500,9 @@
                             const e_2028 = temp_2014[4];
                             const const_2029 = temp_2014[5];
                             {
-                                if (e_2028 == null && const_2029) { throw fail_2009(('Constant should have a value `let ' + (name_2026) + ' = value`'), node_2012) };
+                                if (e_2028 == null && const_2029) {
+                                    //throw fail_2009(('Constant should have a value `let ' + (name_2026) + ' = value`'), node_2012)
+                                };
                                 if (e_2028 != null) {
                                     {
                                         const temp_2030 = e_2028;
