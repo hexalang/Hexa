@@ -15,7 +15,7 @@
 
 Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps. Inspired by [Haxe](https://haxe.org).
 
-![Screenshot](preview.png?raw=true)
+[![Try Hexa online without installation](preview.png?raw=true)](https://hexalang.github.io/try/)
 
 [![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg)](https://aur.archlinux.org/packages/hexa-git)
 [![DOCs and TODOs](https://img.shields.io/badge/compiler-docs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
@@ -29,6 +29,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 `Coming Soon` — no releases actually available, yet
 
+- [Try Hexa online without installation](https://hexalang.github.io/try/)
 - [**Latest stable release**](https://github.com/hexalang/hexa/releases/latest)
 - [All releases](https://github.com/hexalang/hexa/releases)
 
