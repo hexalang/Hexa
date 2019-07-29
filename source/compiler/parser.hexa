@@ -111,6 +111,18 @@ module {
 					v.push(Node.TVar(vars[i], types[i], values[i], true, false))
 				}
 				fields.push(Node.TFunction('new', expr, v, null))
+			case Token.LLower:
+				let name = getgo(Token.LLower)
+
+				// JavaScript's `method()` to `function method()`
+				if (tok() == Token.POpen) {
+					if (name == 'constructor')
+						throw fail('Use `new()` syntax instead of `constructor()`')
+					throw fail('Use `function ' + name + '()` syntax for methods')
+				}
+				throw fail('Field should start with `var ' + name + '` or `let ' + name + '`')
+			case Token.LUpper:
+				throw fail('Fields cannot start with uppercase character `' + print() + '` -> `' + print().toLowerCase() + '`')
 			case _:
 				throw fail('Field cannot start with `' + print() + '`')
 			}
@@ -776,12 +788,61 @@ module {
 		case Token.KFor:
 			i++
 			step(Token.POpen)
-			var n = getgo(Token.LLower)
+			if (tok() == Token.KLet || tok() == Token.KVar) {
+				i++
+				var name = getgo(Token.LLower)
+
+				// Approximately detect `for (let i = 0; i < count; i++)`
+				var classic = true
+				if (tok() == Token.OpAssign) i++ else classic = false
+				if (tok() == Token.LInt, lex.value[i] == '0') i++ else classic = false
+				if (tok() == Token.Semicolon) i++ else classic = false
+				if (tok() == Token.LLower, lex.value[i] == name) i++ else classic = false
+				if (tok() == Token.OpLt) i++ else classic = false
+
+				var values = print()
+				i++
+
+				// `Blah.blah().blah`
+				while (
+					tok() == Token.LLower ||
+					tok() == Token.LUpper ||
+					tok() == Token.POpen || // TODO align || in formatter
+					tok() == Token.PClose ||
+					tok() == Token.Dot
+				) {
+					values += print()
+					i++
+				}
+
+				if (tok() == Token.Semicolon) i++ else classic = false
+
+				// `i++`
+				if (tok() == Token.LLower, lex.value[i] == name) {
+					i++
+					if (tok() == Token.OpIncrement) i++ else classic = false
+				} else
+
+				// `++i`
+				if (tok() == Token.OpIncrement) {
+					i++
+					if (tok() == Token.LLower, lex.value[i] == name) i++ else classic = false
+				} else classic = false
+
+				if (tok() == Token.PClose) i++ else classic = false
+
+				if (classic)
+					// `for (let i = 0; i < count; i++)` -> `for (i in count)`
+					throw fail("This loop should be replaced to `for (\(name) in \(values))`")
+
+				throw fail("Hexa has only `for (\(name) in values)` syntax")
+			}
+			var name = getgo(Token.LLower)
 			step(Token.KIn)
-			var a = parseExpr()
+			var values = parseExpr()
 			step(Token.PClose)
-			var b = parseExpr()
-			result = Node.TFor(n, a, b)
+			var expression = parseExpr()
+			result = Node.TFor(name, values, expression)
 
 		case Token.KStatic:
 			next()
