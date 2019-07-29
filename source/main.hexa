@@ -49,7 +49,7 @@ declare Target = {
 }
 
 class Main {
-	// Based on https://stackoverflow.com/questions/3430939/node-js-readsync-from-stdin
+	/// Based on https://stackoverflow.com/questions/3430939/node-js-readsync-from-stdin
 	static function question(query: String): String {
 		Process.stdout.write(query)
 		var bufsize = 256
@@ -78,6 +78,11 @@ class Main {
 	// Asks a couple of questions and creates hexa.json
 	function init() {
 		var currentDirTmp = Process.argv[1].split(Path.sep)
+		if (Fs.existsSync("hexa.json")) {
+			Process.stdout.write("Hexa package 'hexa.json' already exists here")
+			Process.exit(1)
+		}
+
 		var packageFileName = currentDirTmp.splice(0, -1).join(Path.sep) + Path.sep + "hexa.json"
 		var currentDir = currentDirTmp[currentDirTmp.length - 2]
 		var name = question('Enter package name (\(currentDir)): ')
@@ -92,12 +97,14 @@ class Main {
 		if (main == "") main = "main.hexa"
 
 		let target: Target = { generator: Generator.JavaScript, instance: { generatePackageJson: false } }
-		let generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe")
+		var output = name
+		let generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe\n")
 		if (generatorstr.toUpperCase() == "C" || generatorstr == "2") target.generator = Generator.C
 		else if (generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") target.generator = Generator.Haxe
+		else output += '.js'
 
 		while (!(main.endsWith(".hexa"))) {
-			Process.stdout.write("Wrong file name. Must ends with '.hexa'.\n")
+			Process.stdout.write("Wrong file name. Must end with '.hexa'.\n")
 			main = question("Enter main file (main.hexa): ")
 		}
 
@@ -106,15 +113,60 @@ class Main {
 
 		let pack: Package = {
 			name: name, version: version, description: description,
-			output: name,
-			main: main, author: author, license: license, target: target, files: []
+			output: output,
+			author: author, license: license, target: target, files: [main]
 		}
-		let packageStr = JSON.stringify(pack, null, "\t")
-		let answ = question('About to write to: \(packageFileName):\n\(packageStr)\nIs this ok? (yes)')
-		if (answ != "") Process.exit(1)
+
+		let extras = []
+
+		var addGit = false
+		if (Fs.existsSync('.git'))
+			if (!Fs.existsSync('.gitignore') || !Fs.existsSync('.gitattributes'))
+				if (['y','yes',''].includes(question('Create additional git files? (.gitignore, .gitattributes)').toLowerCase().trim())) {
+					if (!Fs.existsSync('.gitignore')) extras.push('.gitignore')
+					if (!Fs.existsSync('.gitattributes')) extras.push('.gitattributes')
+					addGit = true
+				}
+
+		let addMain = Fs.existsSync(main) == false
+		if (addMain) extras.push(main)
+
+		let packageStr = JSON.stringify(pack, null, "\t").split('\r\n').join('\n').split('\n').join('\r\n')
+		let extrasStr = extras.length > 0? '\nAnd \'' + extras.join('\', \'') + '\'' : ''
+
+		let answ = question('About to write to: \(packageFileName):\n\(packageStr)\(extrasStr)\nIs this ok? (yes)')
+		if (answ != "") Process.exit(1) // Handle yes
 
 		Fs.writeFileSync("hexa.json", packageStr)
-		Process.stdout.write("Hexa package initialized!\n")
+
+		if (addMain, !Fs.existsSync(main)) Fs.writeFileSync(main, 'console.log("Thank you for choosing Hexa")')
+
+		if (addGit, !Fs.existsSync('.gitattributes')) Fs.writeFileSync('.gitattributes', [
+			'# Auto detect text files and perform LF normalization',
+			'* text=auto'
+		].join('\r\n'))
+
+		if (addGit, !Fs.existsSync('.gitignore')) Fs.writeFileSync('.gitignore', [
+			'# Mac & Win',
+			'*~',
+			'._*',
+			'*DS_Store*',
+			'.DS_Store',
+			'.DS_Store?',
+			'.Spotlight-V100',
+			'.Trashes',
+			'ehthumbs.db',
+			'Thumbs.db',
+			'*Thumbs.db',
+			'__MACOSX',
+			'',
+			'# Custom',
+			'*.map',
+			output, // Re-generated on each compilation
+			'node_modules'
+		].join('\r\n'))
+
+		Process.stdout.write("Hexa package initialized!")
 	}
 
 	// Parses a file
@@ -229,7 +281,7 @@ class Main {
 		return pack
 	}
 
-	// Entry
+	/// Entry
 	new() {
 		// Debug information
 
