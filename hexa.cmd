@@ -1,2 +1,2 @@
 @echo off
-node %~dp0hexa.js %*
+node %~dp0hexa-node.js %*

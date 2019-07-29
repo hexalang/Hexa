@@ -74,8 +74,8 @@ The Hexa Compiler is written in Hexa itself. Pre-built compiler (bootstrapper) a
 git clone --recursive --depth 100 https://github.com/hexalang/hexa.git
 cd hexa
 node bootstrap.js hexa.json
-# This results in a `hexa.js` file in the root of the repo
-# Call `node hexa.js project.json` to build your projects
+# This results in a `hexa-node.js` file in the root of the repo
+# Call `node hexa-node.js project.json` to build your projects
 ```
 
 Optionally to build .exe and add icon:
