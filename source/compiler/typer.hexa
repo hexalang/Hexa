@@ -102,7 +102,7 @@ module {
 			function findBasicType(name: String): ClassType {
 				let subj = findInNamespaceRoots(name)
 				if (subj == null)
-					throw fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
+					fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
 				switch (subj) {
 				}
 				return registerClassType(subj)
@@ -161,31 +161,31 @@ module {
 							switch (field) {
 								case Node.TFunction(name, _):
 									if (type.fieldNames.includes(name))
-										throw fail('Field `\(name)` already exists', field)
+										fail('Field `\(name)` already exists', field)
 									type.fieldNames.push(name)
 									if (name == 'new') type.constructor = type.fieldNames.length - 1
 									addScope(name, field)
 								case Node.TVar(name, _):
 									if (type.fieldNames.includes(name))
-										throw fail('Field `\(name)` already exists', field)
+										fail('Field `\(name)` already exists', field)
 									type.fieldNames.push(name)
 									addScope(name, field)
 								case Node.TStatic(f): switch (f) {
 									case Node.TFunction(name, _):
 										if (type.fieldNames.includes(name))
-											throw fail('Field `\(name)` already exists', field)
+											fail('Field `\(name)` already exists', field)
 										type.fieldNames.push(name)
 										type.fieldStatic[type.fieldNames.length - 1] = true
 										addScope(name, field)
 									case Node.TVar(name, _):
 										if (type.fieldNames.includes(name))
-											throw fail('Field `\(name)` already exists', field)
+											fail('Field `\(name)` already exists', field)
 										type.fieldNames.push(name)
 										type.fieldStatic[type.fieldNames.length - 1] = true
 										addScope(name, field)
 								}
 								case _:
-									throw fail('Wrong class field format', field)
+									fail('Wrong class field format', field)
 							}
 							parents.set(field, node)
 						}
@@ -196,9 +196,9 @@ module {
 								if (name == 'new') type.constructor = type.fieldNames.length - 1
 								if (external, expr != null) {
 									if (name == 'new')
-										throw fail('External class constructor `new()` cannot have a body', field)
+										fail('External class constructor `new()` cannot have a body', field)
 									else
-										throw fail('External class field `function \(name)` cannot have a body', field)
+										fail('External class field `function \(name)` cannot have a body', field)
 								}
 								let _insideClassMethod = insideClassMethod
 								let _allowSuper = allowSuper
@@ -209,7 +209,7 @@ module {
 								allowSuper = _allowSuper
 							case Node.TVar(name, t, e, const):
 								if (external, e != null)
-									throw fail('External class field `var \(name)` cannot have expression', field)
+									fail('External class field `var \(name)` cannot have expression', field)
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = true
 								if (e != null) fillExpression(e)
@@ -217,23 +217,23 @@ module {
 							case Node.TStatic(f): switch (f) {
 								case Node.TFunction(name, expr, vars, rettype):
 									if (external, expr != null)
-										throw fail('External class field `static function \(name)` cannot have a body', field)
+										fail('External class field `static function \(name)` cannot have a body', field)
 									let _insideClassMethod = insideClassMethod
 									insideClassMethod = false
 									if (!external) fillFunction(field, expr, vars, rettype)
 									insideClassMethod = _insideClassMethod
 								case Node.TVar(name, t, e, const):
 									if (external, e != null)
-										throw fail('External class field `static var \(name)` cannot have expression', field)
+										fail('External class field `static var \(name)` cannot have expression', field)
 									if (e != null) fillExpression(e)
 							}
 							case _:
-								throw fail('Wrong class field format', node)
+								fail('Wrong class field format', node)
 						}
 
 						popScope()
 					case _:
-						throw fail('ClassType expects (declare) class node, but got ' + node, node)
+						fail('ClassType expects (declare) class node, but got ' + node, node)
 				}
 
 				return type
@@ -285,34 +285,34 @@ module {
 							// `enum E { A = b }`
 							case Node.TBinop(a, op, b):
 								if (valuesType == null)
-									throw fail('Cannot use `Value = value` format for complex enum', node)
+									fail('Cannot use `Value = value` format for complex enum', node)
 								switch (a) {
 									case Node.NodeTypeValue(t): switch (t) {
 										case NodeType.Type(name):
 											if (type.fieldNames.includes(name))
-												throw fail('Field `\(name)` already exists', node)
+												fail('Field `\(name)` already exists', node)
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									}
 								}
 							// `enum E { a }`
 							case Node.TIdent(name):
-								throw fail('Cannot use lowercase `\(name)` format for enum values', node)
+								fail('Cannot use lowercase `\(name)` format for enum values', node)
 							// `enum E { static ... }`
 							case Node.TStatic(f): switch (f) {
 								case Node.TFunction(name, _):
 									if (type.fieldNames.includes(name))
-										throw fail('Field `\(name)` already exists', node)
+										fail('Field `\(name)` already exists', node)
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
 								case Node.TVar(name, _):
 									if (type.fieldNames.includes(name))
-										throw fail('Field `\(name)` already exists', node)
+										fail('Field `\(name)` already exists', node)
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
 							}
 							case _:
-								throw fail('Wrong enum field format', node)
+								fail('Wrong enum field format', node)
 						}
 
 						parents.set(field, node)
@@ -339,7 +339,7 @@ module {
 		static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
 
 		static function fail(msg: String, node: Node = null) {
-			var data = Project.data.get(node)
+			let data = Project.data.get(node)
 			if (data == null) {
 				throw new CompilerError(Fail.TyperError, msg, 0, 0, "")
 			}
@@ -449,7 +449,7 @@ module {
 			var fromNullable = isNullable(from)
 
 			if (fromNullable, !toNullable)
-				throw fail('Cannot assign nullable type to non-nullable', node)
+				fail('Cannot assign nullable type to non-nullable', node)
 
 			var toInstance = instanceOfClass(to)
 			var fromInstance = instanceOfClass(from)
@@ -458,7 +458,7 @@ module {
 			}
 
 			if (toInstance != fromInstance)
-				throw fail('Incompatible types', node)
+				fail('Incompatible types', node)
 
 			return to ?? from
 		}
@@ -484,7 +484,7 @@ module {
 						case Type.Class(type):
 							return type.instantiate()
 						case null:
-							throw fail('Cannot find type `\(name)`', node)
+							fail('Cannot find type `\(name)`', node)
 						case _:
 					}
 				case NodeType.Optional(t):
@@ -496,7 +496,7 @@ module {
 					return Type.Struct(names, els)
 				case NodeType.ParametricType(_):
 				case _:
-					throw fail('Unsupported node type ' + t + never, node)
+					fail('Unsupported node type ' + t + never, node)
 			}
 		}
 
@@ -532,12 +532,12 @@ module {
 			let atts = Project.mapAttributes.get(node)
 
 			if (let noThrow = DataHelper.getAttribute(atts, 'noThrow')) {
-				if (noThrow.values.length > 0) throw fail('Attribute `@noThrow` should have no parameters', node)
+				if (noThrow.values.length > 0) fail('Attribute `@noThrow` should have no parameters', node)
 				functionAllowedToThrow = false
 			} else functionAllowedToThrow = true
 
 			if (let throws = DataHelper.getAttribute(atts, 'throws')) {
-				if (functionAllowedToThrow == false) throw fail('Attribute `@noThrow` cannot be used with `@throws`', node)
+				if (functionAllowedToThrow == false) fail('Attribute `@noThrow` cannot be used with `@throws`', node)
 				functionThrows = true
 			} else functionThrows = false
 
@@ -579,11 +579,11 @@ module {
 
 				case Node.TVar(name, t, e, const, external):
 					if (e == null, const, !external)
-						throw fail('Constant should have a value `let \(name) = value`', node)
+						fail('Constant should have a value `let \(name) = value`', node)
 					if (e != null, external)
-						throw fail('External variable should not have a value `declare let \(name)`', node)
+						fail('External variable should not have a value `declare let \(name)`', node)
 					if (t == null, external)
-						throw fail('External variable should have a type `declare let \(name): T`', node)
+						fail('External variable should have a type `declare let \(name): T`', node)
 					if (e != null) {
 						pushScope()
 						fillExpression(e)
@@ -619,21 +619,21 @@ module {
 						case null:
 						case Node.TVar(name, _, _, const):
 							if (const)
-								throw fail('Cannot reassign a constant `\(name)`', node)
+								fail('Cannot reassign a constant `\(name)`', node)
 							types.set(node, unify(types.get(a), types.get(b), b))
 						case Node.TIdent(name):
-							throw fail('Cannot reassign case parameter `\(name)`', node)
+							fail('Cannot reassign case parameter `\(name)`', node)
 						case Node.TFunction(name, _):
-							throw fail('Cannot reassign a function `\(name)`', node)
+							fail('Cannot reassign a function `\(name)`', node)
 						case Node.TClass(_):
-							throw fail('Cannot reassign class', node)
+							fail('Cannot reassign class', node)
 						case Node.TEnum(_):
-							throw fail('Cannot reassign enum', node)
+							fail('Cannot reassign enum', node)
 						case _: // Ok
 					}
 				case Node.TBreak:
 					if (!allowBreakAndContinue)
-						throw fail('Cannot use `break` outside of loop', node)
+						fail('Cannot use `break` outside of loop', node)
 
 				case Node.TFor(name, over, by):
 					pushScope()
@@ -647,9 +647,9 @@ module {
 
 				case Node.TFunction(name, expr, vars, rettype, external):
 					if (!external, expr == null)
-						throw fail('Non-external function `\(name)` should have a body', node)
+						fail('Non-external function `\(name)` should have a body', node)
 					if (external, rettype == null)
-						throw fail('External function `\(name)` should have a returning type', node)
+						fail('External function `\(name)` should have a returning type', node)
 					addScope(name, node)
 					fillFunction(node, expr, vars, rettype)
 					if(false){
@@ -674,9 +674,9 @@ module {
 						switch (e) {
 							case Node.TVar(_, t, _, const):
 								if (!const)
-									throw fail('Only if-let bindings supported', node)
+									fail('Only if-let bindings supported', node)
 								if (t != null)
-									throw fail('Do not specify a type in if-let bindings', node)
+									fail('Do not specify a type in if-let bindings', node)
 								depth++
 								pushScope()
 								fill(e)
@@ -725,13 +725,13 @@ module {
 								}
 								case Node.TBinop(a, op, b):
 								if (op == Token.OpOr) {follow(a) follow(b)}
-								else throw fail('' + e, e)
+								else fail('' + e, e)
 								case Node.TIf(econd, _, _):
 									pushScope()
 									fill(econd[0])
 									popScope()
 								case _:
-									throw fail('' + e, e)
+									fail('' + e, e)
 							}
 						}
 						follow(e)
@@ -771,7 +771,7 @@ module {
 				case Node.TContinue:
 					types.set(node, typeVoid)
 					if (!allowBreakAndContinue)
-						throw fail('Cannot use `continue` outside of loop', node)
+						fail('Cannot use `continue` outside of loop', node)
 
 				// Expressions and errors
 				case _:
@@ -796,7 +796,7 @@ module {
 					if (subj == null)
 						throw fail('Cannot find parent by name `\(name)` for \(node)', node)
 					if (parents.get(node) != null, parents.get(node) != subj)
-						throw fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
+						fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 					parents.set(node, subj)
 					if (let type = types.get(subj)) {
 						types.set(node, type)
@@ -819,7 +819,7 @@ module {
 				}
 				case Node.TFunction(name, expr, vars, rettype, external):
 					if (external)
-						throw fail('External function `declare function \(name)` cannot be taken as a value', node)
+						fail('External function `declare function \(name)` cannot be taken as a value', node)
 
 					fillFunction(node, expr, vars, rettype)
 
@@ -845,7 +845,7 @@ module {
 					switch (el[0]) {
 						case Node.TFor(name, over, by):
 							if (el.length > 1)
-								throw fail('Cannot use loop `for` within array of more than one element `[for(), ...]`', el[1])
+								fail('Cannot use loop `for` within array of more than one element `[for(), ...]`', el[1])
 
 							pushScope()
 							fillExpression(over)
@@ -885,7 +885,7 @@ module {
 
 				case Node.TBlock(el):
 					if (el.length == 0)
-						throw fail('Cannot use empty block `{}` as a value', node)
+						fail('Cannot use empty block `{}` as a value', node)
 					pushScope()
 					for (i in el.length) if (i < el.length - 1) {
 						fill(el[i])
@@ -899,7 +899,7 @@ module {
 					switch (e) {
 						case Node.TSuper(_):
 							if (!allowSuper)
-								throw fail('Cannot access `super` here', node)
+								fail('Cannot access `super` here', node)
 						case _:
 							fillExpression(e)
 					}
@@ -908,51 +908,51 @@ module {
 							if (etype == typeAny) { return }
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								throw fail('Class `\(nameOfModuleItem(type.parent))` has no field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
+								fail('Class `\(nameOfModuleItem(type.parent))` has no field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), e ?? node)
 							if (type.fieldStatic[index] == true)
-								throw fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is static', node)
+								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is static', node)
 						case Type.Class(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								throw fail('Class `\(nameOfModuleItem(type.parent))` has no static field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
+								fail('Class `\(nameOfModuleItem(type.parent))` has no static field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
 							if (type.fieldStatic[index] != true)
-								throw fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
+								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
 						case Type.Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								throw fail('Enum has no field `.\(n)`', node)
+								fail('Enum has no field `.\(n)`', node)
 							if (type.fieldStatic[index] != true)
-								throw fail('Enum field `.\(n)` is not static', node)
+								fail('Enum field `.\(n)` is not static', node)
 						case Type.Struct(names, els):
 							let index = names.indexOf(n)
 							if (index < 0)
-								throw fail('Object has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
+								fail('Object has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
 							types.set(node, els[index])
 						case _:
-					}// else throw fail('Got node without type `\(e)`' + never, node)
+					}// else fail('Got node without type `\(e)`' + never, node)
 
 				case Node.TDotUpper(e, n):
 					switch (e) {
 						case Node.TSuper(_):
-							throw fail('Cannot access `super` here', node)
+							fail('Cannot access `super` here', node)
 					}
 					fillExpression(e)
 					if (let type = types.get(e)) switch (type) {
 						case Type.Class(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								throw fail('Class has no field `.\(n)`', node)
+								fail('Class has no field `.\(n)`', node)
 							if (type.fieldStatic[index] != true)
-								throw fail('Class field `.\(n)` is not static', node)
+								fail('Class field `.\(n)` is not static', node)
 						case Type.Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								throw fail('Enum has no value constructor `.\(n)`', node)
+								fail('Enum has no value constructor `.\(n)`', node)
 							if (type.fieldEnumConstructor[index] != true)
-								throw fail('Enum field `.\(n)` is not a value constructor', node)
+								fail('Enum field `.\(n)` is not a value constructor', node)
 							types.set(node, type.fieldType[index])
 						case _:
-					}// else throw fail('Got node without type `\(e)`' + never, node)
+					}// else fail('Got node without type `\(e)`' + never, node)
 
 				case Node.NodeTypeValue(t): switch (t) {
 					case NodeType.Type(name):
@@ -965,17 +965,17 @@ module {
 						}
 						if (subj == null) subj = findInNamespaceRoots(name)
 						if (subj == null)
-							throw fail('Cannot find type by name `\(name)` for \(node)', node)
+							fail('Cannot find type by name `\(name)` for \(node)', node)
 						if (parents.get(node) != null, parents.get(node) != subj)
-							throw fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
+							fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 						parents.set(node, subj)
 						if (let type = types.get(subj)) {
 							types.set(node, type)
-						}// else throw fail('Cannot find type `\(name)` for \(subj)' + never, node)
+						}// else fail('Cannot find type `\(name)` for \(subj)' + never, node)
 					case NodeType.ParametricType(name, _):
-						throw fail('Cannot use generic type `\(name)` as a value', node)
+						fail('Cannot use generic type `\(name)` as a value', node)
 					case _:
-						throw fail('Cannot use this type as a value', node)
+						fail('Cannot use this type as a value', node)
 				}
 
 				case Node.TNew(path, t, el, names, values):
@@ -984,9 +984,9 @@ module {
 					switch (type) {
 						case Type.ClassInstance(type):
 							if (type.constructor == -1)
-								throw fail('Cannot construct class without `new () {}` constructor', node)
+								fail('Cannot construct class without `new () {}` constructor', node)
 						case _:
-							throw fail('Constructor `new` may instantiate only classes', node)
+							fail('Constructor `new` may instantiate only classes', node)
 					}
 
 					types.set(node, type)
@@ -994,7 +994,7 @@ module {
 				case Node.TObject(names, el):
 					for (name in names.length)
 						if (names.indexOf(names[name]) != name)
-							throw fail('Field `\(names[name])` already exists', node)
+							fail('Field `\(names[name])` already exists', node)
 
 					for (e in el) fillExpression(e)
 					let els = [for (e in el) types.get(e)]
@@ -1019,13 +1019,13 @@ module {
 
 				case Node.TIf(econd, eif, eelse):
 					if (econd.length > 1)
-						throw fail('More than one condition is not yet supported', econd[1])
+						fail('More than one condition is not yet supported', econd[1])
 					switch (econd[0]) {
 						case Node.TVar(_):
-							throw fail('Variable bindings in conditions are not yet supported', econd[0])
+							fail('Variable bindings in conditions are not yet supported', econd[0])
 					}
 					if (eelse == null)
-						throw fail('Expression `if` should have an `else` clause', eif)
+						fail('Expression `if` should have an `else` clause', eif)
 					fillExpression(econd[0])
 					fillExpression(eif)
 					fillExpression(eelse)
@@ -1061,7 +1061,7 @@ module {
 					switch (e) {
 						case Node.TSuper(_):
 							if (!allowSuper)
-								throw fail('Cannot access `super` here', node)
+								fail('Cannot access `super` here', node)
 						case _:
 				 			fillExpression(e)
 				 	}
@@ -1090,76 +1090,76 @@ module {
 					switch (parent) {
 						case Node.TVar(name, _, _, const):
 							if (const)
-							throw fail('Cannot reassign a constant `\(name)`', node)
+							fail('Cannot reassign a constant `\(name)`', node)
 						case Node.TFunction(name, _):
-							throw fail('Cannot reassign a function `\(name)`', node)
+							fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
 					}
 					fillExpression(b)
 
 				case Node.TThrow(e):
 					if (!insideFunction && !insideTry)
-						throw fail('Cannot throw outside of `function` or `try`', node)
+						fail('Cannot throw outside of `function` or `try`', node)
 					if (insideFunction && !functionAllowedToThrow)
-						throw fail('Cannot throw in a @noThrow function', node)
+						fail('Cannot throw in a @noThrow function', node)
 					if (insideFunction)
 						functionThrows = true // Infer that function throws
 					fillExpression(e)
 
 				case Node.TThis:
 					if (!insideClassMethod)
-						throw fail('Cannot access `this` outside of class method', node)
+						fail('Cannot access `this` outside of class method', node)
 
 				case Node.TSuper(_):
-					throw fail('Cannot use `super` as value', node)
+					fail('Cannot use `super` as value', node)
 
 				case Node.TReturn(e):
 					switch (e) {
 						case Node.TReturn(_):
-							throw fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
+							fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
 					}
 					if (!insideFunction)
-						throw fail('Cannot use `return` outside of function', node)
+						fail('Cannot use `return` outside of function', node)
 					if (e != null) fillExpression(e)
 					if (e != null) functionReturnsNonVoid = true
 
 				// Errors
 				case Node.TUnderscore:
-					throw fail('Cannot use underscore `_` outside of case pattern', node)
+					fail('Cannot use underscore `_` outside of case pattern', node)
 				case Node.TExport(_):
-					throw fail('Cannot use `export` here: only applicable to module declarations', node)
+					fail('Cannot use `export` here: only applicable to module declarations', node)
 				case Node.TStatic(_):
-					throw fail('Cannot use `static` here: only applicable to class fields', node)
+					fail('Cannot use `static` here: only applicable to class fields', node)
 				case Node.TPrivate(_):
-					throw fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
+					fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
 				case Node.TModule(_):
-					throw fail('Modules should be at a file\' upper scope', node)
+					fail('Modules should be at a file\' upper scope', node)
 
 				// Not expressions
 				case Node.TBreak:
-					throw fail('Cannot use `break` as a value', node)
+					fail('Cannot use `break` as a value', node)
 				case Node.TContinue:
-					throw fail('Cannot use `continue` as a value', node)
+					fail('Cannot use `continue` as a value', node)
 				case Node.TClass(_):
-					throw fail('Cannot use `class` as a value', node)
+					fail('Cannot use `class` as a value', node)
 				case Node.TEnum(_):
-					throw fail('Cannot use `enum` as a value', node)
+					fail('Cannot use `enum` as a value', node)
 				case Node.TTypeAlias(_):
-					throw fail('Cannot use `declare` as a value', node)
+					fail('Cannot use `declare` as a value', node)
 				case Node.TVar(_):
-					throw fail('Cannot use `var` as a value', node)
+					fail('Cannot use `var` as a value', node)
 				case Node.TSwitch(_):
-					throw fail('Cannot use `switch` as a value', node)
+					fail('Cannot use `switch` as a value', node)
 				case Node.TWhile(_):
-					throw fail('Cannot use `while` as a value', node)
+					fail('Cannot use `while` as a value', node)
 				case Node.TFor(_):
-					throw fail('Cannot use `for` as a value. To build array from loop, surround with `[for()]` brackets.', node)
+					fail('Cannot use `for` as a value. To build array from loop, surround with `[for()]` brackets.', node)
 
 				// Fails
 				case null:
-					throw fail('Got null node' + never, node)
+					fail('Got null node' + never, node)
 				case _:
-					throw fail('Unknown node expression kind to type ' + node + never, node)
+					fail('Unknown node expression kind to type ' + node + never, node)
 			}
 		}
 	}
