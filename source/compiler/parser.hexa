@@ -117,14 +117,14 @@ module {
 				// JavaScript's `method()` to `function method()`
 				if (tok() == Token.POpen) {
 					if (name == 'constructor')
-						throw fail('Use `new()` syntax instead of `constructor()`')
-					throw fail('Use `function ' + name + '()` syntax for methods')
+						fail('Use `new()` syntax instead of `constructor()`')
+					fail('Use `function ' + name + '()` syntax for methods')
 				}
-				throw fail('Field should start with `var ' + name + '` or `let ' + name + '`')
+				fail('Fields should start with `var ' + name + '` or `let ' + name + '`')
 			case Token.LUpper:
-				throw fail('Fields cannot start with uppercase character `' + print() + '` -> `' + print().toLowerCase() + '`')
+				fail('Fields cannot start with uppercase character `' + print() + '` -> `' + print().toLowerCase() + '`')
 			case _:
-				throw fail('Field cannot start with `' + print() + '`')
+				fail('Fields cannot start with `' + print() + '`')
 			}
 		}
 		return fields
@@ -156,7 +156,7 @@ module {
 			console.log("Parser is out of token space!")
 			console.log("This should NOT happen.")
 			console.log("Please, issue a developer (with a sample code).")
-			throw fail(lex.fileName + ": Parser internal error: out of token space")
+			fail(lex.fileName + ": Parser internal error: out of token space")
 		}
 		var t = lex.token[i]
 		if (lasttok != i) {
@@ -166,7 +166,7 @@ module {
 		} else {
 			lasttokchecks--
 			if (lasttokchecks < 0) {
-				throw fail("Parser internal error: Same token parsed too many times: " + '`\(print())`')
+				fail("Parser internal error: Same token parsed too many times: " + '`\(print())`')
 			}
 		}
 
@@ -177,7 +177,7 @@ module {
 			endif--
 			//t = lex.token[i]
 			tok()
-		} else throw fail("Unexpected `#end`")
+		} else fail("Unexpected `#end`")
 
 		// #if
 		if (t == Token.Sharp, offset(1) == Token.KIf) {
@@ -219,7 +219,7 @@ module {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
-		return new CompilerError(Fail.ParserError, message, line, column, filename)
+		throw new CompilerError(Fail.ParserError, message, line, column, filename)
 	}
 
 	function getgo(t): String {
@@ -246,14 +246,15 @@ module {
 
 	function unexpected() {
 		var token = Token.stringify(lex.token[i], lex.value[i])
-		if (tok() == Token.Semicolon) console.log('Note, that Hexa has no semicolons!')
-		if (print() == 'public') console.log('Note, that Hexa has no `public` keyword!')
-		throw fail('Unexpected `\(token)`')
+		var error = 'Unexpected `\(token)`'
+		if (tok() == Token.Semicolon) error += ' semicolon. Note: Hexa has no semicolons!'
+		if (print() == 'public') error += '. Note: Hexa has no `public` keyword!'
+		fail(error)
 	}
 
 	function expected(str: String) {
 		var token = Token.stringify(lex.token[i], lex.value[i])
-		throw fail('Expected `\(str)` before `\(token)`')
+		fail('Expected `\(str)` before `\(token)`')
 	}
 
 	//-----------------
@@ -311,7 +312,7 @@ module {
 					let value = parseType()
 					result = Node.TTypeAlias(alias, value)
 				case _:
-					throw fail('Wrong `declare` format, got `\(Token.stringify(tok()))`')
+					fail('Wrong `declare` format, got `\(Token.stringify(tok()))`')
 			}
 /*
 			i++
@@ -352,7 +353,7 @@ module {
 
 			switch (extracted) {
 				case Node.TBinop(a, op, b):
-					if(op != Token.OpAssign) throw fail('declare =')
+					if(op != Token.OpAssign) fail('declare =')
 					switch(a) {
 						case Node.NodeTypeValue(t):
 							switch (t) {
@@ -369,21 +370,21 @@ module {
 				}
 
 				case Node.TVar(n, t, e, _):
-					if(t == null) throw fail('Variable `\(n)` in `declare` should have a type')
-					if(e != null) throw fail('Variable `\(n)` in `declare` should *not* have a value')
+					if(t == null) fail('Variable `\(n)` in `declare` should have a type')
+					if(e != null) fail('Variable `\(n)` in `declare` should *not* have a value')
 					name = n
 
 				case Node.TFunction(n, e, _, _):
-					if(n == null) throw fail('Function in `declare` should have a name')
-					if(e != null) throw fail('Functions in `declare` should *not* have a body')
+					if(n == null) fail('Function in `declare` should have a name')
+					if(e != null) fail('Functions in `declare` should *not* have a body')
 					name = n
 				// TODO binop assign
 				// Types-to-types `T = T` or idents-to-idents `name = name` should be assigned
 				// TODO require type for var and func args / retT?
 				case Node.TVars(_):
-					throw fail('Place only one variable into `declare`')
+					fail('Place only one variable into `declare`')
 				case _:
-					throw fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare function name(): T`')
+					fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare function name(): T`')
 			}
 			// Having name is ok here, coz we search by name in scopes
 			result = Node.TDeclare(name, e)
@@ -672,7 +673,7 @@ module {
 			result = me
 		case Token.KFunction:
 			result = parseFunction()
-		case Token.BkOpen:
+		case Token.BkOpen: // [a, b, c]
 			i++
 			var el = []
 			var values = []
@@ -692,6 +693,9 @@ module {
 				}
 				if (tok() == Token.Comma) {
 					i++
+					// Trailing comma [a,]
+					if (tok() == Token.BkClose)
+						fail('Unexpected `]`, remove trailing comma `,` before `]` or add a value after `,` if required')
 				} else break
 			}
 			step(Token.BkClose)
@@ -803,14 +807,21 @@ module {
 				var values = print()
 				i++
 
-				// `Blah.blah().blah`
+				// `Blah.blah().blah - 1 + 1`
 				while (
 					tok() == Token.LLower ||
 					tok() == Token.LUpper ||
 					tok() == Token.POpen || // TODO align || in formatter
 					tok() == Token.PClose ||
+					tok() == Token.OpAdd ||
+					tok() == Token.OpSub ||
+					tok() == Token.LInt ||
 					tok() == Token.Dot
 				) {
+					// `a-1` -> `a - 1`
+					if (tok() == Token.OpSub || tok() == Token.OpAdd) {
+						values += ' ' + print() + ' '
+					} else
 					values += print()
 					i++
 				}
@@ -829,13 +840,13 @@ module {
 					if (tok() == Token.LLower, lex.value[i] == name) i++ else classic = false
 				} else classic = false
 
-				if (tok() == Token.PClose) i++ else classic = false
+				if (tok() == Token.PClose) {} else classic = false
 
 				if (classic)
 					// `for (let i = 0; i < count; i++)` -> `for (i in count)`
-					throw fail("This loop should be replaced to `for (\(name) in \(values))`")
+					fail("This loop should be replaced to `for (\(name) in \(values))`")
 
-				throw fail("Hexa has only `for (\(name) in values)` syntax")
+				fail("Hexa has only `for (\(name) in values)` syntax")
 			}
 			var name = getgo(Token.LLower)
 			step(Token.KIn)
@@ -867,7 +878,7 @@ module {
 		}
 		if (result == null) {
 			Process.stdout.write('\n')
-			throw fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
+			fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
 		}
 		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
@@ -894,7 +905,7 @@ module {
 					case Token.LUpper:
 						result = Node.TIs(result, parseType())
 					case _:
-						throw fail("Cannot parse type `" + Token.stringify(tok()) + "`")
+						fail("Cannot parse type `" + Token.stringify(tok()) + "`")
 				}
 			case Token.KAs:
 				i++
@@ -1004,7 +1015,7 @@ module {
 		}
 		if (result == null) {
 			Process.stdout.write('\n')
-			throw fail("Expression postfix is incomplete")
+			fail("Expression postfix is incomplete")
 		}
 
 		if (atts.length > 0) {
@@ -1025,7 +1036,7 @@ module {
 
 		function parseSingleVar(): Node {
 			var varname = getgo(Token.LLower)
-			if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
+			if (varname.endsWith("___")) fail("Variables can't end with `___`, it is reserved.")
 			var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
 			var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
 			return Node.TVar(varname, type, expr, const, external ?? false)
@@ -1045,7 +1056,7 @@ module {
 			path.push(getgo(Token.LUpper))
 
 			// Enum bind vars or none
-			if (tok() == Token.POpen && offset(1) == Token.PClose) throw fail("Don't use empty parenthesis for `let " + path.join('.') + '()` bindings')
+			if (tok() == Token.POpen && offset(1) == Token.PClose) fail("Don't use empty parenthesis for `let " + path.join('.') + '()` bindings')
 			var bind = [] // Variables T(var, var, var)
 			if (tok() == Token.POpen) {
 				do {
@@ -1060,7 +1071,7 @@ module {
 
 			var expr = parseExpr()
 			return Node.TEnumExtract(path, bind, expr)
-			//throw fail("parseSingleBinding " + path + ' ' + bind + ' ' + expr)
+			//fail("parseSingleBinding " + path + ' ' + bind + ' ' + expr)
 		}
 
 		while (true) {
@@ -1087,7 +1098,7 @@ module {
 				while (true) {
 
 					var varname = getgo(Token.LLower)
-					if (varname.endsWith("___")) throw fail("Variables can't end with `___`, it is reserved.")
+					if (varname.endsWith("___")) fail("Variables can't end with `___`, it is reserved.")
 
 					var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
 					var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
@@ -1100,7 +1111,7 @@ module {
 			// var Left
 			case Token.LUpper:
 				// if (offset(1) != Dot) {
-				// 	throw fail("Please use lowercase for variable")
+				// 	fail("Please use lowercase for variable")
 				// }
 				// // var Left.B
 				// else {
@@ -1122,11 +1133,11 @@ module {
 						case Token.OpAssign:
 							//warning Extracting empty enum
 						case _:
-							throw fail("Wrong syntax")
+							fail("Wrong syntax")
 					}
 				// }
 			case _:
-				throw fail("Wrong syntax")
+				fail("Wrong syntax")
 		}
 		return vars
 	}
@@ -1142,7 +1153,7 @@ module {
 		switch (tok()) {
 			case Token.LLower:
 				name = getgo(Token.LLower)
-			case Token.LUpper: throw fail("Function names can't start with uppercase.")
+			case Token.LUpper: fail("Function names can't start with uppercase.")
 			case _:
 		}
 		step(Token.POpen)
@@ -1314,7 +1325,7 @@ module {
 			}
 		}
 		catch(e: Any) {
-			throw fail("Parse interpolation error: " + e)
+			fail("Parse interpolation error: " + e)
 		}
 	}
 
@@ -1371,7 +1382,7 @@ module {
 					case _: unexpected()
 				}
 				if (parametricTypeNesting < 0)
-					throw fail("parametricTypeNesting < 0")
+					fail("parametricTypeNesting < 0")
 
 				NodeType.ParametricType(name, params)
 			} else NodeType.Type(name)
@@ -1383,7 +1394,7 @@ module {
 			}
 
 			result = sresult
-		case Token.BkOpen: if (path.length != 0) throw fail("Token.BkOpen")// [Type]
+		case Token.BkOpen: if (path.length != 0) fail("Token.BkOpen")// [Type]
 			i++
 			var res: NodeType? = null
 			switch (tok()) {
@@ -1413,7 +1424,7 @@ module {
 					res = innerRes
 			}
 			result = res
-		case Token.BrOpen: if (path.length != 0) throw fail("Token.BrOpen") // {}
+		case Token.BrOpen: if (path.length != 0) fail("Token.BrOpen") // {}
 			i++
 			var sresult = if (tok() == Token.DblDot) { // Empty
 				i++
@@ -1437,7 +1448,7 @@ module {
 				sresult = NodeType.Function([sresult], parseType())
 			}
 			result = sresult
-		case Token.POpen: if (path.length != 0) throw fail("Token.POpen")// ()
+		case Token.POpen: if (path.length != 0) fail("Token.POpen")// ()
 			i++
 			var args = []
 			while (tok() != Token.PClose) {
@@ -1468,13 +1479,13 @@ module {
 				//	parseType()
 				//}
 				case _: {
-					throw fail("Type name `\(print())` can not start with lowercase")
+					fail("Type name `\(print())` can not start with lowercase")
 				}
 			}
 			result = res
 
 		case _:
-			throw fail("Expected type, parsed `" + Token.stringify(tok()) + "`")
+			fail("Expected type, parsed `" + Token.stringify(tok()) + "`")
 		}
 
 		if (tok() == Token.Question) {
@@ -1513,7 +1524,7 @@ module {
 				case Token.OpBoolOr: return 8 + left
 				case Token.OpAssign: return 10 + right
 				case _: // TODO proper message, this is internal error
-					throw fail("No precedence for " + Token.stringify(op))
+					fail("No precedence for " + Token.stringify(op))
 			}
 		}
 
