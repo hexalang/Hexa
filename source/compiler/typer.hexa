@@ -630,7 +630,10 @@ module {
 						case null:
 						case Node.TVar(name, _, _, const):
 							if (const)
-								fail('Cannot reassign a constant `let \(name)`, redefine it as `var \(name)` to allow reassignment', node)
+								fail(
+									'Cannot reassign a constant `let \(name)`, redefine it as `var \(name)` to allow reassignment\n'
+									+ positionOf(parent) + '`let \(name)` is defined here',
+								node)
 							types.set(node, unify(types.get(a), types.get(b), b))
 						case Node.TIdent(name):
 							fail('Cannot reassign case parameter `\(name)`', node)
@@ -1113,7 +1116,10 @@ module {
 					switch (parent) {
 						case Node.TVar(name, _, _, const):
 							if (const)
-							fail('Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes', node)
+								fail(
+									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
+									+ positionOf(parent) + '`let \(name)` is defined here',
+								node)
 						case Node.TFunction(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
@@ -1169,8 +1175,9 @@ module {
 					fail('Cannot use `enum` as a value', node)
 				case Node.TTypeAlias(_):
 					fail('Cannot use `declare` as a value', node)
-				case Node.TVar(_):
-					fail('Cannot use `var` as a value', node)
+				case Node.TVar(name, _, _, const):
+					let prefix = const? 'let' : 'var'
+					fail('Cannot use `\(prefix) \(name)` as a value', node)
 				case Node.TSwitch(_):
 					fail('Cannot use `switch` as a value', node)
 				case Node.TWhile(_):
