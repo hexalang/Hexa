@@ -799,6 +799,23 @@ module {
 				i++
 				var name = getgo(Token.LLower)
 
+				// Approximately detect `for (let/var/const field of/in fields)`
+				{
+					if (print() == 'of' || print() == 'in') {
+						i++
+						var values = print()
+						i++
+						while (tok() != Token.PClose && tok() != Token.Eof) {
+							if (tok() == Token.OpSub || tok() == Token.OpAdd) {
+								values += ' ' + print() + ' '
+							} else
+							values += print()
+							i++
+						}
+						fail("This loop should be replaced to `for (\(name) in \(values))`")
+					}
+				}
+
 				// Approximately detect `for (let i = 0; i < count; i++)`
 				var classic = true
 				if (tok() == Token.OpAssign) i++ else classic = false
@@ -819,6 +836,7 @@ module {
 					tok() == Token.OpAdd ||
 					tok() == Token.OpSub ||
 					tok() == Token.LInt ||
+					tok() == Token.OpMult ||
 					tok() == Token.Dot
 				) {
 					// `a-1` -> `a - 1`
@@ -1172,6 +1190,7 @@ module {
 		var vars = []
 		var types = []
 		var values = []
+		var pos = []
 		switch (tok()) {
 			case Token.LLower:
 				name = getgo(Token.LLower)
@@ -1186,6 +1205,7 @@ module {
 				if (tok() == Token.Interval) {
 					i++
 				}
+				pos.push({ line: lex.line[i], column: lex.column[i] })
 				var name = getgo(Token.LLower)
 				if (tok() == Token.DblDot) {
 					i++
@@ -1232,7 +1252,9 @@ module {
 
 		var v = []
 		for (i in vars.length) {
-			v.push(Node.TVar(vars[i], types[i], values[i], true, false))
+			let n = Node.TVar(vars[i], types[i], values[i], true, false)
+			Project.data.set(n, new NodeData(pos[i].line, pos[i].column, lex.fileName))
+			v.push(n)
 		}
 		return Node.TFunction(name, expr, v, rettype, external)
 	}
