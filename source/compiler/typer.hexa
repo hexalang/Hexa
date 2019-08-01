@@ -469,7 +469,7 @@ module {
 			}
 
 			if (toInstance != fromInstance)
-				fail('Incompatible types', node)
+				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(from))`', node)
 
 			return to ?? from
 		}
@@ -643,6 +643,11 @@ module {
 							fail('Cannot reassign class', node)
 						case Node.TEnum(_):
 							fail('Cannot reassign enum', node)
+						case Node.TFor(name, _):
+							fail(
+								'Cannot reassign iterator value `\(name)` of for loop\n'
+								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
+							node)
 						case _: // Ok
 					}
 				case Node.TBreak:
@@ -1088,6 +1093,9 @@ module {
 						case Node.TSuper(_):
 							if (!allowSuper)
 								fail('Cannot access `super` here', node)
+						case Node.TModule(path, _):
+							let p = path.length > 0? ' ' + path.join('.') + ' ' : ' '
+							fail('Leading parenthesis "calls" a module like `module\(p){}(...)`, wrap it with `{(...)}`', node)
 						case _:
 				 			fillExpression(e)
 				 	}
@@ -1103,8 +1111,27 @@ module {
 					fill(a)
 					fillExpression(b)
 
-				case Node.TUnop(_, _, e):
+				case Node.TUnop(op, _, e):
 					fillExpression(e)
+					let mutates = op == Token.OpIncrement || op == Token.OpDecrement
+					if (!mutates) { return }
+					var parent: Node = parents.get(e)
+					switch (parent) {
+						case Node.TVar(name, _, _, const):
+							if (const)
+								fail(
+									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
+									+ positionOf(parent) + '`let \(name)` is defined here',
+								node)
+						case Node.TFunction(name, _):
+							fail('Cannot `\(Token.stringify(op))` a function `\(name)`', node)
+						case Node.TFor(name, _):
+							fail(
+								'Cannot change iterator value `\(name)` of for loop\n'
+								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
+							node)
+						case _: // Ok
+					}
 
 				case Node.TIndex(e, i):
 					fillExpression(e)
@@ -1122,6 +1149,11 @@ module {
 								node)
 						case Node.TFunction(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
+						case Node.TFor(name, _):
+							fail(
+								'Cannot change iterator value `\(name)` of for loop\n'
+								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
+							node)
 						case _: // Ok
 					}
 					fillExpression(b)
@@ -1207,6 +1239,14 @@ module {
 		SuperOf(type: ClassType) // `super` of current class (not parent)
 		Function(args: [Type], returns: Type, lazyTypeCheck: Node)
 		Struct(names: [String], types: [Type])
+
+		static function stringify(node: Node): String {
+			switch (node) {
+				case Type.ClassInstance(type, generic):
+					return DataHelper.nameOf(type.parent)
+				case _: return '' + node
+			}
+		}
 	}
 
 	class ClassType {
