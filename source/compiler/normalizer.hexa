@@ -147,6 +147,7 @@ module {
 							}
 					}
 					return NiceExpression.Ident(parentNames.get(source) ?? name)
+
 				case Node.TDot(expr, name):
 				let parent = typer.parents.get(expr)
 				switch (parent) {
@@ -428,6 +429,27 @@ module {
 							}
 							constructors.push([for (arg in argNames) unique(arg)])
 							types.push([for (arg in args) unique(arg)])
+						case Node.TStatic(field):
+							switch (field) {
+							case Node.TVar(name, t, expr, const):
+								let uname = parentNames.get(field) ?? unique(name, field)
+								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
+								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
+							case Node.TFunction(name, expr, vars, rettype):
+								let uname = parentNames.get(field) ?? unique(name, field)
+								let a = []
+								let defaults = []
+								let types = []
+								for (arg in vars) switch (arg) {
+									case Node.TVar(name, t, expr, const):
+										a.push(unique(name, arg))
+										types.push(t)
+										if (expr != null) defaults.push(nodeToExpression(expr))
+										else defaults.push(null)
+								}
+								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype))
+							case _: console.error("Unknown complex enum static field kind:", field)
+						}
 						case _: console.error("Unknown complex enum field kind:", f)
 					}
 					type.names = names
@@ -472,7 +494,7 @@ module {
 										else defaults.push(null)
 								}
 								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype))
-							case _: console.error("Unknown enum static field kind:", field)
+							case _: console.error("Unknown simple enum static field kind:", field)
 						}
 						case _: console.error("Unknown simple enum field kind:", f)
 					}
@@ -1110,6 +1132,8 @@ module {
 		var names: [String]
 		var constructors: [[String]]
 		var types: [[NodeType]]
+		var staticMethods = []
+		var staticVars = []
 	}
 
 }
