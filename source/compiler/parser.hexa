@@ -427,17 +427,20 @@ module {
 				result = Node.TObject([], [])
 			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object { k:v }
 				var names: [String] = [], el: [Node] = []
-				if (tok() != Token.BrClose) while (true) {
+				while (true) {
 					names.push(getgo(Token.LLower))
 					step(Token.DblDot)
 					el.push(parseExpr())
 					if (tok() == Token.Comma) {
 						i++
+						continue
 					} else break
 				}
+				if (tok() != Token.BrClose)
+					fail('Expected `}` or `,` before `\(print())`')
 				step(Token.BrClose)
 				result = Node.TObject(names, el)
-			} else { // Block
+			} else { // Block { expr expr expr }
 				var el = []
 				while (tok() != Token.BrClose) {
 					el.push(parseExpr())
@@ -876,10 +879,12 @@ module {
 
 		case _: unexpected()
 		}
+
 		if (result == null) {
 			Process.stdout.write('\n')
 			fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
 		}
+
 		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
 		if (atts.length > 0) {
@@ -892,6 +897,7 @@ module {
 		//--------------
 		var done = i >= lex.length
 		while (!done) {
+			Project.data.set(result, new NodeData(lex.line[i], lex.column[i], lex.fileName))
 			switch (tok()) {
 			case Token.Eof: done = true
 			case Token.BkOpen:
@@ -958,6 +964,9 @@ module {
 				i++ result = Node.TUnop(Token.OpIncrement, true, result)
 			case Token.OpDecrement:
 				i++ result = Node.TUnop(Token.OpDecrement, true, result)
+
+			// a.b
+			// a.B
 			case Token.Dot: i++
 				switch (tok()) {
 					case Token.LUpper:
@@ -1461,7 +1470,7 @@ module {
 				sresult = NodeType.Function([sresult], parseType())
 			}
 			result = sresult
-		case Token.POpen: if (path.length != 0) fail("Token.POpen")// ()
+		case Token.POpen: if (path.length != 0) fail("Token.POpen") // ()
 			i++
 			var args = []
 			while (tok() != Token.PClose) {
