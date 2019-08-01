@@ -64,11 +64,16 @@ module {
 			// Let's fill global namespaces first to avoid delayed expansion
 			for (file in collected) {
 				var didInit = false
+				var lastOne = file[0]
 				for (e in file) switch (e) {
 					case Node.TModule(path, el):
-						if (didInit) throw 'Modules should follow before expressions'
+						if (didInit) fail(
+							'Modules should follow before expressions\n'
+							+ positionOf(lastOne) + 'Expression is here',
+						e)
 						fillModuleNamespace(e)
 					case _:
+						lastOne = e
 						didInit = true
 				}
 			}
@@ -346,6 +351,12 @@ module {
 			throw new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName)
 		}
 
+		static function positionOf(node: Node) {
+			let data = Project.data.get(node)
+			if (data == null) return "[Unknown]: "
+			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
+		}
+
 		function nameOfModuleItem(node: Node): String {
 			switch (node) {
 				case Node.TVar(name, _): return name
@@ -619,7 +630,7 @@ module {
 						case null:
 						case Node.TVar(name, _, _, const):
 							if (const)
-								fail('Cannot reassign a constant `\(name)`', node)
+								fail('Cannot reassign a constant `let \(name)`, redefine it as `var \(name)` to allow reassignment', node)
 							types.set(node, unify(types.get(a), types.get(b), b))
 						case Node.TIdent(name):
 							fail('Cannot reassign case parameter `\(name)`', node)
@@ -793,8 +804,10 @@ module {
 					}
 
 					if (subj == null) subj = findInNamespaceRoots(name)
+					if (subj == null, name == 'const')
+						fail('No variable named `const` found. Are you trying to use `const` as a keyword? Use `let varname` syntax instead.', node)
 					if (subj == null)
-						throw fail('Cannot find parent by name `\(name)` for \(node)', node)
+						fail('Cannot find variable with name `\(name)`', node)
 					if (parents.get(node) != null, parents.get(node) != subj)
 						fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 					parents.set(node, subj)
@@ -885,7 +898,7 @@ module {
 
 				case Node.TBlock(el):
 					if (el.length == 0)
-						fail('Cannot use empty block `{}` as a value', node)
+						fail('Cannot use empty block `{}` as a value, use `{:}` syntax to create empty object', node)
 					pushScope()
 					for (i in el.length) if (i < el.length - 1) {
 						fill(el[i])
@@ -925,8 +938,18 @@ module {
 								fail('Enum field `.\(n)` is not static', node)
 						case Type.Struct(names, els):
 							let index = names.indexOf(n)
-							if (index < 0)
-								fail('Object has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
+							if (index < 0) {
+								var object = ''
+								switch (e) {
+									case Node.TIdent(name): object = ' `\(name)`'
+									case _: {}
+								}
+
+								if (names.length == 0)
+									fail('Object\(object) is empty `{:}` and has no fields. Create object with all fields defined upfront, like this: `obj = { \(n): value }`', node)
+								if (names.length != 0)
+									fail('Object\(object) has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
+							}
 							types.set(node, els[index])
 						case _:
 					}// else fail('Got node without type `\(e)`' + never, node)
@@ -965,7 +988,7 @@ module {
 						}
 						if (subj == null) subj = findInNamespaceRoots(name)
 						if (subj == null)
-							fail('Cannot find type by name `\(name)` for \(node)', node)
+							fail('Cannot find type with name `\(name)`', node)
 						if (parents.get(node) != null, parents.get(node) != subj)
 							fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 						parents.set(node, subj)
@@ -1090,7 +1113,7 @@ module {
 					switch (parent) {
 						case Node.TVar(name, _, _, const):
 							if (const)
-							fail('Cannot reassign a constant `\(name)`', node)
+							fail('Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes', node)
 						case Node.TFunction(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
 						case _: // Ok
