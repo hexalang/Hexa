@@ -299,22 +299,6 @@ module {
 					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result), 'push'), [nodeToExpression(by)])
 					function fillLoop() {
 						switch (over) {
-							case Node.TDot(_, f): // TODO remove after proper type info
-							if (f == "length") {
-								let i = name
-								block.push(NiceStatement.Var(i, NiceExpression.Int(-1)))
-								block.push(NiceStatement.While(
-									NiceExpression.Binop(
-										NiceExpression.Parenthesis(NiceExpression.Binop(NiceExpression.Ident(i), Token.OpAdd, NiceExpression.Int(1))),
-										Token.OpLt, NiceExpression.Ident(value)),
-									NiceStatement.Block([
-										NiceStatement.Increment(NiceExpression.Ident(i)),
-										push
-									]),
-									true))
-								return
-							}
-
 							case Node.TInt(s):
 							let i = name
 							block.push(NiceStatement.Const(i, NiceExpression.Int(-1)))
@@ -633,23 +617,6 @@ module {
 				return NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype)
 
 				case Node.TFor(name, over, by): switch (over) {
-					case Node.TDot(expr, f): // TODO remove after proper type info
-					if (f == "length") {
-						let i = name
-						let v = unique('value')
-						return NiceStatement.Block([
-						NiceStatement.Const(v, nodeToExpression(over)),
-						NiceStatement.Var(i, NiceExpression.Int(0)),
-						NiceStatement.While(
-							NiceExpression.Binop(NiceExpression.Ident(i), Token.OpLt, NiceExpression.Ident(v)),
-							NiceStatement.Block([
-								nodeToStatement(by),
-								NiceStatement.Increment(NiceExpression.Ident(i))
-							]),
-							true)
-						])
-					}
-
 					case Node.TInt(s):
 					let i = name
 					return NiceStatement.Block([
@@ -680,6 +647,7 @@ module {
 					binds = true
 				}
 
+				// Just plain `if`
 				if (!binds && econd.length == 1)
 				return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
 
@@ -696,6 +664,7 @@ module {
 				// if(let, let, let...)
 				let block = []
 				var current = 0
+				// Builds kind of state machine here
 				let step = unique('step')
 				block.push(NiceStatement.Var(step, NiceExpression.Int(0)))
 				var nullable = false
