@@ -897,6 +897,12 @@ module {
 			case Token.BkOpen:
 				i++
 				var index = parseExpr()
+				if (tok() == Token.Comma)
+					fail(
+						"Expected `]` instead of `,` comma. Hexa supports only one [index] value.\n" +
+						"Note, you are indexing this expression: `\(Node.stringify(result))[\(Node.stringify(index))]`\n" +
+						"To create array here, wrap it with `{` as `{[\(Node.stringify(index)), ...]}` so it doesn't index previous expression."
+					)
 				step(Token.BkClose)
 				result = Node.TIndex(result, index)
 			case Token.KIs:
@@ -1034,6 +1040,13 @@ module {
 		i++
 		var vars: [Node] = []
 
+		if (tok() == Token.Query) {
+			i++
+			let name = if (tok() == Token.LLower) print() else 'name'
+			let prefix = const? 'let' : 'var'
+			fail("Hexa doesn't support PHP-style variables, replace it to `\(prefix) \(name)`")
+		}
+
 		function parseSingleVar(): Node {
 			var varname = getgo(Token.LLower)
 			if (varname.endsWith("___")) fail("Variables can't end with `___`, it is reserved.")
@@ -1153,7 +1166,7 @@ module {
 		switch (tok()) {
 			case Token.LLower:
 				name = getgo(Token.LLower)
-			case Token.LUpper: fail("Function names can't start with uppercase.")
+			case Token.LUpper: fail("Function names can't start with uppercase `\(print())` -> `\(print().toLowerCase())`")
 			case _:
 		}
 		step(Token.POpen)
@@ -1394,7 +1407,7 @@ module {
 			}
 
 			result = sresult
-		case Token.BkOpen: if (path.length != 0) fail("Token.BkOpen")// [Type]
+		case Token.BkOpen: if (path.length != 0) fail("Token.BkOpen") // [Type]
 			i++
 			var res: NodeType? = null
 			switch (tok()) {
