@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2019  Oleg Petrenko
 // Copyright (C) 2018  Bogdan Danylchenko
 //
 // This library is free software; you can redistribute it and/or
@@ -558,9 +558,6 @@ module {
 		case Token.OpDecrement:
 			i++
 			result = Node.TUnop(Token.OpDecrement, false, parseExpr())
-		case Token.Interval:
-			i++
-			result = Node.TUnop(Token.Interval, false, parseExpr())
 		case Token.LFloat:
 			result = Node.TFloat(getgo(Token.LFloat))
 		case Token.LInt:
@@ -819,7 +816,32 @@ module {
 				// Approximately detect `for (let i = 0; i < count; i++)`
 				var classic = true
 				if (tok() == Token.OpAssign) i++ else classic = false
-				if (tok() == Token.LInt, lex.value[i] == '0') i++ else classic = false
+
+				var specialCase = ''
+				if (tok() == Token.LInt, lex.value[i] == '0') {
+					i++
+				} else { // TODO always consume values, and compare iwht '0'
+					// `Blah.blah().blah - 1 + 1`
+					while (
+						tok() == Token.LLower ||
+						tok() == Token.LUpper ||
+						tok() == Token.POpen ||
+						tok() == Token.PClose ||
+						tok() == Token.OpAdd ||
+						tok() == Token.OpSub ||
+						tok() == Token.LInt ||
+						tok() == Token.OpMult ||
+						tok() == Token.Dot
+					) {
+						// `a-1` -> `a - 1`
+						if (tok() == Token.OpSub || tok() == Token.OpAdd) {
+							specialCase += ' ' + print() + ' '
+						} else
+						specialCase += print()
+						i++
+					}
+				}
+
 				if (tok() == Token.Semicolon) i++ else classic = false
 				if (tok() == Token.LLower, lex.value[i] == name) i++ else classic = false
 
@@ -872,18 +894,24 @@ module {
 
 				if (tok() == Token.PClose) {} else classic = false
 
-				if (classic)
+				if (classic, specialCase == '')
 					// `for (let i = 0; i < count; i++)` -> `for (i in count)`
 					fail("This loop should be replaced to `for (\(name) in \(values))`")
+
+				if (classic) fail("This loop should be replaced to `for (\(name) in \(specialCase) ... \(values))`")
 
 				fail("Hexa has only `for (\(name) in values)` syntax")
 			}
 			var name = getgo(Token.LLower)
 			step(Token.KIn)
 			var values = parseExpr()
+			let range = if (tok() == Token.Interval) {
+				i++
+				parseExpr()
+			} else null
 			step(Token.PClose)
 			var expression = parseExpr()
-			result = Node.TFor(name, values, expression)
+			result = Node.TFor(name, values, expression, range)
 
 		case Token.KStatic:
 			next()
