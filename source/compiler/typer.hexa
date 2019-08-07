@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2019  Oleg Petrenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -654,9 +654,10 @@ module {
 					if (!allowBreakAndContinue)
 						fail('Cannot use `break` outside of loop', node)
 
-				case Node.TFor(name, over, by):
+				case Node.TFor(name, over, by, range):
 					pushScope()
 					fillExpression(over)
+					if (let range = range) fillExpression(range)
 					addScope(name, node)
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
@@ -864,9 +865,11 @@ module {
 				case Node.TArray(el):
 
 					switch (el[0]) {
-						case Node.TFor(name, over, by):
+						case Node.TFor(name, over, by, range):
 							if (el.length > 1)
 								fail('Cannot use loop `for` within array of more than one element `[for(), ...]`', el[1])
+							if (range != null)
+								fail('Ranges `...range` are not supported here yet', range)
 
 							pushScope()
 							fillExpression(over)
@@ -1176,6 +1179,9 @@ module {
 
 				case Node.TReturn(e):
 					switch (e) {
+						case Node.TVar(name, _, _, const):
+							let prefix = const? 'let' : 'var'
+							fail('This `return` tries to return a variable `\(prefix) \(name)`. Try to wrap it into braces like this `{ return } \(prefix) \(name)`', node)
 						case Node.TReturn(_):
 							fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
 					}

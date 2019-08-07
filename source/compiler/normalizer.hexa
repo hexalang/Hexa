@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2018  Oleg Petrenko
+// Copyright (C) 2019  Oleg Petrenko
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -325,8 +325,8 @@ module {
 				for (e in el) els.push(nodeToExpression(e))
 				return NiceExpression.Array(els)
 
-				case Node.TElvis(nullable, othewise):
-				return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(othewise))
+				case Node.TElvis(nullable, otherwise):
+				return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Node.TUnop(op, postfix, e):
 				return NiceExpression.Unop(op, postfix, nodeToExpression(e))
@@ -616,16 +616,53 @@ module {
 				if (name == 'new') return NiceStatement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype)
 				return NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, types, rettype)
 
-				case Node.TFor(name, over, by): switch (over) {
+				case Node.TFor(name, over, by, range):
+				if (range == null) switch (over) {
 					case Node.TInt(s):
 					let i = name
+					// This allows to call `continue` within loop body,
+					// otherwise infinite loop happens
+					let it = unique('it')
 					return NiceStatement.Block([
 						NiceStatement.Var(i, NiceExpression.Int(0)),
+						NiceStatement.Var(it, NiceExpression.Int(0)),
 						NiceStatement.While(
-							NiceExpression.Binop(NiceExpression.Ident(i), Token.OpLt, NiceExpression.Int(s)),
+							NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Int(s)),
 							NiceStatement.Block([
-								nodeToStatement(by),
-								NiceStatement.Increment(NiceExpression.Ident(i))
+								NiceStatement.Assign(NiceExpression.Ident(i), NiceExpression.Ident(it)),
+								NiceStatement.Increment(NiceExpression.Ident(it)),
+								nodeToStatement(by)
+							]),
+							true)
+					])
+				}
+				if (let range = range) {
+					/*
+						let i = 0
+						let it = start
+						let finish = range
+
+						while (it < finish) {
+							i = it
+							it++
+							by
+						}
+					*/
+
+					let i = name
+					let it = unique('it')
+					let finish = unique('finish')
+
+					return NiceStatement.Block([
+						NiceStatement.Var(i, NiceExpression.Int(0)),
+						NiceStatement.Var(it, nodeToExpression(over)),
+						NiceStatement.Var(finish, nodeToExpression(range)),
+						NiceStatement.While(
+							NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Ident(finish)),
+							NiceStatement.Block([
+								NiceStatement.Assign(NiceExpression.Ident(i), NiceExpression.Ident(it)),
+								NiceStatement.Increment(NiceExpression.Ident(it)),
+								nodeToStatement(by)
 							]),
 							true)
 					])
