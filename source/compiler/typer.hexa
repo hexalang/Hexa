@@ -175,6 +175,14 @@ module {
 										fail('Field `\(name)` already exists', field)
 									type.fieldNames.push(name)
 									addScope(name, field)
+								case Node.TProperty(field, _, _):
+									switch (field) {
+										case Node.TVar(name, _):
+											if (type.fieldNames.includes(name))
+												fail('Field `\(name)` already exists', field)
+											type.fieldNames.push(name)
+											addScope(name, field)
+									}
 								case Node.TStatic(f): switch (f) {
 									case Node.TFunction(name, _):
 										if (type.fieldNames.includes(name))
@@ -219,6 +227,16 @@ module {
 								insideClassMethod = true
 								if (e != null) fillExpression(e)
 								insideClassMethod = _insideClassMethod
+							case Node.TProperty(field, _, _):
+									switch (field) {
+										case Node.TVar(name, t, e, const):
+											if (external, e != null)
+												fail('External class field `var \(name)` cannot have expression', field)
+											let _insideClassMethod = insideClassMethod
+											insideClassMethod = true
+											if (e != null) fillExpression(e)
+											insideClassMethod = _insideClassMethod
+								}
 							case Node.TStatic(f): switch (f) {
 								case Node.TFunction(name, expr, vars, rettype):
 									if (external, expr != null)
