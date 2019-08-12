@@ -5,22 +5,23 @@
 `Her name is [geksa]`
 
 [![Join the Gitter chat](https://badges.gitter.im/hexalang/hexalang.svg)](https://gitter.im/hexalang?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-[![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg)](https://t.me/hexalang)
-[![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg)](https://t.me/hexalang_github)
-[![Twitter](https://img.shields.io/badge/twitter-@hexalang-blue.svg)](https://twitter.com/hexalang)
+[![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg?logo=telegram)](https://t.me/hexalang)
+[![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg?logo=GitHub)](https://t.me/hexalang_github)
+[![Twitter](https://img.shields.io/badge/twitter-@hexalang-blue.svg?logo=Twitter)](https://twitter.com/hexalang)
 [![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/blog/)
 [![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
 [![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/master?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/master)
 [![Website](https://img.shields.io/badge/home-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
-Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps. Inspired by [Haxe](https://haxe.org).
+Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps
 
 [![Try Hexa online without installation](preview.png?raw=true)](https://hexalang.github.io/try/)
 
-[![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg)](https://aur.archlinux.org/packages/hexa-git)
+[![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg?logo=Arch-Linux)](https://aur.archlinux.org/packages/hexa-git)
 [![DOCs and TODOs](https://img.shields.io/badge/compiler-docs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
 [![Donate](https://img.shields.io/badge/donate-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
 [![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
+[![Discord](https://img.shields.io/badge/Discord-join-758EDC.svg?logo=discord)](https://discord.gg/SsAWf9M)
 
 
 ## Download
@@ -44,6 +45,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - [Sublime Text 3](https://packagecontrol.io/packages/Hexa) — [hexalang/hexa-sublime-bundle](https://github.com/hexalang/hexa-sublime-bundle)
 - [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle)
 - [Atom](https://atom.io/packages/hexa) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
+- [Package manager](https://hexalang.github.io/book/Packages.html) — [hexalang/packages](https://github.com/hexalang/packages)
 
 ## Study
 
