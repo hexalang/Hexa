@@ -195,11 +195,25 @@ module {
 				if (_8 == 96) {
 					position++
 					let pos = position
-					while (get_8(position) != 96 && not_eof()) {
+					while (not_eof()) {
+						if (get_8(position) == 96, get_8(position + 1) == 96) {
+							position++
+							position++
+							continue
+						}
+
+						if (get_8(position) == 96) {
+							break
+						}
+
 						if (get_8(position) == 10) new_line()
+
 						position++
 					}
-					addn(Token.LBacktick, bytes.toString('utf8', pos, position))
+					var result = bytes.toString('utf8', pos, position)
+					// Removes double backticks
+					if (result.indexOf('``') != -1) result = result.split('``').join('')
+					addn(Token.LBacktick, result)
 					position++
 					continue
 				}
@@ -253,7 +267,10 @@ module {
 						_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 						position++
 					}
-					addn(Token.LString, bytes.toString('utf8', pos, position))
+					var result = bytes.toString('utf8', pos, position)
+					// Convert `\r\n` to `\n`
+					if (result.indexOf('\r\n') != -1) result = result.split('\r\n').join('\n')
+					addn(Token.LString, result)
 					position++
 					continue
 				}
