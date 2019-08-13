@@ -26,6 +26,8 @@ module {
 			compare("#!/bin", [], [])
 			compare("#!/bin\n", [], [])
 			compare("#!/bin\n//", [], [])
+			compare("#!/bin\r\n123", [Token.LInt], ["123"]) // May not work on Linux because of \r if no `bin\r` file exist
+			compare("#!/bin\n\r123", [Token.LInt], ["123"]) // \r is completely ignored by lexer
 			compare("#!/bin\n123", [Token.LInt], ["123"])
 
 			// Empty (whitespace, comments)
@@ -72,6 +74,23 @@ module {
 			compare('"s"', [Token.LString], ["'s'"]) // TODO Quotes `"` and `'` should be differentiated for pretty printing
 			compare("\"s\"", [Token.LString], ["'s'"]) // TODO All `\*` should be kept for pretty printing
 			compare("`s`", [Token.LBacktick], ["`s`"])
+			compare("`aaa bbb``ccc` `ddd`", [Token.LBacktick, Token.LBacktick], ["`aaa bbbccc`", "`ddd`"])
+			compare("````````", [Token.LBacktick], ["``"])
+			compare("``", [Token.LBacktick], ["``"])
+			compare("``\n", [Token.LBacktick], ["``"])
+			compare("``\n``", [Token.LBacktick, Token.LBacktick], ["``", "``"])
+
+			// String consistency - repair \r\n to \n for non-raw ones
+			compare("'s\n'", [Token.LString], ["'s\n'"]) // '
+			compare("'s\r\n'", [Token.LString], ["'s\n'"]) // '
+			compare("'s
+				s'", [Token.LString], ["'s\n\t\t\t\ts'"]) // Test on actual code
+			compare('"s\n"', [Token.LString], ["'s\n'"]) // "
+			compare('"s\r\n"', [Token.LString], ["'s\n'"]) // "
+			compare('"\r\ns\r\n"', [Token.LString], ["'\ns\n'"]) // "
+			compare("`s\n`", [Token.LBacktick], ["`s\n`"]) // `
+			compare("`s\r\n`", [Token.LBacktick], ["`s\r\n`"]) // `
+			compare("`s\r`", [Token.LBacktick], ["`s\r`"]) // `
 
 			// Identifiers
 			compare("T", [Token.LUpper], ["T"])
@@ -110,6 +129,14 @@ module {
 		static var passed = 0
 		static var overall = 0
 
+		/// Fix invisible chars like \t\r\n
+		static function renderInvisibleChars(input: String): String {
+			return input
+			.split('\r').join('\\r')
+			.split('\n').join('\\n')
+			.split('\t').join('\\t')
+		}
+
 		/// Token and value equality
 		static function compare(
 			input: String,
@@ -124,7 +151,8 @@ module {
 
 			function incorrect(text: String) {
 				var got = Token.stringify(output.token[pos], output.value[pos])
-				console.log('Incorrect token `\(got)` in string `\(input)` at index \(pos)')
+				got = renderInvisibleChars(got)
+				console.log('Incorrect token `\(got)` in string `\(renderInvisibleChars(input))` at index \(pos)')
 				console.log(text)
 			}
 
@@ -133,11 +161,12 @@ module {
 				if (ex == Token.Eof) break
 
 				if (ex != output.token[pos]) {
-					return incorrect('Expected `\(Token.stringify(ex))`')
+					return incorrect('Expected `\(renderInvisibleChars(Token.stringify(ex)))`')
 				}
 
-				if (expectValue[pos] != Token.stringify(output.token[pos], output.value[pos])) {
-					return incorrect('Expected value `\(expectValue[pos])` but got `\(output.value[pos])`')
+				let value = Token.stringify(output.token[pos], output.value[pos])
+				if (expectValue[pos] != value) {
+					return incorrect('Expected value `\(renderInvisibleChars(expectValue[pos]))` but got `\(renderInvisibleChars(value))`')
 				}
 
 				pos++
