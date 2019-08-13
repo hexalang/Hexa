@@ -21,10 +21,10 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 - [ ] Parse all float representations
 - [ ] Add extra tokens
   - [ ] RegExp
-  - [ ] Documentation comments
   - [ ] Comments `//`
   - [ ] Multi-line comments `/* */`
     - [ ] Nesting
+  - [ ] Documentation comments `///`
 
 ## Tasks 0.2
 
