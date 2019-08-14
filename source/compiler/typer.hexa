@@ -115,7 +115,7 @@ module {
 			typeBool = findBasicType('Bool').instantiate()
 			typeFloat = findBasicType('Float').instantiate()
 			typeString = findBasicType('String').instantiate()
-			typeArray = findBasicType('Array').instantiate()
+			typeArray = findBasicType('Array')
 			typeMap = findBasicType('Map')
 			typeAny = findBasicType('Any').instantiate()
 			typeVoid = findBasicType('Void').instantiate()
@@ -692,6 +692,7 @@ module {
 					fillExpression(b)
 
 					var parent: Node = parents.get(a)
+					// `a = b`
 					if (op == Token.OpAssign) switch (parent) {
 						case null:
 						case Node.TVar(name, _, _, const):
@@ -724,6 +725,11 @@ module {
 					pushScope()
 					fillExpression(over)
 					if (let range = range) fillExpression(range)
+					if (let range = range) {
+						fillExpression(range)
+						// Ranges always integer for now
+						types.set(node, toType(NodeType.Type("Int"), node))
+					}
 					addScope(name, node)
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
@@ -785,13 +791,21 @@ module {
 					while (i < cases.length) {
 						pushScope()
 						var e = conds[i]
-						// Fill case condition
+						// Fill case condition `case pattern:`
+						var currentType = null
+						var currentTag = null
+						var currentTagBind = 0
 						function follow(e: Node) {
 							switch (e) {
 								case Node.TDot(ex, name):
 									fillExpression(e)
 								case Node.TDotUpper(ex, name):
 									fillExpression(e)
+									switch (types.get(ex)) {
+										case Type.Enum(type):
+											currentType = type
+											currentTag = name
+									}
 								case Node.TParenthesis(e): {fill(e)}
 								case Node.TUnderscore: {}
 								case Node.TNull: {}
@@ -800,13 +814,24 @@ module {
 								case Node.TString(_): {}
 								case Node.TCall(ex, args, argNames): {
 									follow(ex)
-									for (ee in args) follow(ee)
+									currentTagBind = 0
+									for (ee in args) {
+										follow(ee)
+										currentTagBind++
+									}
 								}
 								case Node.TIdent(name): // bind var
 								{
 									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
 									else {
 										addScope(name, e)
+
+										// Find tag bind var and set it's type:
+										if (currentType) {
+											let indexOf = currentType.fieldNames.indexOf(currentTag)
+											let type = currentType.tagBindVars[indexOf][currentTagBind]
+											if (type) types.set(e, toType(type, e))
+										}
 									}
 								}
 								case Node.TBinop(a, op, b):
@@ -946,17 +971,18 @@ module {
 							allowBreakAndContinue = _allowBreakAndContinue
 							popScope()
 
-							types.set(node, types.get(by))
+							types.set(node, typeArray.instantiateGeneric([types.get(by)]))
 						case _:
 							for (e in el) fillExpression(e)
+							types.set(node, typeArray.instantiateGeneric([types.get(el[0])]))
 					}
 
 				case Node.TMap(keys, values):
 					if (keys.length == 0) {
-						types.set(node, typeMap.instantiateGeneric(
+						types.set(node, typeMap.instantiateGeneric([
 							Type.Unknown({value: null}),
 							Type.Unknown({value: null})
-						))
+						]))
 						return
 					}
 					for (i in keys.length) {
@@ -964,7 +990,7 @@ module {
 						fillExpression(values[i])
 					}
 					types.set(node,
-						typeMap.instantiateGeneric(types.get(keys[0]), types.get(values[0]))
+						typeMap.instantiateGeneric([types.get(keys[0]), types.get(values[0])])
 					)
 
 				case Node.TAs(e, kind, t):
@@ -993,14 +1019,14 @@ module {
 							fillExpression(e)
 					}
 					if (let etype = types.get(e)) switch (etype) {
-						case Type.ClassInstance(type):
+						case Type.ClassInstance(type): // Non-static fields
 							if (etype == typeAny) { return }
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
 								fail('Class `\(nameOfModuleItem(type.parent))` has no field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), e ?? node)
 							if (type.fieldStatic[index] == true)
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is static', node)
-						case Type.Class(type):
+						case Type.Class(type): // Static fields
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
 								fail('Class `\(nameOfModuleItem(type.parent))` has no static field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
@@ -1315,7 +1341,9 @@ module {
 			switch (node) {
 				case Type.ClassInstance(type, generic):
 					if (let gen = generic)
-						return DataHelper.nameOf(type.parent) + '<' + [for (g in gen) DataHelper.nameOf(g)].join(', ') + '>'
+						return DataHelper.nameOf(type.parent) + '<' + [for (g in gen) Type.stringify(g)].join(', ') + '>'
+					return DataHelper.nameOf(type.parent)
+				case Type.Class(type):
 					return DataHelper.nameOf(type.parent)
 				case _: return '' + node
 			}
