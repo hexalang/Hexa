@@ -225,6 +225,7 @@ module {
 								insideClassMethod = true
 								if (e != null) fillExpression(e)
 								insideClassMethod = _insideClassMethod
+								mixVarTypes(t, e, field)
 							case Node.TProperty(field, _, _):
 									switch (field) {
 										case Node.TVar(name, t, e, const):
@@ -241,12 +242,15 @@ module {
 										fail('External class field `static function \(name)` cannot have a body', field)
 									let _insideClassMethod = insideClassMethod
 									insideClassMethod = false
-									if (!external) fillFunction(field, expr, vars, rettype)
+									if (!external) fillFunction(f, expr, vars, rettype)
 									insideClassMethod = _insideClassMethod
+									types.set(field, types.get(f))
 								case Node.TVar(name, t, e, const):
 									if (external, e != null)
 										fail('External class field `static var \(name)` cannot have expression', field)
 									if (e != null) fillExpression(e)
+									mixVarTypes(t, e, f)
+									types.set(field, types.get(f))
 							}
 							case _:
 								fail('Wrong class field format', node)
@@ -268,12 +272,14 @@ module {
 				}
 			} else {
 				let type = new EnumType(node)
+				type.parent = node
 				types.set(node, Type.Enum(type))
 
 				var tag = 0
 
 				switch (node) {
 					case Node.TEnum(t, f, valuesType):
+					pushScope()
 
 					// Check for incompatible tag format and fill scopes
 					for (field in f) {
@@ -285,9 +291,11 @@ module {
 										throw Typer.fail('Field `\(name)` already exists', node)
 									type.fieldNames.push(name)
 									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+									type.tagBindVars[type.fieldNames.length - 1] = []
 									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(this, tag)
 									tag++
 								case _:
+									fail('Wrong enum constructor format, should be `Name`', node)
 							}
 							// `enum E { A(b: C) }`
 							case Node.TCall(e, args, argNames):
@@ -300,7 +308,32 @@ module {
 												throw Typer.fail('Field `\(name)` already exists', node)
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+											let tagBindVars = []
+											type.tagBindVars[type.fieldNames.length - 1] = tagBindVars
+
+											for (i in args.length) {
+												if (argNames[i] == null)
+													fail('Enum constructor arguments should have names `E(name1: T, name2: T)', args[i])
+												switch (args[i]) {
+													case Node.NodeTypeValue(t):
+														tagBindVars[i] = t
+													case Node.TArray(el):
+														switch (el[0]) {
+															case Node.NodeTypeValue(t):
+																tagBindVars[i] = NodeType.ParametricType("Array", [t])
+															case Node.TArray(el):
+																switch (el[0]) {
+																	case Node.NodeTypeValue(t):
+																		tagBindVars[i] = NodeType.ParametricType("Array", [NodeType.ParametricType("Array", [t])])
+																	case _:
+																}
+															case _:
+														}
+													case _:
+												}
+											}
 										case _:
+											fail('Wrong enum constructor format, should be `Name(value: T)`', e)
 									}
 								}
 							// `enum E { A = b }`
@@ -326,14 +359,16 @@ module {
 										fail('Field `\(name)` already exists', node)
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
+									addScope(name, field)
 								case Node.TVar(name, _):
 									if (type.fieldNames.includes(name))
 										fail('Field `\(name)` already exists', node)
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
+									addScope(name, field)
 							}
 							case _:
-								fail('Wrong enum field format', node)
+								fail('Wrong enum field format', field)
 						}
 
 						parents.set(field, node)
@@ -346,11 +381,26 @@ module {
 						case Node.TVar(name, _):
 						case Node.TStatic(f): switch (f) {
 							case Node.TFunction(name, expr, vars, rettype):
-								fillFunction(field, expr, vars, rettype)
-							case Node.TVar(name, _):
+								let _insideClassMethod = insideClassMethod
+								insideClassMethod = false
+								fillFunction(f, expr, vars, rettype)
+								insideClassMethod = _insideClassMethod
+								if (types.get(f) == null) fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' static ' + name, f)
+								types.set(field, types.get(f))
+							case Node.TVar(name, t, e, const):
+								if (e != null) fillExpression(e)
+								mixVarTypes(t, e, f)
+								types.set(field, types.get(f))
 						}
+						case Node.NodeTypeValue(_): // Ok
+						case Node.TCall(_): // Ok
+						case Node.TBinop(_): // TODO validate them
 						case _:
+							fail('Unknown enum field format', field)
 					}
+					popScope()
+					case _:
+						fail('EnumType expects (declare) enum node, but got ' + node, node)
 				}
 
 				return type
@@ -514,6 +564,19 @@ module {
 							fail('Cannot find type `\(name)`', node)
 						case _:
 					}
+				case NodeType.ParametricType(name, params):
+					let nodeType: Node = findType(name)
+					if (types.get(nodeType) == null) switch (nodeType) {
+						case Node.TClass(_): registerClassType(nodeType)
+						case Node.TEnum(_): registerEnumType(nodeType)
+					}
+					switch (types.get(nodeType)) {
+						case Type.Class(type):
+							return type.instantiateGeneric([for (p in params) toType(p, node)])
+						case null:
+							fail('Cannot find type `\(name)`', node)
+						case _:
+					}
 				case NodeType.Optional(t):
 					return Type.Nullable(toType(t, node))
 				case NodeType.Function(args, ret):
@@ -521,7 +584,6 @@ module {
 				case NodeType.Object(names, el):
 					let els = [for (e in el) toType(e, node)]
 					return Type.Struct(names, els)
-				case NodeType.ParametricType(_):
 				case _:
 					fail('Unsupported node type ' + t + never, node)
 			}
@@ -549,6 +611,7 @@ module {
 				switch (v) {
 					case Node.TVar(vname, t, e, const):
 						if (e != null) fillExpression(e)
+						if (t != null) types.set(v, toType(t, v))
 						addScope(vname, v)
 				}
 			}
@@ -578,6 +641,9 @@ module {
 
 			// Restore stack
 			insideFunction = _insideFunction
+
+			// Set function type
+			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: rettype, lazyTypeCheck: node))
 		}
 
 		// Syntax tree traverse
@@ -619,22 +685,6 @@ module {
 
 					mixVarTypes(t, e, node)
 
-					if (t != null, e != null) types.set(node, unify(toType(t, node), types.get(e), e))
-					if (t == null, e != null) types.set(node, types.get(e))
-					if (t == null, e == null) types.set(node, Type.UnknownNullable({value: null}))
-					if (t != null, e == null) types.set(node, toType(t, node))
-
-					function isValue(t: Type): Bool {
-						switch (t) {
-							case Type.Struct(_): return true
-							case Type.Nullable(_): return true
-							case Type.UnknownNullable(_): return true
-							case Type.ClassInstance(_): return true
-							case Type.EnumInstance(_): return true
-							case Type.Function(_): return true
-						}
-						return false
-					}
 					addScope(name, node)
 
 				case Node.TBinop(a, op, b):
@@ -1264,6 +1314,8 @@ module {
 		static function stringify(node: Node): String {
 			switch (node) {
 				case Type.ClassInstance(type, generic):
+					if (let gen = generic)
+						return DataHelper.nameOf(type.parent) + '<' + [for (g in gen) DataHelper.nameOf(g)].join(', ') + '>'
 					return DataHelper.nameOf(type.parent)
 				case _: return '' + node
 			}
@@ -1296,7 +1348,9 @@ module {
 	}
 
 	class EnumType {
+		var parent: Node
 		let fieldNames: [String] = []
+		let tagBindVars: [[NodeType]] = []
 		let fieldStatic: [Bool] = []
 		let fieldEnumConstructor: [Bool] = []
 		let fieldType: [Type] = []
