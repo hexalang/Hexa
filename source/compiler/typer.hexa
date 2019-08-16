@@ -1370,8 +1370,35 @@ module {
 		}
 
 		// Generic `Type.ClassInstance`
+		let genericCache: [[Type]] = []
 		function instantiateGeneric(params: [Type]): Type {
-			return Type.ClassInstance(this, params)
+			/* So, how it works:
+				genericCache is array of [type, param1, param2, ...]
+				i.e. [0] element is a resulting cached Type to be returned
+				[1...n] are parameters to compare
+				Just storage optimization, basically
+			*/
+
+			for (cached in genericCache) {
+				if (cached.length != (params.length + 1)) continue
+				var found = true
+				for (i in cached.length - 1) {
+					if (params[i] != cached[i + 1]) {
+						found = false
+						break
+					}
+				}
+				if (found) {
+					let result = cached[0]
+					return result
+				}
+			}
+
+			let result = Type.ClassInstance(this, params)
+			let cache = [result]
+			for (param in params) cache.push(param)
+			genericCache.push(cache)
+			return result
 		}
 	}
 
