@@ -23,6 +23,26 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 [![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
 [![Discord](https://img.shields.io/badge/Discord-join-758EDC.svg?logo=discord)](https://discord.gg/SsAWf9M)
 
+## Key features of Hexa
+
+- JavaScript-inspired syntax and behavior, feel yourself like at home!
+- Native performance with static types and optimizing compiler
+- Follows node.js (and browser) API
+- Fast compilation
+- Compiles to JavaScript, WebAssembly, native, LLVM, C, C++, ObjC, ... you name it! **(WIP)**
+- Transpilation to almost anything: Lua, AutoCAD Lisp, C#, PHP, etc **(WIP)**
+- Transpilation produce human-readable code for all targets
+- Null safety, crash resistance, pattern matching, classes **(WIP)**
+- Real multithreading, parallelism, async\await **(WIP)**
+- Smart type inference makes other typed languages look boring
+- Friendly and helpful error messages
+- Supports `#!shebang` for Linux/macOS scripting
+- REPL **(WIP)**
+- Completely cross-platform
+
+> **WIP — Work in progress, coming soon**
+
+Release of 0.1 expected in Fall 2019
 
 ## Download
 
