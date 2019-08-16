@@ -268,6 +268,7 @@ module {
 		function registerEnumType(node: Node): Type {
 			if (let type = types.get(node)) {
 				switch (type) {
+					// Avoid typing if already typed
 					case Type.Enum(t): return t
 				}
 			} else {
@@ -1205,7 +1206,8 @@ module {
 					fill(a)
 					fillExpression(b)
 
-				case Node.TUnop(op, _, e):
+				// `op e` or `e op`
+				case Node.TUnop(op, postfix, e):
 					fillExpression(e)
 					let mutates = op == Token.OpIncrement || op == Token.OpDecrement
 					if (!mutates) { return }
@@ -1227,6 +1229,8 @@ module {
 						case _: // Ok
 					}
 
+
+				// `e[i]`
 				case Node.TIndex(e, i):
 					fillExpression(e)
 					fillExpression(i)
@@ -1346,6 +1350,16 @@ module {
 				case Type.Class(type):
 					return DataHelper.nameOf(type.parent)
 				case _: return '' + node
+				case Type.UnknownNullable(handle):
+					if (let value = handle.value) return Type.stringify(value) + '?'
+					return 'Unknown?'
+				case Type.Nullable(type):
+					return Type.stringify(type) + '?'
+				case Type.Enum(type):
+					return DataHelper.nameOf(type.parent)
+				case Type.Unknown(handle):
+					if (let value = handle.value) return Type.stringify(value)
+					return 'Unknown'
 			}
 		}
 	}
