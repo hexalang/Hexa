@@ -33,7 +33,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Transpilation to almost anything: Lua, AutoCAD Lisp, C#, PHP, etc **(WIP)**
 - Transpilation produce human-readable code for all targets
 - Null safety, crash resistance, pattern matching, classes **(WIP)**
-- Real multithreading, parallelism, async\await **(WIP)**
+- Real multithreading, parallelism, async\await, no GC **(WIP)**
 - Smart type inference makes other typed languages look boring
 - Friendly and helpful error messages
 - Supports `#!shebang` for Linux/macOS scripting
