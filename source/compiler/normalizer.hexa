@@ -36,7 +36,7 @@ module {
 			// Reserve globals
 			for (global in reservedGlobals) addToScope(global)
 
-			// Rename classes upfront to avoid race condition
+			// Rename upfront to avoid race condition
 			for (file in collected) for (e in file) switch (e) {
 				case Node.TModule(path, el):
 					for (e in el) switch (e) {
@@ -44,6 +44,10 @@ module {
 						renameClassFields(fields)
 						case Node.TEnum(t, fields, valuesType):
 						renameClassFields(fields)
+						case Node.TVar(name, t, expr, const, external):
+						unique(name, e)
+						case Node.TFunction(name, expr, vars, rettype, external):
+						if (let name = name) unique(name, e)
 					}
 			}
 
@@ -147,6 +151,7 @@ module {
 					}
 					return NiceExpression.Ident(parentNames.get(source) ?? name)
 
+				// `expr.name`
 				case Node.TDot(expr, name):
 				let parent = typer.parents.get(expr)
 				switch (parent) {
@@ -601,13 +606,13 @@ module {
 				return NiceStatement.Call(v, a)
 
 				case Node.TVar(name, t, expr, const, external):
-				let uname = unique(name, e)
+				let uname = parentNames.get(e) ?? unique(name, e)
 				if (external) return null
 				if (const) return NiceStatement.Const(uname, nodeToExpression(expr), t)
 				return NiceStatement.Var(uname, nodeToExpression(expr), t)
 
 				case Node.TFunction(name, expr, vars, rettype, external):
-				let uname = name!=null?unique(name, e):null
+				let uname = name!=null?(parentNames.get(e) ?? unique(name, e)):null
 				if (external) return null
 				var rettype = rettype
 				let a = []
@@ -626,7 +631,7 @@ module {
 				case Node.TFor(name, over, by, range):
 				if (range == null) switch (over) {
 					case Node.TInt(s):
-					let i = name
+					let i = unique(name, e)
 					// This allows to call `continue` within loop body,
 					// otherwise infinite loop happens
 					let it = unique('it')
@@ -646,7 +651,7 @@ module {
 				if (let range = range) {
 					/*
 						let i = 0
-						let it = start
+						let it = over
 						let finish = range
 
 						while (it < finish) {
@@ -656,9 +661,9 @@ module {
 						}
 					*/
 
-					let i = name
+					let i = unique(name, e)
 					let it = unique('it')
-					let finish = unique('finish')
+					let finish = unique('at')
 
 					return NiceStatement.Block([
 						NiceStatement.Var(i, NiceExpression.Int(0)),
