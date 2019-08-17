@@ -1058,6 +1058,8 @@ module {
 					if (type == typeVoid)
 						fail('Conversion `as Void` makes no sense', e)
 					fillExpression(e)
+					if (types.get(e) == typeVoid)
+						fail('Conversion of `value as \(Type.stringify(t))` where `value` is of type `Void` makes no sense', e)
 					types.set(node, type)
 
 				// `e is t`
@@ -1292,6 +1294,14 @@ module {
 				// `op e` or `e op`
 				case Node.TUnop(op, postfix, e):
 					fillExpression(e)
+
+					// Always provides boolean result
+					if (op == Token.OpNot, !postfix) {
+						if (types.get(e) != typeBool)
+							fail('Operator `!value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
+						types.set(node, toType(NodeType.Type("Bool"), node))
+						return
+					}
 					let mutates = op == Token.OpIncrement || op == Token.OpDecrement
 					if (!mutates) { return }
 					var parent: Node = parents.get(e)
