@@ -18,8 +18,14 @@
 module {
 	// See: `/docs/typer.md`
 	class Typer {
+		// Note that we use new instance for each build to avoid collisions with unit tests
+		// and to support parallel compilation in future
 		new () {}
-		function fillFiles(collected: [Node]): Void {
+
+		// A starting point of typer
+		// Validates that file starts with `module`s and has own namespace
+		// Fills module namespaces, module types, than file expressions
+		function fillFiles(collected: [[Node]]): Void {
 			function fillModuleNamespace(m: Node) {
 				var el = null
 				var root: String? = null
@@ -81,6 +87,8 @@ module {
 			var intermediate = []
 
 			// Fill intermediate non-existsing modules (module aaa.not_exists.bbb {})
+			// Say, we have `module aaa {}` and `module aaa.not_exists.bbb {}`
+			// but no `module aaa.not_exists {}`, it creates `aaa.not_exists` namespace
 			{
 				var intermediateSubs = []
 				for (ns in namespaces.keys()) {
@@ -111,6 +119,7 @@ module {
 				return registerClassType(subj)
 			}
 
+			// Types cache
 			typeInt = findBasicType('Int').instantiate()
 			typeBool = findBasicType('Bool').instantiate()
 			typeFloat = findBasicType('Float').instantiate()
@@ -143,9 +152,11 @@ module {
 			}
 		}
 
+		// `class T {}`
 		function registerClassType(node: Node): ClassType {
 			if (let type = types.get(node)) {
 				switch (type) {
+					// Avoid typing if already typed
 					case Type.Class(t): return t
 				}
 			} else {
@@ -203,6 +214,7 @@ module {
 
 						// Fill expressions
 						for (field in f) switch (field) {
+							// Instance method
 							case Node.TFunction(name, expr, vars, rettype):
 								if (name == 'new') type.constructor = type.fieldNames.length - 1
 								if (external, expr != null) {
@@ -218,6 +230,8 @@ module {
 								if (!external) fillFunction(field, expr, vars, rettype)
 								insideClassMethod = _insideClassMethod
 								allowSuper = _allowSuper
+
+							// Field of `var` or `let`
 							case Node.TVar(name, t, e, const):
 								if (external, e != null)
 									fail('External class field `var \(name)` cannot have expression', field)
@@ -226,8 +240,10 @@ module {
 								if (e != null) fillExpression(e)
 								insideClassMethod = _insideClassMethod
 								mixVarTypes(t, e, field)
-							case Node.TProperty(field, _, _):
-									switch (field) {
+
+							// The thing with getters and setters
+							case Node.TProperty(f, _, _):
+									switch (f) {
 										case Node.TVar(name, t, e, const):
 											if (external, e != null)
 												fail('External class field `var \(name)` cannot have expression', field)
@@ -236,6 +252,8 @@ module {
 											if (e != null) fillExpression(e)
 											insideClassMethod = _insideClassMethod
 								}
+
+							// `static f`
 							case Node.TStatic(f): switch (f) {
 								case Node.TFunction(name, expr, vars, rettype):
 									if (external, expr != null)
@@ -252,6 +270,7 @@ module {
 									mixVarTypes(t, e, f)
 									types.set(field, types.get(f))
 							}
+
 							case _:
 								fail('Wrong class field format', node)
 						}
@@ -265,6 +284,7 @@ module {
 			}
 		}
 
+		// `enum T {}`
 		function registerEnumType(node: Node): Type {
 			if (let type = types.get(node)) {
 				switch (type) {
@@ -337,6 +357,7 @@ module {
 											fail('Wrong enum constructor format, should be `Name(value: T)`', e)
 									}
 								}
+
 							// `enum E { A = b }`
 							case Node.TBinop(a, op, b):
 								if (valuesType == null)
@@ -350,9 +371,11 @@ module {
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									}
 								}
+
 							// `enum E { a }`
 							case Node.TIdent(name):
 								fail('Cannot use lowercase `\(name)` format for enum values', node)
+
 							// `enum E { static ... }`
 							case Node.TStatic(f): switch (f) {
 								case Node.TFunction(name, _):
@@ -368,6 +391,7 @@ module {
 									type.fieldStatic[type.fieldNames.length - 1] = true
 									addScope(name, field)
 							}
+
 							case _:
 								fail('Wrong enum field format', field)
 						}
@@ -424,6 +448,7 @@ module {
 			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
 		}
 
+		// Takes only nodes valid for `module { node }`
 		function nameOfModuleItem(node: Node): String {
 			switch (node) {
 				case Node.TVar(name, _): return name
@@ -484,7 +509,7 @@ module {
 		private var namespaces: [String : Node] = [:]
 
 		// Stack
-		var functionAllowedToThrow = false // @noThrow is *not* set
+		var functionAllowedToThrow = false // `true` if `@noThrow` is *not* set
 		var functionThrows = false // `throw` is happened
 		var insideTry = false // `try { insideTry } catch (...) { ... }`
 		var insideFunction = false // `function () { insideFunction }`
@@ -590,7 +615,7 @@ module {
 			}
 		}
 
-		// var node: NodeType = e
+		// `var node: NodeType = e`
 		function mixVarTypes(t: NodeType?, e: Node?, node: Node): Type {
 			if (t != null, e != null) types.set(node, unify(toType(t, node), types.get(e), e))
 			if (t == null, e != null) types.set(node, types.get(e))
@@ -599,6 +624,7 @@ module {
 		}
 
 		private function fillFunction(node, expr, vars, rettype, arrow = false): Void {
+		// Uses idea of stacks to track nested function behavior
 			pushScope()
 			// Save stack
 			let _insideFunction = insideFunction
@@ -651,26 +677,36 @@ module {
 		private function fill(node: Node): Void {
 			switch (node) {
 				// Types
+				// **Note:** supports types *not* placed into `module`s
+
+				// `class T {}`
 				case Node.TClass(t, extend, implement, f, external):
 					addScope(DataHelper.extractTypeName(t), node)
 					registerClassType(node)
 
+				// `enum T {}`
 				case Node.TEnum(t, f, valuesType):
 					addScope(DataHelper.extractTypeName(t), node)
 					registerEnumType(node)
 
+				// `declare A = T`
 				case Node.TTypeAlias(alias, value):
 					types.set(node, Type.Alias(null))
 					addScope(nameOfModuleItem(node), node)
 
 				// Statements do not return value
+
+				// `var a = e, b: T, c`
 				case Node.TVars(e):
 					for (ee in e) fill(ee)
+
+				// `{...}`
 				case Node.TBlock(el):
 					pushScope()
 					for (e in el) fill(e)
 					popScope()
 
+				// `var name: t = e`
 				case Node.TVar(name, t, e, const, external):
 					if (e == null, const, !external)
 						fail('Constant should have a value `let \(name) = value`', node)
@@ -688,6 +724,7 @@ module {
 
 					addScope(name, node)
 
+				// `a op b` like `a + b`
 				case Node.TBinop(a, op, b):
 					fillExpression(a)
 					fillExpression(b)
@@ -718,10 +755,13 @@ module {
 							node)
 						case _: // Ok
 					}
+
+				// `break`
 				case Node.TBreak:
 					if (!allowBreakAndContinue)
 						fail('Cannot use `break` outside of loop', node)
 
+				// `for (name in over ... range) { by }`
 				case Node.TFor(name, over, by, range):
 					pushScope()
 					fillExpression(over)
@@ -738,6 +778,8 @@ module {
 					allowBreakAndContinue = _allowBreakAndContinue
 					popScope()
 
+				// `function name(vars): rettype {expr}`
+				// `vars` are `TVar(name, t, ...)` where `function(name: t)`
 				case Node.TFunction(name, expr, vars, rettype, external):
 					if (!external, expr == null)
 						fail('Non-external function `\(name)` should have a body', node)
@@ -761,6 +803,9 @@ module {
 					types.set(node, Type.Function(null, null))
 				}
 
+				// `if (econd) eif else eelse`
+				// `if (econd) eif`
+				// Also `if (let bind = value, econd..., econd...)`
 				case Node.TIf(econd, eif, eelse):
 					var depth = 0
 					for (e in econd) {
@@ -785,6 +830,7 @@ module {
 
 					if (eelse != null) fill(eelse)
 
+				// `switch (exprs) { case conds if (guards): { cases } }`
 				case Node.TSwitch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fill(e) popScope() }
 
@@ -854,6 +900,7 @@ module {
 						i++
 					}
 
+				// `try { } catch (e: T) { }`
 				case Node.TTry(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
@@ -869,17 +916,19 @@ module {
 						fill(ca[i])
 						popScope()
 					}
+
+				// `while (econd) e` if pre == true
+				// `do e while (econd)` if pre == false
 				case Node.TWhile(econd, e, pre):
-					fillExpression(econd)
+					if (pre == true) fillExpression(econd)
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
 					fill(e)
 					allowBreakAndContinue = _allowBreakAndContinue
+					if (pre == false) fillExpression(econd)
 					types.set(node, typeVoid)
 
-				case Node.TIs(expr, t):
-					fillExpression(expr)
-
+				// `continue`
 				case Node.TContinue:
 					types.set(node, typeVoid)
 					if (!allowBreakAndContinue)
@@ -894,6 +943,7 @@ module {
 		// Expressions return values
 		function fillExpression(node) {
 			switch (node) {
+				// Just `name`
 				case Node.TIdent(name):
 					var subj = null
 					for (i in scopes.length) {
@@ -915,6 +965,8 @@ module {
 						types.set(node, type)
 					}
 
+
+				// `(args)=>{expr}`
 				case Node.TArrow(expr, vars, rettype):
 					fillFunction(node, expr, vars, rettype, arrow: true)
 					if(false){
@@ -930,6 +982,8 @@ module {
 					// Restore stack
 					insideFunction = _insideFunction
 				}
+
+				// `function name(vars): rettype {expr}`
 				case Node.TFunction(name, expr, vars, rettype, external):
 					if (external)
 						fail('External function `declare function \(name)` cannot be taken as a value', node)
@@ -953,8 +1007,9 @@ module {
 					insideFunction = _insideFunction
 				}
 
+				// `[a,b,c]`
 				case Node.TArray(el):
-
+					// `[for(name in over ... range) by]`
 					switch (el[0]) {
 						case Node.TFor(name, over, by, range):
 							if (el.length > 1)
@@ -978,6 +1033,7 @@ module {
 							types.set(node, typeArray.instantiateGeneric([types.get(el[0])]))
 					}
 
+				// `[k:v, k:v]`
 				case Node.TMap(keys, values):
 					if (keys.length == 0) {
 						types.set(node, typeMap.instantiateGeneric([
@@ -994,11 +1050,27 @@ module {
 						typeMap.instantiateGeneric([types.get(keys[0]), types.get(values[0])])
 					)
 
+				// `e as  t`
+				// `e as! t`
+				// `e as? t`
 				case Node.TAs(e, kind, t):
 					let type = toType(t, node)
+					if (type == typeVoid)
+						fail('Conversion `as Void` makes no sense', e)
 					fillExpression(e)
 					types.set(node, type)
 
+				// `e is t`
+				case Node.TIs(e, t):
+					let type = toType(t, node)
+					if (type == typeAny)
+						fail('Comparing `is Any` makes no sense, always true', e)
+					if (type == typeVoid)
+						fail('Comparing `is Void` makes no sense', e)
+					fillExpression(e)
+					types.set(node, typeBool)
+
+				// `{...}`
 				case Node.TBlock(el):
 					if (el.length == 0)
 						fail('Cannot use empty block `{}` as a value, use `{:}` syntax to create empty object', node)
@@ -1011,6 +1083,7 @@ module {
 					types.set(node, types.get(latest))
 					popScope()
 
+				// `e.n`
 				case Node.TDot(e, n):
 					switch (e) {
 						case Node.TSuper(_):
@@ -1057,6 +1130,7 @@ module {
 						case _:
 					}// else fail('Got node without type `\(e)`' + never, node)
 
+				// `e.N`
 				case Node.TDotUpper(e, n):
 					switch (e) {
 						case Node.TSuper(_):
@@ -1080,6 +1154,7 @@ module {
 						case _:
 					}// else fail('Got node without type `\(e)`' + never, node)
 
+				// `T` or `T<G>`
 				case Node.NodeTypeValue(t): switch (t) {
 					case NodeType.Type(name):
 						var subj = null
@@ -1104,6 +1179,7 @@ module {
 						fail('Cannot use this type as a value', node)
 				}
 
+				// `new T {:}()`
 				case Node.TNew(path, t, el, names, values):
 					let type = toType(t, node)
 					for (e in el) fillExpression(e)
@@ -1117,6 +1193,7 @@ module {
 
 					types.set(node, type)
 
+				// `{names:el, ...}`
 				case Node.TObject(names, el):
 					for (name in names.length)
 						if (names.indexOf(names[name]) != name)
@@ -1126,6 +1203,7 @@ module {
 					let els = [for (e in el) types.get(e)]
 					types.set(node, Type.Struct(names, els))
 
+				// `try { ... value } catch (e: T) { ... value }`
 				case Node.TTry(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
@@ -1143,6 +1221,7 @@ module {
 					}
 					types.set(node, types.get(e))
 
+				// `if (econd) eif else eelse`
 				case Node.TIf(econd, eif, eelse):
 					if (econd.length > 1)
 						fail('More than one condition is not yet supported', econd[1])
@@ -1172,15 +1251,18 @@ module {
 				case Node.TFloat(_):
 					types.set(node, typeFloat)
 
+				// `(e)`
 				case Node.TParenthesis(e):
 					fillExpression(e)
 					types.set(node, types.get(e))
 
+				// `a ?? b`
 				case Node.TElvis(a, b):
 					fillExpression(a)
 					fillExpression(b)
 					types.set(node, types.get(b))
 
+				// `e(elNames: el, ...)`
 				case Node.TCall(e, el, elNames):
 					// JavaScript evaluates arguments first
 					for (e in el) fillExpression(e)
@@ -1202,6 +1284,7 @@ module {
 				 		case _:
 				 	}
 
+				// `a op b` like `a + b`
 				case Node.TBinop(a, op, b):
 					fill(a)
 					fillExpression(b)
@@ -1235,6 +1318,7 @@ module {
 					fillExpression(e)
 					fillExpression(i)
 
+				// `a op= b`
 				case Node.TAssignop(a, op, b):
 					fillExpression(a)
 					var parent: Node = parents.get(a)
@@ -1256,6 +1340,7 @@ module {
 					}
 					fillExpression(b)
 
+				// `throw e`
 				case Node.TThrow(e):
 					if (!insideFunction && !insideTry)
 						fail('Cannot throw outside of `function` or `try`', node)
@@ -1265,13 +1350,16 @@ module {
 						functionThrows = true // Infer that function throws
 					fillExpression(e)
 
+				// `this`
 				case Node.TThis:
 					if (!insideClassMethod)
 						fail('Cannot access `this` outside of class method', node)
 
+				// `super`
 				case Node.TSuper(_):
 					fail('Cannot use `super` as value', node)
 
+				// `return e`
 				case Node.TReturn(e):
 					switch (e) {
 						case Node.TVar(name, _, _, const):
@@ -1327,6 +1415,13 @@ module {
 		}
 	}
 
+	// All expressions have assigned type on them
+	// When you write `SomeClass.method()` it works like that:
+	// `SomeClass` is `Type.Class`
+	// so `.method` operates on static fields, cause *not* `Type.ClassInstance`
+	// `.method` will have `Type.Function`
+	// and `()` will check their arguments and have a `returns` as it's type
+	// taken from `Type.Function`
 	enum Type {
 		Unknown(handle: { value: Type })
 		UnknownNullable(handle: { value: Type })
@@ -1364,6 +1459,7 @@ module {
 		}
 	}
 
+	// `class T {}`
 	class ClassType {
 		var parent: Node
 		var owner: ModuleType = null // Non-null if in a module, not in a block
@@ -1416,6 +1512,7 @@ module {
 		}
 	}
 
+	// `enum T {}`
 	class EnumType {
 		var parent: Node
 		let fieldNames: [String] = []
