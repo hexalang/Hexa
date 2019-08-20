@@ -52,8 +52,14 @@ module {
 			shouldNotError('let a: Any = true !a')
 
 			// Binop
+			shouldNotError('"s" + 1')
 			shouldError('("s" + 1).x')
+			shouldNotError('module{}("s" + 1)')
+			shouldNotError('module{}("s" + 1).length')
+			shouldNotError('{("s" + 1).length}')
 			shouldNotError('("s" + 1).length')
+			shouldNotError('[("s" + 1).length]')
+
 			shouldError('enum E { A B A }') // Duplicate
 			shouldError('enum E { A(value: Int) B A(value: Int) }') // Duplicate
 			shouldError('enum E { B(value: Int) A = 1 }') // Mixing complex and simple enum values
@@ -114,6 +120,10 @@ module {
 			shouldError('let a = { b: true } let c = a.b c = 123')
 			shouldError('let a = {a: 1, b: 2, a: 3}') // Duplicate
 
+			// Special cases
+			shouldNotError('var i: Float = 123')
+			shouldError('var i: Int = 0.123')
+
 			// Conditions
 			shouldNotError('if (true) {}')
 			shouldNotError('if (true == false) {}')
@@ -146,6 +156,25 @@ module {
 			shouldNotError('var a: Int? = null if (let b = a) {} a = 5')
 			shouldNotError('var a: Int? = null if (let a = a) {} a = 5')
 			shouldNotError('var a: Int? = null if (let a = a, let b = a, let a = b) {} a = 5')
+
+			// Function arguments and returns
+			shouldError('function x(y: Int): Void {} var z: Int = x(1)')
+			shouldError('function x(y: Int) {} var z: Int = x(1)')
+			shouldError('function x(y: Int) {} x(x(1))')
+			shouldNotError('function x(y: Int) return 1 var z: Int = x(1)')
+			shouldNotError('function x(y: Int): Int return 1 var z: Int = x(1)')
+			shouldError('function x(): Int { return }')
+			shouldError('function x() { {return} {return 1} }')
+			shouldError('function x(y: Int): Bool return 1 var z: Int = x(1)')
+			shouldError('function x(y: Int) return 1 var z: Bool = x(1)')
+			shouldNotError('function x(y: Int): Void {} x(1)')
+			shouldNotError('function x(y: Int, z: Int): Void {} x(1, 1)')
+			shouldError('function x(y: Int, z: Int): Void {} x(1, true)')
+			shouldError('function x(y: Int): Void {} x(true)')
+			shouldError('function x(y: Int) { { return 1 } return true }')
+			shouldNotError('function x(y: Int) { { return 1 } return 1 }')
+			shouldNotError('enum E { V } function x() { return E.V }')
+			shouldError('function x() { return Int }')
 
 			// Arrays
 			shouldNotError('let a = [2, 4, 1, 2, 5]')
@@ -252,6 +281,13 @@ module {
 			shouldNotError('class A {new () {}let b = 1} let a = new A() a.b')
 			shouldError('class A {new () {}let b = 1} let a = new A() a.c')
 			shouldError('class A {new () {}let b = 1} let a = new A() a.b[0]')
+			shouldNotError('class A { var v: Int }')
+			shouldNotError('class A { static var v: Int }')
+
+			// Enums
+			shouldNotError('enum A { static var v: Int }')
+			shouldNotError('enum A { A(x: Int) } switch (A.A(0)) { case A.A(x): {} }')
+			shouldError('enum A { A(x: Int) } switch (A.A(0)) { case A.A(x, y): {} }')
 
 			// Inheritance
 			shouldError('class A { function hi() { super() } }') // Has no inheritance
