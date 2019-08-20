@@ -263,7 +263,7 @@ module {
 							// Field of `var` or `let`
 							case Node.TVar(name, t, e, const):
 								if (external, e != null)
-									fail('External class field `var \(name)` cannot have expression', field)
+									fail('External class field `var \(name)` cannot have `= value`', field)
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = true
 								if (e != null) fillExpression(e)
@@ -389,6 +389,8 @@ module {
 
 							// `enum E { A = b }`
 							case Node.TBinop(a, op, b):
+								if (op != Token.OpAssign)
+									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
 								if (valuesType == null)
 									fail('Cannot use `Value = value` format for complex enum', node)
 								switch (a) {
@@ -507,9 +509,9 @@ module {
 		}
 
 		function findInNamespaceRoots(name: String): Node {
-			if (namespaces[name] != null) return namespaces[name]
-			var m = namespaces['']
 			var el = null
+			if (namespaces.get(name) != null) return namespaces.get(name)
+			var m = namespaces.get('')
 			switch (m) {
 				case Node.TModule(_, els): el = els
 				case _: return null // No root
@@ -543,7 +545,7 @@ module {
 		var insideTry = false // `try { insideTry } catch (...) { ... }`
 		var insideFunction = false // `function () { insideFunction }`
 		var allowBreakAndContinue = false // Used in loops
-		var functionReturnsNonVoid = false // `return something` is happened, ignoring `{ return }`
+		var functionReturnsAType: Type? = null // `: T` is happened, or infer if `null`
 		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
 		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
 
@@ -552,6 +554,10 @@ module {
 			// Short path
 			if (to == from) return to
 			if (to == typeAny) return to
+			if (from == typeVoid)
+				fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`', node)
+
+			if (to == typeFloat, from == typeInt) return typeFloat
 
 			// Nullability
 			function isNullable(t: Type): Bool {
@@ -573,6 +579,8 @@ module {
 			function instanceOfClass(t: Type): ClassType {
 				switch (unwrapNullable(t)) {
 					case Type.ClassInstance(t): return t
+					case Type.Class(t):
+						fail('Cannot take classes `class \(t.name)` as values', node)
 				}
 				return null
 			}
@@ -618,6 +626,7 @@ module {
 						case null:
 							fail('Cannot find type `\(name)`', node)
 						case _:
+							fail('Unsupported type `\(name)`', node)
 					}
 				case NodeType.ParametricType(name, params):
 					let nodeType: Node = findType(name)
@@ -631,11 +640,12 @@ module {
 						case null:
 							fail('Cannot find type `\(name)`', node)
 						case _:
+							fail('Unsupported type `\(name)`', node)
 					}
 				case NodeType.Optional(t):
 					return Type.Nullable(toType(t, node))
 				case NodeType.Function(args, ret):
-					return Type.Function([for (arg in args) toType(arg, node)], toType(ret, node), null)
+					return Type.Function([for (arg in args) toType(arg, node)], toType(ret, node))
 				case NodeType.Object(names, el):
 					let els = [for (e in el) toType(e, node)]
 					return Type.Struct(names, els)
@@ -652,27 +662,30 @@ module {
 			if (t != null, e == null) types.set(node, toType(t, node))
 		}
 
-		private function fillFunction(node, expr, vars, rettype, arrow = false): Void {
 		// Uses idea of stacks to track nested function behavior
+		private function fillFunction(node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
 			pushScope()
 			// Save stack
 			let _insideFunction = insideFunction
 			let _functionAllowedToThrow = functionAllowedToThrow
 			let _functionThrows = functionThrows
-			let _functionReturnsNonVoid = functionReturnsNonVoid
+			let _functionReturnsAType = functionReturnsAType
 			let _insideTry = insideTry
 
 			for (i in vars.length) {
 				let v = vars[i]
 				switch (v) {
 					case Node.TVar(vname, t, e, const):
+						if (t != null, toType(t, v) == typeVoid)
+							fail('Argument cannot be of type `Void`', v)
 						if (e != null) fillExpression(e)
 						if (t != null) types.set(v, toType(t, v))
 						addScope(vname, v)
 				}
 			}
 
-			if (rettype != null) toType(rettype, node)
+			var ret = if (rettype != null) toType(rettype, node) else null
+			functionReturnsAType = ret
 
 			// Reset stack
 			let atts = Project.mapAttributes.get(node)
@@ -689,17 +702,20 @@ module {
 
 			insideFunction = true
 			insideTry = false
-			functionReturnsNonVoid = false
 
 			if (arrow, expr != null) fillExpression(expr)
 			if (!arrow, expr != null) fill(expr)
 			popScope()
 
+			ret = functionReturnsAType // Inferred
+			if (ret == null) ret = typeVoid
+
 			// Restore stack
 			insideFunction = _insideFunction
+			functionReturnsAType = _functionReturnsAType
 
 			// Set function type
-			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: rettype, lazyTypeCheck: node))
+			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: ret, lazyTypeCheck: node))
 		}
 
 		// Syntax tree traverse
@@ -1412,8 +1428,20 @@ module {
 					}
 					if (!insideFunction)
 						fail('Cannot use `return` outside of function', node)
-					if (e != null) fillExpression(e)
-					if (e != null) functionReturnsNonVoid = true
+					if (e != null) {
+						if (functionReturnsAType == typeVoid)
+							fail('Function returns `Void`, cannot return a value here', e)
+						fillExpression(e)
+						let ret = types.get(e)
+						if (ret == typeVoid)
+							fail('Cannot `return` a `Void` non-value', node)
+						functionReturnsAType = unify(functionReturnsAType, ret, e)
+					} else {
+						if (let ret = functionReturnsAType) {
+							if (ret != typeVoid)
+								fail('Expected `return value` of type `\(Type.stringify(ret))`', node)
+						} else functionReturnsAType = typeVoid
+					}
 
 				// Errors
 				case Node.TUnderscore:
