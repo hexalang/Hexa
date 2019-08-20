@@ -160,6 +160,13 @@ module {
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
 				}
+				if (let type = typer.types.get(expr)) switch (type) {
+					case Type.ClassInstance(type):
+						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
+						if (let rename = renamed) {
+							return NiceExpression.Dot(nodeToExpression(expr), rename)
+						}
+				}
 				return NiceExpression.Dot(nodeToExpression(expr), name)
 
 				case Node.TDotUpper(expr, name):
@@ -1040,6 +1047,13 @@ module {
 			pushScope()
 			for (f in fields) switch (f) {
 				case Node.TVar(name, t, expr, const):
+					let atts = Project.mapAttributes.get(f)
+
+					let native = getAtt(atts, 'native')
+					if (native != null) switch (native.values[0]) {
+						case Node.TString(s): if (parentNames.get(f) == null) unique(s, f)
+						case _: throw '@native takes string as argument'
+					} else
 					if (parentNames.get(f) == null) unique(name, f)
 				case Node.TFunction(name, expr, vars, rettype):
 					if (name == 'new') parentNames.set(f, 'new')
@@ -1079,6 +1093,9 @@ module {
 					case Node.TStatic(sf):
 					if (DataHelper.nameOf(sf) == name)
 					return parentNames.get(sf) ?? name
+					case Node.TVar(n, _):
+					if (n == name)
+					return parentNames.get(f) ?? name
 				}
 				case Node.TEnum(t, fields, valuesType): for (f in fields) switch (f) {
 					case Node.TStatic(sf):
@@ -1100,13 +1117,13 @@ module {
 	}
 
 	class NiceProject {
-		let interfaces: [NiceInterface] = []
+		let interfaces: [NiceClass] = []
 		let classes: [NiceClass] = []
 		let enumsSimple: [NiceSimpleEnum] = []
 		let enumsComplex: [NiceComplexEnum] = []
 		let globalVars: [NiceStatement] = []
 		let globalFuncs: [NiceStatement] = []
-		let init: [NiceNode] = []
+		let init: [NiceStatement] = []
 		var package: Package
 
 		new () {}
@@ -1120,7 +1137,6 @@ module {
 		var genericParams: [String]
 		var implement: String
 		var implementParams: [String]
-		var parent: NiceParentModule // ???
 		var rename: Int
 		var constructor
 
