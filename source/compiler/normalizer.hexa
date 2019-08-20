@@ -275,7 +275,7 @@ module {
 				let block = []
 				var i = 0
 				while (i < el.length - 1) {
-					block.push(nodeToStatement(el[i]))
+					if (let s = nodeToStatement(el[i])) block.push(s)
 					i++
 				}
 				block.push(NiceStatement.Return(nodeToExpression(el[el.length - 1])))
@@ -379,6 +379,18 @@ module {
 
 				case Node.TIndex(expr, index):
 				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
+
+				case Node.TAs(e, kind, t): switch (kind) {
+					case Token.Question:
+						console.log('`as?` is not yet supported by normalizer, only `as!`')
+					case Token.OpNot:
+						return NiceExpression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
+					case _:
+						console.log('`as` is not yet supported by normalizer, only `as!`')
+				}
+
+				case Node.TIs(e, t):
+					return NiceExpression.Is(nodeToExpression(e), typer.types.get(t))
 
 				case _: console.error('Unknown node type for expression:', e, Project.data.get(e))
 			}
