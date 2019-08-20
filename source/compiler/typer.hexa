@@ -177,6 +177,7 @@ module {
 			} else {
 				let type = new ClassType()
 				type.parent = node
+				type.name = DataHelper.nameOf(node)
 				types.set(node, Type.Class(type))
 
 				function getRename(f: Node): String? {
@@ -211,6 +212,7 @@ module {
 									if (type.fieldNames.includes(name))
 										fail('Field `\(name)` already exists', field)
 									type.fieldNames.push(name)
+									type.fieldInitialized[type.fieldNames.length - 1] = false
 									type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
 									addScope(name, field)
 								case Node.TProperty(field, _, _):
@@ -241,6 +243,18 @@ module {
 							parents.set(field, node)
 						}
 
+						// Fill fields with non-ambiguous types
+						for (field in f) switch (field) {
+							// `var\let a: known T`
+							case Node.TVar(name, t, e, const):
+								if (let t = t) types.set(field, toType(t, field))
+							// `function a(args with known types or no args): known ret type`
+							case Node.TFunction(name, expr, vars, rettype):
+								if (let rettype = rettype, vars.length == 0) {
+									types.set(field, Type.Function([], toType(rettype, field)))
+								}
+						}
+
 						// Fill expressions
 						for (field in f) switch (field) {
 							// Instance method
@@ -257,6 +271,7 @@ module {
 								insideClassMethod = true
 								allowSuper = (extend != null)
 								if (!external) fillFunction(field, expr, vars, rettype)
+								if (external, types.get(field) == null) types.set(field, Type.Function([], rettype!=null? toType(rettype, field) : typeVoid))
 								insideClassMethod = _insideClassMethod
 								allowSuper = _allowSuper
 
@@ -269,6 +284,10 @@ module {
 								if (e != null) fillExpression(e)
 								insideClassMethod = _insideClassMethod
 								mixVarTypes(t, e, field)
+								type.fieldInitialized[type.fieldNames.indexOf(name)] = true
+								if (types.get(field) == null) {
+									fail('Field `var \(name)` initialized, but got no type '+e, field)
+								}
 
 							// The thing with getters and setters
 							case Node.TProperty(f, _, _):
@@ -280,6 +299,12 @@ module {
 											insideClassMethod = true
 											if (e != null) fillExpression(e)
 											insideClassMethod = _insideClassMethod
+											mixVarTypes(t, e, f)
+											type.fieldInitialized[type.fieldNames.indexOf(name)] = true
+											if (types.get(f) == null) {
+												fail('Property `\(name)` initialized, but got no type '+e, field)
+											}
+											types.set(field, types.get(f))
 								}
 
 							// `static f`
@@ -290,7 +315,9 @@ module {
 									let _insideClassMethod = insideClassMethod
 									insideClassMethod = false
 									if (!external) fillFunction(f, expr, vars, rettype)
+									if (external) types.set(f, Type.Function([], rettype!=null? toType(rettype, f) : typeVoid))
 									insideClassMethod = _insideClassMethod
+									if (types.get(f) == null) fail('Function get no type: class ' + DataHelper.nameOf(node) + ' static ' + name, f)
 									types.set(field, types.get(f))
 								case Node.TVar(name, t, e, const):
 									if (external, e != null)
@@ -323,6 +350,7 @@ module {
 			} else {
 				let type = new EnumType()
 				type.parent = node
+				type.name = DataHelper.nameOf(node)
 				types.set(node, Type.Enum(type))
 
 				var tag = 0
@@ -342,6 +370,7 @@ module {
 									type.fieldNames.push(name)
 									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									type.tagBindVars[type.fieldNames.length - 1] = []
+									type.tagBindVarsNames[type.fieldNames.length - 1] = []
 									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, tag++)
 								case _:
 									fail('Wrong enum constructor format, should be `Name`', node)
@@ -358,29 +387,39 @@ module {
 												throw Typer.fail('Field `\(name)` already exists', node)
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+											type.fieldType[type.fieldNames.length - 1] = Type.EnumConstructor(type, tag++)
 											let tagBindVars = []
+											let tagBindVarsNames = []
 											type.tagBindVars[type.fieldNames.length - 1] = tagBindVars
+											type.tagBindVarsNames[type.fieldNames.length - 1] = tagBindVarsNames
+
+											if (args.length == 0) fail('lol why 0', e)
+
+											function nodeToNodeType(node: Node): NodeType switch (node) {
+												case Node.TArray(el):
+													if (el.length > 1) fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
+													return NodeType.ParametricType("Array", [nodeToNodeType(el[0])])
+												case Node.NodeTypeValue(t):
+													return t
+												case Node.TObject(names, el):
+													let types = [for (e in el) nodeToNodeType(e)]
+													return NodeType.Object(names, types)
+												case _:
+													fail('Cannot nodeToNodeType of ' + Node.stringify(node), node)
+											}
 
 											for (i in args.length) {
 												if (argNames[i] == null)
 													fail('Enum constructor arguments should have names `E(name1: T, name2: T)', args[i])
-												switch (args[i]) {
+													tagBindVars[i] = nodeToNodeType(args[i])
+													tagBindVarsNames[i] = argNames[i]
 													case Node.NodeTypeValue(t):
-														tagBindVars[i] = t
+														tagBindVars[i] = nodeToNodeType(args[i])
 													case Node.TArray(el):
-														switch (el[0]) {
-															case Node.NodeTypeValue(t):
-																tagBindVars[i] = NodeType.ParametricType("Array", [t])
-															case Node.TArray(el):
-																switch (el[0]) {
-																	case Node.NodeTypeValue(t):
-																		tagBindVars[i] = NodeType.ParametricType("Array", [NodeType.ParametricType("Array", [t])])
-																	case _:
-																}
-															case _:
-														}
+														tagBindVars[i] = nodeToNodeType(args[i])
+													case Node.TObject(_):
 													case _:
-												}
+														fail(args[i]+'Wrong enum constructor argument format, should be `value: Type`', args[i])
 											}
 										case _:
 											fail('Wrong enum constructor format, should be `Name(value: T)`', e)
@@ -400,6 +439,8 @@ module {
 												fail('Field `\(name)` already exists', node)
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+											fillExpression(b)
+											type.fieldType[type.fieldNames.length - 1] = types.get(b)
 									}
 								}
 
@@ -439,6 +480,15 @@ module {
 							case Node.TFunction(name, expr, vars, rettype):
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = false
+
+								// This weird hack, because of race condition
+								// if function called within self
+								if (rettype != null)
+								types.set(f, Type.Function([], toType(rettype, f)))
+								else
+								types.set(f, Type.Function([], typeVoid))
+								types.set(field, types.get(f))
+
 								fillFunction(f, expr, vars, rettype)
 								insideClassMethod = _insideClassMethod
 								if (types.get(f) == null) fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' static ' + name, f)
@@ -509,9 +559,9 @@ module {
 		}
 
 		function findInNamespaceRoots(name: String): Node {
-			var el = null
 			if (namespaces.get(name) != null) return namespaces.get(name)
 			var m = namespaces.get('')
+			var el: [Node] = null
 			switch (m) {
 				case Node.TModule(_, els): el = els
 				case _: return null // No root
@@ -623,7 +673,12 @@ module {
 					switch (types.get(nodeType)) {
 						case Type.Class(type):
 							return type.instantiate()
+						case Type.Enum(type):
+							return types.get(nodeType)
 						case null:
+							if (name == 'T') return typeAny
+							if (name == 'V') return typeAny
+							if (name == 'K') return typeAny
 							fail('Cannot find type `\(name)`', node)
 						case _:
 							fail('Unsupported type `\(name)`', node)
@@ -798,7 +853,11 @@ module {
 								'Cannot reassign iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
 							node)
-						case _: // Ok
+						case Node.TStatic(_):
+						case Node.TSuper(_):
+							fail('Cannot reassign `super`', node)
+						case _:
+							fail('`=` not implemented for: ' + parent, node)
 					}
 
 				// `break`
@@ -810,7 +869,22 @@ module {
 				case Node.TFor(name, over, by, range):
 					pushScope()
 					fillExpression(over)
-					if (let range = range) fillExpression(range)
+					switch (types.get(over)) {
+						case Type.ClassInstance(type, generic):
+							// Extract Array<T>
+							if (generic != null, generic.length == 1) types.set(node, generic[0])
+							else if (generic == null) {
+								types.set(node, types.get(over))
+							}
+							else {
+								fail('Type of iterable is neither Int nor Array '+Type.stringify(types.get(over)), over)
+							}
+						case Type.UnknownNullable(_):
+
+						case null:
+						case _:
+							fail('Type of iterable is neiter Int nor Array'+types.get(over), over)
+					}
 					if (let range = range) {
 						fillExpression(range)
 						// Ranges always integer for now
@@ -845,7 +919,6 @@ module {
 					// Restore stack
 					insideFunction = _insideFunction
 
-					types.set(node, Type.Function(null, null))
 				}
 
 				// `if (econd) eif else eelse`
@@ -865,6 +938,10 @@ module {
 								fill(e)
 							case _:
 								fillExpression(e)
+								// Only Bool allowed
+								let type = types.get(e)
+								if (type != typeBool, type != typeAny, type != null)
+									fail('`if (value)` expects `value` only of type `Bool`, but got `' + Type.stringify(types.get(e)) + '`', e)
 						}
 					}
 					fill(eif)
@@ -922,7 +999,16 @@ module {
 										if (let currentType = currentType) {
 											let indexOf = currentType.fieldNames.indexOf(currentTag)
 											let type = currentType.tagBindVars[indexOf][currentTagBind]
-											if (type) types.set(e, toType(type, e))
+											let name = currentType.tagBindVarsNames[indexOf][currentTagBind]
+											if (name == null) {
+												fail('Too much bindings requested, available are: ' + currentType.tagBindVarsNames[indexOf].join(', '), e)
+											}
+											if (type != null) {
+												types.set(e, toType(type, e))
+											}
+											else fail('tagBindVars no type for ' + name, e)
+										} else {
+											fail('No currentType for '+name, e)
 										}
 									}
 								}
@@ -1150,18 +1236,58 @@ module {
 								fail('Class `\(nameOfModuleItem(type.parent))` has no field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), e ?? node)
 							if (type.fieldStatic[index] == true)
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is static', node)
+							switch (type.parent) {
+								case Node.TClass(t, extend, implement, fields, external):
+									registerClassType(type.parent)
+									for (field in fields)
+										if (DataHelper.nameOf(field) == n) {
+											types.set(node, types.get(field))
+											parents.set(node, field)
+											if (types.get(field) == null) {
+												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', type.fieldInitialized[type.fieldNames.indexOf(n)])
+												fail('Type for this field is null: ' + n, field)
+											}
+										}
+								case _:
+									fail(type.parent, type.parent)
+							}
 						case Type.Class(type): // Static fields
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
 								fail('Class `\(nameOfModuleItem(type.parent))` has no static field `.\(n)`\nAvailable fields are: ' + type.fieldNames.join(', '), node)
 							if (type.fieldStatic[index] != true)
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
+							switch (type.parent) {
+								case Node.TClass(t, extend, implement, fields, external):
+									for (field in fields)
+										if (DataHelper.nameOf(field) == n) {
+											types.set(node, types.get(field))
+											parents.set(node, field)
+										}
+								case _:
+									fail(type.parent, type.parent)
+							}
 						case Type.Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								fail('Enum has no field `.\(n)`', node)
+								fail('Enum `\(type.name)` has no field `.\(n)`', node)
 							if (type.fieldStatic[index] != true)
 								fail('Enum field `.\(n)` is not static', node)
+							switch (type.parent) {
+								case Node.TEnum(t, fields, valuesType):
+									for (field in fields) switch (field) {
+										case Node.TCall(_):
+										case Node.NodeTypeValue(_):
+										case Node.TBinop(_):
+										case _:
+										if (DataHelper.nameOf(field) == n) {
+											types.set(node, types.get(field))
+											parents.set(node, field)
+										}
+									}
+								case _:
+									fail(type.parent, type.parent)
+							}
 						case Type.Struct(names, els):
 							let index = names.indexOf(n)
 							if (index < 0) {
@@ -1177,6 +1303,7 @@ module {
 									fail('Object\(object) has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
 							}
 							types.set(node, els[index])
+						case null:
 						case _:
 					}// else fail('Got node without type `\(e)`' + never, node)
 
@@ -1187,8 +1314,8 @@ module {
 							fail('Cannot access `super` here', node)
 					}
 					fillExpression(e)
-					if (let type = types.get(e)) switch (type) {
 						case Type.Class(type):
+					switch (types.get(e)) {
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
 								fail('Class has no field `.\(n)`', node)
@@ -1200,7 +1327,11 @@ module {
 								fail('Enum has no value constructor `.\(n)`', node)
 							if (type.fieldEnumConstructor[index] != true)
 								fail('Enum field `.\(n)` is not a value constructor', node)
-							types.set(node, type.fieldType[index])
+							if (let fieldType = type.fieldType[index])
+								types.set(node, fieldType)
+							else fail('Enum field type is null for `\(Node.stringify(node))`', node)
+						case null:
+							fail('Doing .Upper `\(Node.stringify(node))` over `\(Node.stringify(e))` (\(e)) of type null', node)
 						case _:
 					}// else fail('Got node without type `\(e)`' + never, node)
 
@@ -1222,7 +1353,20 @@ module {
 						parents.set(node, subj)
 						if (let type = types.get(subj)) {
 							types.set(node, type)
-						}// else fail('Cannot find type `\(name)` for \(subj)' + never, node)
+						} else {
+							// Try eager on-demand type build
+							switch (subj) {
+								case Node.TClass(_): registerClassType(subj)
+								case Node.TEnum(_): registerEnumType(subj)
+							}
+
+							if (let type = types.get(subj)) {
+								types.set(node, type)
+							} else {
+								console.log(positionOf(subj) + '\(name) is here')
+								fail('Cannot find type for `\(name)` even after late build' + never, node)
+							}
+						}
 					case NodeType.ParametricType(name, _):
 						fail('Cannot use generic type `\(name)` as a value', node)
 					case _:
@@ -1315,23 +1459,29 @@ module {
 				// `e(elNames: el, ...)`
 				case Node.TCall(e, el, elNames):
 					// JavaScript evaluates arguments first
-					for (e in el) fillExpression(e)
 					switch (e) {
 						case Node.TSuper(_):
 							if (!allowSuper)
 								fail('Cannot access `super` here', node)
-						case Node.TModule(path, _):
-							let p = path.length > 0? ' ' + path.join('.') + ' ' : ' '
-							fail('Leading parenthesis "calls" a module like `module\(p){}(...)`, wrap it with `{(...)}`', node)
 						case _:
 				 			fillExpression(e)
 				 	}
+					for (e in el) fillExpression(e)
 				 	switch (types.get(e)) {
 				 		case Type.Function(args, returns):
-				 			for (e in el) unify(args, types.get(e), e)
+				 			for (i in el.length) if (let arg = args[i]) {
+				 				unify(arg, types.get(el[i]), el[i])
+				 			}
 				 			types.set(node, returns)
+				 		case Type.EnumConstructor(type, tag):
+				 			types.set(node, Type.EnumInstance(type, tag))
 				 		case null:
+				 			fail('Calling null ' + Node.stringify(e), e)
 				 		case _:
+				 			if (types.get(e) == typeAny) {
+				 				types.set(node, typeAny)
+				 			} else
+				 			fail('Calling *not* a function, type is `' + Type.stringify(types.get(e)) + '`', e)
 				 	}
 
 				// `a op b` like `a + b`
@@ -1339,17 +1489,39 @@ module {
 					fill(a)
 					fillExpression(b)
 
+					// Anything + String = String
+					if (op == Token.OpAdd, types.get(a) == typeString)
+						types.set(node, types.get(a))
+					else
+					// Always provides boolean result
+					if (
+						op == Token.OpGte ||
+						op == Token.OpGt ||
+						op == Token.OpLte ||
+						op == Token.OpLt ||
+						op == Token.OpBoolAnd ||
+						op == Token.OpBoolOr ||
+						op == Token.OpEq ||
+						op == Token.OpNotEq
+					) types.set(node, typeBool)
+					else
+					types.set(node, types.get(b) ?? types.get(a))
+
 				// `op e` or `e op`
 				case Node.TUnop(op, postfix, e):
 					fillExpression(e)
 
 					// Always provides boolean result
 					if (op == Token.OpNot, !postfix) {
-						if (types.get(e) != typeBool)
+						let type = types.get(e)
+						if (type != typeBool, type != typeAny, type != null)
 							fail('Operator `!value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
 						types.set(node, toType(NodeType.Type("Bool"), node))
 						return
 					}
+
+					types.set(node, types.get(e))
+
 					let mutates = op == Token.OpIncrement || op == Token.OpDecrement
 					if (!mutates) { return }
 					var parent: Node = parents.get(e)
@@ -1376,8 +1548,43 @@ module {
 					fillExpression(e)
 					fillExpression(i)
 
+					// For now, only Int & Any index supported
+					var indexableIsAny = false
+					switch (types.get(e)) {
+						case Type.ClassInstance(type, generic):
+							if (type.name == 'Any') indexableIsAny = true
+					}
+
+					if (!indexableIsAny)
+					switch (types.get(i)) {
+						case Type.ClassInstance(type):
+							if (type.name != 'Int', type.name != 'Any')
+								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(types.get(i)) + '`', e)
+						case _:
+							fail('`value[i]`????? expects `i` only of type `Int`, but got `' + Type.stringify(types.get(i)) + '`', e)
+						case null:
+					}
+
+					// For now, only Array[i] supported
+					switch (types.get(e)) {
+						case Type.ClassInstance(type, generic):
+							if (!['Array','Buffer','Uint8Array','Uint32Array','Any'].includes(type.name))
+								fail('`value[i]` expects `value` only of type `Array`, but got `' + Type.stringify(types.get(e)) + '`', e)
+							if (generic != null, generic.length == 1) types.set(node, generic[0])
+							else if (['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name)) types.set(node, toType(NodeType.Type("Int"), node))
+							else if (['Any'].includes(type.name)) types.set(node, toType(NodeType.Type("Any"), node))
+							else fail('value[i] generic is null or >1', e)
+						case _:
+							fail('`value[i]` expects `value` only of type `Array`, but got `' + Type.stringify(types.get(e)) + '`', e)
+						case null:
+					}
+
 				// `a op= b`
 				case Node.TAssignop(a, op, b):
+					// `===`
+					if (op == Token.OpEq)
+						fail('`===` not supported, use `strictEq`', node)
+
 					fillExpression(a)
 					var parent: Node = parents.get(a)
 					switch (parent) {
@@ -1531,18 +1738,25 @@ module {
 		}
 	}
 
+	class ClassTypeField {
+	}
+
 	// `class T {}`
 	class ClassType {
+		var name: String
 		var parent: Node
 		var owner: ModuleType? = null // Non-null if in a module, not in a block
 		let fieldNames: [String] = []
 		let fieldRenames: [String] = [] // `@native('rename')`
 		let fieldStatic: [Bool] = []
+		let fieldInitialized: [Bool] = [] // Debug typer race conditions
 		let protected: [Bool] = [] // `private`
 		let immutable: [Bool] = [] // `let` or `function`
 		var constructor = -1
 		var indexKeyType = null
 		var indexValueType = null
+		let fields: [String : ClassTypeField] = [:]
+		let genericParams: [Type] = [] // GenericParameter
 		new () {
 		}
 
@@ -1588,8 +1802,10 @@ module {
 	// `enum T {}`
 	class EnumType {
 		var parent: Node
+		var name: String
 		let fieldNames: [String] = []
 		let tagBindVars: [[NodeType]] = []
+		let tagBindVarsNames: [[String]] = []
 		let fieldStatic: [Bool] = []
 		let fieldEnumConstructor: [Bool] = []
 		let fieldType: [Type] = []
