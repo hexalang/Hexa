@@ -654,6 +654,34 @@ module {
 							]),
 							true)
 					])
+					case _: // Iterate over non-constant Int:
+
+					var iteratorOverInt = false
+					switch (typer.types.get(over)) {
+						case Type.ClassInstance(type, generic):
+							if (generic == null || generic.length == 0, type.name == 'Int')
+								iteratorOverInt = true
+					}
+
+					if (iteratorOverInt) {
+						let i = unique(name, e)
+						let it = unique('it')
+						let finish = unique('at')
+
+						return NiceStatement.Block([
+							NiceStatement.Var(i, NiceExpression.Int(0)),
+							NiceStatement.Var(it, NiceExpression.Int(0)),
+							NiceStatement.Var(finish, nodeToExpression(over)),
+							NiceStatement.While(
+								NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Ident(finish)),
+								NiceStatement.Block([
+									NiceStatement.Assign(NiceExpression.Ident(i), NiceExpression.Ident(it)),
+									NiceStatement.Increment(NiceExpression.Ident(it)),
+									nodeToStatement(by)
+								]),
+								true)
+						])
+					}
 				}
 				if (let range = range) {
 					/*
