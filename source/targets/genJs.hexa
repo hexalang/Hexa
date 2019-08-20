@@ -123,10 +123,11 @@ module {
 					case NiceStatement.Function(name, expr, args):
 					if (name == null || name == 'new') out.push('\n\t\tconstructor')
 					else out.push('\n\t\t' + name)
-					out.push('(' + args.join(', ') + ') { ')
+					out.push('(' + args.join(', ') + ') ')
 
 					if (name == null || name == 'new') {
 						// Init fields
+						out.push('{ ')
 						for (v in c.vars) switch (v) {
 							case NiceStatement.Var(name, expr):
 							if (expr != null)
@@ -136,9 +137,10 @@ module {
 							out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
 						}
 						out.push('\n\t\t')
-					}
+						out.push(printStatement(expr) + ' };')
+					} else
 
-					out.push(printStatement(expr) + ' };')
+					out.push(printBlock(expr) + ';')
 				}
 				for (name in c.property) {
 					// Generate native setters `get name() {}`
@@ -158,14 +160,14 @@ module {
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
 						out.push('\n\t' + c.name + '.' + name + ' = ')
-						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };')
+						out.push(printFunctionArguments(args, defaults) + ' => ' + printBlock(expr) + ';')
 				}
 			}
 
 			for (g in project.globalFuncs) switch (g) {
 				case NiceStatement.Function(name, expr, args, defaults):
 					out.push('\n\tfunction ' + name)
-					out.push(printFunctionArguments(args, defaults) + ' { ' + printStatement(expr) + ' };')
+					out.push(printFunctionArguments(args, defaults) + ' ' + printBlock(expr) + ';')
 			}
 
 			for (g in project.globalVars) switch (g) {
@@ -203,6 +205,10 @@ module {
 		function printBlock(s: NiceStatement): String {
 			switch (s) {
 				case NiceStatement.Block(el):
+					if (el.length == 1) switch (el[0]) {
+						case NiceStatement.Block(_):
+							return printStatement(el[0])
+					}
 					if (el.length == 1) return '{ ' + printStatement(el[0]) + ' }'
 					if (el.length == 0) return '{}'
 					return printStatement(s)
@@ -221,6 +227,11 @@ module {
 				case NiceStatement.Break: return 'break'
 				case NiceStatement.Continue: return 'continue'
 				case NiceStatement.Block(el):
+					if (el.length == 1) switch (el[0]) {
+						case NiceStatement.Block(_):
+							return printStatement(el[0])
+					}
+
 					pushTab()
 					var r = '{'
 
