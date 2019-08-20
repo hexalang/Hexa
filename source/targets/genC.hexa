@@ -286,7 +286,7 @@ module {
 
 					return r + '}'
 
-				case _: console.error("Unknown statement kind:", (s||[])[0])
+				case _: console.error("Unknown statement kind:", (s??[])[0])
 			}
 		}
 
@@ -354,12 +354,12 @@ module {
 					case _: return printExpression(expr) + '->_x' + name
 				}
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
-				case NiceExpression.Function(name, expr, args, defaults):
 					if (name == null) return printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
 					return '((() => { const auto _x' + name + ' = ' + printFunctionArguments(args, defaults) + ' => '
+				case NiceExpression.Function(name, expr, args, defaults, types, returns):
 					+ printBlock(expr) + ';return _x' + name + ';})())'
-				case NiceExpression.Arrow(expr, args, defaults):
 					return printFunctionArguments(args, defaults) + ' => (' + printExpression(expr) + ')'
+				case NiceExpression.Arrow(expr, args, defaults, types, returns):
 				case NiceExpression.New(e, args): return '' + printExpression(e) + '_new' + printCallArguments(args)
 				case NiceExpression.Array(el): return '[' + [for (a in el) printExpression(a)].join(', ') + ']'
 				case NiceExpression.Unop(op, postfix, e):
@@ -384,7 +384,7 @@ module {
 						return r + '<!-- If => error -->'
 					}
 				case NiceExpression.Object(names, el):
-					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(',') + '}'
+					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
 					if (keys.length == 0) return '_xMap_new()'
 					return '_xMap_new([' +
@@ -398,7 +398,7 @@ module {
 					case NativeOperatorKind.Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
 					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
-				case _: console.error("Unknown expression kind:", (e||[])[0], e, last) return '<!-- ' + (e||[])[0] + ' -->'
+				case _: console.error("Unknown expression kind:", (e??[])[0], e, last) return '<!-- ' + (e??[])[0] + ' -->'
 			}
 		}
 	}

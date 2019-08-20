@@ -76,6 +76,7 @@ Release of 0.1 expected in Fall 2019
 - [Some code examples](https://hexalang.github.io/book/Examples.html)
 - [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
 - [Why Hexa?](https://hexalang.github.io/book/Profit.html)
+- [Contribute your compilation target](https://hexalang.github.io/book/Targets.html)
 
 ## Enjoy!
 
