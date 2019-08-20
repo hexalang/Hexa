@@ -27,7 +27,7 @@ module {
 		// Fills module namespaces, module types, than file expressions
 		function fillFiles(collected: [[Node]]): Void {
 			function fillModuleNamespace(m: Node) {
-				var el = null
+				var el: [Node] = null
 				var root: String? = null
 				switch (m) {
 					case Node.TModule(path, els):
@@ -36,11 +36,11 @@ module {
 					case _: throw 'Unreachable #2'
 				}
 
-				if (namespaces[root] == null) {
-					namespaces[root] = m
+				if (namespaces.get(root) == null) {
+					namespaces.set(root, m)
 				} else {
-					var els = null
-					switch (namespaces[root]) {
+					var els: [Node] = null
+					switch (namespaces.get(root)) {
 						case Node.TModule(_, el): els = el
 						case _: throw 'Unreachable #1'
 					}
@@ -48,8 +48,8 @@ module {
 				}
 
 				{
-					var els = null
-					switch (namespaces[root]) {
+					var els: [Node] = null
+					switch (namespaces.get(root)) {
 						case Node.TModule(_, el): els = el
 						case _: throw 'Unreachable #4'
 					}
@@ -57,9 +57,11 @@ module {
 					for (e in els) {
 						var name = nameOfModuleItem(e)
 						var found = false
-						for (e in els) {
-							if (nameOfModuleItem(e) == name) {
-								if (found) throw ('Type `\(name)` already exists in module')
+						for (el in els) {
+							if (nameOfModuleItem(el) == name) {
+								if (found) fail(
+									'The `\(name)` already exists in module\n' +
+									positionOf(el) + '`\(name)` is defined here', e)
 								if (!found) found = true
 							}
 						}
@@ -95,7 +97,7 @@ module {
 					var path = ns.split('.')
 					var namespace = path.shift()
 					function check(namespace) {
-						if (namespaces[namespace] == null && intermediate.indexOf(namespace) == -1) {
+						if (namespaces.get(namespace) == null && intermediate.indexOf(namespace) == -1) {
 							intermediate.push(namespace)
 						}
 					}
@@ -108,7 +110,7 @@ module {
 
 				for (path in intermediate) {
 					var m = Node.TModule(path.split('.'), [])
-					namespaces[path] = m
+					namespaces.set(path, m)
 				}
 			}
 
@@ -133,9 +135,22 @@ module {
 			pushScope()
 			for (file in collected) for (e in file) switch (e) {
 				case Node.TModule(path, el):
-					for (node in el) {
-						parents.set(node, e)
-						fill(node)
+					// Fill classes first
+					for (node in el) switch (node) {
+						case Node.TClass(_):
+							parents.set(node, e)
+							fill(node)
+						case Node.TEnum(_):
+							parents.set(node, e)
+							fill(node)
+						case _:
+					}
+					for (node in el) switch (node) {
+						case Node.TClass(_):
+						case Node.TEnum(_):
+						case _:
+							parents.set(node, e)
+							fill(node)
 					}
 				case _:
 			}
