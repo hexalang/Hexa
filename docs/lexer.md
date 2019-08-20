@@ -4,6 +4,8 @@ Transforms input source files into array of simpler [meaningful particles](https
 
 Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header and `#!/bin` [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix)).
 
+- Note: "lexer" also referred as "tokenizer"
+
 ## Source code
 
 - [source/compiler/lexer.hexa](https://github.com/hexalang/hexa/blob/master/source/compiler/lexer.hexa)

@@ -84,7 +84,7 @@ module {
 				}
 			}
 
-			var intermediate = []
+			var intermediate: [String] = []
 
 			// Fill intermediate non-existsing modules (module aaa.not_exists.bbb {})
 			// Say, we have `module aaa {}` and `module aaa.not_exists.bbb {}`
@@ -306,7 +306,7 @@ module {
 					case Type.Enum(t): return t
 				}
 			} else {
-				let type = new EnumType(node)
+				let type = new EnumType()
 				type.parent = node
 				types.set(node, Type.Enum(type))
 
@@ -327,8 +327,7 @@ module {
 									type.fieldNames.push(name)
 									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									type.tagBindVars[type.fieldNames.length - 1] = []
-									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(this, tag)
-									tag++
+									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, tag++)
 								case _:
 									fail('Wrong enum constructor format, should be `Name`', node)
 							}
@@ -449,7 +448,7 @@ module {
 
 		static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
 
-		static function fail(msg: String, node: Node = null) {
+		static function fail(msg: String, node: Node = null): Void {
 			let data = Project.data.get(node)
 			if (data == null) {
 				throw new CompilerError(Fail.TyperError, msg, 0, 0, "")
@@ -518,7 +517,7 @@ module {
 		private var typeFloat: Type? = null
 		private var typeBool: Type? = null
 		private var typeArray: Type? = null // Type instantiators
-		private var typeMap: Type? = null // Type instantiators
+		private var typeMap: ClassType = null // Type instantiators
 		private var typeAny: Type? = null
 		private var typeVoid: Type? = null
 		private var namespaces: [String : Node] = [:]
@@ -829,7 +828,7 @@ module {
 								if (!const)
 									fail('Only if-let bindings supported', node)
 								if (t != null)
-									fail('Do not specify a type in if-let bindings', node)
+									fail('Do not specify a type `: T` in if-let bindings', node)
 								depth++
 								pushScope()
 								fill(e)
@@ -889,7 +888,7 @@ module {
 										addScope(name, e)
 
 										// Find tag bind var and set it's type:
-										if (currentType) {
+										if (let currentType = currentType) {
 											let indexOf = currentType.fieldNames.indexOf(currentTag)
 											let type = currentType.tagBindVars[indexOf][currentTagBind]
 											if (type) types.set(e, toType(type, e))
@@ -1492,7 +1491,7 @@ module {
 	// `class T {}`
 	class ClassType {
 		var parent: Node
-		var owner: ModuleType = null // Non-null if in a module, not in a block
+		var owner: ModuleType? = null // Non-null if in a module, not in a block
 		let fieldNames: [String] = []
 		let fieldRenames: [String] = [] // `@native('rename')`
 		let fieldStatic: [Bool] = []
