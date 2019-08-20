@@ -82,6 +82,7 @@ Release of 0.1 expected in Fall 2019
 
 While compiler is in dev, here's some cool music to listen :headphones:
 
+* [Cyberpunk 2077 Radio Mix](https://www.youtube.com/watch?v=Q9yn1DpZkHQ)
 * [Home Cooked](https://www.youtube.com/watch?v=EyLlOio4bUU)
 * [Drip](https://www.youtube.com/watch?v=Bm-q0v0ZYf4)
 * [Stay Here Tonight](https://soundcloud.com/just-portals/stay-here-tonight)
