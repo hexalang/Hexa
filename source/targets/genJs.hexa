@@ -260,14 +260,43 @@ module {
 					if (eelse != null) r += ' else ' + printStatement(eelse)
 					return r
 				case NiceStatement.Call(e, args): return printExpression(e) + printCallArguments(args)
-				case NiceStatement.Try(expr, t, v, catches):
+				case NiceStatement.Try(expr, t, v, catches, temp):
+					var r = 'try '
+					r += printBlock(expr)
+					r += ' catch (\(temp)) {\n' + tabs + '\t'
 					pushTab()
-					var r = 'try {\n' + tabs
-					r += printStatement(expr)
-					popTab()
-					r += '\n' + tabs + '} catch (' + v[0] + ') {\n' + tabs + '\t'
-					pushTab()
-					r += printStatement(catches[0])
+					for (i in catches.length) {
+						var typeof = 'T'
+						switch (t[i]) {
+							case Type.ClassInstance(type):
+								typeof = type.name
+							case _:
+								throw '' + t[i]
+						}
+						switch (typeof) {
+							case 'Any':
+								r += 'if (true) { '
+							case 'String':
+								r += 'if (typeof(\(temp)) == "string") { '
+							case 'Int':
+								r += 'if (typeof(\(temp)) == "number") { '
+							case 'Float':
+								// TODO special handling !=Int & sort Int check to first
+								r += 'if (typeof(\(temp)) == "number") { '
+							case 'Bool':
+								r += 'if (typeof(\(temp)) == "boolean") { '
+							case _:
+								r += 'if (\(temp) instanceof \(typeof)) { '
+						}
+						r += '\n' + tabs
+						r += 'const \(v[i]) = \(temp)'
+						r += '\n' + tabs
+						r += printStatement(catches[i])
+						r += ' }'
+						r += ' else'
+						r += '\n' + tabs
+					}
+					r += '\n' + tabs + 'throw \(temp);'
 					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.Assign(a, v):
