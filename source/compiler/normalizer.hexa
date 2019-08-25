@@ -41,13 +41,18 @@ module {
 				case Node.TModule(path, el):
 					for (e in el) switch (e) {
 						case Node.TClass(t, ext, impl, fields, external):
-						renameClassFields(fields)
+							renameClassFields(fields)
 						case Node.TEnum(t, fields, valuesType):
-						renameClassFields(fields)
+							renameClassFields(fields)
 						case Node.TVar(name, t, expr, const, external):
-						unique(name, e)
+							let atts = Project.mapAttributes.get(e)
+							let native = getAtt(atts, 'native')
+							if (native != null) switch (native.values[0]) {
+								case Node.TString(s): uniqueNative(s, e)
+								case _: throw '@native takes string as argument'
+							} else unique(name, e)
 						case Node.TFunction(name, expr, vars, rettype, external):
-						if (let name = name) unique(name, e)
+							if (let name = name) unique(name, e)
 					}
 			}
 
@@ -136,6 +141,7 @@ module {
 						case Node.TVar(name, _, _):
 							if (let map = typer.parents.get(source)) switch (map) {
 								case Node.TModule(path, _):
+									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name)
 								case _:
 									return NiceExpression.Dot(NiceExpression.This, name)
@@ -1107,6 +1113,12 @@ module {
 			addToScope(uname)
 			parentNames.set(node, uname)
 			return uname
+		}
+
+		// Sets name without renaming for `@native`
+		function uniqueNative(name: String, node: Node) {
+			addToScope(name)
+			parentNames.set(node, name)
 		}
 
 		function fillStatement(e: Node): NiceStatement {
