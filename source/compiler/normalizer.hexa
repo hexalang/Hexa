@@ -129,7 +129,7 @@ module {
 
 				case Node.NodeTypeValue(t): switch (t) {
 					case NodeType.Type(name):
-						return NiceExpression.Ident(name)
+						return NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? name)
 				}
 
 				// Transform
@@ -253,7 +253,7 @@ module {
 				return NiceExpression.Binop(ea, op, eb)
 
 				case Node.TNew(path, t, args, fields, el):
-				let v = NiceExpression.Ident(DataHelper.extractTypeName(t))
+				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t))
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
@@ -439,7 +439,8 @@ module {
 				let isComplexEnum = valuesType == null
 				if (isComplexEnum) {
 					let type = new NiceComplexEnum()
-					type.name = DataHelper.extractTypeName(t)
+					type.name = unique(DataHelper.extractTypeName(t), e)
+					globals.push(type.name)
 					let names = []
 					let constructors = []
 					let types = []
@@ -535,9 +536,7 @@ module {
 
 				case Node.TClass(t, ext, impl, fields, external):
 				renameClassFields(fields)
-				let name = DataHelper.extractTypeName(t)
 				let type = new NiceClass()
-				type.name = name
 
 				switch (typer.types.get(e)) {
 					case Type.Class(the): type.useless = the.useless
@@ -553,6 +552,7 @@ module {
 						type.implement = name
 						type.implementParams = [for(param in params) DataHelper.extractTypeName(param)]
 				}
+
 				switch (t) {
 					case NodeType.Type(name): // this name
 					case NodeType.ParametricType(name, params):
@@ -569,9 +569,12 @@ module {
 
 				let native = getAtt(atts, 'native')
 				if (native != null) switch (native.values[0]) {
-					case Node.TString(s): type.jsNative = s unique(s, e)
+					case Node.TString(s):
+						type.jsNative = s
+						type.name = unique(s, e)
 					case _: throw '@native takes string as argument'
-				}
+				} else type.name = unique(DataHelper.extractTypeName(t), e)
+				globals.push(type.name)
 
 				for (f in fields) switch (f) {
 					case Node.TVar(name, t, expr, const):
@@ -629,7 +632,7 @@ module {
 
 				// Expressions
 				case Node.TNew(path, t, args, fields, values, _):
-				let v = NiceExpression.Ident(DataHelper.extractTypeName(t))
+				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t))
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
@@ -1081,7 +1084,8 @@ module {
 			return null
 		}
 
-		var scopes: [[String : Bool]] = [[:]]
+		let scopes: [[String : Bool]] = [[:]]
+		let globals: [String] = [] // Type names are global
 
 		// Randomization for the un-hack-ability
 		var id = Math.round(Math.random() * 123.0)
@@ -1114,9 +1118,13 @@ module {
 		// Returns same name and calls addToScope if name is free
 		function unique(name: String, node: Node = null): String {
 			var uname = name
-			while (hasInScope(uname) || (keywords.indexOf(uname) != -1)) uname = name + '_' + (++id)
+			while (
+				hasInScope(uname) ||
+				(keywords.indexOf(uname) != -1) ||
+				(globals.indexOf(uname) != -1)
+			) uname = name + '_' + (++id)
 			addToScope(uname)
-			parentNames.set(node, uname)
+			if (node != null) parentNames.set(node, uname)
 			return uname
 		}
 

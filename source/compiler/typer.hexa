@@ -167,6 +167,18 @@ module {
 			}
 		}
 
+		function find(name: String): Node? {
+			var subj = null
+			for (i in scopes.length) {
+				subj = scopes[scopes.length - i - 1].get(name)
+				if (subj != null) {
+					break
+				}
+			}
+			if (subj == null) subj = findInNamespaceRoots(name)
+			return subj
+		}
+
 		// `class T {}`
 		function registerClassType(node: Node): ClassType {
 			if (let type = types.get(node)) {
@@ -1354,14 +1366,7 @@ module {
 				// `T` or `T<G>`
 				case Node.NodeTypeValue(t): switch (t) {
 					case NodeType.Type(name):
-						var subj = null
-						for (i in scopes.length) {
-							subj = scopes[scopes.length - i - 1].get(name)
-							if (subj != null) {
-								break
-							}
-						}
-						if (subj == null) subj = findInNamespaceRoots(name)
+						let subj = find(name)
 						if (subj == null)
 							fail('Cannot find type with name `\(name)`', node)
 						if (parents.get(node) != null, parents.get(node) != subj)
@@ -1392,6 +1397,8 @@ module {
 				// `new T {:}()`
 				case Node.TNew(path, t, el, names, values):
 					let type = toType(t, node)
+					let subj = find(DataHelper.extractTypeName(t))
+					parents.set(node, subj)
 					for (e in el) fillExpression(e)
 					switch (type) {
 						case Type.ClassInstance(type):
