@@ -56,7 +56,16 @@ module {
 			// Types
 			for (e in project.enumsSimple) {
 				// No need to output simple enum values
-				out.push('\n\t' + 'var ' + e.name + ' = {}')
+				if (e.staticVars.length + e.staticMethods.length == 0) continue
+				out.push('\n\tvar ' + e.name + ' = {')
+				for (v in e.staticMethods) switch (v) {
+					case NiceStatement.Function(name, expr, args, defaults):
+						out.push('\n\t\t' + name + ': ')
+						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
+						out.push(',')
+				}
+				out.push('\n\t}')
+
 				for (v in e.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr):
 						out.push('\n\t' + e.name + '.' + name)
@@ -64,11 +73,6 @@ module {
 					case NiceStatement.Const(name, expr):
 						out.push('\n\t' + e.name + '.' + name)
 						out.push(' = ' + printExpression(expr))
-				}
-				for (v in e.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
-						out.push('\n\t' + e.name + '.' + name + ' = ')
-						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };')
 				}
 			}
 
