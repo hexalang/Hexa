@@ -493,6 +493,7 @@ module {
 					let names = []
 					let values = []
 					for (f in fields) switch (f) {
+						// `ValueName = b`
 						case Node.TBinop(a, op, b): // op == OpAssign
 							switch (a) {
 								case Node.NodeTypeValue(t): switch (t) {
@@ -505,6 +506,11 @@ module {
 								case Node.TInt(s): values.push(NiceExpression.Int(s))
 								case _: console.error("(internal warning) Unknown node field value kind:", b)
 							}
+						// Just `ValueName`
+						case Node.NodeTypeValue(t): switch (t) {
+							case NodeType.Type(name):
+								names.push(name)
+						}
 						case Node.TStatic(field):
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
@@ -1048,11 +1054,19 @@ module {
 		function getTag(enumNode: Node, name: String) {
 			switch (enumNode) {
 				case Node.TEnum(t, fields, valuesType):
+				var typed: EnumType = null
+				switch (typer.types.get(enumNode)) {
+					case Type.Enum(type): typed = type
+				}
+
 				var i = 0
 				for (f in fields) {
 					switch (f) {
 						case Node.NodeTypeValue(t): switch (t) {
 							case NodeType.Type(n):
+								if (n == name)
+									if (typed.fieldsTypeSimple == typer.typeString)
+										return NiceExpression.String(n)
 								if (n == name) return NiceExpression.Int(i)
 						}
 						case Node.TCall(e, _): switch (e) {
