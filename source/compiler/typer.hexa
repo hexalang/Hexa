@@ -381,6 +381,13 @@ module {
 				switch (node) {
 					case Node.TEnum(t, f, valuesType):
 					pushScope()
+					if (let valuesType = valuesType)
+						type.fieldsTypeSimple = toType(valuesType, node)
+					if (
+						type.fieldsTypeSimple != null,
+						type.fieldsTypeSimple != typeInt,
+						type.fieldsTypeSimple != typeString
+					) fail('Simple enums may be only of types `Int` and `String`', node)
 
 					// Check for incompatible tag format and fill scopes
 					for (field in f) {
@@ -455,6 +462,14 @@ module {
 												fail('Field `\(name)` already exists', node)
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
+											switch (b) {
+												case Node.TInt(_): if (type.fieldsTypeSimple != typeInt)
+													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
+												case Node.TString(_): if (type.fieldsTypeSimple != typeString)
+													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
+												// TODO non-constant values
+												// TODO other types
+											}
 											fillExpression(b)
 											type.fieldType[type.fieldNames.length - 1] = types.get(b)
 									}
