@@ -15,7 +15,113 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
+/// Types used by typer and as input to normalizer
 module {
+	// All expressions have assigned type on them
+	// When you write `SomeClass.method()` it works like that:
+	// `SomeClass` is `Type.Class`
+	// so `.method` operates on static fields, cause *not* `Type.ClassInstance`
+	// `.method` will have `Type.Function`
+	// and `()` will check their arguments and have a `returns` as it's type
+	// taken from `Type.Function`
+	enum Type {
+		Unknown(handle: { value: Type }) // Type not known at all
+		UnknownNullable(handle: { value: Type }) // For situations like `var a = null`
+		Nullable(type: Type) // Non-void
+		Class(type: ClassType) // Type of `class` node itself
+		Enum(type: EnumType) // Type of `enum` node itself
+		Alias(value: Type) // Type of `declare T = A` node itself
+		ClassInstance(type: ClassType, generic: [Type]) // Instance of class (constructed with `new`)
+		EnumInstance(type: EnumType, tag: Int) // Instance of enum value
+		EnumConstructor(type: EnumType, tag: Int) // EnumType.EnumConstructor without call (...)
+		SuperOf(type: ClassType) // `super` of current class (not parent)
+		Function(args: [Type], returns: Type, lazyTypeCheck: Node)
+		Struct(names: [String], types: [Type])
+
+		static function stringify(type: Type): String {
+			switch (type) {
+				case Type.ClassInstance(type, generic):
+					if (let gen = generic)
+						return DataHelper.nameOf(type.parent) + '<' + [for (g in gen) Type.stringify(g)].join(', ') + '>'
+					return DataHelper.nameOf(type.parent)
+				case Type.Class(type):
+					return DataHelper.nameOf(type.parent)
+				case Type.Function(args, returns):
+					return '(' + [for (arg in args) Type.stringify(arg)].join(', ') + ') => ' + Type.stringify(returns)
+				case Type.UnknownNullable(handle):
+					if (let value = handle.value) return Type.stringify(value) + '?'
+					return 'Unknown?'
+				case Type.Nullable(type):
+					return Type.stringify(type) + '?'
+				case Type.Enum(type):
+					return DataHelper.nameOf(type.parent)
+				case Type.Unknown(handle):
+					if (let value = handle.value) return Type.stringify(value)
+					return 'Unknown'
+				case _: return '~?' + type + '?~'
+			}
+		}
+	}
+
+	// `class T {}`
+	class ClassType {
+		var name: String
+		var parent: Node
+		var owner: ModuleType? = null // Non-null if in a module, not in a block
+		let fieldNames: [String] = []
+		let fieldRenames: [String] = [] // `@native('rename')`
+		let fieldStatic: [Bool] = []
+		let fieldInitialized: [Bool] = [] // Debug typer race conditions
+		let protected: [Bool] = [] // `private`
+		let immutable: [Bool] = [] // `let` or `function`
+		var constructor = -1
+		var indexKeyType = null
+		var indexValueType = null
+		let fields: [String : ClassTypeField] = [:]
+		let genericParams: [Type] = [] // GenericParameter
+		var useless: Bool = true // No reason to generate
+		new () {
+		}
+
+		// Non-generic `Type.ClassInstance`
+		let instanceCache = Type.ClassInstance(this, null)
+		function instantiate(): Type {
+			return instanceCache
+		}
+
+		// Generic `Type.ClassInstance`
+		let genericCache: [[Type]] = []
+		function instantiateGeneric(params: [Type]): Type {
+			/* So, how it works:
+				genericCache is array of [type, param1, param2, ...]
+				i.e. [0] element is a resulting cached Type to be returned
+				[1...n] are parameters to compare
+				Just storage optimization, basically
+			*/
+
+			for (cached in genericCache) {
+				if (cached.length != (params.length + 1)) continue
+				var found = true
+				for (i in cached.length - 1) {
+					if (params[i] != cached[i + 1]) {
+						found = false
+						break
+					}
+				}
+				if (found) {
+					let result = cached[0]
+					return result
+				}
+			}
+
+			let result = Type.ClassInstance(this, params)
+			let cache = [result]
+			for (param in params) cache.push(param)
+			genericCache.push(cache)
+			return result
+		}
+	}
+
 	// `enum T {}`
 	class EnumType {
 		var parent: Node
