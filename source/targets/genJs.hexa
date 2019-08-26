@@ -77,7 +77,19 @@ module {
 			}
 
 			for (e in project.enumsComplex) {
-				out.push('\n\t' + 'var ' + e.name + ' = {}')
+				if (e.staticMethods.length == 0)
+					out.push('\n\tvar ' + e.name + ' = {}')
+				else {
+					out.push('\n\tvar ' + e.name + ' = {')
+					for (v in e.staticMethods) switch (v) {
+						case NiceStatement.Function(name, expr, args, defaults):
+							out.push('\n\t\t' + name + ': ')
+							out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
+							out.push(',')
+					}
+					out.push('\n\t}')
+				}
+
 				var i = 0
 				for (name in e.names) {
 					if (e.constructors[i] != null) {
@@ -101,11 +113,6 @@ module {
 					case NiceStatement.Const(name, expr):
 						out.push('\n\t' + e.name + '.' + name)
 						out.push(' = ' + printExpression(expr))
-				}
-				for (v in e.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
-						out.push('\n\t' + e.name + '.' + name + ' = ')
-						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' };')
 				}
 			}
 
