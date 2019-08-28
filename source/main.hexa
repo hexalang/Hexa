@@ -23,15 +23,21 @@ module {
 	// Contents of hexa.json
 	declare class Package {
 		let name: String
-		let output: String
 		let version: String
 		let description: String
 		let author: String
 		let license: String
-		let target: Target
-		let addLicenseNoticeToOutput: Bool
+		var addLicenseNoticeToOutput: Bool
 		let randomSeed: Int?
-		let files: [String]
+		let define: Any
+		let noLib: Bool
+		var files: [String]
+		let targets: [{
+			name: String,
+			generator: String,
+			options: [String],
+			output: String
+		}]
 	}
 
 	enum Generator: String {
@@ -246,52 +252,41 @@ class Main {
 	}
 
 	// Loads hexa.json
-	function loadPackage(filename): Package {
-		let pack = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8'))
+	function loadPackage(filename: String, target: String): Package {
+		let pack: Package = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8'))
 		function incorrect(what: String) {
 			Process.stdout.write("Incorrect package file! Field `\(what)` does not exists\n")
 			Process.exit(1)
 		}
-		if (pack.target == null) incorrect('target')
-		if (pack.output == null) incorrect('output')
 		if (pack.name == null) incorrect('name')
+		if (pack.targets == null) incorrect('targets')
 		Project.defines = pack.define ?? {:}
+
+		let t = (function () {
+			for (t in pack.targets) {
+				if (t.name == target) return t
+			}
+			Process.stdout.write("Cannot find `\(target)` target in package file\n")
+			Process.exit(1)
+		})()
+
+		let generator = availableGenerators(t.generator)
+		if (generator == null) {
+			Process.stdout.write("Generator `\(t.generator)` not available or not supported by this compiler version\n")
+			Process.exit(1)
+		}
 
 		// Add standard library
 		if (pack.files == null) pack.files = []
+		if (pack.noLib == true) {
+			// Nothing
+		} else {
+			setLibrary(generator, t.options, pack.files, Project.defines)
+		}
 
 		// Defaults
 		if (pack.addLicenseNoticeToOutput == null) pack.addLicenseNoticeToOutput = true
 
-		switch (pack.target.generator) {
-			case Generator.JavaScript:
-				Project.defines.js = Project.defines.js ?? true
-				if (pack.noLib == true) {
-				} else {
-					pack.files.unshift(Path.resolve(__dirname + '/library/js/js.hexa'))
-					pack.files.unshift(Path.resolve(__dirname + '/library/nodejs/nodejs.hexa'))
-					pack.files.unshift(Path.resolve(__dirname + '/library/browser/html.hexa'))
-				}
-			case Generator.C:
-				Project.defines.c = Project.defines.c ?? true
-				Project.defines.native = Project.defines.native ?? true
-				if (pack.noLib == true) {
-				} else {
-					pack.files.unshift(Path.resolve(__dirname + '/library/c/c.hexa'))
-				}
-			case Generator.Haxe:
-				Project.defines.haxe = Project.defines.haxe ?? true
-			case Generator.Hexa:
-				Project.defines.hexa = Project.defines.hexa ?? true
-				if (pack.noLib == true) {
-				} else {
-					pack.files.unshift(Path.resolve(__dirname + '/library/js/js.hexa'))
-					pack.files.unshift(Path.resolve(__dirname + '/library/nodejs/nodejs.hexa'))
-				}
-			case Generator.CSharp:
-				Project.defines.cs = Project.defines.cs ?? true
-				pack.files.unshift(Path.resolve(__dirname + '/library/cs/cs.hexa'))
-		}
 		return pack
 	}
 
@@ -376,14 +371,14 @@ class Main {
 
 		// Build the selected project
 		if (currentParsedFile.ext == ".json") {
-			input = loadPackage(currentFile)
+			input = loadPackage(currentFile, "default")
 			ignoreArguments(3)
 			console.log("[Building \(input.name)]")
 		}
 		// Search for project in the selected folder
 		else if (Fs.existsSync(currentFile), Fs.lstatSync(currentFile).isDirectory()) {
 			ignoreArguments(3)
-			input = loadPackage(currentFile + Path.sep + "hexa.json")
+			input = loadPackage(currentFile + Path.sep + "hexa.json", "default")
 			packageFolder = currentFile
 		}
 		// Evaluate file directly
@@ -447,10 +442,11 @@ class Main {
 		registerTarget('C', GenC.spawn)
 
 		// Perform code generation
-		if (let generatorName = input.target.generator) {
+		if (let generatorName = input.targets[0].generator) {
 			if (let generatorSpawner = generators.get(generatorName)) {
 				let generator = generatorSpawner()
-				let target = packageFolder + Path.sep + Path.parse(input.output).name + generator.extension
+				let target = packageFolder + Path.sep + Path.parse(input.targets[0].output).name + generator.extension
+				let target = Path.join(packageFolder, input.targets[0].output)
 				normalizer.keywords = generator.reserved
 				normalizer.collected = files
 				normalizer.nativeEnums = generator.nativeEnums
