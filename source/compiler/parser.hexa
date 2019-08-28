@@ -131,7 +131,10 @@ module {
 				if (tok() == Token.POpen) {
 					if (name == 'constructor')
 						fail('Use `new()` syntax instead of `constructor()`')
-					fail('Use `function ' + name + '()` syntax for methods')
+					if (_static)
+						fail('Use `static function ' + name + '()` syntax for static methods')
+					else
+						fail('Use `function ' + name + '()` syntax for methods')
 				}
 				fail('Fields should start with `var ' + name + '` or `let ' + name + '`')
 			case Token.LUpper:
@@ -514,6 +517,8 @@ module {
 					el.push(parseExpr())
 					if (tok() == Token.Comma) {
 						i++
+						if (tok() == Token.BrClose)
+							fail("Unexpected `}`, remove trailing `,` comma")
 						continue
 					} else break
 				}
@@ -633,9 +638,11 @@ module {
 		case Token.OpNot:
 			i++
 			result = Node.TUnop(Token.OpNot, false, parseExpr())
+		// ++i
 		case Token.OpIncrement:
 			i++
 			result = Node.TUnop(Token.OpIncrement, false, parseExpr())
+		// --i
 		case Token.OpDecrement:
 			i++
 			result = Node.TUnop(Token.OpDecrement, false, parseExpr())
@@ -816,6 +823,8 @@ module {
 			var argNames: [String] = []
 			if (tok() != Token.PClose) while (true) {
 				switch (tok()) {
+					case Token.PClose:
+						fail("Unexpected `)`, remove trailing `,` comma")
 					case Token.LUpper:
 						argNames.push(null)
 						args.push(parseExpr())
@@ -1072,6 +1081,8 @@ module {
 				i++
 				if (tok() != Token.PClose) while (true) {
 					switch (tok()) {
+						case Token.PClose:
+							fail("Unexpected `)`, remove trailing `,` comma")
 						case Token.LUpper:
 							argNames.push(null)
 							args.push(parseExpr())
@@ -1100,9 +1111,18 @@ module {
 				next()
 				result = Node.TArrow(parseExpr(), [result], null)
 
+			// i++
 			case Token.OpIncrement:
+				switch (result) {
+					case Node.TUnop(_): return result
+				}
 				i++ result = Node.TUnop(Token.OpIncrement, true, result)
+
+			// i--
 			case Token.OpDecrement:
+				switch (result) {
+					case Node.TUnop(_): return result
+				}
 				i++ result = Node.TUnop(Token.OpDecrement, true, result)
 
 			// a.b
