@@ -353,13 +353,21 @@ module {
 				for (e in el) els.push(nodeToExpression(e))
 				return NiceExpression.Array(els)
 
+				// `nullable ?? otherwise`
 				case Node.TElvis(nullable, otherwise):
-				return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
+					let result = unique('result')
+					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block([
+						NiceStatement.Const(result, nodeToExpression(nullable)),
+						NiceStatement.If(NiceExpression.Binop(NiceExpression.Ident(result), Token.OpNotEq, NiceExpression.Null), NiceStatement.Return(NiceExpression.Ident(result)), null),
+						NiceStatement.Return(nodeToExpression(otherwise))
+					]), [])), [])
+					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Node.TUnop(op, postfix, e):
-				return NiceExpression.Unop(op, postfix, nodeToExpression(e))
+					return NiceExpression.Unop(op, postfix, nodeToExpression(e))
 
-				case Node.TThis: return NiceExpression.This
+				case Node.TThis:
+					return NiceExpression.This
 
 				case Node.TMap(keys, values):
 				let k = []
