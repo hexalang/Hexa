@@ -49,13 +49,71 @@ module {
 			header.push('#include <stdarg.h>')
 			header.push('#include <stdio.h>') // printf
 			header.push('#include <stdlib.h>') // malloc
-			header.push('#include "hexa.h"')
-			header.push('#ifdef __cplusplus')
 			header.push('extern "C" {')
-			header.push('#endif')
+			header.push('class ARC_ { public: uint32_t rc_; };')
 
-			var out = '' // TODO [] ! [Generator finished in 447 ms]
-			// ^ replace to function out() and never do "+", always do out
+
+			let out: [String] = []
+			let forward: [String] = []
+			let types: [String] = []
+
+			// Types
+			for (e in project.enumsSimple) {
+				// No need to output simple enum values
+				if (e.staticVars.length + e.staticMethods.length == 0) continue
+				forward.push('class ' + e.name + '_;')
+				types.push('class ' + e.name + '_ {\n\tpublic:')
+				for (v in e.staticMethods) switch (v) {
+					case NiceStatement.Function(name, expr, args, defaults):
+						types.push('\n\tstatic void ' + name + '_();')
+				}
+				types.push('\n};\n')
+
+				for (v in e.staticMethods) switch (v) {
+					case NiceStatement.Function(name, expr, args, defaults):
+						out.push('void ' + e.name + '_::' + name + '_() {};\n')
+				}
+			}
+
+			for (e in project.enumsComplex) {
+				forward.push('class ' + e.name + '_;')
+			}
+
+			for (c in project.classes) {
+				forward.push('class ' + c.name + '_;')
+				types.push('class ' + c.name + '_ : public ARC_ {\n\tpublic:')
+
+				for (v in c.staticMethods) switch (v) {
+					case NiceStatement.Function(name, expr, args, defaults):
+						types.push('\n\tstatic void ' + name + '_();')
+						//out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
+				}
+
+				types.push('\n};\n')
+
+				for (v in c.staticMethods) switch (v) {
+					case NiceStatement.Function(name, expr, args, defaults):
+						out.push('void ' + c.name + '_::' + name + '_() {};\n')
+				}
+			}
+
+			// Init
+			for (init in project.init) {
+				out.push('int main(int argc, char **argv) {\n')
+				out.push('\treturn 0;\n}\n')
+			}
+
+			return (
+				header.join('\n')
+				+ '\n// Forward\n' +
+				forward.join('\n')
+				+ '\n// Types\n' +
+				types.join('')
+				+ '\n// Statements\n' +
+				out.join('')
+			).split('\n').join('\r\n')
+
+			var out = ''
 
 			// Types
 			for (e in project.enumsSimple) {
@@ -101,10 +159,6 @@ module {
 					out += '\n };'
 				}
 				out += '\n};'
-			}
-
-			for (i in project.interfaces) {
-				throw i
 			}
 
 			for (c in project.classes) {
