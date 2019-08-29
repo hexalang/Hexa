@@ -65,13 +65,17 @@ module {
 				types.push('class ' + e.name + '_ {\n\tpublic:')
 				for (v in e.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						types.push('\n\tstatic void ' + name + '_();')
+						types.push('\n\tstatic void ' + name + '_')
+						types.push(printFunctionArguments(args))
+						types.push(';')
 				}
 				types.push('\n};\n')
 
 				for (v in e.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						out.push('void ' + e.name + '_::' + name + '_() {};\n')
+						out.push('void ' + e.name + '_::' + name + '_')
+						out.push(printFunctionArguments(args))
+						out.push(' {};\n')
 				}
 			}
 
@@ -93,22 +97,36 @@ module {
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
 						if (name == null || name == 'new') {
-							types.push('\n\tvoid this_();')
-							types.push('\n\tstatic ' + c.name + '_* new_();')
+							types.push('\n\tvoid this_')
+							types.push(printFunctionArguments(args))
+							types.push(';')
+							types.push('\n\tstatic ' + c.name + '_* new_')
+							types.push(printFunctionArguments(args))
+							types.push(';')
 
 							// Init
-							out.push('void ' + c.name + '_::this_() {\n')
+							out.push('void ' + c.name + '_::this_')
+							out.push(printFunctionArguments(args))
+							out.push(' {\n')
 							out.push('};\n')
 
 							// Alloc
-							out.push(c.name + '_* ' + c.name + '_::new_() {\n')
+							out.push(c.name + '_* ' + c.name + '_::new_')
+							out.push(printFunctionArguments(args))
+							out.push(' {\n')
 							out.push('\t' + c.name + '_* _ = (' + c.name + '_*)(malloc(sizeof(' + c.name + '_)));\n')
-							out.push('\t_->this_();\n')
+							out.push('\t_->this_(')
+							out.push([for (a in args) a + '_'].join(', '))
+							out.push(');\n')
 							out.push('\treturn _;\n')
 							out.push('};\n')
 						} else {
-							types.push('\n\tvoid ' + name + '_();')
-							out.push('void ' + c.name + '_::' + name + '_() {};\n')
+							types.push('\n\tvirtual void ' + name + '_')
+							types.push(printFunctionArguments(args))
+							types.push(';')
+							out.push('void ' + c.name + '_::' + name + '_')
+							out.push(printFunctionArguments(args))
+							out.push(' {};\n')
 						}
 				}
 
@@ -121,16 +139,37 @@ module {
 
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						types.push('\n\tstatic void ' + name + '_();')
 						//out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
+						types.push('\n\tstatic void ' + name + '_')
+						types.push(printFunctionArguments(args))
+						types.push(';')
 				}
 
 				types.push('\n};\n')
 
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						out.push('void ' + c.name + '_::' + name + '_() {};\n')
+						out.push('void ' + c.name + '_::' + name + '_')
+						out.push(printFunctionArguments(args))
+						out.push('{};\n')
 				}
+			}
+
+			for (g in project.globalFuncs) switch (g) {
+				case NiceStatement.Function(name, expr, args, defaults):
+					types.push('void ' + name + '_')
+					types.push(printFunctionArguments(args))
+					types.push(';\n')
+					out.push('void ' + name + '_')
+					out.push(printFunctionArguments(args))
+					out.push(' {};\n')
+			}
+
+			for (g in project.globalVars) switch (g) {
+				case NiceStatement.Var(name, expr):
+					types.push('void* ' + name + '_;\n')
+				case NiceStatement.Const(name, expr):
+					types.push('void* ' + name + '_;\n')
 			}
 
 			// Init
@@ -467,7 +506,7 @@ module {
 		function printFunctionArguments(args: [String], defaults: [NiceExpression], types: [NodeType]) {
 			if (args.length == 0) return '(void)' // Otherwise C function takes infinite number of arguments
 			return '(' + [for (a in args.length)
-				printType(types[a]) + ' _x' + args[a]
+				'void* ' + args[a] + '_'
 			].join(', ') + ')'
 			// TODO defaults
 			// 'void* ' + args[a] + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
