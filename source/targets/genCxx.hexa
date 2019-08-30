@@ -40,17 +40,12 @@ module {
 			if (project.package.addLicenseNoticeToOutput) {
 				// rename addLicenseNoticeToOutput
 				header.push('// \(project.package.name)')
-				header.push('// \(project.package.name) \(project.package.version)')
 				header.push('// LICENSE \(project.package.license)')
 			} else {
 				header.push('// The generated code is subject to the original license')
 			}
-			header.push('#include <stdint.h>')
-			header.push('#include <stdarg.h>')
-			header.push('#include <stdio.h>') // printf
-			header.push('#include <stdlib.h>') // malloc
+			header.push(Fs.readFileSync(__dirname + '/library/cxx/hexa.cpp').toString('utf8').split('\r\n').join('\n'))
 			header.push('extern "C" {')
-			header.push('class ARC_ { public: uint32_t rc_; };')
 
 
 			let out: [String] = []
@@ -60,8 +55,8 @@ module {
 			// Types
 			for (e in project.enumsSimple) {
 				// No need to output simple enum values
-				if (e.staticVars.length + e.staticMethods.length == 0) continue
 				forward.push('class ' + e.name + '_;')
+				if (e.staticVars.length + e.staticMethods.length == 0) continue
 				types.push('class ' + e.name + '_ {\n\tpublic:')
 				for (v in e.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
@@ -81,17 +76,76 @@ module {
 
 			for (e in project.enumsComplex) {
 				forward.push('class ' + e.name + '_;')
+				types.push('class ' + e.name + '_ : public class_ {\n\tpublic:')
+				types.push('\n\tAny_** enum_;')
+				types.push('\n\tuint16_t is_;')
+				types.push('\n\tuint8_t length_;') // Amount of enum_[] to dealloc
+
+				var i = 0
+				for (name in e.names) {
+					if (e.constructors[i] != null) {
+						types.push('\n\tstatic ' + e.name + '_* ' + name + '_(')
+						types.push([for (c in e.constructors[i]) 'Any_* ' + c + '_'].join(', '))
+						types.push(');')
+
+						out.push(e.name + '_* ' + e.name + '_::' + name + '_(')
+						out.push([for (c in e.constructors[i]) 'Any_* ' + c + '_'].join(', '))
+						out.push(') {\n')
+						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(malloc(sizeof(' + e.name + '_)));\n')
+						out.push('\t_->length_ = \(e.constructors[i].length);\n')
+						out.push('\t_->enum_ = (Any_**)(malloc(sizeof(Any_*) * \(e.constructors[i].length)));\n')
+						out.push('\t_->is_ = \(i);\n')
+						for (c in e.constructors[i].length) {
+							out.push('\t_->enum_[\(c)] = \(e.constructors[i][c])_;\n')
+						}
+						out.push('\treturn _;\n')
+						out.push('};\n')
+					} else {
+						types.push('\n\tstatic ' + e.name + '_* ' + name + '_();')
+
+						out.push(e.name + '_* ' + e.name + '_::' + name + '_() {\n')
+						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(malloc(sizeof(' + e.name + '_)));\n')
+						out.push('\t_->length_ = 0;\n')
+						out.push('\t_->is_ = \(i);\n')
+						out.push('\treturn _;\n')
+						out.push('};\n')
+					}
+					i++
+				}
+
+				for (v in e.staticVars) switch (v) {
+					case NiceStatement.Var(name, expr):
+						types.push('\n\tstatic void* ' + name + '_;')
+					case NiceStatement.Const(name, expr):
+						types.push('\n\tstatic void* ' + name + '_;')
+				}
+
+				for (v in e.staticMethods) switch (v) {
+						case NiceStatement.Function(name, expr, args, defaults):
+							types.push('\n\tstatic void ' + name + '_')
+							types.push(printFunctionArguments(args))
+							types.push(';')
+
+							out.push('void ' + e.name + '_::' + name + '_')
+							out.push(printFunctionArguments(args))
+							out.push(' {};\n')
+					}
+				types.push('\n};\n')
 			}
 
 			for (c in project.classes) {
+				if (c.name == 'Any') {
+					continue
+				}
+				if (c.name == 'Bool') continue
 				forward.push('class ' + c.name + '_;')
-				types.push('class ' + c.name + '_ : public ARC_ {\n\tpublic:')
+				types.push('class ' + c.name + '_ : public class_ {\n\tpublic:')
 
 				for (v in c.vars) switch (v) {
-					case NiceStatement.Var(name, expr):
-						types.push('\n\tvoid* ' + name + '_;')
-					case NiceStatement.Const(name, expr):
-						types.push('\n\tvoid* ' + name + '_;')
+					case NiceStatement.Var(name, expr, type):
+						types.push('\n\t\(stringifyType(type)) ' + name + '_;')
+					case NiceStatement.Const(name, expr, type):
+						types.push('\n\t\(stringifyType(type)) ' + name + '_;')
 				}
 
 				for (v in c.methods) switch (v) {
@@ -108,6 +162,14 @@ module {
 							out.push('void ' + c.name + '_::this_')
 							out.push(printFunctionArguments(args))
 							out.push(' {\n')
+							// Init fields
+							for (v in c.vars) switch (v) {
+								case NiceStatement.Var(name, expr, type):
+									if (expr != null)
+									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
+								case NiceStatement.Const(name, expr, type):
+									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
+							}
 							out.push('};\n')
 
 							// Alloc
@@ -139,7 +201,6 @@ module {
 
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults):
-						//out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
 						types.push('\n\tstatic void ' + name + '_')
 						types.push(printFunctionArguments(args))
 						types.push(';')
@@ -211,29 +272,6 @@ module {
 						out += '\n' + printType(returns) + ' _x' + e.name + '_' + name
 						out += printFunctionArguments(args, defaults, types) + ' { ' + printStatement(expr) + ' };'
 				}
-			}
-
-			for (e in project.enumsComplex) {
-				// TODO union, forward, renamed
-				// Note, that we cannot use `$` or any special signs because ARM/etc assemblers do not allow them
-				out += '\nstruct _x' + e.name + ' {\n uint16_t _xindex;\n'
-				declarationsOfOpaqueTypes.push('typedef struct _x\(e.name)* _x\(e.name)')
-				var i = 0
-				if (e.names.length > 0) {
-					out += '\n union {'
-					for (name in e.names) {
-						if (e.constructors[i] != null) {
-							out += '\n  struct { '
-							out += 'void* ' + e.constructors[i].join('; void* ') + '; '
-						//	out += name + '",' + i + ', ' + e.constructors[i].join(', ')
-							out += '} _x' + name + ';'
-						//} else out += '["' + name + '",' + i + '];'
-						}
-						i++
-					}
-					out += '\n };'
-				}
-				out += '\n};'
 			}
 
 			for (c in project.classes) {
@@ -316,54 +354,8 @@ module {
 						//if (expr != null) out += ' = ' + printExpression(expr)
 						out += ';'
 						//if (expr != null) t.push(' = ' + printExpression(expr))
-					case NiceStatement.Const(name, expr, type):
-						out += '\n ' + printType(type) + ' ' + renamed + '_' + name
-						// TODO to main()
-						//if (expr != null)
-						//out += ' = ' + printExpression(expr) + ';'
-						out += ';'
-				}
-				for (v in c.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults, types, returns):
-						out += '\n ' + printType(returns) + ' ' + renamed + '_' + name
-						out += printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
-						//' { ' + printStatement(expr)/*block*/ + ' };'
 				}
 			}
-
-			for (g in project.globalFuncs) {
-				console.log('ooops g')
-				//throw g
-			}
-
-			for (g in project.globalVars) {
-				console.log('ooops gg') // declarationsOfFullTypes
-				//throw g
-			}
-
-			// Init
-			for (init in project.init) {
-				// TODO custom entry
-				out += '\nint main(int argc, char **argv) {\n '
-				out += printStatement(init)/*block*/
-				out += '\n return 0;\n}'
-			}
-
-			out += '\n#ifdef __cplusplus'
-			out += '\n}'
-			out += '\n#endif\n'
-
-			if (declarationsOfOpaqueTypes.length > 0) declarationsOfOpaqueTypes.push('\n')
-			if (declarationsOfFunctions.length > 0) declarationsOfFunctions.push('\n')
-			if (declarationsOfFullTypes.length > 0) declarationsOfFullTypes.push('\n')
-			if (declarationsOfStrings.length > 0) declarationsOfStrings.push('\n')
-
-			return header.join('\n') + '\n'
-			+ declarationsOfOpaqueTypes.join(';\n')
-			+ declarationsOfFunctions.join(';\n')
-			+ declarationsOfFullTypes.join(';\n')
-			+ declarationsOfStrings.join(';\n')
-			+ out
 		}
 
 		var tabs = ''
@@ -506,7 +498,7 @@ module {
 		function printFunctionArguments(args: [String], defaults: [NiceExpression], types: [NodeType]) {
 			if (args.length == 0) return '(void)' // Otherwise C function takes infinite number of arguments
 			return '(' + [for (a in args.length)
-				'void* ' + args[a] + '_'
+				'Any_* ' + args[a] + '_'
 			].join(', ') + ')'
 			// TODO defaults
 			// 'void* ' + args[a] + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
@@ -544,14 +536,37 @@ module {
 			//return 'void*'
 		}
 
+		function stringifyType(t: Type) {
+			switch (t) {
+				case Type.Nullable(t):
+					let name = stringifyType(t)
+					if (name == 'int32_t') return 'int32_t*'
+					if (name == 'bool') return 'bool*'
+					return name
+				case Type.UnknownNullable(handle): return stringifyType(handle.value)
+				case Type.ClassInstance(type):
+					if (type.name == 'Int') return 'int32_t'
+					if (type.name == 'Bool') return 'bool'
+					return type.name + '_*'
+				case Type.Class(type): return type.name + '_*'
+				case Type.Enum(type): return type.name + '_*'
+				case Type.EnumInstance(type): return type.name + '_*'
+				case Type.Struct(_): return 'Any_*'
+				case null: return 'Any_*'
+				case _: throw 'stringifyType ' + t
+			}
+		}
+
 		function printExpression(e: NiceExpression) {
 			last = e ?? last
 			switch (e) {
-				case NiceExpression.This: return '_xthis'
-				case NiceExpression.Ident(name): return '_x' + name
-				case NiceExpression.Null: return '((void*)0)'
-				case NiceExpression.Int(v): return '' + v
-				case NiceExpression.Float(v): return '' + v
+				case NiceExpression.This: return 'this'
+				case NiceExpression.Ident(name): return '' + name + '_'
+				case NiceExpression.Null: return 'nullptr'
+				case NiceExpression.Int(v): return v
+				case NiceExpression.Float(v):
+					if (v.indexOf('.') == -1) return v + '.0'
+					return v
 				case NiceExpression.String(s):
 
 					let s = s.split('')
@@ -590,12 +605,17 @@ module {
 						}
 					}
 
-					return '_xString_fromUTF8z("' + charsOut.join('') + '")'
-				case NiceExpression.True: return '1'
-				case NiceExpression.False: return '0'
+					return 'String_fromUTF8z("' + charsOut.join('') + '")'
+				case NiceExpression.True: return 'true'
+				case NiceExpression.False: return 'false'
 				case NiceExpression.Dot(expr, name): switch (expr) {
-					case NiceExpression.This: return '_xthis->_x' + name
-					case _: return printExpression(expr) + '->_x' + name
+					case NiceExpression.This: return 'this->' + name + '_'
+					case NiceExpression.Ident(id):
+						// Static
+						if (id.charAt(0) == id.charAt(0).toUpperCase())
+							return id + '_::' + name + '_'
+						return printExpression(expr) + '->' + name + '_'
+					case _: return printExpression(expr) + '->' + name + '_'
 				}
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
 				case NiceExpression.Function(name, expr, args, defaults, types, returns):
@@ -605,8 +625,9 @@ module {
 					+ printBlock(expr) + ';return _x' + name + ';})())'
 				case NiceExpression.Arrow(expr, args, defaults, types, returns):
 					return printType(returns) + ' __arrow' + printFunctionArguments(args, defaults, types) + ' { return (' + printExpression(expr) + '); }'
-				case NiceExpression.New(e, args): return '' + printExpression(e) + '_new' + printCallArguments(args)
-				case NiceExpression.Array(el): return '_xArray_new(' + [for (a in el) printExpression(a)].join(', ') + ')'
+				case NiceExpression.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
+				case NiceExpression.Array(el):
+					return 'Array_from(' + [for (a in el) printExpression(a)].join(', ') + ')'
 				case NiceExpression.Unop(op, postfix, e):
 					if (postfix) return printExpression(e) + Token.stringify(op)
 					return Token.stringify(op) + printExpression(e)
@@ -631,8 +652,8 @@ module {
 				case NiceExpression.Object(names, el):
 					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
-					if (keys.length == 0) return '_xMap_new()'
-					return '_xMap_new([' +
+					if (keys.length == 0) return 'Map_::new_()'
+					return 'Map_::new_([' +
 					[for (i in keys.length) '[' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ']'].join(', ')
 					+ '])'
 				case NiceExpression.Assignop(a, op, value):
@@ -644,7 +665,7 @@ module {
 					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
 				case NiceExpression.Enum(typeName, tagName, tag, args):
-					return '_x' + typeName + '_' + tagName + '(' + [for (a in args) printExpression(a)].join(', ') + ')'
+					return '' + typeName + '_::' + tagName + '_(' + [for (a in args) printExpression(a)].join(', ') + ')'
 
 				case _: console.error("Unknown expression kind:", (e??[])[0], e, last) return '<!-- ' + (e??[])[0] + ' -->'
 			}
