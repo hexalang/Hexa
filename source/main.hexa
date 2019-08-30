@@ -182,6 +182,8 @@ class Main {
 	}
 
 	var lines = 0
+	var targetName = 'default'
+	var targetIndex = 0
 
 	// Parses a file
 	function processFile(target: String): Node {
@@ -266,8 +268,11 @@ class Main {
 		Project.defines = pack.define ?? {:}
 
 		let t = (function () {
-			for (t in pack.targets) {
-				if (t.name == target) return t
+			for (t in pack.targets.length) {
+				if (pack.targets[t].name == target) {
+					targetIndex = t
+					return pack.targets[t]
+				}
 			}
 			Process.stdout.write("Cannot find `\(target)` target in package file\n")
 			Process.exit(1)
@@ -342,7 +347,7 @@ class Main {
 			var i = 0
 			while (i < count)
 				args.push(Process.argv[i++ + from])
-			console.log('Arguments `\(args)` ignored')
+			console.log('Arguments `' + args.join("`, `") + '` ignored')
 		}
 
 		if (Process.argv[2] == "--version") {
@@ -369,19 +374,29 @@ class Main {
 		// Get inputs
 		var currentFile = Path.resolve(Process.argv[2])
 		var currentParsedFile: ParsedPath = Path.parse(currentFile)
-		var input: Package? = null
+		var input: Package = null
 		var packageFolder: String = currentParsedFile.dir
 
 		// Build the selected project
 		if (currentParsedFile.ext == ".json") {
-			input = loadPackage(currentFile, "default")
-			ignoreArguments(3)
-			console.log("[Building \(input.name)]")
+			process.argv.shift()
+			process.argv.shift()
+			process.argv.shift()
+			if (process.argv[0] == '--target') {
+				process.argv.shift()
+				targetName = process.argv[0] ?? 'default'
+			}
+			input = loadPackage(currentFile, targetName)
+			ignoreArguments(0)
+			if (targetName != 'default')
+				console.log("[Building \(input.name) - \(targetName)]")
+			else
+				console.log("[Building \(input.name)]")
 		}
 		// Search for project in the selected folder
 		else if (Fs.existsSync(currentFile), Fs.lstatSync(currentFile).isDirectory()) {
 			ignoreArguments(3)
-			input = loadPackage(currentFile + Path.sep + "hexa.json", "default")
+			input = loadPackage(currentFile + Path.sep + "hexa.json", targetName)
 			packageFolder = currentFile
 		}
 		// Evaluate file directly
@@ -443,11 +458,11 @@ class Main {
 		registerTarget('native', GenCxx.spawn)
 
 		// Perform code generation
-		if (let generatorName = input.targets[0].generator) {
+		if (let generatorName = input.targets[targetIndex].generator) {
 			if (let generatorSpawner = generators.get(generatorName)) {
 				let generator = generatorSpawner()
-				let target = packageFolder + Path.sep + Path.parse(input.targets[0].output).name + generator.extension
-				let target = Path.join(packageFolder, input.targets[0].output)
+				let target = packageFolder + Path.sep + Path.parse(input.targets[targetIndex].output).name + generator.extension
+				let target = Path.join(packageFolder, input.targets[targetIndex].output)
 				normalizer.keywords = generator.reserved
 				normalizer.collected = files
 				normalizer.nativeEnums = generator.nativeEnums
