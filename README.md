@@ -122,7 +122,7 @@ If license is not mentioned in header then LICENSE file in upper directory level
 **TL;DR**
 
 Compiler and some tools are under Lesser GPL 2.1 (feel free to include as a library in closed source projects),
-standard libraries are under MIT.
+standard libraries and examples are under MIT.
 
 ### Lesser GPL 2.1 with linking exception (to make it compatible with iOS apps)
 
