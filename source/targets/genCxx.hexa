@@ -59,17 +59,17 @@ module {
 				if (e.staticVars.length + e.staticMethods.length == 0) continue
 				types.push('class ' + e.name + '_ {\n\tpublic:')
 				for (v in e.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
+					case NiceStatement.Function(name, expr, args, defaults, funcType):
 						types.push('\n\tstatic void ' + name + '_')
-						types.push(printFunctionArguments(args))
+						types.push(printFunctionArguments(args, funcType))
 						types.push(';')
 				}
 				types.push('\n};\n')
 
 				for (v in e.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
+					case NiceStatement.Function(name, expr, args, defaults, funcType):
 						out.push('void ' + e.name + '_::' + name + '_')
-						out.push(printFunctionArguments(args))
+						out.push(printFunctionArguments(args, funcType))
 						out.push(' {};\n')
 				}
 			}
@@ -121,13 +121,13 @@ module {
 				}
 
 				for (v in e.staticMethods) switch (v) {
-						case NiceStatement.Function(name, expr, args, defaults):
+						case NiceStatement.Function(name, expr, args, defaults, funcType):
 							types.push('\n\tstatic void ' + name + '_')
-							types.push(printFunctionArguments(args))
+							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
 
 							out.push('void ' + e.name + '_::' + name + '_')
-							out.push(printFunctionArguments(args))
+							out.push(printFunctionArguments(args, funcType))
 							out.push(' {};\n')
 					}
 				types.push('\n};\n')
@@ -149,18 +149,19 @@ module {
 				}
 
 				for (v in c.methods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
+					case NiceStatement.Function(name, expr, args, defaults, funcType):
 						if (name == null || name == 'new') {
+							types.push('\n\t' + c.name + '_() {};') // For placement new
 							types.push('\n\tvoid this_')
-							types.push(printFunctionArguments(args))
+							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
 							types.push('\n\tstatic ' + c.name + '_* new_')
-							types.push(printFunctionArguments(args))
+							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
 
 							// Init
 							out.push('void ' + c.name + '_::this_')
-							out.push(printFunctionArguments(args))
+							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
 							// Init fields
 							for (v in c.vars) switch (v) {
@@ -174,9 +175,10 @@ module {
 
 							// Alloc
 							out.push(c.name + '_* ' + c.name + '_::new_')
-							out.push(printFunctionArguments(args))
+							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
-							out.push('\t' + c.name + '_* _ = (' + c.name + '_*)(malloc(sizeof(' + c.name + '_)));\n')
+							out.push('\tvoid* buffer_ = (' + c.name + '_*)(malloc(sizeof(' + c.name + '_)));\n')
+							out.push('\t' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
 							out.push('\t_->this_(')
 							out.push([for (a in args) a + '_'].join(', '))
 							out.push(');\n')
@@ -184,10 +186,10 @@ module {
 							out.push('};\n')
 						} else {
 							types.push('\n\tvirtual void ' + name + '_')
-							types.push(printFunctionArguments(args))
+							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
 							out.push('void ' + c.name + '_::' + name + '_')
-							out.push(printFunctionArguments(args))
+							out.push(printFunctionArguments(args, funcType))
 							out.push(' {};\n')
 						}
 				}
@@ -200,29 +202,32 @@ module {
 				}
 
 				for (v in c.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
-						types.push('\n\tstatic void ' + name + '_')
-						types.push(printFunctionArguments(args))
+					case NiceStatement.Function(name, expr, args, defaults, funcType):
+						types.push('\n\tstatic ')
+						types.push(printFunctionReturnType(funcType))
+						types.push(' ' + name + '_')
+						types.push(printFunctionArguments(args, funcType))
 						types.push(';')
 				}
 
 				types.push('\n};\n')
 
 				for (v in c.staticMethods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults):
-						out.push('void ' + c.name + '_::' + name + '_')
-						out.push(printFunctionArguments(args))
+					case NiceStatement.Function(name, expr, args, defaults, funcType):
+						out.push(printFunctionReturnType(funcType))
+						out.push(' ' + c.name + '_::' + name + '_')
+						out.push(printFunctionArguments(args, funcType))
 						out.push('{};\n')
 				}
 			}
 
 			for (g in project.globalFuncs) switch (g) {
-				case NiceStatement.Function(name, expr, args, defaults):
+				case NiceStatement.Function(name, expr, args, defaults, funcType):
 					types.push('void ' + name + '_')
-					types.push(printFunctionArguments(args))
+					types.push(printFunctionArguments(args, funcType))
 					types.push(';\n')
 					out.push('void ' + name + '_')
-					out.push(printFunctionArguments(args))
+					out.push(printFunctionArguments(args, funcType))
 					out.push(' {};\n')
 			}
 
@@ -268,9 +273,6 @@ module {
 						out += ' = ' + printExpression(expr) + ';'
 				}
 				for (v in e.staticMethods) switch (v) { // TODO forward, auto args
-					case NiceStatement.Function(name, expr, args, defaults, types, returns):
-						out += '\n' + printType(returns) + ' _x' + e.name + '_' + name
-						out += printFunctionArguments(args, defaults, types) + ' { ' + printStatement(expr) + ' };'
 				}
 			}
 
@@ -305,7 +307,9 @@ module {
 					t.push('\n ' + printType(type) + ' _x' + name + ';')
 				}
 				for (v in c.methods) switch (v) {
-					case NiceStatement.Function(name, expr, args, defaults, types, returns): // Class method
+					case NiceStatement.Function(name, expr, args, defaults): // Class method
+					let types = null
+					let returns = null
 					var declaration = printType(returns) + ' '
 					let constructor = (name == null || name == 'new')
 					if (constructor) declaration = renamed + ' '
@@ -408,9 +412,6 @@ module {
 				case NiceStatement.New(e, args): return '' + printExpression(e) + '_new' + printCallArguments(args)
 				case NiceStatement.Const(name, expr, type): return printType(type) + ' _x' + name + (expr == null? '' : ' = ' + printExpression(expr))
 				case NiceStatement.Var(name, expr, type): return printType(type) + ' _x' + name + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Function(name, expr, args, defaults, types, returns):
-					return printType(returns) + ' _x' + name + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
-					//return 'const void* _x' + name + ' = ' + ((async==true)?'async ':'') + printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
 					return 'return ' + printExpression(e)
@@ -495,8 +496,19 @@ module {
 			return '(' + [for (a in args) printExpression(a)].join(', ') + ')'
 		}
 
-		function printFunctionArguments(args: [String], defaults: [NiceExpression], types: [NodeType]) {
+		function printFunctionReturnType(funcType: Type) switch (funcType) {
+			case Type.Function(args, returns): return stringifyType(returns)
+			case _: return 'void'
+		}
+
+		function printFunctionArguments(args: [String], funcType: Type) {
 			if (args.length == 0) return '(void)' // Otherwise C function takes infinite number of arguments
+			switch (funcType) {
+				case Type.Function(types, _):
+					return '(' + [for (a in args.length)
+						stringifyType(types[a]) + ' ' + args[a] + '_'
+					].join(', ') + ')'
+			}
 			return '(' + [for (a in args.length)
 				'Any_* ' + args[a] + '_'
 			].join(', ') + ')'
@@ -542,16 +554,20 @@ module {
 					let name = stringifyType(t)
 					if (name == 'int32_t') return 'int32_t*'
 					if (name == 'bool') return 'bool*'
+					if (name == 'double') return 'double*'
 					return name
 				case Type.UnknownNullable(handle): return stringifyType(handle.value)
 				case Type.ClassInstance(type):
 					if (type.name == 'Int') return 'int32_t'
 					if (type.name == 'Bool') return 'bool'
+					if (type.name == 'Void') return 'void'
+					if (type.name == 'Float') return 'double'
 					return type.name + '_*'
 				case Type.Class(type): return type.name + '_*'
 				case Type.Enum(type): return type.name + '_*'
 				case Type.EnumInstance(type): return type.name + '_*'
 				case Type.Struct(_): return 'Any_*'
+				case Type.Function(_): return 'Any_*'
 				case null: return 'Any_*'
 				case _: throw 'stringifyType ' + t
 			}
