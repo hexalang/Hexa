@@ -981,6 +981,14 @@ module {
 				let temp = unique('temp')
 				let value = nodeToExpression(exprs[0])
 				var index = NiceExpression.Ident(temp)
+				var promoted = false
+
+				switch (typer.types.get(exprs[0])) {
+					case Type.Enum(type):
+						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
+					case Type.EnumInstance(type):
+						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
+				}
 
 				var i = 0
 				for (ec in cases) {
@@ -1003,7 +1011,9 @@ module {
 								let tag = getTag(parent, name)
 								cx.push(tag)
 							// Promote to complex enum
-							index = NiceExpression.Binop(NiceExpression.Ident(temp), Token.OpBoolAnd, NiceExpression.Index(NiceExpression.Ident(temp), NiceExpression.Int(1)))
+							if (!promoted)
+								index = NiceExpression.EnumTag(index)
+							promoted = true
 							for (arg in args.length) switch (args[arg]) {
 								case Node.TIdent(name): block.push(NiceStatement.Const(unique(name, args[arg]), NiceExpression.Index(NiceExpression.Ident(temp), NiceExpression.Int(2 + arg))))
 								case Node.TUnderscore: {}
