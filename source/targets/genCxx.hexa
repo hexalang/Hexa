@@ -73,7 +73,10 @@ module {
 						out.push(printFunctionReturnType(funcType))
 						out.push(' ' + e.name + '_::' + name + '_')
 						out.push(printFunctionArguments(args, funcType))
-						out.push(' {};\n')
+						let _currentReturnType = currentReturnType
+						currentReturnType = getFunctionReturnType(funcType)
+						out.push(' ' + printBlock(expr) + ';\n')
+						currentReturnType = _currentReturnType
 				}
 			}
 
@@ -134,7 +137,11 @@ module {
 							out.push(printFunctionReturnType(funcType))
 							out.push(' ' + e.name + '_::' + name + '_')
 							out.push(printFunctionArguments(args, funcType))
-							out.push(' {};\n')
+
+							let _currentReturnType = currentReturnType
+							currentReturnType = getFunctionReturnType(funcType)
+							out.push(' ' + printBlock(expr) + ';\n')
+							currentReturnType = _currentReturnType
 					}
 				types.push('\n};\n')
 			}
@@ -200,7 +207,10 @@ module {
 							out.push(printFunctionReturnType(funcType))
 							out.push(' ' + c.name + '_::' + name + '_')
 							out.push(printFunctionArguments(args, funcType))
+							let _currentReturnType = currentReturnType
+							currentReturnType = getFunctionReturnType(funcType)
 							out.push(' {};\n')
+							currentReturnType = _currentReturnType
 						}
 				}
 
@@ -227,7 +237,12 @@ module {
 						out.push(printFunctionReturnType(funcType))
 						out.push(' ' + c.name + '_::' + name + '_')
 						out.push(printFunctionArguments(args, funcType))
+
+						let _currentReturnType = currentReturnType
+						currentReturnType = getFunctionReturnType(funcType)
 						out.push('{};\n')
+						out.push('\t};\n')
+						currentReturnType = _currentReturnType
 				}
 			}
 
@@ -241,7 +256,11 @@ module {
 					out.push(printFunctionReturnType(funcType))
 					out.push(' ' + name + '_')
 					out.push(printFunctionArguments(args, funcType))
+
+					let _currentReturnType = currentReturnType
+					currentReturnType = getFunctionReturnType(funcType)
 					out.push(' ' + printBlock(expr) + ';\n')
+					currentReturnType = _currentReturnType
 			}
 
 			for (g in project.globalVars) switch (g) {
@@ -473,8 +492,8 @@ module {
 					return 'do {' + printStatement(e) /*block*/ + '} while (' + printExpression(econd) + ')'
 				case NiceStatement.Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-				case NiceStatement.Dot(expr, name): return printExpression(expr) + '.' + name
-
+				case NiceStatement.Dot(expr, name):
+					return printExpression(expr) + '->' + name
 				case NiceStatement.Switch(expr, cases, statements):
 					// Convert to if-else cause C++ is not fun
 					var r = '{ auto switch_ = ' + printExpression(expr) + ';'
@@ -485,7 +504,12 @@ module {
 						if (else_) r += ' else'
 						r += '\n' + tabs + 'if(('
 						let conds = []
-						for (cc in cases[i]) conds.push('switch_ == ' + printExpression(cc))
+						for (cc in cases[i]) switch (cc) {
+							case NiceExpression.Null(_):
+								conds.push('switch_ == -1')
+							case _:
+								conds.push('switch_ == ' + printExpression(cc))
+						}
 						r += conds.join(') || (') +  ')) '
 						pushTab()
 						r += printBlock(statements[i])
@@ -645,6 +669,9 @@ module {
 			case NiceExpression.True(_): return project.typer.typeBool
 			case NiceExpression.False(_): return project.typer.typeBool
 			case NiceExpression.Ident(_, type): return type
+			case NiceExpression.Parenthesis(expr): return getType(expr)
+			case NiceExpression.Call(_, _, type): return type
+			case NiceExpression.Binop(_, _, _, type): return type
 		}
 
 		function printExpression(e: NiceExpression) {
@@ -715,8 +742,10 @@ module {
 				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
 				case NiceExpression.Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
-					currentReturnType = getFunctionReturnType()
-					let result = '[&]' + printFunctionArguments(args, defaults) + printBlock(expr)
+					currentReturnType = getFunctionReturnType(funcType)
+					let result = '[&]' + printFunctionArguments(args, defaults)
+					+ '->' + printFunctionReturnType(funcType) + ' '
+					+ printBlock(expr)
 					currentReturnType = _currentReturnType
 					return result
 				case NiceExpression.Arrow(expr, args, defaults, types, returns):
@@ -740,7 +769,7 @@ module {
 					}
 					return printExpression(a) + ' ' + Token.stringify(op) + ' ' + printExpression(b)
 				case NiceExpression.Index(expr, index):
-					return  '_xArray_get(' + printExpression(expr) + ', ' + printExpression(index) + ')'
+					return  '' + printExpression(expr) + '->get_(' + printExpression(index) + ')'
 				case NiceExpression.If(econd, eif, eelse):
 					var r = ''
 					try {
