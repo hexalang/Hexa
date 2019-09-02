@@ -98,6 +98,7 @@ module {
 			project.init.push(NiceStatement.Block(init))
 			if (project.init.length > 1) throw "too many inits"
 			project.package = package
+			project.typer = typer
 
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
@@ -164,7 +165,7 @@ module {
 									throw 'staticSource is \(staticSource) for \(name)'
 							}
 					}
-					return NiceExpression.Ident(parentNames.get(source) ?? name)
+					return NiceExpression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
 
 				// `expr.name`
 				case Node.TDot(expr, name):
@@ -250,7 +251,7 @@ module {
 					}
 				}
 
-				return NiceExpression.Binop(ea, op, eb)
+				return NiceExpression.Binop(ea, op, eb, typer.types.get(e))
 
 				case Node.TNew(path, t, args, fields, el):
 				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t))
@@ -271,7 +272,7 @@ module {
 						if (expr != null) defaults.push(nodeToExpression(expr))
 						else defaults.push(null)
 				}
-				return NiceExpression.Function(name!=null?unique(name, e):null, nodeToStatement(expr), a, defaults, types, rettype)
+				return NiceExpression.Function(name!=null?unique(name, e):null, nodeToStatement(expr), a, defaults, typer.types.get(e))
 
 				case Node.TArrow(expr, vars, rettype):
 				let a = []
@@ -347,7 +348,11 @@ module {
 
 					fillLoop()
 					block.push(NiceStatement.Return(NiceExpression.Ident(result)))
-					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [])), [])
+					return NiceExpression.Call(
+						NiceExpression.Parenthesis(
+							NiceExpression.Function(null, NiceStatement.Block(block), [], [], Type.Function([], typer.types.get(e)))
+						)
+					, [])
 				}
 				let els = []
 				for (e in el) els.push(nodeToExpression(e))
@@ -360,7 +365,7 @@ module {
 						NiceStatement.Const(result, nodeToExpression(nullable)),
 						NiceStatement.If(NiceExpression.Binop(NiceExpression.Ident(result), Token.OpNotEq, NiceExpression.Null), NiceStatement.Return(NiceExpression.Ident(result)), null),
 						NiceStatement.Return(nodeToExpression(otherwise))
-					]), [])), [])
+					]), [], [], Type.Function([], typer.types.get(otherwise)))), [], typer.types.get(otherwise))
 					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Node.TUnop(op, postfix, e):
@@ -525,8 +530,8 @@ module {
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
-								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
-								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
+								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
