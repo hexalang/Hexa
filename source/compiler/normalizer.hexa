@@ -478,8 +478,8 @@ module {
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
-								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
-								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
+								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
@@ -606,8 +606,8 @@ module {
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(f) ?? unique(name, f)
-								if (const) type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr), t))
-								else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), t))
+								if (const) type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								type.property.push(uname)
 						}
 					case Node.TFunction(name, expr, vars, rettype):
@@ -627,8 +627,8 @@ module {
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
-								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr)))
-								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr)))
+								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
@@ -690,8 +690,8 @@ module {
 				case Node.TVar(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
 				if (external) return null
-				if (const) return NiceStatement.Const(uname, nodeToExpression(expr), t)
-				return NiceStatement.Var(uname, nodeToExpression(expr), t)
+				if (const) return NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(e))
+				return NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(e))
 
 				case Node.TFunction(name, expr, vars, rettype, external):
 				let uname = name!=null?(parentNames.get(e) ?? unique(name, e)):null
@@ -718,8 +718,8 @@ module {
 					// otherwise infinite loop happens
 					let it = unique('it')
 					return NiceStatement.Block([
-						NiceStatement.Var(i, NiceExpression.Int(0)),
-						NiceStatement.Var(it, NiceExpression.Int(0)),
+						NiceStatement.Var(i, NiceExpression.Int(0), typer.typeInt),
+						NiceStatement.Var(it, NiceExpression.Int(0), typer.typeInt),
 						NiceStatement.While(
 							NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Int(s)),
 							NiceStatement.Block([
@@ -744,9 +744,9 @@ module {
 						let finish = unique('at')
 
 						return NiceStatement.Block([
-							NiceStatement.Var(i, NiceExpression.Int(0)),
-							NiceStatement.Var(it, NiceExpression.Int(0)),
-							NiceStatement.Var(finish, nodeToExpression(over)),
+							NiceStatement.Var(i, NiceExpression.Int(0), typer.typeInt),
+							NiceStatement.Var(it, NiceExpression.Int(0), typer.typeInt),
+							NiceStatement.Var(finish, nodeToExpression(over), typer.types.get(over)),
 							NiceStatement.While(
 								NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Ident(finish)),
 								NiceStatement.Block([
@@ -776,9 +776,9 @@ module {
 					let finish = unique('at')
 
 					return NiceStatement.Block([
-						NiceStatement.Var(i, NiceExpression.Int(0)),
-						NiceStatement.Var(it, nodeToExpression(over)),
-						NiceStatement.Var(finish, nodeToExpression(range)),
+						NiceStatement.Var(i, NiceExpression.Int(0), typer.typeInt),
+						NiceStatement.Var(it, nodeToExpression(over), typer.typeInt),
+						NiceStatement.Var(finish, nodeToExpression(range), typer.typeInt),
 						NiceStatement.While(
 							NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Ident(finish)),
 							NiceStatement.Block([
@@ -825,7 +825,7 @@ module {
 				var current = 0
 				// Builds kind of state machine here
 				let step = unique('step')
-				block.push(NiceStatement.Var(step, NiceExpression.Int(0)))
+				block.push(NiceStatement.Var(step, NiceExpression.Int(0), typer.typeInt))
 				var nullable = false
 				var last = ''
  				switch (econd[0]) {
@@ -1046,7 +1046,7 @@ module {
 					i++
 				}
 
-				return NiceStatement.Block([NiceStatement.Const(temp, value), NiceStatement.Switch(index, c, s)])
+				return NiceStatement.Block([NiceStatement.Const(temp, value, typer.types.get(typer.parents.get(exprs[0]))), NiceStatement.Switch(index, c, s)])
 
 				case Node.TVars(vars):
 				let s = []
