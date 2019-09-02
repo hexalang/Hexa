@@ -22,7 +22,6 @@ extern "C" {
 	typedef IID* REFIID;
 	#define __stdcall__
 	// Data
-
 	// Types
 	class class_ {
 		public:
@@ -31,10 +30,38 @@ extern "C" {
 		virtual ULONG   __stdcall__ AddRef();
 		virtual ULONG   __stdcall__ Release();
 		uint32_t rc_;
+		// Reflection
+		// Set field
+		virtual Any_* var_(String_* name_, Any_* value_) { return nullptr; };
+		// Get field
+		virtual Any_* let_(String_* name_) { return nullptr; };
+		virtual String_* toString_() { return nullptr; };
 	};
+	// Just {:}, allows new fields adding via reflection
+	class Object_ : public class_ {};
+	extern "C++" {
+	template <typename T>
+	// Only for basic types! DO *NOT* USE AS POINTER!!!
+	class null_ {
+		public:
+		T this_;
+		bool nullptr_;
+		bool operator == (std::nullptr_t) {
+			return this->nullptr_ == true;
+		};
+		bool operator != (std::nullptr_t) {
+			return this->nullptr_ != true;
+		};
+	};};
 	// Functions
 	String_* String_fromUTF8z(const char* str) {
 		return nullptr;
+	};
+	String_* String__null_;
+	String_* String_OpAdd(class_* a_, class_* b_) {
+		String_* sa_ = (a_ == nullptr)? String__null_ : a_->toString_();
+		String_* sb_ = (b_ == nullptr)? String__null_ : b_->toString_();
+		return String__null_;
 	};
 	Array_* Array_from(...) {
 		return nullptr;
@@ -44,12 +71,18 @@ extern "C" {
 	};
 	ULONG class_::AddRef() {
 		return ++this->rc_;
-	}
+	};
 	ULONG class_::Release() {
 		return --this->rc_;
-	}
+	};
 	HRESULT class_::QueryInterface(REFIID riid, void **ppvObject) {
 		return 0;
+	};
+	Any_* Bool_true;
+	Any_* Bool_false; // So `==` works
+	Any_* Any_fromBool(bool this_) {
+		if (this_) return Bool_true;
+		return Bool_false;
 	}
 	// End of runtime code under MIT license
-}
+};
