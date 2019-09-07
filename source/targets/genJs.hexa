@@ -91,8 +91,8 @@ module {
 					for (name in e.names) { // Only values *with* parameters
 						if (e.constructors[i] != null) {
 							out.push('\n\t\t' + name + ': ')
-							out.push('(' + e.constructors[i].join(',') + ')=>["')
-							out.push(name + '",' + i + ',' + e.constructors[i].join(','))
+							out.push('(' + e.constructors[i].join(',') + ')=>[')
+							out.push('' + i + ',' + e.constructors[i].join(','))
 							out.push('],')
 						}
 						i++
@@ -104,7 +104,7 @@ module {
 				for (name in e.names) { // Only values *without* parameters
 					if (e.constructors[i] != null) {
 					} else {
-						out.push('\n\tObject.defineProperty(' + e.name + ', "' + name + '", { get: function() { return ["' + name + '",' + i + '] }})')
+						out.push('\n\tObject.defineProperty(' + e.name + ', "' + name + '", { get: function() { return [' + i + '] }})')
 						/*
 							Sadly, this optimization breaks object inequality (for Map's):
 							out.push('E.name = ["' + name + '",' + i + '];')
@@ -208,9 +208,9 @@ module {
 				out.push('\n\t}')
 			}
 
-			out[constantsIndex] = constants.join('')
 			if (toIterator)
-				out.push('\n\tfunction $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };')
+				constants.unshift('\n\tfunction $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };')
+			out[constantsIndex] = constants.join('')
 			out.push('\n})();\n')
 			return out.join('')
 		}
@@ -467,7 +467,7 @@ module {
 					}
 				case NiceExpression.EnumTag(expr):
 					let e = printExpression(expr)
-					return e + '&&' + e + '[1]'
+					return e + '&&' + e + '[0]'
 				case NiceExpression.Object(names, el):
 					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
 				case NiceExpression.Map(keys, values):
@@ -486,7 +486,7 @@ module {
 				case NiceExpression.UnsafeBitCast(e, t): return '(' + printExpression(e) + ')'
 				case NiceExpression.Is(e, t): return '((' + printExpression(e) + ') instanceof ' + Type.stringify(t) + ')'
 				case NiceExpression.Enum(type, tagName, tag, args):
-					return ('(["' + tagName + '",' + printExpression(tag) + ',' + [for (a in args) printExpression(a)].join(',') + '])')
+					return ('([' + printExpression(tag) + ',' + [for (a in args) printExpression(a)].join(',') + '])')
 				case null:
 					console.error("Got null expression kind in JavaScript generator, probably unsupported feature was used, ignoring")
 				case _:
