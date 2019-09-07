@@ -77,7 +77,7 @@ module {
 			}
 
 			for (e in project.enumsComplex) {
-				if (e.staticMethods.length == 0)
+				if (e.staticMethods.length == 0, e.names.length == 0)
 					out.push('\n\tvar ' + e.name + ' = {}')
 				else {
 					out.push('\n\tvar ' + e.name + ' = {')
@@ -87,16 +87,22 @@ module {
 							out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
 							out.push(',')
 					}
+					var i = 0
+					for (name in e.names) { // Only values *with* parameters
+						if (e.constructors[i] != null) {
+							out.push('\n\t\t' + name + ': ')
+							out.push('(' + e.constructors[i].join(',') + ')=>["')
+							out.push(name + '",' + i + ',' + e.constructors[i].join(','))
+							out.push('],')
+						}
+						i++
+					}
 					out.push('\n\t}')
 				}
 
 				var i = 0
-				for (name in e.names) {
+				for (name in e.names) { // Only values *without* parameters
 					if (e.constructors[i] != null) {
-						out.push('\n\t' + e.name + '.' + name + ' = ')
-						out.push('(' + e.constructors[i].join(',') + ')=>["')
-						out.push(name + '",' + i + ',' + e.constructors[i].join(','))
-						out.push('];')
 					} else {
 						out.push('\n\tObject.defineProperty(' + e.name + ', "' + name + '", { get: function() { return ["' + name + '",' + i + '] }})')
 						/*
