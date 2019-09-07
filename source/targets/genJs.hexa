@@ -25,6 +25,7 @@ module {
 		var project: NiceProject
 		let extension = '.js'
 		let nativeEnums = false
+		var toIterator = false
 
 		static function spawn() {
 			return new GenJs()
@@ -46,7 +47,6 @@ module {
 			}
 
 			out.push(';(function() {\n\t"use strict"\n\tconst $global = typeof(window) === "undefined"? global : window')
-			out.push('\n\tfunction $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };')
 			out.push('\n\tif (typeof($global.require) === "undefined") { $global.require = function () {} };')
 
 			let constantsIndex = out.length
@@ -141,7 +141,7 @@ module {
 					else out.push('\n\t\t' + name)
 					out.push('(' + args.join(', ') + ') ')
 
-					if (name == null || name == 'new') {
+					if (name == null || name == 'new', c.vars.length > 0) {
 						// Init fields
 						out.push('{ ')
 						for (v in c.vars) switch (v) {
@@ -203,6 +203,8 @@ module {
 			}
 
 			out[constantsIndex] = constants.join('')
+			if (toIterator)
+				out.push('\n\tfunction $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };')
 			out.push('\n})();\n')
 			return out.join('')
 		}
@@ -319,6 +321,7 @@ module {
 				case NiceStatement.Throw(e):
 					return 'throw ' + printExpression(e)
 				case NiceStatement.For(name, over, by):
+					toIterator = true
 					return 'for (const ' + name + ' of $toIterator(' + printExpression(over) + ')) ' + printStatement(by)
 				case NiceStatement.Increment(e): return printExpression(e) + '++'
 				case NiceStatement.Decrement(e): return printExpression(e) + '--'
