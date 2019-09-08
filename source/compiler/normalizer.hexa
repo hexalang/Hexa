@@ -198,10 +198,10 @@ module {
 				}
 				return NiceExpression.Dot(nodeToExpression(expr), name)
 
-				case Node.TCall(e, args, argNames):
+				case Node.TCall(expr, args, argNames):
 
 				// Optimize `'String'.charCodeAt(0)`
-				if (args.length == 1) switch (e) {
+				if (args.length == 1) switch (expr) {
 					case Node.TDot(expr, name): if (name == 'charCodeAt') switch (expr) {
 						case Node.TString(s): if (s.indexOf('\\') == -1) switch (args[0]) {
 							case Node.TInt(v):
@@ -217,7 +217,7 @@ module {
 				}
 
 				// Enum constructor
-				if (!nativeEnums) switch (e) {
+				if (!nativeEnums) switch (expr) {
 					case Node.TDotUpper(expr, name):
 						let parent = typer.parents.get(expr)
 						switch (parent) {
@@ -226,7 +226,7 @@ module {
 									return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, a)
 						}
 				}
-				let atts = Project.mapAttributes.get(typer.parents.get(e))
+				let atts = Project.mapAttributes.get(typer.parents.get(expr))
 
 				let infix = getAtt(atts, 'infix')
 				if (infix != null) switch (infix.values[0]) {
@@ -240,8 +240,8 @@ module {
 					case _: throw '@operator takes string as argument'
 				}
 
-				let v = nodeToExpression(e)
-				return NiceExpression.Call(v, a)
+				let v = nodeToExpression(expr)
+				return NiceExpression.Call(v, a, typer.types.get(e))
 
 				case Node.TBinop(a, op, b):
 				let ea = nodeToExpression(a)
