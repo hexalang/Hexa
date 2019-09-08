@@ -80,9 +80,11 @@ extern "C" {
 	};
 	Any_* Bool_true;
 	Any_* Bool_false; // So `==` works
-	Any_* Any_fromBool(bool this_) {
+	Any_* Any_fromBool(const bool this_) {
 		if (this_) return Bool_true;
 		return Bool_false;
+	}
+	Any_* Any_fromInt(const int32_t this_) {
 	}
 	// End of runtime code under MIT license
 };
