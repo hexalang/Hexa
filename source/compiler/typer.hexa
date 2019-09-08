@@ -963,14 +963,23 @@ module {
 					var depth = 0
 					for (e in econd) {
 						switch (e) {
-							case Node.TVar(_, t, _, const):
+							case Node.TVar(name, t, expr, const):
 								if (!const)
-									fail('Only if-let bindings supported', node)
+									fail('Only if-let bindings supported, not if-var', node)
 								if (t != null)
 									fail('Do not specify a type `: T` in if-let bindings', node)
+								if (expr == null)
+									fail('if-let binding should have a value `\(name) = value', node)
 								depth++
 								pushScope()
-								fill(e)
+								pushScope()
+								fillExpression(expr)
+								popScope()
+								switch (types.get(expr)) {
+									case Type.Nullable(t): types.set(e, t)
+									case _: types.set(e, types.get(expr))
+								}
+								addScope(name, e)
 							case _:
 								fillExpression(e)
 								// Only Bool allowed
