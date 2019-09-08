@@ -426,20 +426,7 @@ module {
 											type.tagBindVars[type.fieldNames.length - 1] = tagBindVars
 											type.tagBindVarsNames[type.fieldNames.length - 1] = tagBindVarsNames
 
-											if (args.length == 0) fail('lol why 0', e)
-
-											function nodeToNodeType(node: Node): NodeType switch (node) {
-												case Node.TArray(el):
-													if (el.length > 1) fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
-													return NodeType.ParametricType("Array", [nodeToNodeType(el[0])])
-												case Node.NodeTypeValue(t):
-													return t
-												case Node.TObject(names, el):
-													let types = [for (e in el) nodeToNodeType(e)]
-													return NodeType.Object(names, types)
-												case _:
-													fail('Cannot nodeToNodeType of ' + Node.stringify(node), node)
-											}
+											if (args.length == 0) fail('Enum constructor expects more than zero arguments `(value: Type)`', e)
 
 											for (i in args.length) {
 												if (argNames[i] == null)
@@ -561,6 +548,19 @@ module {
 			let data = Project.data.get(node)
 			if (data == null) return "[Unknown]: "
 			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
+		}
+
+		static function nodeToNodeType(node: Node): NodeType switch (node) {
+			case Node.TArray(el):
+				if (el.length > 1) fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
+				return NodeType.ParametricType("Array", [nodeToNodeType(el[0])])
+			case Node.NodeTypeValue(t):
+				return t
+			case Node.TObject(names, el):
+				let types = [for (e in el) nodeToNodeType(e)]
+				return NodeType.Object(names, types)
+			case _:
+				fail('Cannot nodeToNodeType of ' + Node.stringify(node), node)
 		}
 
 		// Takes only nodes valid for `module { node }`
