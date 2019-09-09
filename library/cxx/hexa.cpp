@@ -27,8 +27,8 @@ extern "C" {
 		public:
 		// IUnknown interface
 		virtual HRESULT __stdcall__ QueryInterface(REFIID riid, void **ppvObject);
-		virtual ULONG   __stdcall__ AddRef();
-		virtual ULONG   __stdcall__ Release();
+		virtual ULONG __stdcall__ AddRef();
+		virtual ULONG __stdcall__ Release();
 		uint32_t rc_;
 		// Reflection
 		// Set field
@@ -54,11 +54,14 @@ extern "C" {
 		};
 	};};
 	// Functions
-	String_* String_fromUTF8z(const char* str) {
+	String_* String_fromUTF8z(const char* this_) {
+		return nullptr;
+	};
+	String_* String_fromInt(const int32_t this_) {
 		return nullptr;
 	};
 	String_* String__null_;
-	String_* String_OpAdd(class_* a_, class_* b_) {
+	String_* String_opAdd(class_* a_, class_* b_) {
 		String_* sa_ = (a_ == nullptr)? String__null_ : a_->toString_();
 		String_* sb_ = (b_ == nullptr)? String__null_ : b_->toString_();
 		return String__null_;
@@ -66,6 +69,11 @@ extern "C" {
 	Array_* Array_from(...) {
 		return nullptr;
 	};
+	// name, value, name, value
+	Object_* Object_from(...) {
+		return nullptr;
+	};
+	// key, value, key, value
 	Map_* Map_from(...) {
 		return nullptr;
 	};
@@ -85,6 +93,7 @@ extern "C" {
 		return Bool_false;
 	}
 	Any_* Any_fromInt(const int32_t this_) {
+		return nullptr;
 	}
 	// End of runtime code under MIT license
 };
