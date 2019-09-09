@@ -73,7 +73,7 @@ module {
 						types.push('\n\tstatic ')
 						types.push(printFunctionReturnType(funcType))
 						types.push(' ' + name + '_')
-						types.push(printFunctionArguments(args, funcType))
+						types.push(printFunctionArguments(args, funcType, true))
 						types.push(';')
 				}
 				types.push('\n};\n')
@@ -149,7 +149,7 @@ module {
 							types.push('\n\tstatic ')
 							types.push(printFunctionReturnType(funcType))
 							types.push(' ' + name + '_')
-							types.push(printFunctionArguments(args, funcType))
+							types.push(printFunctionArguments(args, funcType, true))
 							types.push(';')
 
 							out.push(printFunctionReturnType(funcType))
@@ -184,7 +184,7 @@ module {
 						if (name == null || name == 'new') {
 							types.push('\n\t' + c.name + '_() {};') // For placement new
 							types.push('\n\tvoid this_')
-							types.push(printFunctionArguments(args, funcType))
+							types.push(printFunctionArguments(args, funcType, true))
 							types.push(';')
 							types.push('\n\tstatic ' + c.name + '_* new_')
 							types.push(printFunctionArguments(args, funcType))
@@ -508,25 +508,33 @@ module {
 					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
-				case NiceStatement.Const(name, expr, type): return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printExpression(expr))
-				case NiceStatement.Var(name, expr, type): return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printExpression(expr))
+				case NiceStatement.Const(name, expr, type):
+					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
+				case NiceStatement.Var(name, expr, type):
+					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
+				case NiceStatement.Function(name, expr, args, defaults, funcType):
+					let _currentReturnType = currentReturnType
+					currentReturnType = getFunctionReturnType(funcType)
+					let result = 'auto \(name)_ = [&]' + printFunctionArguments(args, defaults)
+					+ '->' + printFunctionReturnType(funcType) + ' '
+					+ printBlock(expr)
+					currentReturnType = _currentReturnType
+					return result
 				case NiceStatement.Return(e):
 					if (e == null) return 'return'
-					if (let type = getType(e), type != currentReturnType) {
-						if (type == project.typer.typeBool) return 'return Any_fromBool(' + printExpression(e) + ')'
-					}
-					return 'return ' + printExpression(e)
+					return 'return ' + printTypeConverter(printExpression(e), getType(e), currentReturnType)
 				case NiceStatement.If(econd, eif, eelse):
 					var r = 'if (' + printExpression(econd) + ') ' + printBlock(eif)
 					if (eelse != null) r += ' else ' + printStatement(eelse)
 					return r
-				case NiceStatement.Call(e, args): return printExpression(e) + printCallArguments(args)
+				case NiceStatement.Call(e, args, expects):
+					return printExpression(e) + printCallArguments(args, expects)
 				case NiceStatement.Try(expr, t, v, catches):
 					pushTab()
-					var r = 'try {\n' + tabs
+					var r = '_try {\n' + tabs
 					r += printStatement(expr)
 					popTab()
-					r += '\n' + tabs + '} catch(' + printType(t[0]) + ' _x' + v[0] + ') {\n' + tabs + ' '
+					r += '\n' + tabs + '} _catch(' + printType(t[0]) + ' _x' + v[0] + ') {\n' + tabs + ' '
 					pushTab()
 					r += printStatement(catches[0])
 					popTab()
@@ -538,13 +546,13 @@ module {
 							let type = getType(expr)
 							if ((type == project.typer.typeAny) || (type == null))
 								return  printExpression(expr) +
-									'->var_(String_fromUTF8z("' + name + '"), ' + printExpression(v) + ')'
+									'->var_(String_fromUTF8z("' + name + '"), ' + printToAnyConverter(printExpression(v), getType(v)) + ')'
 					}
 					return printExpression(a) + ' = ' + printExpression(v)
 				case NiceStatement.Throw(e):
-					return '_xthrow(' + printExpression(e) + ')'
+					return '_throw(' + printExpression(e) + ')'
 				case NiceStatement.For(name, over, by):
-					return 'for (void* _x' + name + '; ' + printExpression(over) + ';) ' + printStatement(by)
+					return 'for (Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
 				case NiceStatement.Increment(e): return printExpression(e) + '++'
 				case NiceStatement.Decrement(e): return printExpression(e) + '--'
 				case NiceStatement.While(econd, e, pre):
@@ -552,7 +560,12 @@ module {
 					return 'do {' + printStatement(e) /*block*/ + '} while (' + printExpression(econd) + ')'
 				case NiceStatement.Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-				case NiceStatement.Dot(expr, name):
+				case NiceStatement.Dot(expr, name): switch (expr) {
+					case NiceExpression.Ident(id):
+						// Static
+						if (id.charAt(0) == id.charAt(0).toUpperCase())
+							return id + '_::' + name + '_'
+					}
 					return printExpression(expr) + '->' + name
 				case NiceStatement.Switch(expr, cases, statements):
 					// Convert to if-else cause C++ is not fun
@@ -633,7 +646,11 @@ module {
 			}
 		}
 
-		function printCallArguments(args: [NiceExpression]) {
+		function printCallArguments(args: [NiceExpression], expects: [Type]?) {
+			if (let exp = expects)
+				return '(' + [for (i in args.length)
+					printTypeConverter(printExpression(args[i]), getType(args[i]), exp[i])
+				].join(', ') + ')'
 			return '(' + [for (a in args) printExpression(a)].join(', ') + ')'
 		}
 
@@ -654,13 +671,29 @@ module {
 			return string
 		}
 
+		function printTypeConverter(string: String, from: Type, to: Type): String {
+			if (from == to) return string
+			if (from == project.typer.typeBool, to == project.typer.typeAny) return 'Any_fromBool(' + string + ')'
+			if (from == project.typer.typeAny, to == project.typer.typeBool) return '(' + string + ')->_toBool()'
+			if (from == project.typer.typeAny, to == project.typer.typeInt) return '(' + string + ')->_toInt()'
+			if (from == project.typer.typeInt, to == project.typer.typeString) return 'String_fromInt(' + string + ')'
+			if (to == project.typer.typeAny) return printToAnyConverter(string, from)
+			if (from != to) return '(' + stringifyType(to) + ')(' + string + ')'
+			return string
+		}
+
 		function printFunctionArguments(args: [String], funcType: Type, defaults: Bool = false) {
 			if (args.length == 0) return '(void)' // Otherwise C function takes infinite number of arguments
 			switch (funcType) {
 				case Type.Function(types, _):
-					return '(' + [for (a in args.length)
-						stringifyType(types[a]) + ' ' + args[a] + '_'
-					].join(', ') + ')'
+					return '(' + [for (a in args.length) {
+						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
+						if (defaults) switch (types[a]) {
+							case Type.Nullable(_): result += ' = nullptr'
+							case Type.UnknownNullable(_): result += ' = nullptr'
+						}
+						result
+					}].join(', ') + ')'
 			}
 			return '(' + [for (a in args.length)
 				'Any_* ' + args[a] + '_'
@@ -739,6 +772,9 @@ module {
 			case NiceExpression.Parenthesis(expr): return getType(expr)
 			case NiceExpression.Call(_, _, type): return type
 			case NiceExpression.Binop(_, _, _, type): return type
+			case NiceExpression.Dot(_, _, type): return type
+			case _:
+			return project.typer.typeAny
 		}
 
 		function printExpression(e: NiceExpression) {
@@ -815,8 +851,6 @@ module {
 					+ printBlock(expr)
 					currentReturnType = _currentReturnType
 					return result
-				case NiceExpression.Arrow(expr, args, defaults, types, returns):
-					return printType(returns) + ' __arrow' + printFunctionArguments(args, defaults, types) + ' { return (' + printExpression(expr) + '); }'
 				case NiceExpression.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
 				case NiceExpression.Array(el):
 					if (el.length == 0) return 'Array_::new_(0)'
@@ -830,13 +864,13 @@ module {
 				case NiceExpression.Binop(a, op, b):
 					if (op == Token.OpAdd) {
 						if (getType(a) == project.typer.typeString)
-							return 'String_OpAdd(' + printExpression(a) + ', ' + printExpression(b) + ')'
+							return 'String_opAdd(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), project.typer.typeString) + ')'
 						if (getType(b) == project.typer.typeString)
-							return 'String_OpAdd(' + printExpression(a) + ', ' + printExpression(b) + ')'
+							return 'String_opAdd(' + printTypeConverter(printExpression(a), getType(a), project.typer.typeString) + ', ' + printExpression(b) + ')'
 					}
 					return printExpression(a) + ' ' + Token.stringify(op) + ' ' + printExpression(b)
 				case NiceExpression.Index(expr, index):
-					return  '' + printExpression(expr) + '->get_(' + printExpression(index) + ')'
+					return  printExpression(expr) + '->get_(' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ')'
 				case NiceExpression.If(econd, eif, eelse):
 					var r = ''
 					try {
@@ -852,12 +886,12 @@ module {
 					let e = printExpression(expr)
 					return '(' + e + ' == nullptr? -1 : ' + e + '->is_)'
 				case NiceExpression.Object(names, el):
-					return '{' + [for (i in el.length) ((names[i]) + ':' + printExpression(el[i]))].join(', ') + '}'
+					return 'Object_from(' + [for (i in el.length) ((names[i]) + ', ' + printExpression(el[i]))].join(', ') + ')'
 				case NiceExpression.Map(keys, values):
 					if (keys.length == 0) return 'Map_::new_()'
-					return 'Map_::new_([' +
-					[for (i in keys.length) '[' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ']'].join(', ')
-					+ '])'
+					return 'Map_from(' +
+					[for (i in keys.length) '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')
+					+ ')'
 				case NiceExpression.Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 				case NiceExpression.NativeOperator(kind, args, s): switch (kind) {

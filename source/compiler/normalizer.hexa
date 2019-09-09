@@ -143,24 +143,24 @@ module {
 							if (let map = typer.parents.get(source)) switch (map) {
 								case Node.TModule(path, _):
 									let name = parentNames.get(source) ?? name
-									return NiceExpression.Ident(globalAccessor + name)
+									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
-									return NiceExpression.Dot(NiceExpression.This, name)
+									return NiceExpression.Dot(NiceExpression.This, name, typer.types.get(e))
 							}
 						case Node.TFunction(name, _):
 							if (let map = typer.parents.get(source)) switch (map) {
 								case Node.TModule(path, _):
 									return NiceExpression.Ident(globalAccessor + name)
 								case _:
-									return NiceExpression.Dot(NiceExpression.This, name)
+									return NiceExpression.Dot(NiceExpression.This, name, typer.types.get(e))
 							}
 						case Node.TStatic(f):
 							let staticSource = typer.parents.get(source)
 							switch (staticSource) {
 								case Node.TClass(t, _):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name))
+									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name), typer.types.get(e))
 								case Node.TEnum(t,_):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name))
+									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name), typer.types.get(e))
 								case _:
 									throw 'staticSource is \(staticSource) for \(name)'
 							}
@@ -173,17 +173,18 @@ module {
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
 						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
-						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
-					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
+						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+					case Node.TClass(_):
+						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				if (let type = typer.types.get(expr)) switch (type) {
 					case Type.ClassInstance(type):
 						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
 						if (let rename = renamed) {
-							return NiceExpression.Dot(nodeToExpression(expr), rename)
+							return NiceExpression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
 						}
 				}
-				return NiceExpression.Dot(nodeToExpression(expr), name)
+				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 
 				case Node.TDotUpper(expr, name):
 				let parent = typer.parents.get(expr)
@@ -323,11 +324,11 @@ module {
 					case Node.TFor(name, over, by):
 					let block = []
 					let result = unique('result')
-					block.push(NiceStatement.Const(result, NiceExpression.Array([])))
+					block.push(NiceStatement.Const(result, NiceExpression.Array([]), typer.types.get(e)))
 					let value = unique('value')
-					block.push(NiceStatement.Const(value, nodeToExpression(over)))
+					block.push(NiceStatement.Const(value, nodeToExpression(over), typer.types.get(el[0])))
 
-					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result), 'push'), [nodeToExpression(by)])
+					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push'), [nodeToExpression(by)])
 					function fillLoop() {
 						switch (over) {
 							case Node.TInt(s):
@@ -691,7 +692,12 @@ module {
 					a.push(nodeToExpression(arg))
 				}
 
-				return NiceStatement.Call(v, a)
+				var expects = []
+				switch (typer.types.get(e)) {
+					case Type.Function(args, _): expects = args
+				}
+
+				return NiceStatement.Call(v, a, expects)
 
 				case Node.TVar(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
@@ -839,7 +845,7 @@ module {
 					case Node.TVar(name, t, expr, const):
 					last = unique(name, econd[0])
 					nullable = true
-					block.push(NiceStatement.Const(last, nodeToExpression(expr), t))
+					block.push(NiceStatement.Const(last, nodeToExpression(expr), typer.types.get(econd[0])))
 					case _:
 					last = unique('temp')
 					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
