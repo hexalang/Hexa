@@ -32,6 +32,8 @@ module {
 		var declarationsOfFunctions: [String] = []
 		var declarationsOfOpaqueTypes: [String] = []
 		var declarationsOfFullTypes: [String] = []
+		/// Mapping of original strings (optimization)
+		var declarationsOfStringsMap: [String : Int] = [:]
 		var declarationsOfStrings: [String] = []
 
 		function stringify() {
@@ -51,6 +53,12 @@ module {
 			let out: [String] = []
 			let forward: [String] = []
 			let types: [String] = []
+
+			// Strings
+			registerString('') // id == 0
+			declarationsOfStringsMap.set('', 0)
+			registerString('null') // id == 1
+			declarationsOfStringsMap.set('null', 1)
 
 			// Types
 			for (e in project.enumsSimple) {
@@ -332,17 +340,20 @@ module {
 					out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
 			}
 
-			for (init in project.init) {
-				out.push('\t')
-				out.push(printStatement(init))
-				popTab()
+			let init = printStatement(project.init[0])
+			for (id in declarationsOfStrings.length) {
+				out.push('\tString_Strings[\(id)] = String_fromUTF8z("\(declarationsOfStrings[id])");\n')
 			}
 			out.push('\treturn 0;\n}\n}\n')
+			out.push('\t')
+			out.push(init)
+			popTab()
 
 			return (
 				header.join('\n')
 				+ '\n// Forward\n' +
 				forward.join('\n')
+				+ '\n\n// Strings\nString_* String_Strings[\(declarationsOfStrings.length)] = {nullptr};\n'
 				+ '\n// Types\n' +
 				types.join('')
 				+ '\n// Statements\n' +
@@ -575,7 +586,7 @@ module {
 					var else_ = false
 					for (i in cases.length) if (cases[i].length > 0) {
 						if (else_) r += ' else'
-						r += '\n' + tabs + 'if(('
+						r += '\n' + tabs + 'if (('
 						let conds = []
 						for (cc in cases[i]) switch (cc) {
 							case NiceExpression.Null(_):
@@ -706,7 +717,6 @@ module {
 			//let prefix = prefix? '' : ''
 			if (t == null) return 'void*'
 			//if (t == null) return prefix + 'void*'
-
 			switch (t) {
 				case NodeType.ParametricType(name, params):
 			//		if (name == 'Buffer') return prefix + name
@@ -726,12 +736,8 @@ module {
 		}
 
 		function printType(t: NodeType) {
-			//if (t == null) return 'void*'
-
 			let type = stringType(t, '')
-			//if (type == ': Array<Dynamic>') return ''
 			return type
-			//return 'void*'
 		}
 
 		function stringifyType(t: Type) {
@@ -777,6 +783,11 @@ module {
 			return project.typer.typeAny
 		}
 
+		function registerString(string: String): Int {
+			declarationsOfStrings.push(string)
+			return declarationsOfStrings.length - 1
+		}
+
 		function printExpression(e: NiceExpression) {
 			last = e ?? last
 			switch (e) {
@@ -787,9 +798,11 @@ module {
 				case NiceExpression.Float(v):
 					if (v.indexOf('.') == -1) return v + '.0'
 					return v
-				case NiceExpression.String(s):
+				case NiceExpression.String(string):
+					if (let id = declarationsOfStringsMap.get(string))
+						return 'String_Strings[\(id)]'
 
-					let s = s.split('')
+					let s = string.split('')
 					let charsOut = []
 					while (s.length > 0) {
 						switch (s[0]) {
@@ -825,7 +838,9 @@ module {
 						}
 					}
 
-					return 'String_fromUTF8z("' + charsOut.join('') + '")'
+					let id = registerString(charsOut.join(""))
+					declarationsOfStringsMap.set(string, id)
+					return 'String_Strings[\(id)]'
 				case NiceExpression.True: return 'true'
 				case NiceExpression.False: return 'false'
 				case NiceExpression.Dot(expr, name): switch (expr) {
