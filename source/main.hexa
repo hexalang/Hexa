@@ -314,12 +314,18 @@ class Main {
 		// Initialize compiler
 		Lexer.init()
 
+		// Cleanup argv
+		if (Process.argv[0].endsWith('node.exe') || Process.argv[0].endsWith('node')) {
+			Process.argv.shift()
+			Process.argv.shift()
+		} else if (Process.argv[0].endsWith(/*hexa*/'.exe')) Process.argv.shift()
+
 		// Exit before self-test
-		if (Process.argv[2] == "--syntax-linter") {
-			if (Process.argv.length < 4) {
+		if (Process.argv[0] == "--syntax-linter") {
+			if (Process.argv.length < 2) {
 				console.log("Usage: `hexa --syntax-linter file.hexa`")
 			} else {
-				let file = Process.argv[3]
+				let file = Process.argv[1]
 				try {
 					let content = Fs.readFileSync(file)
 					try {
@@ -356,37 +362,35 @@ class Main {
 			console.log('Arguments `' + args.join("`, `") + '` ignored')
 		}
 
-		if (Process.argv[2] == "--version") {
+		if (Process.argv[0] == "--version") {
 			console.log('Hexa \(version) on node.js ' + Process.versions.node)
-			ignoreArguments(3)
+			ignoreArguments(1)
 			Process.exit(0)
 		}
 		// Usage examples
-		else if (Process.argv[2] == "--help") {
+		else if (Process.argv[0] == "--help") {
 			console.log("Usage: `hexa project.json` or `hexa init`")
 			ignoreArguments(3)
 			Process.exit(0)
 		}
-		else if (Process.argv[2] == null) {
+		else if (Process.argv[0] == null) {
 			repl()
 			Process.exit(0)
 		}
-		else if (Process.argv[2] == "init") {
+		else if (Process.argv[0] == "init") {
 			init()
 			ignoreArguments(3)
 			Process.exit(0)
 		}
 
 		// Get inputs
-		var currentFile = Path.resolve(Process.argv[2])
+		var currentFile = Path.resolve(Process.argv[0])
 		var currentParsedFile: ParsedPath = Path.parse(currentFile)
 		var input: Package = null
 		var packageFolder: String = currentParsedFile.dir
 
 		// Build the selected project
 		if (currentParsedFile.ext == ".json") {
-			process.argv.shift()
-			process.argv.shift()
 			process.argv.shift()
 			if (process.argv[0] == '--target') {
 				process.argv.shift()
@@ -412,7 +416,7 @@ class Main {
 			return
 		}
 		else {
-			console.error('Unknown command: \(Process.argv[2])')
+			console.error('Unknown command: \(Process.argv[0])')
 			console.error('Try --help')
 			Process.exit(1)
 			return
