@@ -266,7 +266,10 @@ class Main {
 		}
 		if (pack.name == null) incorrect('name')
 		if (pack.targets == null) incorrect('targets')
-		Project.defines = pack.define ?? {:}
+		if (let define = pack.define) for (key in Reflect.ownKeys(define)) {
+			if (!Reflect.has(Project.defines, key)) // `--define` has higher priority
+				Reflect.set(Project.defines, key, Reflect.get(define, key))
+		}
 
 		let t = (function () {
 			for (t in pack.targets.length) {
@@ -319,6 +322,25 @@ class Main {
 			Process.argv.shift()
 			Process.argv.shift()
 		} else if (Process.argv[0].endsWith(/*hexa*/'.exe')) Process.argv.shift()
+
+		// Gather defines `--define name=value`
+		let defines: Any = {:}
+		while (Process.argv[0] == "--define") {
+			if (Process.argv.length < 2) {
+				console.log("Usage: `--define name=value`")
+				Process.exit(1)
+			}
+			Process.argv.shift()
+			let kv = Process.argv.shift().split('=')
+			if (kv.length < 2) {
+				console.log("Usage: `--define name=value`")
+				Process.exit(1)
+			}
+			let k = kv[0]
+			let v = JSON.parse(kv[1])
+			defines[k] = v
+		}
+		Project.defines = defines
 
 		// Exit before self-test
 		if (Process.argv[0] == "--syntax-linter") {
