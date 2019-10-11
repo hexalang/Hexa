@@ -630,6 +630,7 @@ module {
 		var insideFunction = false // `function () { insideFunction }`
 		var allowBreakAndContinue = false // Used in loops
 		var functionReturnsAType: Type? = null // `: T` is happened, or infer if `null`
+		var functionActuallyReturns: Bool = false // `return something` is actually happened
 		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
 		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
 		var thisType: Type = null // Current class
@@ -745,7 +746,7 @@ module {
 		}
 
 		// `var node: NodeType = e`
-		function mixVarTypes(t: NodeType?, e: Node?, node: Node): Type {
+		function mixVarTypes(t: NodeType?, e: Node?, node: Node) {
 			if (t != null, e != null) types.set(node, unify(toType(t, node), types.get(e), e))
 			if (t == null, e != null) types.set(node, types.get(e))
 			if (t == null, e == null) types.set(node, Type.UnknownNullable({value: null}))
@@ -760,6 +761,7 @@ module {
 			let _functionAllowedToThrow = functionAllowedToThrow
 			let _functionThrows = functionThrows
 			let _functionReturnsAType = functionReturnsAType
+			let _functionActuallyReturns = functionActuallyReturns
 			let _insideTry = insideTry
 
 			for (i in vars.length) {
@@ -774,10 +776,11 @@ module {
 				}
 			}
 
+			// Reset stack
 			var ret = if (rettype != null) toType(rettype, node) else null
 			functionReturnsAType = ret
+			functionActuallyReturns = false
 
-			// Reset stack
 			let atts = Project.mapAttributes.get(node)
 
 			if (let noThrow = DataHelper.getAttribute(atts, 'noThrow')) {
@@ -799,10 +802,13 @@ module {
 
 			ret = functionReturnsAType // Inferred
 			if (ret == null) ret = typeVoid
+			if (ret != typeVoid, expr != null, functionActuallyReturns == false)
+				fail('Function expects result of `\(Type.stringify(ret))` but never does `return value`', node)
 
 			// Restore stack
 			insideFunction = _insideFunction
 			functionReturnsAType = _functionReturnsAType
+			functionActuallyReturns = _functionActuallyReturns
 
 			// Set function type
 			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: ret, lazyTypeCheck: node))
@@ -1033,7 +1039,7 @@ module {
 										currentTagBind++
 									}
 								}
-								case Node.TIdent(name): // bind var
+								case Node.TIdent(name): // Bind (var)
 								{
 									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
 									else {
@@ -1702,6 +1708,7 @@ module {
 						if (ret == typeVoid)
 							fail('Cannot `return` a `Void` non-value', node)
 						functionReturnsAType = unify(functionReturnsAType, ret, e)
+						functionActuallyReturns = true
 					} else {
 						if (let ret = functionReturnsAType) {
 							if (ret != typeVoid)
