@@ -47,6 +47,10 @@ module {
 				atts.push(parseAttribute())
 			}
 
+			// TODO refactor
+			let pos = { line: lex.line[i], column: lex.column[i] }
+			let pos = new NodeData(pos.line, pos.column, lex.fileName)
+
 			var _static = false
 			if (tok() == Token.KStatic) {
 				_static = true
@@ -55,24 +59,36 @@ module {
 
 			switch (tok()) {
 			case Token.KPrivate:
+				// TODO
 				i++
 			case Token.KVar:
 				var f = parseExpr()
-				if (_static) f = Node.TStatic(f)
+				Project.data.set(f, pos)
+				if (_static) {
+					f = Node.TStatic(f)
+					Project.data.set(f, pos)
+				}
 				Project.mapAttributes.set(f, atts)
 				fields.push(f)
 			case Token.KFunction:
 				var f = parseExpr()
-				if (_static) f = Node.TStatic(f)
+				Project.data.set(f, pos)
+				if (_static) {
+					f = Node.TStatic(f)
+					Project.data.set(f, pos)
+				}
 				Project.mapAttributes.set(f, atts)
 				fields.push(f)
 			case Token.KLet:
 				var f = parseExpr()
-				if (_static) f = Node.TStatic(f)
+				Project.data.set(f, pos)
+				if (_static) {
+					f = Node.TStatic(f)
+					Project.data.set(f, pos)
+				}
 				Project.mapAttributes.set(f, atts)
 				fields.push(f)
 			case Token.KNew:
-				let pos = { line: lex.line[i], column: lex.column[i] }
 				i++
 				var expr = null
 				var vars: [String] = []
@@ -112,7 +128,7 @@ module {
 					v.push(Node.TVar(vars[i], types[i], values[i], true, false))
 				}
 				let field = Node.TFunction('new', expr, v, null)
-				Project.data.set(field, new NodeData(pos.line, pos.column, lex.fileName))
+				Project.data.set(field, pos)
 				fields.push(field)
 			case Token.LLower:
 				let name = getgo(Token.LLower)
