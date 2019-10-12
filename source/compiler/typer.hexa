@@ -114,22 +114,22 @@ module {
 				}
 			}
 
-			function findBasicType(name: String): ClassType {
+			function findBasicType(name: String, callback: Any): ClassType {
 				let subj = findInNamespaceRoots(name)
 				if (subj == null)
 					fail('Cannot find basic type `\(name)`. This type should be a part of standard library of the compilation target.')
-				return registerClassType(subj)
+				return registerClassType(subj, callback)
 			}
 
 			// Types cache
-			typeInt = findBasicType('Int').instantiate()
-			typeBool = findBasicType('Bool').instantiate()
-			typeFloat = findBasicType('Float').instantiate()
-			typeString = findBasicType('String').instantiate()
-			typeArray = findBasicType('Array')
-			typeMap = findBasicType('Map')
-			typeAny = findBasicType('Any').instantiate()
-			typeVoid = findBasicType('Void').instantiate()
+			findBasicType('Int', function (type) typeInt = type.instantiate())
+			findBasicType('Bool', function (type) typeBool = type.instantiate())
+			findBasicType('Float', function (type) typeFloat = type.instantiate())
+			findBasicType('String', function (type) typeString = type.instantiate())
+			findBasicType('Array', function (type) typeArray = type)
+			findBasicType('Map', function (type) typeMap = type)
+			findBasicType('Any', function (type) typeAny = type.instantiate())
+			findBasicType('Void', function (type) typeVoid = type.instantiate())
 
 			// Fill module scopes of all files at first
 			pushScope()
@@ -180,11 +180,13 @@ module {
 		}
 
 		// `class T {}`
-		function registerClassType(node: Node): ClassType {
+		function registerClassType(node: Node, callback: Any): ClassType {
 			if (let type = types.get(node)) {
 				switch (type) {
 					// Avoid typing if already typed
-					case Type.Class(t): return t
+					case Type.Class(t):
+						if (let setup = callback) setup(t)
+						return t
 				}
 			} else {
 				let type = new ClassType()
@@ -193,6 +195,7 @@ module {
 				type.parent = node
 				type.name = DataHelper.nameOf(node)
 				types.set(node, Type.Class(type))
+				if (let setup = callback) setup(type)
 
 				function getRename(f: Node): String? {
 					let atts = Project.mapAttributes.get(f)
