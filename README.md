@@ -118,5 +118,5 @@ See LICENSE files for full license texts and headers of each file
 (files in same directory may use different licensing models).
 If license is not mentioned in header then LICENSE file in upper directory level to be considered.
 
-Compiler and some tools are under Lesser GPL 2.1 (feel free to include as a library in closed source projects),
+Compiler and some tools are under Lesser GPL 3.0 (feel free to include as a library in closed source projects),
 standard libraries and examples are under MIT.
