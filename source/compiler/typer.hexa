@@ -1280,16 +1280,18 @@ module {
 
 				// `{...}`
 				case Node.TBlock(el):
-					if (el.length == 0)
-						fail('Cannot use empty block `{}` as a value, use `{:}` syntax to create empty object', node)
-					pushScope()
-					for (i in el.length) if (i < el.length - 1) {
-						fill(el[i])
+					if (el.length == 0) {
+						types.set(node, Type.Struct([], []))
+					} else {
+						pushScope()
+						for (i in el.length) if (i < el.length - 1) {
+							fill(el[i])
+						}
+						let latest = el[el.length - 1]
+						fillExpression(latest)
+						types.set(node, types.get(latest))
+						popScope()
 					}
-					let latest = el[el.length - 1]
-					fillExpression(latest)
-					types.set(node, types.get(latest))
-					popScope()
 
 				// `e.n`
 				case Node.TDot(e, n):
@@ -1370,7 +1372,7 @@ module {
 							if (index < 0) {
 								var object = ''
 								switch (e) {
-									case Node.TIdent(name): object = ' `\(name)`'
+									case Node.TIdent(name): object = ' `\(name)`' // Note a space after '
 									case _: {}
 								}
 
