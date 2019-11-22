@@ -37,7 +37,7 @@ extern "C" {
 		virtual Any_* let_(String_* name_) { return nullptr; };
 		virtual String_* toString_() { return nullptr; };
 	};
-	// Just {:}, allows new fields adding via reflection
+	// Just {}, allows new fields adding via reflection
 	class Object_ : public class_ {};
 	extern "C++" {
 	template <typename T>
