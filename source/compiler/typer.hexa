@@ -1021,88 +1021,6 @@ module {
 				case Node.TSwitch(exprs, conds, guards, cases):
 					fillSwitch(node, false)
 
-				if (false) {
-					for (e in exprs) { pushScope() fill(e) popScope() }
-
-					var i = 0
-					while (i < cases.length) {
-						pushScope()
-						var e = conds[i]
-						// Fill case condition `case pattern:`
-						var currentType = null
-						var currentTag = null
-						var currentTagBind = 0
-						function follow(e: Node) {
-							switch (e) {
-								case Node.TDot(ex, name):
-									fillExpression(e)
-								case Node.TDotUpper(ex, name):
-									fillExpression(e)
-									switch (types.get(ex)) {
-										case Type.Enum(type):
-											currentType = type
-											currentTag = name
-									}
-								case Node.TParenthesis(e): {fill(e)}
-								case Node.TUnderscore: {}
-								case Node.TNull: {}
-								case Node.TBool(_): {}
-								case Node.TInt(_): {}
-								case Node.TString(_): {}
-								case Node.TCall(ex, args, argNames): {
-									follow(ex)
-									currentTagBind = 0
-									for (ee in args) {
-										follow(ee)
-										currentTagBind++
-									}
-								}
-								case Node.TIdent(name): // Bind (var)
-								{
-									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
-									else {
-										addScope(name, e)
-
-										// Find tag bind var and set it's type:
-										if (let currentType = currentType) {
-											let indexOf = currentType.fieldNames.indexOf(currentTag)
-											let type = currentType.tagBindVars[indexOf][currentTagBind]
-											let name = currentType.tagBindVarsNames[indexOf][currentTagBind]
-											if (name == null) {
-												let available = currentType.tagBindVarsNames[indexOf].join(', ')
-												if (available.length == 0)
-													fail('No bindings available for `.' + currentTag + '`', e)
-												fail('Too many bindings requested for `.\(currentTag)`, available are: ' + available, e)
-											}
-											if (type != null) {
-												types.set(e, toType(type, e))
-											}
-											else fail('tagBindVars no type for ' + name, e)
-										} else {
-											fail('No currentType for '+name, e)
-										}
-									}
-								}
-								case Node.TBinop(a, op, b):
-								if (op == Token.OpOr) {follow(a) follow(b)}
-								else fail('' + e, e)
-								case Node.TIf(econd, _, _):
-									pushScope()
-									fill(econd[0])
-									popScope()
-								case _:
-									fail('' + e, e)
-							}
-						}
-						follow(e)
-						// Fill case result expression
-						var e = cases[i]
-						pushScope() fill(e) popScope()
-						popScope()
-						i++
-					}
-				}
-
 				// `try { } catch (e: T) { }`
 				case Node.TTry(e, t, v, ca):
 					// Save stack
@@ -1764,7 +1682,6 @@ module {
 					let prefix = const? 'let' : 'var'
 					fail('Cannot use `\(prefix) \(name)` as a value', node)
 				case Node.TSwitch(_):
-					fail('Cannot use `switch` as a value', node)
 					fillSwitch(node, true)
 				case Node.TWhile(_):
 					fail('Cannot use `while` as a value', node)
@@ -1782,7 +1699,7 @@ module {
 		function fillSwitch(node, value: Bool) {
 			switch (node) {
 				case Node.TSwitch(exprs, conds, guards, cases):
-					for (e in exprs) { pushScope() fill(e) popScope() }
+					for (e in exprs) { pushScope() fillExpression(e) popScope() }
 
 					var i = 0
 					while (i < cases.length) {
@@ -1858,7 +1775,15 @@ module {
 						follow(e)
 						// Fill case result expression
 						var e = cases[i]
-						pushScope() fill(e) popScope()
+						pushScope()
+						if (value == false) fill(e)
+						if (value == true) {
+							fillExpression(e)
+							if (types.get(node) == null) types.set(node, types.get(e))
+							else types.set(node, unify(types.get(node), types.get(e), e))
+						}
+						popScope()
+
 						popScope()
 						i++
 					}
