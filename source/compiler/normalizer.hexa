@@ -425,6 +425,14 @@ module {
 				case Node.TIs(e, t):
 					return NiceExpression.Is(nodeToExpression(e), typer.types.get(t))
 
+				// Wraps switch into function and adds `return` on every case
+				case Node.TSwitch(exprs, conds, guards, cases):
+				    let block = []
+				    let caseRet = []
+				    for (c in cases) caseRet.push(Node.TReturn(c))
+				    block.push(nodeToStatement(Node.TSwitch(exprs, conds, guards, caseRet)))
+					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [])), [])
+
 				case _: console.error('(internal warning) Unknown node type for expression:', e, Project.data.get(e))
 			}
 
@@ -954,7 +962,7 @@ module {
 				return nodeToStatement(unwrapNestedParens(inner))
 
 				case Node.TSwitch(exprs, conds, guards, cases):
-				if (exprs.length > 1) console.error('Multiple switch values not supported:', e, Project.data.get(e))
+				if (exprs.length > 1) console.error('Multiple switch values not yet supported:', e, Project.data.get(e))
 				let s = []
 				let c = []
 
