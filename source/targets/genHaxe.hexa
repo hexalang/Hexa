@@ -17,6 +17,7 @@ module
 
 // Generates Haxe https://haxe.org
 // See: `/docs/target-haxe.md`
+// TODO haxe4 mode
 class GenHaxe {
 	new () {}
 
@@ -38,10 +39,11 @@ class GenHaxe {
 
 		// Types
 		for (e in project.enumsSimple) {
-			// No need to output simple enum values
+			// TODO (Dynamic) to type
 			out += '\n' + '@:enum abstract ' + e.name + '(Dynamic) {'
 			for (v in e.names.length) {
-				out += '\n\t\tvar ' + e.names[v] + ' = ' + printExpression(e.values[v]) + ';'
+				// TODO auto-fill empty values in normalizer
+				out += '\n\tvar ' + e.names[v] + ' = ' + printExpression(e.values[v] ?? NiceExpression.Int(v)) + ';'
 			}
 			for (v in e.staticVars) switch (v) {
 				case NiceStatement.Var(name, expr, type):
@@ -52,6 +54,7 @@ class GenHaxe {
 					out += ' = ' + printExpression(expr)
 			}
 			for (v in e.staticMethods) switch (v) {
+				// TODO
 				//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				//	out += '\n\tpublic static function ' + name
 				//	out += printFunctionArguments(args, defaults, types) + printType(returns)
@@ -103,7 +106,9 @@ class GenHaxe {
 				out += '\n\tpublic var ' + name + printType(type) + ' = ' + printExpression(expr) + ';'
 			}
 
+			// TODO hint `switch (v) {}` switch does nothing
 			for (v in c.methods) switch (v) {
+				// TODO
 				//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				//if (name == null || name == 'new') out += '\n\tpublic function new'
 				//else out += '\n\tpublic function ' + name
@@ -123,6 +128,7 @@ class GenHaxe {
 			}
 
 			for (v in c.staticMethods) switch (v) {
+				// TODO
 				//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				//	out += '\n\tpublic static function ' + name
 				//	out += printFunctionArguments(args, defaults, types) + printType(returns)
@@ -135,6 +141,7 @@ class GenHaxe {
 		let globals: [String] = []
 
 		for (g in project.globalFuncs) switch (g) {
+			// TODO
 			//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 			//	globals.push('\n\tpublic static function ' + name)
 			//	globals.push(printFunctionArguments(args, defaults, types) + printType(returns))
@@ -278,7 +285,7 @@ class GenHaxe {
 			case _: console.error("Unknown statement kind:", (s??[])[0])
 		}
 
-		return '<!-- undefined -->'
+		return '{/*<!-- undefined -->*/}'
 	}
 
 	function printCallArguments(args: [NiceExpression]) {
@@ -299,7 +306,7 @@ class GenHaxe {
 		switch (t) {
 			case NodeType.ParametricType(name, params):
 				if (name == 'Buffer') return prefix + name
-				return prefix + name + '<' + [for (param in params) stringType(param, false)].join(', ') + '>'
+				return prefix + name + '<' + [for (param in (params ?? [])) stringType(param, false)].join(', ') + '>'
 			case NodeType.Type(name):
 				if (name == 'Any') return prefix + 'Dynamic'
 				return prefix + name
@@ -376,8 +383,10 @@ class GenHaxe {
 			case NiceExpression.False: return 'false'
 			case NiceExpression.Dot(expr, name): return printExpression(expr) + '.' + name
 			case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
-			case NiceExpression.Function(name, expr, args, defaults, types, returns):
+			case NiceExpression.Function(name, expr, args, defaults, funcType):
 				let name = name ?? ''
+				let returns = project.typer.typeVoid // TODO
+				let types = [] // TODO
 				return 'function ' + name + printFunctionArguments(args, defaults, types) + printType(returns) + ' ' + printBlock(expr)
 			case NiceExpression.Arrow(expr, args, defaults, types, returns):
 				return 'function ' + printFunctionArguments(args, defaults, types) + printType(returns) + ' return ' + printExpression(expr)
@@ -419,6 +428,6 @@ class GenHaxe {
 				console.error("Unknown expression kind:", (e??[])[0], e)
 		}
 
-		return '<!-- undefined -->'
+		return '{/*<!-- undefined -->*/}'
 	}
 }
