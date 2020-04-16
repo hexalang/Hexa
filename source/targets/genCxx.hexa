@@ -45,7 +45,9 @@ module
 				header.push('// The generated code is subject to the original license')
 			}
 			header.push(Fs.readFileSync(__dirname + '/library/cxx/hexa.cpp').toString('utf8').split('\r\n').join('\n'))
+			header.push('#ifdef __cplusplus')
 			header.push('extern "C" {')
+			header.push('#endif')
 
 
 			let out: [String] = []
@@ -61,9 +63,9 @@ module
 			// Types
 			for (e in project.enumsSimple) {
 				// No need to output simple enum values
-				forward.push('class ' + e.name + '_;')
+				forward.push('struct ' + e.name + '_;')
 				if (e.staticVars.length + e.staticMethods.length == 0) continue
-				types.push('class ' + e.name + '_ {\n\tpublic:')
+				types.push('struct ' + e.name + '_ {\n\t')
 
 				for (v in e.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
@@ -97,8 +99,8 @@ module
 			}
 
 			for (e in project.enumsComplex) {
-				forward.push('class ' + e.name + '_;')
-				types.push('class ' + e.name + '_ : public class_ {\n\tpublic:')
+				forward.push('struct ' + e.name + '_;')
+				types.push('struct ' + e.name + '_ : class_ {\n\t')
 				types.push('\n\tAny_** enum_;') // Enum.Name(enum_...)
 				types.push('\n\tuint16_t is_;')
 				types.push('\n\tuint8_t length_;') // Amount of enum_[] to dealloc
@@ -175,8 +177,8 @@ module
 					continue
 				}
 				if (c.name == 'Bool') continue
-				forward.push('class ' + c.name + '_;')
-				types.push('class ' + c.name + '_ : public class_ {\n\tpublic:')
+				forward.push('struct ' + c.name + '_;')
+				types.push('struct ' + c.name + '_ : class_ {\n\t')
 
 				for (v in c.vars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
@@ -342,10 +344,14 @@ module
 			for (id in declarationsOfStrings.length) {
 				out.push('\tString_Strings[\(id)] = String_fromUTF8z("\(declarationsOfStrings[id])");\n')
 			}
-			out.push('\treturn 0;\n}\n}\n')
 			out.push('\t')
 			out.push(init)
 			popTab()
+			out.push('\treturn 0;\n}\n')
+
+			out.push('#ifdef __cplusplus\n')
+			out.push('}\n')
+			out.push('#endif\n')
 
 			return (
 				header.join('\n')
