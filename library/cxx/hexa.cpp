@@ -3,13 +3,15 @@
 #include <stdio.h> // printf
 #include <stdlib.h> // malloc
 #include <new> // placement new
+#ifdef __cplusplus
 extern "C" {
+#endif
 	// Runtime code is under MIT license
 	// Forward
-	class class_;
-	class String_;
-	class Array_;
-	class Map_;
+	struct class_;
+	struct String_;
+	struct Array_;
+	struct Map_;
 	#define Any_ class_
 	typedef long LONG;
 	typedef unsigned long ULONG;
@@ -23,8 +25,7 @@ extern "C" {
 	#define __stdcall__
 	// Data
 	// Types
-	class class_ {
-		public:
+	struct class_ {
 		// IUnknown interface
 		virtual HRESULT __stdcall__ QueryInterface(REFIID riid, void **ppvObject);
 		virtual ULONG __stdcall__ AddRef();
@@ -38,12 +39,11 @@ extern "C" {
 		virtual String_* toString_() { return nullptr; };
 	};
 	// Just {}, allows new fields adding via reflection
-	class Object_ : public class_ {};
+	struct Object_ : class_ {};
 	extern "C++" {
 	template <typename T>
 	// Only for basic types! DO *NOT* USE AS POINTER!!!
-	class null_ {
-		public:
+	struct null_ {
 		T this_;
 		bool nullptr_;
 		bool operator == (std::nullptr_t) {
@@ -96,4 +96,6 @@ extern "C" {
 		return nullptr;
 	}
 	// End of runtime code under MIT license
+#ifdef __cplusplus
 };
+#endif
