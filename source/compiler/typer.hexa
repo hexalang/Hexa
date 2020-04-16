@@ -431,7 +431,7 @@ module
 				var tag = 0
 
 				switch (node) {
-					case Node.TEnum(t, f, valuesType):
+					case Node.TEnum(t, f, valuesType, extend):
 					pushScope()
 					if (let valuesType = valuesType)
 						type.fieldsTypeSimple = toType(valuesType, node)
@@ -440,6 +440,9 @@ module
 						type.fieldsTypeSimple != typeInt,
 						type.fieldsTypeSimple != typeString
 					) fail('Simple enums may be only of types `Int` and `String`', node)
+
+					if (f.length == 0, extend == null)
+						fail('Enum `\(type.name)` must have at least one value `enum \(type.name) { Value }`', node)
 
 					// Check for incompatible tag format and fill scopes
 					for (field in f) {
@@ -1734,10 +1737,24 @@ module
 
 		function fillSwitch(node, value: Bool) {
 			switch (node) {
+				// TODO extracting like this is weird, Just pass arguments to fillSwitch
 				case Node.TSwitch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fillExpression(e) popScope() }
 					if (let expr = exprs[1])
 						fail('Multiple switch values are not yet supported', expr)
+
+					// TODO if typeof(expr) == typeInt ... special code path
+					// same for simple enums
+					// and special for complex enums
+					// and error on typeVoid, type unknown (not inferred) and etc
+					// same for Normalizer
+
+					// TODO support for simple (exhaustive checked) nested patterns
+					// like A(true) A(false) and A(NonComplexEnum)
+					// complex enums may break readability... but helpful for
+					// shader langs? meh.. they require some computations
+					// (like case normalization)
+					// between mattern matching anyway
 
 					// TODO guards
 					// let expr = if (let expr = exprs[0]) expr else return
