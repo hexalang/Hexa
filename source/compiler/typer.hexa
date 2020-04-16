@@ -1736,6 +1736,20 @@ module
 			switch (node) {
 				case Node.TSwitch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fillExpression(e) popScope() }
+					if (let expr = exprs[1])
+						fail('Multiple switch values are not yet supported', expr)
+
+					// TODO guards
+					// let expr = if (let expr = exprs[0]) expr else return
+					// @guard let expr = exprs[0]
+					// Node.TMacroExpansion <- for simple debug and print of
+					// result of evaluated syntax @macro
+
+					// TODO exprs is a positive array like
+					// : [T, 1 ...] 1 or more elements, so [0] != don't require null check
+
+					// TODO error on not-all-matched patterns of enum by default,
+					// but @hint makes it only a hint and @ok to ignore
 
 					var i = 0
 					while (i < cases.length) {
@@ -1747,8 +1761,6 @@ module
 						var currentTagBind = 0
 						function follow(e: Node) {
 							switch (e) {
-								case Node.TDot(ex, name):
-									fillExpression(e)
 								case Node.TDotUpper(ex, name):
 									fillExpression(e)
 									switch (types.get(ex)) {
@@ -1757,17 +1769,28 @@ module
 											currentTag = name
 									}
 								case Node.TParenthesis(e): {fill(e)}
+								// `case _:` default case
 								case Node.TUnderscore: {}
+
+								// TODO error on complex enums
 								case Node.TNull: {}
 								case Node.TBool(_): {}
 								case Node.TInt(_): {}
 								case Node.TString(_): {}
 								case Node.TCall(ex, args, argNames): {
+									// TODO rethink nested pattern mechanics
+									// TODO don't follow nested patterns for now
 									follow(ex)
 									currentTagBind = 0
-									for (ee in args) {
-										follow(ee)
-										currentTagBind++
+
+									for (ee in args) switch (ee) {
+										case Node.TIdent(name):
+											follow(ee)
+											currentTagBind++
+										case Node.TUnderscore:
+											currentTagBind++
+										case _:
+											fail('This case pattern is not supported', e)
 									}
 								}
 								case Node.TIdent(name): // Bind (var)
@@ -1799,13 +1822,13 @@ module
 								}
 								case Node.TBinop(a, op, b):
 								if (op == Token.OpOr) {follow(a) follow(b)}
-								else fail('' + e, e)
+								else fail('This case pattern is not supported', e)
 								case Node.TIf(econd, _, _):
 									pushScope()
 									fill(econd[0])
 									popScope()
 								case _:
-									fail('' + e, e)
+									fail('This case pattern is not supported', e)
 							}
 						}
 						follow(e)
