@@ -177,6 +177,40 @@ module
 			return subj
 		}
 
+		// Generates `Did you mean xxx?`
+		// TODO use this for other errors
+		function proposeSimilar(names: [String], subject: String, what: String): String {
+			let available = 'Available \(what) are: ' + names.join(', ')
+			let subject = subject.toLowerCase()
+			let charSubj = subject.split('')
+			var bestValue = 0
+			var bestName = ''
+
+			// TODO for (name : index in _) _
+			for (name in names) {
+				let named = name.toLowerCase()
+				if (named.startsWith(subject) || subject.startsWith(named))
+					return 'Did you mean `\(name)`?\n\n' + available
+
+				var index = 0
+				var thisValue = 0
+				for (char in named.split('')) {
+					if (char == charSubj[index]) thisValue++
+					index++
+				}
+
+				if (thisValue > bestValue) {
+					bestValue = thisValue
+					bestName = name
+				}
+			}
+
+			// Avoid really useless proposals
+			if (bestValue > 2) return 'Did you mean `\(bestName)`?\n\n' + available
+
+			return available
+		}
+
 		// `class T {}`
 		function registerClassType(node: Node, callback: Any): ClassType {
 			if (let type = types.get(node)) {
@@ -1329,7 +1363,7 @@ module
 						case Type.Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0)
-								fail('Enum has no value constructor `.\(n)`', node)
+								fail('Enum has no value constructor `.\(n)`\n' + proposeSimilar(type.fieldNames.filter((element, index) => type.fieldEnumConstructor[index]), n, 'constructors'), node)
 							if (type.fieldEnumConstructor[index] != true)
 								fail('Enum field `.\(n)` is not a value constructor', node)
 							if (let fieldType = type.fieldType[index])
