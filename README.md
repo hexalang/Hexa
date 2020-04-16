@@ -70,7 +70,7 @@ Release of 0.1 expected in Fall 2019
 
 ## Study
 
-- [Follow progress](https://github.com/orgs/hexalang/projects)
+- [Follow progress](https://github.com/hexalang/hexa/issues)
 - [Sources of inspiration](https://hexalang.github.io/blog/Syntax-and-Inspiration.html)
 - [Getting started guide for beginners](https://hexalang.github.io/book/Hello.html)
 - [Some code examples](https://hexalang.github.io/book/Examples.html)
