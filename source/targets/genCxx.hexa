@@ -52,6 +52,7 @@ module
 
 			let out: [String] = []
 			let forward: [String] = []
+			let forwardFunctions: [String] = []
 			let types: [String] = []
 
 			// Strings
@@ -176,9 +177,9 @@ module
 							types.push('\n\tvoid this_')
 							types.push(printFunctionArguments(args, funcType, true))
 							types.push(';')
-							types.push('\n\tstatic ' + c.name + '_* new_')
-							types.push(printFunctionArguments(args, funcType))
-							types.push(';')
+							forwardFunctions.push(c.name + '_* ' + c.name + '_$new_')
+							forwardFunctions.push(printFunctionArguments(args, funcType))
+							forwardFunctions.push(';\n')
 
 							// Init
 							out.push('void ' + c.name + '_::this_')
@@ -195,7 +196,7 @@ module
 							out.push('};\n')
 
 							// Alloc
-							out.push(c.name + '_* ' + c.name + '_::new_')
+							out.push(c.name + '_* ' + c.name + '_$new_')
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
 							out.push('\tvoid* buffer_ = (' + c.name + '_*)(malloc(sizeof(' + c.name + '_)));\n')
@@ -329,6 +330,10 @@ module
 				header.join('\n')
 				+ '\n// Forward\n' +
 				forward.join('\n')
+
+				+ '\n// Forward functions\n' +
+				forwardFunctions.join('')
+
 				+ '\n\n// Strings\nString_* String_Strings[\(declarationsOfStrings.length)] = {nullptr};\n'
 				+ '\n// Types\n' +
 				types.join('')
@@ -493,7 +498,7 @@ module
 
 					popTab()
 					return r + '\n' + tabs + '}'
-				case NiceStatement.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
+				case NiceStatement.New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
 				case NiceStatement.Const(name, expr, type):
 					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
 				case NiceStatement.Var(name, expr, type):
@@ -840,9 +845,9 @@ module
 					+ printBlock(expr)
 					currentReturnType = _currentReturnType
 					return result
-				case NiceExpression.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
+				case NiceExpression.New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
 				case NiceExpression.Array(el):
-					if (el.length == 0) return 'Array_::new_(0)'
+					if (el.length == 0) return 'Array_$new_(0)'
 					return 'Array_from(' + [for (a in el) printExpression(a)].join(', ') + ')'
 				case NiceExpression.Unop(op, postfix, e):
 					if (postfix) return printExpression(e) + Token.stringify(op)
@@ -877,7 +882,7 @@ module
 				case NiceExpression.Object(names, el):
 					return 'Object_from(' + [for (i in el.length) ((names[i]) + ', ' + printExpression(el[i]))].join(', ') + ')'
 				case NiceExpression.Map(keys, values):
-					if (keys.length == 0) return 'Map_::new_()'
+					if (keys.length == 0) return 'Map_$new_()'
 					return 'Map_from(' +
 					[for (i in keys.length) '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')
 					+ ')'
