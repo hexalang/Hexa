@@ -6,6 +6,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define $null ((void*)0)
 	// Runtime code is under MIT license
 	// Forward
 	struct class_;
@@ -33,10 +34,10 @@ extern "C" {
 		uint32_t rc_;
 		// Reflection
 		// Set field
-		virtual Any_* var_(String_* name_, Any_* value_) { return nullptr; };
+		virtual Any_* var_(String_* name_, Any_* value_) { return (Any_*)0; };
 		// Get field
-		virtual Any_* let_(String_* name_) { return nullptr; };
-		virtual String_* toString_() { return nullptr; };
+		virtual Any_* let_(String_* name_) { return (Any_*)0; };
+		virtual String_* toString_() { return (String_*)0; }; // TODO '[object Object]'
 	};
 	// Just {}, allows new fields adding via reflection
 	struct Object_ : class_ {};
@@ -55,10 +56,10 @@ extern "C" {
 	};};
 	// Functions
 	String_* String_fromUTF8z(const char* this_) {
-		return nullptr;
+		return (String_*)0;
 	};
 	String_* String_fromInt(const int32_t this_) {
-		return nullptr;
+		return (String_*)0;
 	};
 	String_* String__null_;
 	String_* String_opAdd(class_* a_, class_* b_) {
@@ -67,15 +68,15 @@ extern "C" {
 		return String__null_;
 	};
 	Array_* Array_from(...) {
-		return nullptr;
+		return (Array_*)0;
 	};
 	// name, value, name, value
 	Object_* Object_from(...) {
-		return nullptr;
+		return (Object_*)0;
 	};
 	// key, value, key, value
 	Map_* Map_from(...) {
-		return nullptr;
+		return (Map_*)0;
 	};
 	ULONG class_::AddRef() {
 		return ++this->rc_;
@@ -93,7 +94,7 @@ extern "C" {
 		return Bool_false;
 	}
 	Any_* Any_fromInt(const int32_t this_) {
-		return nullptr;
+		return (Any_*)0;
 	}
 	// End of runtime code under MIT license
 #ifdef __cplusplus
