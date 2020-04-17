@@ -269,6 +269,7 @@ module
 
 			// Init
 			out.push('int main(int argc, char **argv) {\n')
+			out.push('\t%%%HEXA_STRINGS@@@\n')
 			pushTab()
 
 			for (e in project.enumsSimple) {
@@ -318,8 +319,10 @@ module
 			}
 
 			let init = printStatement(project.init[0])
+			let strings = ['String_Strings = (String_**)malloc(HEXA_STRINGS * sizeof(String_*));\n']
 			for (id in declarationsOfStrings.length) {
-				out.push('\tString_Strings[\(id)] = String_fromUTF8z("\(declarationsOfStrings[id])");\n')
+				// TODO set ref counting
+				strings.push('\tString_Strings[\(id)] = String_fromUTF8z("\(declarationsOfStrings[id])");\n')
 			}
 			out.push('\t')
 			out.push(init)
@@ -330,6 +333,9 @@ module
 			out.push('}\n')
 			out.push('#endif\n')
 
+			forward.push('#define HEXA_STRINGS \(declarationsOfStrings.length)')
+
+			// TODO all those to [ ].join('\n') instead of `+`
 			return (
 				header.join('\n')
 				+ '\n// Forward\n' +
@@ -338,11 +344,12 @@ module
 				+ '\n// Forward functions\n' +
 				forwardFunctions.join('')
 
-				+ '\n\n// Strings\nString_* String_Strings[\(declarationsOfStrings.length)] = {nullptr};\n'
 				+ '\n// Types\n' +
 				types.join('')
 				+ '\n// Statements\n' +
-				out.join('')
+
+				// TODO Boi, dat weird
+				out.join('').split('%%%HEXA_STRINGS@@@').join(strings.join(''))
 			).split('\n').join('\r\n')
 
 			var out = ''
