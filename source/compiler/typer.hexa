@@ -428,7 +428,6 @@ module
 				type.name = DataHelper.nameOf(node)
 				types.set(node, Type.Enum(type))
 
-				var tag = 0
 
 				switch (node) {
 					case Node.TEnum(t, f, valuesType, extend):
@@ -453,10 +452,11 @@ module
 									if (type.fieldNames.includes(name))
 										throw Typer.fail('Field `\(name)` already exists', node)
 									type.fieldNames.push(name)
+									// TODO refactor `length - 1`
 									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									type.tagBindVars[type.fieldNames.length - 1] = []
 									type.tagBindVarsNames[type.fieldNames.length - 1] = []
-									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, tag++)
+									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, type.fieldNames.length - 1)
 								case _:
 									fail('Wrong enum constructor format, should be `Name`', node)
 							}
@@ -472,7 +472,7 @@ module
 												throw Typer.fail('Field `\(name)` already exists', node)
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
-											type.fieldType[type.fieldNames.length - 1] = Type.EnumConstructor(type, tag++)
+											type.fieldType[type.fieldNames.length - 1] = Type.EnumConstructor(type, type.fieldNames.length - 1)
 											let tagBindVars = []
 											let tagBindVarsNames = []
 											type.tagBindVars[type.fieldNames.length - 1] = tagBindVars
@@ -865,7 +865,7 @@ module
 			functionActuallyReturns = _functionActuallyReturns
 
 			// Set function type
-			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: ret, lazyTypeCheck: node))
+			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: ret))
 		}
 
 		// Syntax tree traverse
@@ -1515,6 +1515,15 @@ module
 				 			}
 				 			types.set(node, returns)
 				 		case Type.EnumConstructor(type, tag):
+				 			let name = type.fieldNames[tag]
+
+				 			if (el.length > type.tagBindVars[tag].length)
+				 				fail('Too many enum parameters, required `\(name)` parameters are: ' + type.tagBindVarsNames[tag].join(', '), node)
+
+				 			// Don't allow `A.B()` syntax, require `A.B(a, b, c)` or just `A.B`
+				 			if (el.length == 0)
+				 				fail('Use syntax without empty `()`', node)
+
 				 			types.set(node, Type.EnumInstance(type, tag))
 				 		case null:
 				 			//fail('Calling null ' + Node.stringify(e), e)
