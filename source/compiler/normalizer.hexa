@@ -128,7 +128,7 @@ module
 
 				case Node.NodeTypeValue(t): switch (t) {
 					case NodeType.Type(name):
-						return NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? name)
+						return NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? name, null)
 				}
 
 				// Transform
@@ -148,7 +148,7 @@ module
 						case Node.TFunction(name, _):
 							if (let map = typer.parents.get(source)) switch (map) {
 								case Node.TModule(path, _):
-									return NiceExpression.Ident(globalAccessor + name)
+									return NiceExpression.Ident(globalAccessor + name, null)
 								case _:
 									return NiceExpression.Dot(NiceExpression.This, name, typer.types.get(e))
 							}
@@ -156,9 +156,9 @@ module
 							let staticSource = typer.parents.get(source)
 							switch (staticSource) {
 								case Node.TClass(t, _):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name), typer.types.get(e))
+									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 								case Node.TEnum(t,_):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t)), getClassDotField(staticSource, name), typer.types.get(e))
+									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 								case _:
 									throw 'staticSource is \(staticSource) for \(name)'
 							}
@@ -255,7 +255,7 @@ module
 				return NiceExpression.Binop(ea, op, eb, typer.types.get(e))
 
 				case Node.TNew(path, t, args, fields, el):
-				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t))
+				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
@@ -290,7 +290,7 @@ module
 
 				case Node.TBlock(el):
 				if (el.length == 0)
-					return NiceExpression.Object([], [])
+					return NiceExpression.Object([], [], [])
 				if (el.length == 1)
 					return nodeToExpression(el[0])
 				let block = []
@@ -304,10 +304,12 @@ module
 
 				case Node.TObject(names, el):
 				let els = []
+				let types = []
 				for (e in el) {
 					els.push(nodeToExpression(e))
+					types.push(typer.types.get(e))
 				}
-				return NiceExpression.Object(names, els)
+				return NiceExpression.Object(names, els, types)
 
 				case Node.TParenthesis(inner):
 				function unwrapNestedParens(inner: Node) {
@@ -321,7 +323,7 @@ module
 
 				case Node.TArray(el):
 				if (el.length == 1) switch (el[0]) {
-					case Node.TFor(name, over, by):
+					case Node.TFor(name, over, by, range):
 					let block = []
 					let result = unique('result')
 					block.push(NiceStatement.Const(result, NiceExpression.Array([]), typer.types.get(e)))
@@ -402,7 +404,7 @@ module
 					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
 					while (i < econd.length) {
-						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])))
+						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
 					return NiceExpression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
@@ -500,7 +502,7 @@ module
 								let uname = parentNames.get(field) ?? unique(name, field)
 								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
 								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
-							case Node.TFunction(name, expr, vars, rettype):
+							case Node.TFunction(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
@@ -553,7 +555,7 @@ module
 								let uname = parentNames.get(field) ?? unique(name, field)
 								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
 								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
-							case Node.TFunction(name, expr, vars, rettype):
+							case Node.TFunction(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
@@ -631,7 +633,7 @@ module
 								else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								type.property.push(uname)
 						}
-					case Node.TFunction(name, expr, vars, rettype):
+					case Node.TFunction(name, expr, vars, rettype, external):
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
 						let a = []
 						let defaults = []
@@ -935,7 +937,7 @@ module
 				case Node.TBinop(a, op, b):
 				switch (op) {
 					case Token.OpAssign:
-					return NiceStatement.Assign(nodeToExpression(a), nodeToExpression(b))
+					return NiceStatement.Assign(nodeToExpression(a), nodeToExpression(b), null)
 					case _:
 					let sa = nodeToStatement(a)
 					let sb = nodeToStatement(b)
@@ -983,21 +985,21 @@ module
 							case Node.TBool(v):
 								if (v) return NiceExpression.True
 								return NiceExpression.False
-							case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
-							case Node.TDotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name)
+							case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
+							case Node.TDotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
 							case Node.TBinop(a, op, b): switch (op) {
-							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b))
+							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b), null)
 								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
 							}
 							case Node.TCall(e, args, argNames): switch (e) {
 								case Node.TDotUpper(expr, name):
 									let a = []
 									for (arg in args.length) switch (args[arg]) {
-										case Node.TIdent(name): a.push(NiceExpression.Ident(unique(name, args[arg])))
+										case Node.TIdent(name): a.push(NiceExpression.Ident(unique(name, args[arg]), null))
 										case Node.TUnderscore: a.push(NiceExpression.Underscore)
 										case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
 									}
-									return NiceExpression.Call(nodeToExpression(e), a)
+									return NiceExpression.Call(nodeToExpression(e), a, null)
 								case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
 							}
 							case _:
@@ -1012,7 +1014,7 @@ module
 
 				let temp = unique('temp')
 				let value = nodeToExpression(exprs[0])
-				var index = NiceExpression.Ident(temp)
+				var index = NiceExpression.Ident(temp, null)
 				var promoted = false
 
 				switch (typer.types.get(exprs[0])) {
