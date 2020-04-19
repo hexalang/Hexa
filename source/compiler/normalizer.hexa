@@ -192,10 +192,10 @@ module
 							return tag
 						if (!nativeEnums, valuesType == null, let tag = getTag(parent, name))
 							return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, [])
-						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
-					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name)
+						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
-				return NiceExpression.Dot(nodeToExpression(expr), name)
+				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 
 				case Node.TCall(expr, args, argNames):
 
@@ -299,8 +299,9 @@ module
 					if (let s = nodeToStatement(el[i])) block.push(s)
 					i++
 				}
-				block.push(NiceStatement.Return(nodeToExpression(el[el.length - 1])))
-				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [])), [])
+				let result = el[el.length - 1]
+				block.push(NiceStatement.Return(nodeToExpression(result)))
+				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], null)), [], typer.types.get(result))
 
 				case Node.TObject(names, el):
 				let els = []
@@ -326,49 +327,58 @@ module
 					case Node.TFor(name, over, by, range):
 					let block = []
 					let result = unique('result')
-					block.push(NiceStatement.Const(result, NiceExpression.Array([]), typer.types.get(e)))
+					let resultType = typer.types.get(e) // TODO refactor to use this var below
+					block.push(NiceStatement.Const(result, NiceExpression.Array([], []), typer.types.get(e)))
 					let value = unique('value')
-					block.push(NiceStatement.Const(value, nodeToExpression(over), typer.types.get(el[0])))
+					let valueType = typer.types.get(el[0])
+					block.push(NiceStatement.Const(value, nodeToExpression(over), valueType))
 
-					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push'), [nodeToExpression(by)])
+					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [])
 					function fillLoop() {
 						switch (over) {
 							case Node.TInt(s):
 							let i = name
-							block.push(NiceStatement.Const(i, NiceExpression.Int(-1)))
+							block.push(NiceStatement.Const(i, NiceExpression.Int(-1), typer.typeInt))
 							block.push(NiceStatement.While(
 								NiceExpression.Binop(
-									NiceExpression.Parenthesis(NiceExpression.Binop(NiceExpression.Ident(i), Token.OpAdd, NiceExpression.Int(1))),
-									Token.OpLt, NiceExpression.Ident(value)),
+									NiceExpression.Parenthesis(NiceExpression.Binop(NiceExpression.Ident(i, typer.typeInt), Token.OpAdd, NiceExpression.Int(1), typer.typeInt)),
+									Token.OpLt,
+									NiceExpression.Ident(value, valueType),
+									typer.typeBool),
 								NiceStatement.Block([
-									NiceStatement.Increment(NiceExpression.Ident(i)),
+									NiceStatement.Increment(NiceExpression.Ident(i, typer.typeInt)),
 									push
 								]),
 								true))
 							return
 						}
 
-						block.push(NiceStatement.For(name, NiceExpression.Ident(value), push))
+						block.push(NiceStatement.For(name, NiceExpression.Ident(value, valueType), push))
 					}
 
 					fillLoop()
-					block.push(NiceStatement.Return(NiceExpression.Ident(result)))
+					block.push(NiceStatement.Return(NiceExpression.Ident(result, resultType)))
 					return NiceExpression.Call(
 						NiceExpression.Parenthesis(
 							NiceExpression.Function(null, NiceStatement.Block(block), [], [], Type.Function([], typer.types.get(e)))
 						)
-					, [])
+					, [], typer.types.get(e)) // TODO resultType?
 				}
 				let els = []
-				for (e in el) els.push(nodeToExpression(e))
-				return NiceExpression.Array(els)
+				let types = []
+				for (e in el) {
+					els.push(nodeToExpression(e))
+					types.push(typer.types.get(e))
+				}
+				return NiceExpression.Array(els, types)
 
 				// `nullable ?? otherwise`
 				case Node.TElvis(nullable, otherwise):
 					let result = unique('result')
+					let resultType = null // TODO
 					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block([
-						NiceStatement.Const(result, nodeToExpression(nullable)),
-						NiceStatement.If(NiceExpression.Binop(NiceExpression.Ident(result), Token.OpNotEq, NiceExpression.Null), NiceStatement.Return(NiceExpression.Ident(result)), null),
+						NiceStatement.Const(result, nodeToExpression(nullable), resultType),
+						NiceStatement.If(NiceExpression.Binop(NiceExpression.Ident(result, resultType), Token.OpNotEq, NiceExpression.Null, typer.typeBool), NiceStatement.Return(NiceExpression.Ident(result, resultType)), null),
 						NiceStatement.Return(nodeToExpression(otherwise))
 					]), [], [], Type.Function([], typer.types.get(otherwise)))), [], typer.types.get(otherwise))
 					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
@@ -384,7 +394,8 @@ module
 				let v = []
 				for (key in keys) k.push(nodeToExpression(key))
 				for (value in values) v.push(nodeToExpression(value))
-				return NiceExpression.Map(k, v)
+				// TODO probably just transfer the Map<> type itself
+				return NiceExpression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]))
 
 				case Node.TAssignop(a, op, b):
 				return NiceExpression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
@@ -432,12 +443,14 @@ module
 				    let block = []
 				    let caseRet = []
 				    var funcType = typer.typeVoid
+				    var resultType = typer.typeVoid
 				    for (c in cases) {
-				    	funcType = Type.Function([], typer.types.get(c))
+				    	resultType = typer.types.get(c)
+				    	funcType = Type.Function([], resultType)
 				    	caseRet.push(Node.TReturn(c))
 				    }
 				    block.push(nodeToStatement(Node.TSwitch(exprs, conds, guards, caseRet)))
-					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], funcType)), [])
+					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], funcType)), [], resultType)
 
 				case _: console.error('(internal warning) Unknown node type for expression:', e, Project.data.get(e))
 			}
@@ -676,19 +689,31 @@ module
 
 				// Expressions
 				case Node.TNew(path, t, args, fields, values, _):
-				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t))
+				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
 				}
-				let result = NiceStatement.New(v, a)
+				let resultType = typer.types.get(e)
 				if (fields.length > 0) {
 					let temp = unique('temp')
-					let block = [NiceStatement.Const(temp, NiceExpression.New(v, a))]
+					let block = [NiceStatement.Const(temp, NiceExpression.New(v, a), resultType)]
 					for (field in fields.length)
-						block.push(NiceStatement.Assign(NiceExpression.Dot(NiceExpression.Ident(temp), fields[field]), nodeToExpression(values[field])))
+						block.push(NiceStatement.Assign(
+							NiceExpression.Dot(
+								NiceExpression.Ident(temp, resultType),
+								fields[field],
+								null // TODO
+							),
+							nodeToExpression(values[field]),
+							null // TODO
+							)
+						)
 					return NiceStatement.Block(block)
 				}
+
+				// TODO .New should have a resulting type info?
+				let result = NiceStatement.New(v, a)
 				return result
 
 				case Node.TCall(e, args, argNames):
@@ -749,10 +774,10 @@ module
 						NiceStatement.Var(i, NiceExpression.Int(0), typer.typeInt),
 						NiceStatement.Var(it, NiceExpression.Int(0), typer.typeInt),
 						NiceStatement.While(
-							NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Int(s)),
+							NiceExpression.Binop(NiceExpression.Ident(it, typer.typeInt), Token.OpLt, NiceExpression.Int(s), typer.typeBool),
 							NiceStatement.Block([
-								NiceStatement.Assign(NiceExpression.Ident(i), NiceExpression.Ident(it)),
-								NiceStatement.Increment(NiceExpression.Ident(it)),
+								NiceStatement.Assign(NiceExpression.Ident(i, typer.typeInt), NiceExpression.Ident(it, typer.typeInt), null),
+								NiceStatement.Increment(NiceExpression.Ident(it, typer.typeInt)),
 								nodeToStatement(by)
 							]),
 							true)
@@ -776,10 +801,15 @@ module
 							NiceStatement.Var(it, NiceExpression.Int(0), typer.typeInt),
 							NiceStatement.Var(finish, nodeToExpression(over), typer.types.get(over)),
 							NiceStatement.While(
-								NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Ident(finish)),
+								NiceExpression.Binop(
+									NiceExpression.Ident(it, typer.typeInt),
+									Token.OpLt,
+									NiceExpression.Ident(finish, typer.types.get(over)),
+									typer.typeBool
+								),
 								NiceStatement.Block([
-									NiceStatement.Assign(NiceExpression.Ident(i), NiceExpression.Ident(it)),
-									NiceStatement.Increment(NiceExpression.Ident(it)),
+									NiceStatement.Assign(NiceExpression.Ident(i, typer.typeInt), NiceExpression.Ident(it, typer.typeInt), null),
+									NiceStatement.Increment(NiceExpression.Ident(it, typer.typeInt)),
 									nodeToStatement(by)
 								]),
 								true)
@@ -808,10 +838,10 @@ module
 						NiceStatement.Var(it, nodeToExpression(over), typer.typeInt),
 						NiceStatement.Var(finish, nodeToExpression(range), typer.typeInt),
 						NiceStatement.While(
-							NiceExpression.Binop(NiceExpression.Ident(it), Token.OpLt, NiceExpression.Ident(finish)),
+							NiceExpression.Binop(NiceExpression.Ident(it, typer.typeInt), Token.OpLt, NiceExpression.Ident(finish, typer.typeInt), typer.typeBool),
 							NiceStatement.Block([
-								NiceStatement.Assign(NiceExpression.Ident(i), NiceExpression.Ident(it)),
-								NiceStatement.Increment(NiceExpression.Ident(it)),
+								NiceStatement.Assign(NiceExpression.Ident(i, typer.typeInt), NiceExpression.Ident(it, typer.typeInt), null),
+								NiceStatement.Increment(NiceExpression.Ident(it, typer.typeInt)),
 								nodeToStatement(by)
 							]),
 							true)
@@ -843,7 +873,7 @@ module
 					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
 					while (i < econd.length) {
-						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])))
+						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
 					return NiceStatement.If(parens, nodeToStatement(eif), nodeToStatement(eelse))
@@ -857,6 +887,7 @@ module
 				block.push(NiceStatement.Var(step, NiceExpression.Int(0), typer.typeInt))
 				var nullable = false
 				var last = ''
+				let lastType = typer.types.get(econd[0])
  				switch (econd[0]) {
 					case Node.TVar(name, t, expr, const):
 					last = unique(name, econd[0])
@@ -864,38 +895,41 @@ module
 					block.push(NiceStatement.Const(last, nodeToExpression(expr), typer.types.get(econd[0])))
 					case _:
 					last = unique('temp')
-					block.push(NiceStatement.Const(last, nodeToExpression(econd[0])))
+					block.push(NiceStatement.Const(last, nodeToExpression(econd[0]), typer.types.get(econd[0])))
 				}
 
 				while (current < econd.length - 1) switch (econd[current + 1]) {
 					case Node.TVar(vname, t, expr, const):
 					let name = unique(vname, econd[current + 1])
-					block.push(NiceStatement.Var(name, NiceExpression.Null))
+					block.push(NiceStatement.Var(name, NiceExpression.Null, typer.types.get(expr)))
 					block.push(NiceStatement.If(
 						NiceExpression.Binop(
-							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(current + 0)),
+							NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(current + 0), typer.typeBool),
 							Token.OpBoolAnd,
-							NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False)
+							NiceExpression.Binop(NiceExpression.Ident(last, lastType), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False, typer.typeBool),
+							typer.typeBool
 						),
 						NiceStatement.Block([
-							NiceStatement.Assign(NiceExpression.Ident(name), nodeToExpression(expr)),
-							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(current + 1)), null
+							NiceStatement.Assign(NiceExpression.Ident(name, typer.types.get(expr)), nodeToExpression(expr), null),
+							NiceStatement.Assign(NiceExpression.Ident(step, typer.typeInt), NiceExpression.Int(current + 1), null)
 						]), null))
 					current++
 					last = name
 					nullable = true
 					case _:
 					let next = unique('temp')
-					block.push(NiceStatement.Var(next, NiceExpression.Null))
+					let nextType = typer.types.get(econd[0])
+					block.push(NiceStatement.Var(next, NiceExpression.Null, nextType))
 					block.push(NiceStatement.If(
 						NiceExpression.Binop(
-							NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(current + 0)),
+							NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(current + 0), typer.typeBool),
 							Token.OpBoolAnd,
-							NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False)
+							NiceExpression.Binop(NiceExpression.Ident(last, lastType), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False, typer.typeBool),
+							typer.typeBool
 						),
 						NiceStatement.Block([
-							NiceStatement.Assign(NiceExpression.Ident(next), nodeToExpression(econd[current + 1])),
-							NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(current + 1)), null
+							NiceStatement.Assign(NiceExpression.Ident(next, nextType), nodeToExpression(econd[current + 1]), null),
+							NiceStatement.Assign(NiceExpression.Ident(step, typer.typeInt), NiceExpression.Int(current + 1), null)
 						]), null))
 					current++
 					last = next
@@ -905,15 +939,16 @@ module
 				// Last step
 				block.push(NiceStatement.If(
 					NiceExpression.Binop(
-						NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(econd.length - 1)),
+						NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(econd.length - 1), typer.typeBool),
 						Token.OpBoolAnd,
-						NiceExpression.Binop(NiceExpression.Ident(last), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False)
+						NiceExpression.Binop(NiceExpression.Ident(last, lastType), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False, typer.typeBool),
+						typer.typeBool
 					),
-					NiceStatement.Assign(NiceExpression.Ident(step), NiceExpression.Int(econd.length)), null))
+					NiceStatement.Assign(NiceExpression.Ident(step, typer.typeInt), NiceExpression.Int(econd.length), null), null))
 
 				// if (step == steps)
 				block.push(NiceStatement.If(
-					NiceExpression.Binop(NiceExpression.Ident(step), Token.OpEq, NiceExpression.Int(econd.length)),
+					NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(econd.length), typer.typeBool),
 					nodeToStatement(eif), nodeToStatement(eelse)))
 
 				return NiceStatement.Block(block)
