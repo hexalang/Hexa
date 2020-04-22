@@ -182,30 +182,32 @@ module
 					case NiceStatement.Function(name, expr, args, defaults, funcType):
 						if (name == null || name == 'new') {
 							types.push('\n\t' + c.name + '_() {};') // For placement new
-							types.push('\n\tvoid this_')
-							types.push(printFunctionArguments(args, funcType, true))
-							types.push(';')
+
 							forwardFunctions.push(c.name + '_* ' + c.name + '_$new_')
 							forwardFunctions.push(printFunctionArguments(args, funcType))
 							forwardFunctions.push(';\n')
 
 							// Init
-							out.push('void ' + c.name + '_::this_')
+							out.push('void ' + c.name + '_$this_')
+							thisArgument = c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType))
+							thisArgument = null
 							out.push(' {\n')
-							out.push('\tthis->$vtable_ = &' + c.name + '_$vtable_$;\n')
+							out.push('\t$this->$vtable_ = &' + c.name + '_$vtable_$;\n')
 
 							// Init fields
+							customThis = '$this'
 							for (v in c.vars) switch (v) {
 								case NiceStatement.Var(name, expr, type):
 									if (expr != null)
-									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
+									out.push('\t$this->' + name + '_ = ' + printExpression(expr) + ';\n')
 								case NiceStatement.Const(name, expr, type):
-									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
+									out.push('\t$this->' + name + '_ = ' + printExpression(expr) + ';\n')
 							}
 							pushTab()
 							out.push('\t' + printBlock(expr) + ';\n')
 							popTab()
+							customThis = null
 							out.push('};\n')
 
 							// Alloc
@@ -214,8 +216,10 @@ module
 							out.push(' {\n')
 							out.push('\tvoid* buffer_ = (' + c.name + '_*)(malloc(sizeof(' + c.name + '_)));\n')
 							out.push('\t' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
-							out.push('\t_->this_(')
-							out.push([for (a in args) a + '_'].join(', '))
+							out.push('\t' + c.name + '_$this_(')
+							let arg = [for (a in args) a + '_']
+							arg.unshift('_')
+							out.push(arg.join(', '))
 							out.push(');\n')
 							out.push('\treturn _;\n')
 							out.push('};\n')
@@ -815,9 +819,10 @@ module
 			return declarationsOfStrings.length - 1
 		}
 
+		var customThis: String? = null
 		function printExpression(e: NiceExpression) {
 			switch (e) {
-				case NiceExpression.This: return 'this'
+				case NiceExpression.This: return customThis ?? 'this'
 				case NiceExpression.Ident(name): return '' + name + '_'
 				case NiceExpression.Null:
 					// TODO infer actual type of null in typer,
@@ -873,7 +878,7 @@ module
 				case NiceExpression.True: return 'true'
 				case NiceExpression.False: return 'false'
 				case NiceExpression.Dot(expr, name): switch (expr) {
-					case NiceExpression.This: return 'this->' + name + '_'
+					case NiceExpression.This: return (customThis ?? 'this') + '->' + name + '_'
 					case NiceExpression.Ident(id):
 						// Static
 						if (id.charAt(0) == id.charAt(0).toUpperCase())
