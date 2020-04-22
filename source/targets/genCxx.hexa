@@ -165,7 +165,11 @@ module
 				}
 				if (c.name == 'Bool') continue
 				forward.push('struct ' + c.name + '_;')
+				forward.push('struct ' + c.name + '_$vtable_;')
 				types.push('struct ' + c.name + '_ : class_ {\n\t')
+				let vtable = ['struct ' + c.name + '_$vtable_ {\n\t']
+				types.push('\n\tstruct ' + c.name + '_$vtable_* $vtable_;')
+				let vtableValue = ['struct ' + c.name + '_$vtable_ ' + c.name + '_$vtable_$ = { };\n']
 
 				for (v in c.vars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
@@ -189,6 +193,8 @@ module
 							out.push('void ' + c.name + '_::this_')
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
+							out.push('\tthis->$vtable_ = &' + c.name + '_$vtable_$;\n')
+
 							// Init fields
 							for (v in c.vars) switch (v) {
 								case NiceStatement.Var(name, expr, type):
@@ -197,6 +203,9 @@ module
 								case NiceStatement.Const(name, expr, type):
 									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
 							}
+							pushTab()
+							out.push('\t' + printBlock(expr) + ';\n')
+							popTab()
 							out.push('};\n')
 
 							// Alloc
@@ -217,6 +226,14 @@ module
 							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
 
+							thisArgument = c.name + '_* $this'
+							vtable.push('\n\t')
+							vtable.push(printFunctionReturnType(funcType))
+							vtable.push(' (*' + name + '_) ')
+							vtable.push(printFunctionArguments(args, funcType))
+							vtable.push(';')
+							thisArgument = null
+
 							out.push(printFunctionReturnType(funcType))
 							out.push(' ' + c.name + '_::' + name + '_')
 							out.push(printFunctionArguments(args, funcType))
@@ -236,6 +253,9 @@ module
 
 
 				types.push('\n};\n')
+				vtable.push('\n};\n')
+				vtable.push(vtableValue.join(''))
+				types.unshift(vtable.join(''))
 
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults, funcType):
@@ -684,10 +704,25 @@ module
 			return string
 		}
 
+		var thisArgument: String? = null
 		function printFunctionArguments(args: [String], funcType: Type, defaults: Bool = false) {
+			if (args.length == 0, thisArgument != null) return '(' + thisArgument + ')'
 			if (args.length == 0) return '(void)' // Otherwise C function takes infinite number of arguments
 			switch (funcType) {
 				case Type.Function(types, _):
+					let results: [String] = []
+					if (let thisArgument = thisArgument) results.push(thisArgument)
+
+					for (a in args.length) {
+						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
+						if (defaults) switch (types[a]) {
+							case Type.Nullable(_): result += ' = $null'
+							case Type.UnknownNullable(_): result += ' = $null'
+						}
+						results.push(result)
+					}
+					return '(' + results.join(', ') + ')'
+
 					return '(' + [for (a in args.length) {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) switch (types[a]) {
@@ -770,6 +805,7 @@ module
 			case NiceExpression.Call(_, _, type): return type
 			case NiceExpression.Binop(_, _, _, type): return type
 			case NiceExpression.Dot(_, _, type): return type
+			case NiceExpression.This(type): return type
 			case _:
 			return project.typer.typeAny
 		}
@@ -787,10 +823,10 @@ module
 					// TODO infer actual type of null in typer,
 					// to print type conversion `((T*)0)`
 					return '$null'
-				case NiceExpression.Int(v): return v
+				case NiceExpression.Int(v): return '(int32_t)' + v
 				case NiceExpression.Float(v):
-					if (v.indexOf('.') == -1) return v + '.0'
-					return v
+					if (v.indexOf('.') == -1) return '(double)' + v + '.0'
+					return '(double)' + v
 				case NiceExpression.String(string):
 					if (let id = declarationsOfStringsMap.get(string))
 						return 'String_Strings[\(id)]'
