@@ -169,7 +169,8 @@ module
 				types.push('struct ' + c.name + '_ : class_ {\n\t')
 				let vtable = ['struct ' + c.name + '_$vtable_ {\n\t']
 				types.push('\n\tstruct ' + c.name + '_$vtable_* $vtable_;')
-				let vtableValue = ['struct ' + c.name + '_$vtable_ ' + c.name + '_$vtable_$ = { };\n']
+				let vtableValue = ['struct ' + c.name + '_$vtable_ ' + c.name + '_$vtable_$ = {\n\t']
+				let vtableBind = []
 
 				for (v in c.vars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
@@ -236,14 +237,34 @@ module
 							vtable.push(' (*' + name + '_) ')
 							vtable.push(printFunctionArguments(args, funcType))
 							vtable.push(';')
+
+							forwardFunctions.push(printFunctionReturnType(funcType))
+							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
+							forwardFunctions.push(printFunctionArguments(args, funcType))
+							forwardFunctions.push(';\n')
+
+							let vbind = '&' + c.name + '_$' + name + '_'
+							vtableBind.push(vbind)
+
+							out.push(printFunctionReturnType(funcType))
+							out.push(' ' + c.name + '_$' + name + '_')
+							out.push(printFunctionArguments(args, funcType))
+							let _currentReturnType = currentReturnType
+							currentReturnType = getFunctionReturnType(funcType)
+							customThis = '$this'
 							thisArgument = null
+							out.push(' ' + printBlock(expr) + ';\n')
+							customThis = null
+							currentReturnType = _currentReturnType
 
 							out.push(printFunctionReturnType(funcType))
 							out.push(' ' + c.name + '_::' + name + '_')
 							out.push(printFunctionArguments(args, funcType))
 							let _currentReturnType = currentReturnType
 							currentReturnType = getFunctionReturnType(funcType)
-							out.push(' ' + printBlock(expr) + ';\n')
+							let arg = [for (a in args) a + '_']
+							arg.unshift('this')
+							out.push(' { return ' + c.name + '_$' + name + '_(' + arg.join(', ') + '); };\n')
 							currentReturnType = _currentReturnType
 						}
 				}
@@ -258,7 +279,8 @@ module
 
 				types.push('\n};\n')
 				vtable.push('\n};\n')
-				vtable.push(vtableValue.join(''))
+				vtableValue.push(vtableBind.join(',\n\t'))
+				vtable.push(vtableValue.join('') + '\n};\n')
 				types.unshift(vtable.join(''))
 
 				for (v in c.staticMethods) switch (v) {
