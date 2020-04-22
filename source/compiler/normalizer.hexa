@@ -143,14 +143,16 @@ module
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
-									return NiceExpression.Dot(NiceExpression.This, name, typer.types.get(e))
+									let type = typer.types.get(typer.parents.get(source))
+									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
 							}
 						case Node.TFunction(name, _):
 							if (let map = typer.parents.get(source)) switch (map) {
 								case Node.TModule(path, _):
 									return NiceExpression.Ident(globalAccessor + name, null)
 								case _:
-									return NiceExpression.Dot(NiceExpression.This, name, typer.types.get(e))
+									let type = typer.types.get(typer.parents.get(source))
+									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
 							}
 						case Node.TStatic(f):
 							let staticSource = typer.parents.get(source)
@@ -168,6 +170,10 @@ module
 				// `expr.name`
 				case Node.TDot(expr, name):
 				let parent = typer.parents.get(expr)
+				switch (expr) {
+					case Node.TThis:
+						return NiceExpression.Dot(NiceExpression.This(typer.types.get(expr)), getClassDotField(typer.types.get(expr).parent, name) ?? name, typer.types.get(e))
+				}
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
 						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
@@ -387,7 +393,7 @@ module
 					return NiceExpression.Unop(op, postfix, nodeToExpression(e))
 
 				case Node.TThis:
-					return NiceExpression.This
+					return NiceExpression.This(typer.types.get(e))
 
 				case Node.TMap(keys, values):
 				let k = []
@@ -853,6 +859,7 @@ module
 				if (e == null) return NiceStatement.Return(null)
 				return NiceStatement.Return(nodeToExpression(e))
 
+				// TODO this.name
 				case Node.TDot(expr, name): return NiceStatement.Dot(nodeToExpression(expr), name)
 				case Node.TDotUpper(expr, name): return NiceStatement.Dot(nodeToExpression(expr), name)
 
