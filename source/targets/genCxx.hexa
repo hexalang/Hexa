@@ -110,9 +110,9 @@ module
 							stringifyType(e.constructorsTypes[i][c]) + ' ' + e.constructors[i][c] + '_'
 						].join(', '))
 						out.push(') {\n')
-						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(malloc(sizeof(' + e.name + '_)));\n')
+						out.push('\t' + e.name + '_* _ = (struct ' + e.name + '_*)(malloc(sizeof(struct ' + e.name + '_)));\n')
 						out.push('\t_->length_ = \(e.constructors[i].length);\n')
-						out.push('\t_->enum_ = (Any_**)(malloc(sizeof(Any_*) * \(e.constructors[i].length)));\n')
+						out.push('\t_->enum_ = (struct Any_**)(malloc(sizeof(struct Any_*) * \(e.constructors[i].length)));\n')
 						out.push('\t_->is_ = \(i);\n')
 						for (c in e.constructors[i].length) {
 							out.push('\t_->enum_[\(c)] = ')
@@ -124,7 +124,7 @@ module
 					} else {
 
 						out.push(e.name + '_* ' + e.name + '_$' + name + '_() {\n')
-						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(malloc(sizeof(' + e.name + '_)));\n')
+						out.push('\t' + e.name + '_* _ = (struct ' + e.name + '_*)(malloc(sizeof(struct ' + e.name + '_)));\n')
 						out.push('\t_->length_ = 0;\n')
 						out.push('\t_->is_ = \(i);\n')
 						out.push('\treturn _;\n')
@@ -190,7 +190,7 @@ module
 
 							// Init
 							out.push('void ' + c.name + '_$this_')
-							thisArgument = c.name + '_* $this'
+							thisArgument = 'struct ' + c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
 							out.push(' {\n')
@@ -212,11 +212,11 @@ module
 							out.push('};\n')
 
 							// Alloc
-							out.push(c.name + '_* ' + c.name + '_$new_')
+							out.push('struct ' + c.name + '_* ' + c.name + '_$new_')
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
-							out.push('\tvoid* buffer_ = (' + c.name + '_*)(malloc(sizeof(' + c.name + '_)));\n')
-							out.push('\t' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
+							out.push('\tvoid* buffer_ = (struct ' + c.name + '_*)(malloc(sizeof(struct ' + c.name + '_)));\n')
+							out.push('\tstruct ' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
 							out.push('\t' + c.name + '_$this_(')
 							let arg = [for (a in args) a + '_']
 							arg.unshift('_')
@@ -231,7 +231,7 @@ module
 							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
 
-							thisArgument = c.name + '_* $this'
+							thisArgument = 'struct ' + c.name + '_* $this'
 							vtable.push('\n\t')
 							vtable.push(printFunctionReturnType(funcType))
 							vtable.push(' (*' + name + '_) ')
@@ -365,7 +365,7 @@ module
 			}
 
 			let init = printStatement(project.init[0])
-			let strings = ['String_Strings = (String_**)malloc(HEXA_STRINGS * sizeof(String_*));\n']
+			let strings = ['String_Strings = (struct String_**)malloc(HEXA_STRINGS * sizeof(struct String_*));\n']
 			for (id in declarationsOfStrings.length) {
 				// TODO set ref counting
 				strings.push('\tString_Strings[\(id)] = String_fromUTF8z("\(declarationsOfStrings[id])");\n')
@@ -600,7 +600,7 @@ module
 				case NiceStatement.Throw(e):
 					return '_throw(' + printExpression(e) + ')'
 				case NiceStatement.For(name, over, by):
-					return 'for (Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
+					return 'for (struct Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
 				case NiceStatement.Increment(e): return printExpression(e) + '++'
 				case NiceStatement.Decrement(e): return printExpression(e) + '--'
 				case NiceStatement.While(econd, e, pre):
@@ -759,7 +759,7 @@ module
 					}].join(', ') + ')'
 			}
 			return '(' + [for (a in args.length)
-				'Any_* ' + args[a] + '_'
+				'struct Any_* ' + args[a] + '_'
 			].join(', ') + ')'
 			// TODO defaults
 			// 'void* ' + args[a] + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
@@ -806,16 +806,16 @@ module
 					if (type.name == 'Bool') return 'bool'
 					if (type.name == 'Void') return 'void'
 					if (type.name == 'Float') return 'double'
-					return type.name + '_*'
-				case Type.Class(type): return type.name + '_*'
+					return 'struct ' + type.name + '_*'
+				case Type.Class(type): return 'struct ' + type.name + '_*'
 				case Type.Enum(type):
 					if (let sub = type.fieldsTypeSimple)
 						return stringifyType(sub)
-					return type.name + '_*'
-				case Type.EnumInstance(type): return type.name + '_*'
-				case Type.Struct(_): return 'Any_*'
-				case Type.Function(_): return 'Any_*'
-				case null: return 'Any_*/*?*/'
+					return 'struct ' + type.name + '_*'
+				case Type.EnumInstance(type): return 'struct ' + type.name + '_*'
+				case Type.Struct(_): return 'struct Any_*'
+				case Type.Function(_): return 'struct Any_*'
+				case null: return 'struct Any_*/*null?*/'
 				case _: throw 'stringifyType ' + t
 			}
 		}
