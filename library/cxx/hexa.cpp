@@ -7,7 +7,6 @@
 #include <new> // Placement new
 extern "C" {
 #endif
-#define $null ((void*)0)
 	// Runtime code is under MIT license
 	// Forward
 	struct Unknown_;
@@ -25,7 +24,6 @@ extern "C" {
 	typedef _GUID _IID;
 	typedef _IID* _REFIID;
 	#define __stdcall__
-	// Data
 	// Types
 	struct Unknown_ {
 		// IUnknown interface
@@ -88,9 +86,9 @@ extern "C" {
 	HRESULT Unknown_::QueryInterface_(_REFIID riid, void **ppvObject) {
 		return 0;
 	};
-	Any_* Any_fromBool(const bool this_) {
 	struct Any_* Bool_true;
 	struct Any_* Bool_false; // So `==` works
+	struct Any_* Any_fromBool(const uint8_t this_) {
 		if (this_) return Bool_true;
 		return Bool_false;
 	}
