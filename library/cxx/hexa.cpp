@@ -56,28 +56,28 @@ extern "C" {
 		};
 	};};
 	// Functions
-	String_* String_fromUTF8z(const char* this_) {
+	struct String_* String_fromUTF8z(const char* this_) {
 		return (String_*)0;
 	};
-	String_* String_fromInt(const int32_t this_) {
+	struct String_* String_fromInt(const int32_t this_) {
 		return (String_*)0;
 	};
-	String_* String__null_;
+	struct String_* String__null_;
 	struct String_* String_opAdd(struct Unknown_* a_, struct Unknown_* b_) {
 		struct String_* sa_ = (a_ == (struct Unknown_*)0)? String__null_ : a_->toString_();
 		struct String_* sb_ = (b_ == (struct Unknown_*)0)? String__null_ : b_->toString_();
 		return String__null_;
 	};
-	Array_* Array_from(...) {
-		return (Array_*)0;
+	struct Array_* Array_from(...) {
+		return (struct Array_*)0;
 	};
 	// name, value, name, value
-	Object_* Object_from(...) {
-		return (Object_*)0;
+	struct Object_* Object_from(...) {
+		return (struct Object_*)0;
 	};
 	// key, value, key, value
-	Map_* Map_from(...) {
-		return (Map_*)0;
+	struct Map_* Map_from(...) {
+		return (struct Map_*)0;
 	};
 	ULONG Unknown_::AddRef_() {
 		return ++this->rc_;
@@ -88,14 +88,14 @@ extern "C" {
 	HRESULT Unknown_::QueryInterface_(_REFIID riid, void **ppvObject) {
 		return 0;
 	};
-	Any_* Bool_true;
-	Any_* Bool_false; // So `==` works
 	Any_* Any_fromBool(const bool this_) {
+	struct Any_* Bool_true;
+	struct Any_* Bool_false; // So `==` works
 		if (this_) return Bool_true;
 		return Bool_false;
 	}
-	Any_* Any_fromInt(const int32_t this_) {
-		return (Any_*)0;
+	struct Any_* Any_fromInt(const int32_t this_) {
+		return (struct Any_*)0;
 	}
 	// End of runtime code under MIT license
 #ifdef __cplusplus
