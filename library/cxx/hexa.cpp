@@ -1,36 +1,37 @@
+// Include only basic language features
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h> // printf
 #include <stdlib.h> // malloc
-#include <new> // placement new
 #ifdef __cplusplus
+#include <new> // Placement new
 extern "C" {
 #endif
 #define $null ((void*)0)
 	// Runtime code is under MIT license
 	// Forward
-	struct class_;
+	struct Unknown_;
 	struct String_;
 	struct Array_;
 	struct Map_;
-	#define Any_ class_
+	#define Any_ Unknown_
 	typedef long LONG;
 	typedef unsigned long ULONG;
 	typedef LONG HRESULT;
 	typedef unsigned long DWORD;
 	typedef unsigned short WORD;
 	typedef unsigned char BYTE;
-	typedef struct _GUID { DWORD Data1; WORD Data2; WORD Data3; BYTE Data4[8]; } GUID;
-	typedef GUID IID;
-	typedef IID* REFIID;
+	typedef struct _GUID { DWORD Data1; WORD Data2; WORD Data3; BYTE Data4[8]; } _GUID;
+	typedef _GUID _IID;
+	typedef _IID* _REFIID;
 	#define __stdcall__
 	// Data
 	// Types
-	struct class_ {
+	struct Unknown_ {
 		// IUnknown interface
-		virtual HRESULT __stdcall__ QueryInterface(REFIID riid, void **ppvObject);
-		virtual ULONG __stdcall__ AddRef();
-		virtual ULONG __stdcall__ Release();
+		virtual HRESULT __stdcall__ QueryInterface_(_REFIID riid, void **ppvObject);
+		virtual ULONG __stdcall__ AddRef_();
+		virtual ULONG __stdcall__ Release_();
 		uint32_t rc_;
 		// Reflection
 		// Set field
@@ -40,7 +41,7 @@ extern "C" {
 		virtual String_* toString_() { return (String_*)0; }; // TODO '[object Object]'
 	};
 	// Just {}, allows new fields adding via reflection
-	struct Object_ : class_ {};
+	struct Object_ : Unknown_ {};
 	extern "C++" {
 	template <typename T>
 	// Only for basic types! DO *NOT* USE AS POINTER!!!
@@ -62,9 +63,9 @@ extern "C" {
 		return (String_*)0;
 	};
 	String_* String__null_;
-	String_* String_opAdd(class_* a_, class_* b_) {
-		String_* sa_ = (a_ == nullptr)? String__null_ : a_->toString_();
-		String_* sb_ = (b_ == nullptr)? String__null_ : b_->toString_();
+	struct String_* String_opAdd(struct Unknown_* a_, struct Unknown_* b_) {
+		struct String_* sa_ = (a_ == (struct Unknown_*)0)? String__null_ : a_->toString_();
+		struct String_* sb_ = (b_ == (struct Unknown_*)0)? String__null_ : b_->toString_();
 		return String__null_;
 	};
 	Array_* Array_from(...) {
@@ -78,13 +79,13 @@ extern "C" {
 	Map_* Map_from(...) {
 		return (Map_*)0;
 	};
-	ULONG class_::AddRef() {
+	ULONG Unknown_::AddRef_() {
 		return ++this->rc_;
 	};
-	ULONG class_::Release() {
+	ULONG Unknown_::Release_() {
 		return --this->rc_;
 	};
-	HRESULT class_::QueryInterface(REFIID riid, void **ppvObject) {
+	HRESULT Unknown_::QueryInterface_(_REFIID riid, void **ppvObject) {
 		return 0;
 	};
 	Any_* Bool_true;

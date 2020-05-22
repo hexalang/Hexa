@@ -96,7 +96,7 @@ module
 
 			for (e in project.enumsComplex) {
 				forward.push('struct ' + e.name + '_;')
-				types.push('struct ' + e.name + '_ {\n\t')
+				types.push('struct ' + e.name + '_ : Unknown_ {\n\t')
 				types.push('\n\tAny_** enum_;') // Enum.Name(enum_...)
 				types.push('\n\tuint16_t is_;')
 				types.push('\n\tuint8_t length_;') // Amount of enum_[] to dealloc
@@ -166,7 +166,7 @@ module
 				if (c.name == 'Bool') continue
 				forward.push('struct ' + c.name + '_;')
 				forward.push('struct ' + c.name + '_$vtable_;')
-				types.push('struct ' + c.name + '_ : class_ {\n\t')
+				types.push('struct ' + c.name + '_ : Unknown_ {\n\t')
 				let vtable = ['struct ' + c.name + '_$vtable_ {\n\t']
 				types.push('\n\tstruct ' + c.name + '_$vtable_* $vtable_;')
 				let vtableValue = ['struct ' + c.name + '_$vtable_ ' + c.name + '_$vtable_$ = {\n\t']
@@ -742,8 +742,8 @@ module
 					for (a in args.length) {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) switch (types[a]) {
-							case Type.Nullable(_): result += ' = $null'
-							case Type.UnknownNullable(_): result += ' = $null'
+							case Type.Nullable(_): result += ' = ((struct Unknown_ *)0)'
+							case Type.UnknownNullable(_): result += ' = ((struct Unknown_ *)0)'
 						}
 						results.push(result)
 					}
@@ -752,8 +752,8 @@ module
 					return '(' + [for (a in args.length) {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) switch (types[a]) {
-							case Type.Nullable(_): result += ' = $null'
-							case Type.UnknownNullable(_): result += ' = $null'
+							case Type.Nullable(_): result += ' = ((struct Unknown_ *)0)'
+							case Type.UnknownNullable(_): result += ' = ((struct Unknown_ *)0)'
 						}
 						result
 					}].join(', ') + ')'
@@ -849,7 +849,7 @@ module
 				case NiceExpression.Null:
 					// TODO infer actual type of null in typer,
 					// to print type conversion `((T*)0)`
-					return '$null'
+					return '((struct Unknown_ *)0)'
 				case NiceExpression.Int(v): return '(int32_t)' + v
 				case NiceExpression.Float(v):
 					if (v.indexOf('.') == -1) return '(double)' + v + '.0'
@@ -955,7 +955,7 @@ module
 					}
 				case NiceExpression.EnumTag(expr):
 					let e = printExpression(expr)
-					return '(' + e + ' == $null? -1 : ' + e + '->is_)'
+					return '(' + e + ' == ((Unknown_ *)0)? -1 : ' + e + '->is_)'
 				case NiceExpression.Object(names, el):
 					return 'Object_from(' + [for (i in el.length) ((names[i]) + ', ' + printExpression(el[i]))].join(', ') + ')'
 				case NiceExpression.Map(keys, values):
