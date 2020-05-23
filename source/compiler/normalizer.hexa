@@ -27,6 +27,9 @@ module
 		var typer: Typer
 		var package: Package
 
+		// Pre-computed value of say `let x = 123` thus `inline[x] == 123`
+		let inline: [Node : NiceExpression] = [:]
+
 		new () {
 		}
 
@@ -134,6 +137,8 @@ module
 				// Transform
 				case Node.TIdent(name):
 					var source = typer.parents.get(e)
+					// Constant propagation
+					if (let value = inline.get(source)) return value
 					switch (source) {
 						case null:
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(Project.data.get(e))
@@ -749,7 +754,20 @@ module
 				case Node.TVar(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
 				if (external) return null
-				if (const) return NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(e))
+				if (const) {
+					let value = nodeToExpression(expr)
+
+					switch (value) {
+						case NiceExpression.Int(_): inline.set(e, value)
+						case NiceExpression.String(_): inline.set(e, value)
+						case NiceExpression.Float(_): inline.set(e, value)
+						case NiceExpression.True(_): inline.set(e, value)
+						case NiceExpression.False(_): inline.set(e, value)
+						case NiceExpression.Null(_): inline.set(e, value)
+					}
+
+					return NiceStatement.Const(uname, value, typer.types.get(e))
+				}
 				return NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(e))
 
 				case Node.TFunction(name, expr, vars, rettype, external):
