@@ -567,7 +567,11 @@ module
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
-								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								if (const) {
+									let value = nodeToExpression(expr)
+									saveInlineIfViable(f, value)
+									type.staticVars.push(NiceStatement.Const(uname, value, typer.types.get(field)))
+								}
 								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -620,7 +624,11 @@ module
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
-								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								if (const) {
+									let value = nodeToExpression(expr)
+									saveInlineIfViable(f, value)
+									type.staticVars.push(NiceStatement.Const(uname, value, typer.types.get(field)))
+								}
 								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -690,7 +698,11 @@ module
 				for (f in fields) switch (f) {
 					case Node.TVar(name, t, expr, const):
 						let uname = parentNames.get(f) ?? unique(name, f)
-						if (const) type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(f)))
+						if (const) {
+							let value = nodeToExpression(expr)
+							saveInlineIfViable(f, value)
+							type.vars.push(NiceStatement.Const(uname, value, typer.types.get(f)))
+						}
 						else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 					case Node.TProperty(field, _, _):
 						switch (field) {
@@ -717,7 +729,11 @@ module
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
-								if (const) type.staticVars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								if (const) {
+									let value = nodeToExpression(expr)
+									saveInlineIfViable(f, value)
+									type.staticVars.push(NiceStatement.Const(uname, value, typer.types.get(field)))
+								}
 								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -800,14 +816,7 @@ module
 				if (const) {
 					let value = nodeToExpression(expr)
 
-					switch (value) {
-						case NiceExpression.Int(_): inline.set(e, value)
-						case NiceExpression.String(_): inline.set(e, value)
-						case NiceExpression.Float(_): inline.set(e, value)
-						case NiceExpression.True(_): inline.set(e, value)
-						case NiceExpression.False(_): inline.set(e, value)
-						case NiceExpression.Null(_): inline.set(e, value)
-					}
+					saveInlineIfViable(e, value)
 
 					return NiceStatement.Const(uname, value, typer.types.get(e))
 				}
@@ -1402,5 +1411,17 @@ module
 				return block
 			case _:
 				return block
+		}
+
+		// Saves if value viable for constant propagation
+		function saveInlineIfViable(e: Node, value: NiceExpression) {
+			switch (value) {
+				case NiceExpression.Int(_): inline.set(e, value)
+				case NiceExpression.String(_): inline.set(e, value)
+				case NiceExpression.Float(_): inline.set(e, value)
+				case NiceExpression.True(_): inline.set(e, value)
+				case NiceExpression.False(_): inline.set(e, value)
+				case NiceExpression.Null(_): inline.set(e, value)
+			}
 		}
 	}
