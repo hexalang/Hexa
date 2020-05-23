@@ -257,9 +257,41 @@ module
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
+				// `"abc" + "dce" = "abcdce"`
 				if (op == Token.OpAdd) switch (ea) {
 					case NiceExpression.String(sa):  switch (eb) {
 						case NiceExpression.String(sb): return NiceExpression.String(sa + sb)
+					}
+				}
+
+				// TODO use nested pattern matching here
+				if (op == Token.OpBoolOr) switch (ea) {
+					case NiceExpression.True(_):  switch (eb) {
+						// `true || false = true`
+						case NiceExpression.False(_): return NiceExpression.True
+						// `true || true = true`
+						case NiceExpression.True(_): return NiceExpression.True
+					}
+					case NiceExpression.False(_):  switch (eb) {
+						// `false || false = false`
+						case NiceExpression.False(_): return NiceExpression.False
+						// `false || true = true`
+						case NiceExpression.True(_): return NiceExpression.True
+					}
+				}
+
+				if (op == Token.OpBoolAnd) switch (ea) {
+					case NiceExpression.True(_):  switch (eb) {
+						// `true && false = false`
+						case NiceExpression.False(_): return NiceExpression.False
+						// `true && true = true`
+						case NiceExpression.True(_): return NiceExpression.True
+					}
+					case NiceExpression.False(_):  switch (eb) {
+						// `false && false = false`
+						case NiceExpression.False(_): return NiceExpression.False
+						// `false && true = false`
+						case NiceExpression.True(_): return NiceExpression.False
 					}
 				}
 
