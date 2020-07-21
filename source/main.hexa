@@ -195,18 +195,23 @@ class Main {
 
 	// Read-eval-print loop, starts if hexa called without arguments
 	function repl() {
-		console.log('\x1b[33m' + 'To print something to screen use `console.log(value)`' + '\x1b[0m')
+		console.log('\x1b[33m' + 'To print something onto screen use `console.log(value)`' + '\x1b[0m')
+		console.log('\x1b[33m' + 'To clear REPL memory use `clear`' + '\x1b[0m')
 		// Load standard library
 		let js = processFile(__dirname + '/library/js/js.hexa')
 		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa')
 		// REPL
-		let lines = []
-		var lines = []
+		var linesAll: [String] = []
+		var linesLatest: [String] = []
 		while (true) {
 			var line = question("> ")
+			if (line == 'clear') {
+				linesAll = []
+				linesLatest = []
+				continue
+			}
 			if (line.length == 0) continue
-			lines.push(line)
-			lines = [line] // Do not remember previous commands yet
+			linesLatest.push(line)
 			try {
 				var code = '"use strict"\r\n'
 				try {
@@ -214,7 +219,7 @@ class Main {
 					let input: Package = {
 						files: []
 					} as! Package
-					let content = lines.join('\n')
+					let content = linesAll.join('\n') + '\n' + linesLatest.join('\n')
 					let tokens = Lexer.tokenize(Buffer.fromString(content), "REPL")
 					let parser = Parser.parseNodes(tokens)
 					let collected = [js, nodejs, parser]
@@ -241,10 +246,21 @@ class Main {
 						code = outs
 					}
 				} catch (e: Any) {
-					lines.pop()
-					console.error('\x1b[31mCompilation Error: ' + e, '\x1b[0m')
+					let error = '' + e
+					if (error.indexOf('<!--eof-->')  == -1) {
+						// Do not remember previous command
+						linesLatest = []
+						console.error('\x1b[31mCompilation Error: ' + e, '\x1b[0m')
+					} else {
+						Process.stdout.write('>')
+					}
 					continue
 				}
+
+				// Success
+				for (line in linesLatest) linesAll.push(line)
+				linesLatest = []
+
 				let result = eval(code)
 			} catch (e: Any) {
 				console.error("Error: " + e)
