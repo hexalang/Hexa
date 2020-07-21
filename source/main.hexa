@@ -195,6 +195,7 @@ class Main {
 
 	// Read-eval-print loop, starts if hexa called without arguments
 	function repl() {
+		console.log('\x1b[33m' + 'To print something to screen use `console.log(value)`' + '\x1b[0m')
 		// Load standard library
 		let js = processFile(__dirname + '/library/js/js.hexa')
 		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa')
@@ -209,23 +210,42 @@ class Main {
 			try {
 				var code = '"use strict"\r\n'
 				try {
+					// TODO reuse generation code
+					let input: Package = {
+						files: []
+					} as! Package
 					let content = lines.join('\n')
 					let tokens = Lexer.tokenize(Buffer.fromString(content), "REPL")
-					let parser = Parser.toNode(Parser.parseNodes(tokens))
-					var collected = Node.TBlock([js, nodejs, parser])
+					let parser = Parser.parseNodes(tokens)
+					let collected = [js, nodejs, parser]
 					if (parser == null) continue
 					//Typer.fillScopes(collected)
 					//code += GenJs.stringifyProject(Normalizer.normalize(collected, GenJs.reserved))
+
+					// TODO reuse generation code
+					{
+						let files = collected
+						let typer = new Typer()
+						typer.fillFiles(files)
+						let normalizer = new Normalizer()
+						let generator = new GenJs()
+						normalizer.keywords = generator.reserved
+						normalizer.collected = files
+						normalizer.nativeEnums = generator.nativeEnums
+						normalizer.package = input
+						if (let randomSeed = input.randomSeed) normalizer.id = randomSeed
+						if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
+						normalizer.typer = typer
+						let normal = normalizer.normalize()
+						let outs = generator.perform(normal)
+						code = outs
+					}
 				} catch (e: Any) {
 					lines.pop()
 					console.error('\x1b[31mCompilation Error: ' + e, '\x1b[0m')
 					continue
 				}
 				let result = eval(code)
-				if (result == null) console.log('\x1b[90m' + result, '\x1b[0m')
-				else if (result == true) console.log('\x1b[33m' + result, '\x1b[0m')
-				else if (result == false) console.log('\x1b[33m' + result, '\x1b[0m')
-				else console.log(result)
 			} catch (e: Any) {
 				console.error("Error: " + e)
 			}
