@@ -193,15 +193,39 @@ class Main {
 		return parsed
 	}
 
+	function simplyCompileToJs(buffer: Buffer, path: String): String? {
+		let input: Package = {
+			files: []
+		} as! Package
+		// Load standard library
+		let js = processFile(__dirname + '/library/js/js.hexa')
+		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa')
+		let tokens = Lexer.tokenize(buffer, path)
+		let parser = Parser.parseNodes(tokens)
+		let collected = [js, nodejs, parser]
+		if (parser == null) return null
+		let files = collected
+		let typer = new Typer()
+		typer.fillFiles(files)
+		let normalizer = new Normalizer()
+		let generator = new GenJs()
+		normalizer.keywords = generator.reserved
+		normalizer.collected = files
+		normalizer.nativeEnums = generator.nativeEnums
+		normalizer.package = input
+		if (let randomSeed = input.randomSeed) normalizer.id = randomSeed
+		if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
+		normalizer.typer = typer
+		let normal = normalizer.normalize()
+		return generator.perform(normal)
+	}
+
 	// Read-eval-print loop, starts if hexa called without arguments
 	function repl() {
 		console.log('\x1b[35m' + 'Hexa \(version) on node.js ' + Process.versions.node + '\x1b[0m')
 		console.log('\x1b[33m' + 'To print something onto screen use `console.log(value)`' + '\x1b[0m')
 		console.log('\x1b[33m' + 'To clear REPL memory use `.clear`' + '\x1b[0m')
 		console.log('\x1b[33m' + 'To close REPL use `.exit`' + '\x1b[0m')
-		// Load standard library
-		let js = processFile(__dirname + '/library/js/js.hexa')
-		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa')
 		// REPL
 		var linesAll: [String] = []
 		var linesLatest: [String] = []
@@ -220,36 +244,10 @@ class Main {
 			try {
 				var code = '"use strict"\r\n'
 				try {
-					// TODO reuse generation code
-					let input: Package = {
-						files: []
-					} as! Package
 					let content = linesAll.join('\n') + '\n' + linesLatest.join('\n')
-					let tokens = Lexer.tokenize(Buffer.fromString(content), "REPL")
-					let parser = Parser.parseNodes(tokens)
-					let collected = [js, nodejs, parser]
-					if (parser == null) continue
-					//Typer.fillScopes(collected)
-					//code += GenJs.stringifyProject(Normalizer.normalize(collected, GenJs.reserved))
-
-					// TODO reuse generation code
-					{
-						let files = collected
-						let typer = new Typer()
-						typer.fillFiles(files)
-						let normalizer = new Normalizer()
-						let generator = new GenJs()
-						normalizer.keywords = generator.reserved
-						normalizer.collected = files
-						normalizer.nativeEnums = generator.nativeEnums
-						normalizer.package = input
-						if (let randomSeed = input.randomSeed) normalizer.id = randomSeed
-						if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
-						normalizer.typer = typer
-						let normal = normalizer.normalize()
-						let outs = generator.perform(normal)
-						code = outs
-					}
+					let compiled = simplyCompileToJs(Buffer.fromString(content), "REPL")
+					if (compiled == null) continue
+					if (let compiled = compiled) code = compiled
 				} catch (e: Any) {
 					let error = '' + e
 					if (error.indexOf('<!--eof-->')  == -1) {
@@ -474,7 +472,12 @@ class Main {
 		// Evaluate file directly
 		else if (currentParsedFile.ext == ".hexa") {
 			//let code = '"use strict"\r\n' + GenJs.stringifyProject(Normalizer.normalize(Node.TBlock([processFile(currentFile)]), GenJs.reserved))
-			//eval(code)
+			try {
+				eval(simplyCompileToJs(Fs.readFileSync(currentFile), currentFile))
+			} catch (e: Any) {
+				console.error("" + e)
+			}
+			Process.exit(0)
 			return
 		}
 		else {
