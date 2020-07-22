@@ -36,7 +36,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Real multithreading, parallelism, async\await, no GC **(WIP)**
 - Smart type inference makes other typed languages look boring
 - Friendly and helpful error messages
-- Supports `#!shebang` for Linux/macOS scripting
+- Supports `#!shebang` and scripting (just call `hexa script.hexa`)
 - REPL (enable with just `hexa` command)
 - Metaprogramming with syntax-tree, generics and contracts **(WIP)**
 - Completely cross-platform
