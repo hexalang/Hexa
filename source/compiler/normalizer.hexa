@@ -221,6 +221,16 @@ module
 					}
 				}
 
+				// Call kind
+				var kind = CallKind.Function
+				switch (expr) {
+					case Node.TDot(expr, _):
+						switch (typer.types.get(expr)) {
+							case Type.ClassInstance(_): kind = CallKind.VirtualMethod
+							case Type.Class(_): kind = CallKind.Static
+						}
+				}
+
 				let a = []
 				for (arg in args) {
 					a.push(nodeToExpression(arg))
@@ -251,7 +261,7 @@ module
 				}
 
 				let v = nodeToExpression(expr)
-				return NiceExpression.Call(v, a, typer.types.get(e))
+				return NiceExpression.Call(v, a, typer.types.get(e), kind)
 
 				case Node.TBinop(a, op, b):
 				let ea = nodeToExpression(a)
@@ -305,7 +315,7 @@ module
 				}
 				return NiceExpression.New(v, a)
 
-				case Node.TFunction(name, expr, vars, rettype):
+				case Node.TFunction(name, expr, vars, rettype, external):
 				let a = []
 				let defaults = []
 				let types = []
@@ -344,7 +354,7 @@ module
 				}
 				let result = el[el.length - 1]
 				block.push(NiceStatement.Return(nodeToExpression(result)))
-				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], null)), [], typer.types.get(result))
+				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], null)), [], typer.types.get(result), CallKind.Function)
 
 				case Node.TObject(names, el):
 				let els = []
@@ -387,7 +397,7 @@ module
 					let valueType = typer.types.get(el[0])
 					block.push(NiceStatement.Const(value, nodeToExpression(over), valueType))
 
-					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [])
+					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
 					function fillLoop() {
 						switch (over) {
 							case Node.TInt(s):
@@ -416,7 +426,10 @@ module
 						NiceExpression.Parenthesis(
 							NiceExpression.Function(null, NiceStatement.Block(block), [], [], Type.Function([], typer.types.get(e)))
 						)
-					, [], typer.types.get(e)) // TODO resultType?
+						, [],
+						typer.types.get(e),
+						CallKind.Function
+					) // TODO resultType?
 				}
 				let els = []
 				let types = []
@@ -434,7 +447,9 @@ module
 						NiceStatement.Const(result, nodeToExpression(nullable), resultType),
 						NiceStatement.If(NiceExpression.Binop(NiceExpression.Ident(result, resultType), Token.OpNotEq, NiceExpression.Null, typer.typeBool), NiceStatement.Return(NiceExpression.Ident(result, resultType)), null),
 						NiceStatement.Return(nodeToExpression(otherwise))
-					]), [], [], Type.Function([], typer.types.get(otherwise)))), [], typer.types.get(otherwise))
+						]), [], [], Type.Function([], typer.types.get(otherwise)))), [], typer.types.get(otherwise),
+						CallKind.Function
+					)
 					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Node.TUnop(op, postfix, e):
@@ -504,7 +519,12 @@ module
 				    	caseRet.push(Node.TReturn(c))
 				    }
 				    block.push(nodeToStatement(Node.TSwitch(exprs, conds, guards, caseRet)))
-					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], funcType)), [], resultType)
+					return NiceExpression.Call(
+						NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], funcType)),
+						[],
+						resultType,
+						CallKind.Function
+					)
 
 				case _: console.error('(internal warning) Unknown node type for expression:', e, Project.data.get(e))
 			}
@@ -787,14 +807,22 @@ module
 				return result
 
 				case Node.TCall(e, args, argNames):
-				// `super()` in `new(){}`
+
+				var kind = CallKind.Function
 				switch (e) {
+					// `super()` in `new(){}`
 					case Node.TSuper(_):
 						let a = []
 						for (arg in args) {
 							a.push(nodeToExpression(arg))
 						}
 						return NiceStatement.SuperConstructor(a)
+					// Call kind
+					case Node.TDot(expr, _):
+						switch (typer.types.get(expr)) {
+							case Type.ClassInstance(_): kind = CallKind.VirtualMethod
+							case Type.Class(_): kind = CallKind.Static
+						}
 				}
 
 				let v = nodeToExpression(e)
@@ -808,7 +836,7 @@ module
 					case Type.Function(args, _): expects = args
 				}
 
-				return NiceStatement.Call(v, a, expects)
+				return NiceStatement.Call(v, a, expects, kind)
 
 				case Node.TVar(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
@@ -1111,7 +1139,7 @@ module
 										case Node.TUnderscore: a.push(NiceExpression.Underscore)
 										case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
 									}
-									return NiceExpression.Call(nodeToExpression(e), a, null)
+									return NiceExpression.Call(nodeToExpression(e), a, null, CallKind.Function)
 								case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
 							}
 							case _:
