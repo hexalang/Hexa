@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 module
-	// Generates C++ with at least C++11 standard
+	// Generates C/C++ with at least C++11 standard
 	class GenCxx {
 		static function spawn() {
 			return new GenCxx()
@@ -517,9 +517,11 @@ module
 		var currentReturnType: Type? = null
 
 		// Surrounds with { brackets } single statement
+		// TODO rename to printAsBlock
 		function printBlock(s: NiceStatement): String {
 			switch (s) {
 				case NiceStatement.Block(el):
+					return printStatement(s)
 				//if (el.length == 1) return '{ ' + printStatement(el[0]) + '; }'
 				if (el.length == 1) switch (el[0]) {
 					case NiceStatement.Block(_): return printBlock(el[0])
@@ -527,11 +529,15 @@ module
 				}
 				if (el.length == 0) return '{}'
 				return printStatement(s)
-				case _: return '{ ' + printStatement(s) + '; }'
+				case _: //return '{ ' + printStatement(s) + '; }'
+					return printStatement(NiceStatement.Block([s]))
 			}
 		}
 
 		var last = ''
+		var metaBlock: [String] = []
+		var tempId = 0
+
 		function printStatement(s: NiceStatement) {
 			switch (s) {
 				case NiceStatement.Statements(els):
@@ -542,15 +548,32 @@ module
 				case NiceStatement.Break: return 'break'
 				case NiceStatement.Continue: return 'continue'
 				case NiceStatement.Block(el):
+					if (el.length == 0) return '{}'
 					pushTab()
+
+					function printMetaBlock(e: NiceStatement) {
+						let meta = metaBlock
+						metaBlock = []
+
+						var ss = printStatement(e)
+						var r = []
+						for (line in metaBlock) {
+							r.push(line)
+						}
+						r.push(ss)
+
+						metaBlock = meta
+						return r.join(';\n' + tabs)
+					}
+
 					var r = '{'
 
 					for (e in el) switch (e) {
 						case null:
 						case NiceStatement.Statements(els):
-							for (s in els) if (s != null) r += '\n' + tabs + printStatement(s) + ';'
+							for (s in els) if (s != null) r += '\n' + tabs + printMetaBlock(s) + ';'
 						case _:
-							r += '\n' + tabs + printStatement(e) + ';'
+							r += '\n' + tabs + printMetaBlock(e) + ';'
 					}
 
 					popTab()
@@ -575,7 +598,20 @@ module
 					var r = 'if (' + printExpression(econd) + ') ' + printBlock(eif)
 					if (eelse != null) r += ' else ' + printStatement(eelse)
 					return r
-				case NiceStatement.Call(e, args, expects):
+				case NiceStatement.Call(e, args, expects, kind):
+					switch (kind) {
+						// TODO error on (_,_) if simple enum case CallKind.VirtualMethod(_, _): return '*.virtual'
+						case CallKind.VirtualMethod:
+						switch (e) {
+							case NiceExpression.Dot(expr, name, result):
+								let temp = tempId++
+
+								metaBlock.push(stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr))
+
+								return
+									'_$\(temp)->$vtable_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)// + ';\n' + tabs// +
+						}
+					}
 					return printExpression(e) + printCallArguments(args, expects)
 				case NiceStatement.Try(expr, t, v, catches):
 					pushTab()
@@ -702,6 +738,17 @@ module
 			return '(' + [for (a in args) printExpression(a)].join(', ') + ')'
 		}
 
+		function printCallArgumentsVirtual(me: String, args: [NiceExpression], expects: [Type]?) {
+			if (args.length == 0) return '(' + me + ')'
+
+			if (let exp = expects)
+				return '(' + me + ', ' + [for (i in args.length)
+					printTypeConverter(printExpression(args[i]), getType(args[i]), exp[i])
+				].join(', ') + ')'
+
+			return '(' + me + ', ' + [for (a in args) printExpression(a)].join(', ') + ')'
+		}
+
 		function getFunctionReturnType(funcType: Type): Type? switch (funcType) {
 			case Type.Function(args, returns): return returns
 			case _: return null
@@ -814,8 +861,8 @@ module
 						return stringifyType(sub)
 					return 'struct ' + type.name + '_*'
 				case Type.EnumInstance(type): return 'struct ' + type.name + '_*'
-				case Type.Struct(_): return 'struct Any_*'
-				case Type.Function(_): return 'struct Any_*'
+				case Type.Struct(_): return 'struct Any_*/*Struct*/'
+				case Type.Function(_): return 'struct Any_*/*Function*/'
 				case null: return 'struct Any_*/*null?*/'
 				case _: throw 'stringifyType ' + t
 			}
@@ -914,7 +961,28 @@ module
 					case _:
 						return printExpression(expr) + '->' + name + '_'
 				}
-				case NiceExpression.Call(e, args): return printExpression(e) + printCallArguments(args)
+				case NiceExpression.Call(e, args, type, kind):
+					switch (kind) {
+						case CallKind.Static:
+							return printExpression(e) + '/*static*/' + printCallArguments(args)
+						case CallKind.VirtualMethod:
+						switch (e) {
+							case NiceExpression.Dot(expr, name, result):
+							let temp = tempId++
+							let temp1 = tempId++
+							let mb = metaBlock
+							metaBlock = []
+							let meta = 'auto _$\(temp) = ' + printExpression(expr)
+
+							let result = '_$\(temp)->$vtable_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+
+							for (b in metaBlock) mb.push('/*b*/' + b)
+							mb.push('/*meta*/' + meta)
+							metaBlock = mb
+							return result
+						}
+					}
+					return printExpression(e) + printCallArguments(args)
 				case NiceExpression.Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
