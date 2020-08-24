@@ -166,9 +166,9 @@ module
 				if (c.name == 'Bool') continue
 				forward.push('struct ' + c.name + '_;')
 				forward.push('struct ' + c.name + '_$vtable_;')
-				types.push('struct ' + c.name + '_ : Unknown_ {\n\t')
+				types.push('struct ' + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '_$vtable_ {\n\t']
-				types.push('\n\tconst struct ' + c.name + '_$vtable_* $vtable_;')
+				types.push('\n\tconst struct ' + c.name + '_$vtable_ const * const $vtable_;')
 				let vtableValue = ['const struct ' + c.name + '_$vtable_ const ' + c.name + '_$vtable_$ = {\n\t']
 				let vtableBind = []
 
@@ -192,7 +192,6 @@ module
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
 							out.push(' {\n')
-							out.push('\t$this->$vtable_ = &' + c.name + '_$vtable_$;\n')
 
 							// Init fields
 							customThis = '$this'
@@ -213,7 +212,9 @@ module
 							out.push('struct ' + c.name + '_* ' + c.name + '_$new_')
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
-							out.push('\tstruct ' + c.name + '_* _ = (struct ' + c.name + '_*)(malloc(sizeof(struct ' + c.name + '_)));\n')
+							out.push('\tvoid** $_ = (void**)(malloc(sizeof(struct ' + c.name + '_)));\n')
+							out.push('\t$_[0] = (void *)&' + c.name + '_$vtable_$;\n')
+							out.push('\tstruct ' + c.name + '_* _ = (struct ' + c.name + '_*)($_);\n')
 							out.push('\t' + c.name + '_$this_(')
 							let arg = [for (a in args) a + '_']
 							arg.unshift('_')
