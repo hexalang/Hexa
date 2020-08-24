@@ -4,7 +4,6 @@
 #include <stdio.h> // printf
 #include <stdlib.h> // malloc
 #ifdef __cplusplus
-#include <new> // Placement new
 extern "C" {
 #endif
 	// Runtime code is under MIT license
