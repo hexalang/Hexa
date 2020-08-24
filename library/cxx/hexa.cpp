@@ -4,7 +4,10 @@
 #include <stdio.h> // printf
 #include <stdlib.h> // malloc
 #ifdef __cplusplus
+#define $__VA_ARGS__ ...
 extern "C" {
+#else
+#define $__VA_ARGS__
 #endif
 	// Runtime code is under MIT license
 	// Forward
@@ -65,15 +68,15 @@ extern "C" {
 		struct String_* sb_ = (b_ == (struct Unknown_*)0)? String__null_ : b_->toString_();
 		return String__null_;
 	};
-	struct Array_* Array_from(...) {
+	struct Array_* Array_from($__VA_ARGS__) {
 		return (struct Array_*)0;
 	};
 	// name, value, name, value
-	struct Object_* Object_from(...) {
+	struct Object_* Object_from($__VA_ARGS__) {
 		return (struct Object_*)0;
 	};
 	// key, value, key, value
-	struct Map_* Map_from(...) {
+	struct Map_* Map_from($__VA_ARGS__) {
 		return (struct Map_*)0;
 	};
 	ULONG Unknown_::AddRef_() {
@@ -101,4 +104,3 @@ extern "C" {
 
 // wchar_t is UTF-16LE with -fshort-wchar
 _Static_assert(sizeof(wchar_t) == 2, "bad sizeof");
-_Static_assert(sizeof(char16_t) == 2, "bad sizeof");

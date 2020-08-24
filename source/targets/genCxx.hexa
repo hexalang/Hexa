@@ -33,6 +33,10 @@ module
 		/// Mapping of original strings (optimization)
 		var declarationsOfStringsMap: [String : Int] = [:]
 		var declarationsOfStrings: [String] = []
+		let forwardFunctions: [String] = []
+		let typedefFunctions: [String] = []
+		let globalFunctions: [String] = []
+		let types: [String] = []
 
 		function stringify() {
 			// Contains forward declarations
@@ -52,8 +56,6 @@ module
 
 			let out: [String] = []
 			let forward: [String] = []
-			let forwardFunctions: [String] = []
-			let types: [String] = []
 
 			// Strings
 			registerString('') // id == 0
@@ -389,13 +391,19 @@ module
 				+ '\n// Forward\n' +
 				forward.join('\n')
 
+				+ '\n// Typedef functions\n' +
+				typedefFunctions.join('')
+
 				+ '\n// Forward functions\n' +
 				forwardFunctions.join('')
 
 				+ '\n// Types\n' +
 				types.join('')
-				+ '\n// Statements\n' +
 
+				+ '\n// Global functions\n' +
+				globalFunctions.join('')
+
+				+ '\n// Statements\n' +
 				// TODO Boi, dat weird
 				out.join('').split('%%%HEXA_STRINGS@@@').join(strings.join(''))
 			).split('\n').join('\r\n')
@@ -588,7 +596,27 @@ module
 				case NiceStatement.Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
-					let result = 'auto \(name)_ = [&]' + printFunctionArguments(args, defaults)
+
+					let temp = tempId++
+					let rt = printFunctionReturnType(funcType)
+					forwardFunctions.push(rt)
+					forwardFunctions.push(' _$\(temp)')
+					forwardFunctions.push(printFunctionArguments(args, funcType, false))
+					forwardFunctions.push(';\n')
+
+					let tab = tabs
+					tabs = ''
+					globalFunctions.push(rt)
+					globalFunctions.push(' _$\(temp)')
+					globalFunctions.push(printFunctionArguments(args, funcType, true))
+					globalFunctions.push(' ')
+					globalFunctions.push(printBlock(expr))
+					tabs = tab
+
+					currentReturnType = _currentReturnType
+					return stringifyType(funcType) + ' \(name)_ = _$\(temp)'
+
+					let result = 'auto \(name)_ = [&]' + printFunctionArguments(args, funcType, true)
 					+ '->' + printFunctionReturnType(funcType) + ' '
 					+ printBlock(expr)
 					currentReturnType = _currentReturnType
@@ -864,7 +892,20 @@ module
 					return 'struct ' + type.name + '_*'
 				case Type.EnumInstance(type): return 'struct ' + type.name + '_*'
 				case Type.Struct(_): return 'struct Any_*/*Struct*/'
-				case Type.Function(_): return 'struct Any_*/*Function*/'
+				case Type.Function(args, returns):
+					let temp = tempId++
+					typedefFunctions.push('typedef ')
+					typedefFunctions.push(stringifyType(returns))
+					typedefFunctions.push(' (*_$\(temp))(')
+
+					let a: [String] = []
+					for (arg in args) {
+						a.push(stringifyType(arg))
+					}
+
+					typedefFunctions.push(a.join(', '))
+					typedefFunctions.push(');\n')
+					return '_$\(temp)'
 				case null: return 'struct Any_*/*null?*/'
 				case _: throw 'stringifyType ' + t
 			}
