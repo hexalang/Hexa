@@ -97,7 +97,7 @@ module
 					vars.push(getgo(Token.LLower))
 					var expr = null
 					var t = null
-					if (tok() == Token.DblDot) {
+					if (tok() == Token.Colon) {
 						i++
 						t = parseType()
 					}
@@ -524,15 +524,16 @@ module
 			if (tok() == Token.BrClose) { // Empty block {}
 				i++
 				result = Node.TBlock([])
-			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object { k:v }
+			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
 				var names: [String] = [], el: [Node] = []
 				while (true) {
 					names.push(getgo(Token.LLower))
-					step(Token.DblDot)
+					step(Token.Colon)
+
 					el.push(parseExpr())
-					if (tok() == Token.Comma) {
+					if (tok() == Token.Comma) { // Object { k:v, ... }
 						i++
-						if (tok() == Token.BrClose)
+						if (tok() == Token.BrClose) // Object { k:v, }
 							fail("Unexpected `}`, remove trailing `,` comma")
 						continue
 					} else break
@@ -561,7 +562,7 @@ module
 			}
 			step(Token.PClose)
 			var eif = null
-			if (tok() != Token.DblDot) {
+			if (tok() != Token.Colon) {
 				eif = parseExpr()
 			}
 			var eelse: Node? = null
@@ -595,7 +596,7 @@ module
 				// (a, ...) =>
 				(tok() == Token.LLower && offset(1) == Token.Comma) ||
 				// (a: ...) =>
-				(tok() == Token.LLower && offset(1) == Token.DblDot) ||
+				(tok() == Token.LLower && offset(1) == Token.Colon) ||
 				// (a) =>
 				(tok() == Token.LLower && offset(1) == Token.PClose && offset(2) == Token.OpArrow)
 			) {
@@ -604,7 +605,7 @@ module
 				var values = []
 				while (tok() != Token.PClose) {
 					vars.push(getgo(Token.LLower))
-					if (tok() == Token.DblDot) {
+					if (tok() == Token.Colon) {
 						i++
 						types.push(parseType())
 					}
@@ -727,7 +728,7 @@ module
 				step(Token.POpen)
 				var name = getgo(Token.LLower)
 				vars.push(name)
-				step(Token.DblDot)
+				step(Token.Colon)
 				var type = parseType()
 				{
 					t.push(type)
@@ -762,7 +763,7 @@ module
 			i++
 			var t = parseType()
 			var valuesType = null
-			if (tok() == Token.DblDot) {
+			if (tok() == Token.Colon) {
 				i++
 				valuesType = parseType()
 			}
@@ -797,13 +798,13 @@ module
 			var isMap = false
 
 			if (tok() != Token.BkClose) while (true) {
-				if (tok() == Token.DblDot) { // [:]
+				if (tok() == Token.Colon) { // [:]
 					isMap = true
 					next()
 					break
 				}
 				el.push(parseExpr())
-				if (tok() == Token.DblDot) { // [k:v]
+				if (tok() == Token.Colon) { // [k:v]
 					i++
 					values.push(parseExpr())
 					isMap = true
@@ -829,10 +830,10 @@ module
 				i++
 				if (tok() == Token.BrClose) { // Empty {}
 					step(Token.BrClose)
-				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.DblDot) { // Object { k:v }
+				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
 					while (tok() != Token.BrClose) {
 						names.push(getgo(Token.LLower))
-						step(Token.DblDot)
+						step(Token.Colon)
 						values.push(parseExpr())
 						if (tok() == Token.Comma) i++
 					}
@@ -849,14 +850,14 @@ module
 					case Token.LUpper:
 						argNames.push(null)
 						args.push(parseExpr())
-						if (tok() == Token.DblDot) {
-							step(Token.DblDot)
+						if (tok() == Token.Colon) {
+							step(Token.Colon)
 							parseType()
 						}
 					case _:
-						if (lex.token[i + 1] == Token.DblDot) {
+						if (lex.token[i + 1] == Token.Colon) {
 							argNames.push(getgo(Token.LLower))
-							step(Token.DblDot)
+							step(Token.Colon)
 						}
 						else {
 							argNames.push(null)
@@ -893,7 +894,7 @@ module
 				} else conds.push(parseExpr())
 				guards.push(null)
 
-				step(Token.DblDot)
+				step(Token.Colon)
 				var exs = []
 				while (tok()!=Token.KCase && tok()!=Token.BrClose) {
 					exs.push(parseExpr())
@@ -1109,14 +1110,14 @@ module
 						case Token.LUpper:
 							argNames.push(null)
 							args.push(parseExpr())
-							if (tok() == Token.DblDot) {
-								step(Token.DblDot)
+							if (tok() == Token.Colon) {
+								step(Token.Colon)
 								parseType()
 							}
 						case _:
-							if (tok() == Token.LLower, lex.token[i + 1] == Token.DblDot) {
+							if (tok() == Token.LLower, lex.token[i + 1] == Token.Colon) {
 								argNames.push(getgo(Token.LLower))
-								step(Token.DblDot)
+								step(Token.Colon)
 							}
 							else {
 								argNames.push(null)
@@ -1170,7 +1171,7 @@ module
 					result = Node.TElvis(result, parseExpr())
 				} else {
 					var eif = parseExpr()
-					step(Token.DblDot)
+					step(Token.Colon)
 					var eelse = parseExpr()
 					result = Node.TIf([result], eif, eelse)
 				}
@@ -1241,7 +1242,7 @@ module
 		function parseSingleVar(): Node {
 			var varname = getgo(Token.LLower)
 			if (varname.endsWith("___")) fail("Variables can't end with `___`, it is reserved.")
-			var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
+			var type = null if (tok() == Token.Colon) { i++ type = parseType() }
 			var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
 			return Node.TVar(varname, type, expr, const, external ?? false)
 		}
@@ -1285,7 +1286,7 @@ module
 			else vars.push(parseSingleVar())
 
 			// Multiple variables var a, b, c
-			if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.DblDot))
+			if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.Colon))
 				i++
 			else break
 		}
@@ -1304,11 +1305,11 @@ module
 					var varname = getgo(Token.LLower)
 					if (varname.endsWith("___")) fail("Variables can't end with `___`, it is reserved.")
 
-					var type = null if (tok() == Token.DblDot) { i++ type = parseType() }
+					var type = null if (tok() == Token.Colon) { i++ type = parseType() }
 					var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
 					vars.push(Node.TVar(varname, type, expr, const, external))
 
-					if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.DblDot))
+					if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.Colon))
 						i++
 					else break
 				}
@@ -1371,7 +1372,7 @@ module
 				}
 				pos.push({ line: lex.line[i], column: lex.column[i] })
 				var name = getgo(Token.LLower)
-				if (tok() == Token.DblDot) {
+				if (tok() == Token.Colon) {
 					i++
 					t = parseType()
 				}
@@ -1389,7 +1390,7 @@ module
 			step(Token.PClose)
 		}
 		var rettype = null
-		if (tok() == Token.DblDot) {
+		if (tok() == Token.Colon) {
 			i++
 			rettype = parseType()
 		}
@@ -1610,7 +1611,7 @@ module
 				case Token.BkClose:
 					i++
 					res = NodeType.ParametricType("Array", [NodeType.Object([], [])])
-				case Token.DblDot:
+				case Token.Colon:
 					i++
 					if (tok() == Token.BkClose) {
 						i++
@@ -1621,7 +1622,7 @@ module
 					}
 				case _:
 					var key = parseType()
-					var innerRes = if (tok() == Token.DblDot) { // Map
+					var innerRes = if (tok() == Token.Colon) { // Map
 						i++
 						NodeType.ParametricType("Map", [key, parseType()])
 					} else NodeType.ParametricType("Array", [key])
@@ -1642,7 +1643,7 @@ module
 				var types: [NodeType] = []
 				while (tok() != Token.BrClose) {
 					names.push(getgo(Token.LLower))
-					if (tok() == Token.DblDot) {
+					if (tok() == Token.Colon) {
 						i++
 						types.push(parseType())
 					}
@@ -1661,7 +1662,7 @@ module
 			var args = []
 			while (tok() != Token.PClose) {
 				parseType()
-				if (tok() == Token.DblDot) {
+				if (tok() == Token.Colon) {
 					i++
 					args.push(parseType())
 				}
@@ -1676,9 +1677,9 @@ module
 		case Token.LLower:
 			var res: NodeType? = null
 			switch (offset(1)) {
-				case Token.DblDot: {
+				case Token.Colon: {
 					var argName = getgo(tok())
-					step(Token.DblDot)
+					step(Token.Colon)
 					var argType = parseType()
 					res = NodeType.FunctionArg(argName, argType, null)
 				}
