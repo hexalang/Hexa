@@ -524,21 +524,11 @@ module
 			if (tok() == Token.BrClose) { // Empty block {}
 				i++
 				result = Node.TBlock([])
-			} else if (tok() == Token.LLower) { // Object { k:v }
+			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
 				var names: [String] = [], el: [Node] = []
 				while (true) {
-					if (lex.token[i + 1] == Token.Colon) { // if theres a colon, store the key
-						names.push(getgo(Token.LLower))
-						step(Token.Colon)
-					}
-
-					// otherwise, the key name is the variable identifier.
-					// the value will become the variable's value
-					else {
-						names.push(print())
-					}
-
-					if (lex.token[i] == Token.BrClose) break
+					names.push(getgo(Token.LLower))
+					step(Token.Colon)
 
 					el.push(parseExpr())
 					if (tok() == Token.Comma) { // Object { k:v, ... }
@@ -548,7 +538,7 @@ module
 						continue
 					} else break
 				}
-				if (tok() != Token.BrClose) // ensure that the current token is `}`
+				if (tok() != Token.BrClose)
 					fail('Expected `}` or `,` before `\(print())`')
 				step(Token.BrClose)
 				result = Node.TObject(names, el)
