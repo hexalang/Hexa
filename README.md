@@ -43,7 +43,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 > **WIP — Work in progress, coming soon**
 
-Release of 0.1 expected in Fall 2019
+Release of 0.1 expected in Fall 2020
 
 ## Download
 
