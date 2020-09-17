@@ -6,8 +6,8 @@ Also does some basic optimizations.
 
 ## Source code
 
-- [source/compiler/normalizer.hexa](https://github.com/hexalang/hexa/blob/master/source/compiler/normalizer.hexa)
-- [source/data/nice.hexa](https://github.com/hexalang/hexa/blob/master/source/data/nice.hexa)
+- [source/compiler/normalizer.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/compiler/normalizer.hexa)
+- [source/data/nice.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/data/nice.hexa)
 
 ## Tasks 0.1
 

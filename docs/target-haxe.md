@@ -4,7 +4,7 @@ Target for [H*a*xe](https://en.wikipedia.org/wiki/Haxe) of [haxe.org](https://ha
 
 ## Source code
 
-- [source/targets/genHaxe.hexa](https://github.com/hexalang/hexa/blob/master/source/targets/genHaxe.hexa)
+- [source/targets/genHaxe.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/targets/genHaxe.hexa)
 
 ## Tasks
 

@@ -1,6 +1,6 @@
 # Lexer
 
-Transforms input source files into array of simpler [meaningful particles](https://github.com/hexalang/hexa/blob/master/source/data/token.hexa). Only [UTF-8](https://en.wikipedia.org/wiki/UTF-8) supported.
+Transforms input source files into array of simpler [meaningful particles](https://github.com/hexalang/hexa/blob/kawaii/source/data/token.hexa). Only [UTF-8](https://en.wikipedia.org/wiki/UTF-8) supported.
 
 Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header and `#!/bin` [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix)).
 
@@ -8,9 +8,9 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 
 ## Source code
 
-- [source/compiler/lexer.hexa](https://github.com/hexalang/hexa/blob/master/source/compiler/lexer.hexa)
-- [source/data/token.hexa](https://github.com/hexalang/hexa/blob/master/source/data/token.hexa)
-- [source/tests/testLexer.hexa](https://github.com/hexalang/hexa/blob/master/source/tests/testLexer.hexa)
+- [source/compiler/lexer.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/compiler/lexer.hexa)
+- [source/data/token.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/data/token.hexa)
+- [source/tests/testLexer.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/tests/testLexer.hexa)
 
 ## Tasks 0.1
 

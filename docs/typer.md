@@ -4,9 +4,9 @@ Analyzes and transforms untyped syntax tree from [parser](parser.md) into typed 
 
 ## Source code
 
-- [source/compiler/typer.hexa](https://github.com/hexalang/hexa/blob/master/source/compiler/typer.hexa)
-- [source/data/data.hexa](https://github.com/hexalang/hexa/blob/master/source/data/data.hexa)
-- [source/tests/testTyper.hexa](https://github.com/hexalang/hexa/blob/master/source/tests/testTyper.hexa)
+- [source/compiler/typer.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/compiler/typer.hexa)
+- [source/data/data.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/data/data.hexa)
+- [source/tests/testTyper.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/tests/testTyper.hexa)
 
 ## Tasks 0.1
 
