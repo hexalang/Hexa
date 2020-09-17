@@ -6,9 +6,9 @@
 
 ## Source code
 
-- [source/targets/genJs.hexa](https://github.com/hexalang/hexa/blob/master/source/targets/genJs.hexa)
-- [library/js](https://github.com/hexalang/hexa/tree/master/library/js)
-- [library/nodejs](https://github.com/hexalang/hexa/tree/master/library/nodejs)
+- [source/targets/genJs.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/targets/genJs.hexa)
+- [library/js](https://github.com/hexalang/hexa/tree/kawaii/library/js)
+- [library/nodejs](https://github.com/hexalang/hexa/tree/kawaii/library/nodejs)
 
 ## Tasks
 

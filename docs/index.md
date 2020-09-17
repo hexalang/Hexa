@@ -19,11 +19,11 @@ Feel free to contribute!
 
 ## Folder structure
 
-- [`docs`](https://github.com/hexalang/hexa/tree/master/docs) — This online documentation
-- [`source/compiler`](https://github.com/hexalang/hexa/tree/master/source/compiler) — Compiler itself
-- [`source/tests`](https://github.com/hexalang/hexa/tree/master/source/tests) — Integrated compiler tests, they compiled *into* `hexa` executable and run before compilation (managed by `define.debug` of [`hexa.json`](https://github.com/hexalang/hexa/blob/master/hexa.json))
-- [`source/localization`](https://github.com/hexalang/hexa/tree/master/source/localization) — Contribute translation to your native language
-- [`library`](https://github.com/hexalang/hexa/tree/master/library) — Standard library and target-specific libraries
+- [`docs`](https://github.com/hexalang/hexa/tree/kawaii/docs) — This online documentation
+- [`source/compiler`](https://github.com/hexalang/hexa/tree/kawaii/source/compiler) — Compiler itself
+- [`source/tests`](https://github.com/hexalang/hexa/tree/kawaii/source/tests) — Integrated compiler tests, they compiled *into* `hexa` executable and run before compilation (managed by `define.debug` of [`hexa.json`](https://github.com/hexalang/hexa/blob/kawaii/hexa.json))
+- [`source/localization`](https://github.com/hexalang/hexa/tree/kawaii/source/localization) — Contribute translation to your native language
+- [`library`](https://github.com/hexalang/hexa/tree/kawaii/library) — Standard library and target-specific libraries
 
 ## Compiler components
 
