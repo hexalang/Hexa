@@ -653,23 +653,26 @@ module
 		case Token.Underscore:
 			i++
 			result = Node.TUnderscore
-		case Token.OpNegBits:
-			i++
-			result = Node.TUnop(Token.OpNegBits, false, parseExpr())
-		case Token.OpSub:
-			i++
-			result = Node.TUnop(Token.OpSub, false, parseExpr())
-		case Token.OpNot:
-			i++
-			result = Node.TUnop(Token.OpNot, false, parseExpr())
 		// ++i
-		case Token.OpIncrement:
-			i++
-			result = Node.TUnop(Token.OpIncrement, false, parseExpr())
 		// --i
-		case Token.OpDecrement:
+		// !i
+		// ~i
+		// -i
+		case Token.OpIncrement | Token.OpDecrement | Token.OpNot | Token.OpNegBits | Token.OpSub:
+			let id = lex.token[i]
 			i++
-			result = Node.TUnop(Token.OpDecrement, false, parseExpr())
+			let value = parseExpr()
+
+			// All unops have larger priority than binops
+			function fix(value: Node) {
+				switch (value) {
+					case Node.TBinop(aa, op, bb):
+						return Node.TBinop(fix(aa), op, bb)
+					case _: return Node.TUnop(id, false, value)
+				}
+			}
+
+			result = fix(value)
 		case Token.LFloat:
 			result = Node.TFloat(getgo(Token.LFloat))
 		case Token.LInt:
