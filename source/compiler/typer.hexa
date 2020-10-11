@@ -1601,7 +1601,28 @@ module
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
 							node)
-						case _: // Ok
+						case Node.TStatic(f): switch (f) {
+							case Node.TFunction(name, _):
+								fail('Cannot `\(Token.stringify(op))` a static function `\(name)`', node)
+							case Node.TVar(name, _, _, const):
+								if (const)
+								fail(
+									'Cannot change a constant `static let \(name)`, redefine it as `static var \(name)` to allow value changes\n'
+									+ positionOf(parent) + '`static let \(name)` is defined here',
+								node)
+						}
+						case _:
+							switch (e) {
+								case Node.TIndex(_):
+									// Ok
+									// Sets NaN to `[n]` in JavaScript if `[n] == null` and returns NaN
+									// TODO maybe require `a[i] == a[i] ?? n + 1` instead?
+									// cause also string/etc arrays...
+								case _:
+									let ops = Token.OpIncrement? 'increment `++`' : 'decrement `--`'
+									fail('You can \(ops) only a variable, .field or array element', node)
+									// TODO `x={i:123} x.i++` <- by type and const factor
+							}
 					}
 
 
