@@ -1,14 +1,36 @@
 // Include only basic language features
 #include <stdint.h>
 #include <stdarg.h>
-#include <stdio.h> // printf
-#include <stdlib.h> // malloc
-#ifdef __cplusplus
-#define $__VA_ARGS__ ...
-extern "C" {
-#else
-#define $__VA_ARGS__
+#include <new> // Placement new
+
+#ifndef HEXA_NO_DEFAULT_INCLUDES
+	#include <stdio.h> // printf
+	#include <stdlib.h> // malloc
+	#include <string.h> // strlen
+	#include <wchar.h>
 #endif
+
+#ifndef HEXA_MAIN
+	#define HEXA_MAIN main
+#endif
+
+#ifndef HEXA_NEW
+	#ifdef _WIN32
+		// TODO cache GetProcessHeap
+		#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+	#else
+		#define HEXA_NEW(z) malloc(z)
+	#endif
+#endif
+
+#ifndef HEXA_FREE
+	#ifdef _WIN32
+		#define HEXA_FREE(p, z) HeapFree(GetProcessHeap(), 0, p)
+	#else
+		#define HEXA_FREE(p, z) free(p)
+	#endif
+#endif
+
 	// Runtime code is under MIT license
 	// Forward
 	struct Unknown_;
@@ -16,13 +38,7 @@ extern "C" {
 	struct Array_;
 	struct Map_;
 	#define Any_ Unknown_
-	typedef long LONG;
-	typedef unsigned long ULONG;
-	typedef LONG HRESULT;
-	typedef unsigned long DWORD;
-	typedef unsigned short WORD;
-	typedef unsigned char BYTE;
-	typedef struct _GUID { DWORD Data1; WORD Data2; WORD Data3; BYTE Data4[8]; } _GUID;
+	typedef struct _GUID { uint8_t data[16]; } _GUID;
 	typedef _GUID _IID;
 	typedef _IID* _REFIID;
 	#define __stdcall__
@@ -56,28 +72,28 @@ extern "C" {
 		};
 	};};
 	// Functions
-	struct String_* String_fromUTF8z(const char* this_) {
+	String_* String_fromUTF8z(const char* this_) {
 		return (String_*)0;
 	};
-	struct String_* String_fromInt(const int32_t this_) {
+	String_* String_fromInt(const int32_t this_) {
 		return (String_*)0;
 	};
-	struct String_* String__null_;
-	struct String_* String_opAdd(struct Unknown_* a_, struct Unknown_* b_) {
 		struct String_* sa_ = (a_ == (struct Unknown_*)0)? String__null_ : a_->toString_();
 		struct String_* sb_ = (b_ == (struct Unknown_*)0)? String__null_ : b_->toString_();
+	String_* String__null_;
+	String_* String_opAdd(Unknown_* a_, Unknown_* b_) {
 		return String__null_;
 	};
-	struct Array_* Array_from($__VA_ARGS__) {
-		return (struct Array_*)0;
+	Array_* Array_from(...) {
+		return (Array_*)0;
 	};
 	// name, value, name, value
-	struct Object_* Object_from($__VA_ARGS__) {
-		return (struct Object_*)0;
+	Object_* Object_from(...) {
+		return (Object_*)0;
 	};
 	// key, value, key, value
-	struct Map_* Map_from($__VA_ARGS__) {
-		return (struct Map_*)0;
+	Map_* Map_from(...) {
+		return (Map_*)0;
 	};
 	ULONG Unknown_::AddRef_() {
 		return ++this->rc_;
@@ -88,19 +104,16 @@ extern "C" {
 	HRESULT Unknown_::QueryInterface_(_REFIID riid, void **ppvObject) {
 		return 0;
 	};
-	struct Any_* Bool_true;
-	struct Any_* Bool_false; // So `==` works
-	struct Any_* Any_fromBool(const uint8_t this_) {
+	Any_* Bool_true;
+	Any_* Bool_false; // So `==` works
+	Any_* Any_fromBool(const uint8_t this_) {
 		if (this_) return Bool_true;
 		return Bool_false;
 	}
-	struct Any_* Any_fromInt(const int32_t this_) {
-		return (struct Any_*)0;
+	Any_* Any_fromInt(const int32_t this_) {
+		return (Any_*)0;
 	}
 	// End of runtime code under MIT license
-#ifdef __cplusplus
-};
-#endif
 
 // wchar_t is UTF-16LE with -fshort-wchar
-_Static_assert(sizeof(wchar_t) == 2, "bad sizeof");
+static_assert(sizeof(wchar_t) == 2, "bad sizeof");
