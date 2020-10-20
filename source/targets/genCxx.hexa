@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 module
-	// Generates C/C++ with at least C++11 standard
+	// Generates C++ with at least C++11 standard
 	class GenCxx {
 		static function spawn() {
 			return new GenCxx()
@@ -48,10 +48,9 @@ module
 			} else {
 				header.push('// The generated code is subject to the original license')
 			}
+
 			header.push(Fs.readFileSync(__dirname + '/library/cxx/hexa.cpp').toString('utf8').split('\r\n').join('\n'))
-			header.push('#ifdef __cplusplus')
 			header.push('extern "C" {')
-			header.push('#endif')
 
 
 			let out: [String] = []
@@ -112,9 +111,9 @@ module
 							stringifyType(e.constructorsTypes[i][c]) + ' ' + e.constructors[i][c] + '_'
 						].join(', '))
 						out.push(') {\n')
-						out.push('\t' + e.name + '_* _ = (struct ' + e.name + '_*)(malloc(sizeof(struct ' + e.name + '_)));\n')
+						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
 						out.push('\t_->length_ = \(e.constructors[i].length);\n')
-						out.push('\t_->enum_ = (struct Any_**)(malloc(sizeof(struct Any_*) * \(e.constructors[i].length)));\n')
+						out.push('\t_->enum_ = (Any_**)(HEXA_NEW(sizeof(Any_*) * \(e.constructors[i].length)));\n')
 						out.push('\t_->is_ = \(i);\n')
 						for (c in e.constructors[i].length) {
 							out.push('\t_->enum_[\(c)] = ')
@@ -126,7 +125,7 @@ module
 					} else {
 
 						out.push(e.name + '_* ' + e.name + '_$' + name + '_() {\n')
-						out.push('\t' + e.name + '_* _ = (struct ' + e.name + '_*)(malloc(sizeof(struct ' + e.name + '_)));\n')
+						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
 						out.push('\t_->length_ = 0;\n')
 						out.push('\t_->is_ = \(i);\n')
 						out.push('\treturn _;\n')
@@ -167,12 +166,7 @@ module
 				}
 				if (c.name == 'Bool') continue
 				forward.push('struct ' + c.name + '_;')
-				forward.push('struct ' + c.name + '_$vtable_;')
 				types.push('struct ' + c.name + '_ {\n\t')
-				let vtable = ['struct ' + c.name + '_$vtable_ {\n\t']
-				types.push('\n\tconst struct ' + c.name + '_$vtable_ const * const $vtable_;')
-				let vtableValue = ['const struct ' + c.name + '_$vtable_ const ' + c.name + '_$vtable_$ = {\n\t']
-				let vtableBind = []
 
 				for (v in c.vars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
@@ -184,25 +178,30 @@ module
 				for (v in c.methods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults, funcType):
 						if (name == null || name == 'new') {
-							forwardFunctions.push('struct ' + c.name + '_* ' + c.name + '_$new_')
-							forwardFunctions.push(printFunctionArguments(args, funcType))
-							forwardFunctions.push(';\n')
+							types.push('\n\t' + c.name + '_() {};') // For placement new
+
+							types.push('\n\tvoid this_')
+							types.push(printFunctionArguments(args, funcType, true))
+							types.push(';')
+							types.push('\n\tstatic ' + c.name + '_* new_')
+							types.push(printFunctionArguments(args, funcType))
+							types.push(';')
 
 							// Init
-							out.push('void ' + c.name + '_$this_')
-							thisArgument = 'struct ' + c.name + '_* $this'
+							out.push('void ' + c.name + '_::this_')
+							thisArgument = null
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
 							out.push(' {\n')
 
 							// Init fields
-							customThis = '$this'
+							customThis = 'this'
 							for (v in c.vars) switch (v) {
 								case NiceStatement.Var(name, expr, type):
 									if (expr != null)
-									out.push('\t$this->' + name + '_ = ' + printExpression(expr) + ';\n')
+									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
 								case NiceStatement.Const(name, expr, type):
-									out.push('\t$this->' + name + '_ = ' + printExpression(expr) + ';\n')
+									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
 							}
 							pushTab()
 							out.push('\t' + printBlock(expr) + ';\n')
@@ -211,49 +210,35 @@ module
 							out.push('};\n')
 
 							// Alloc
-							out.push('struct ' + c.name + '_* ' + c.name + '_$new_')
+							out.push('' + c.name + '_* ' + c.name + '_::new_')
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
-							out.push('\tvoid** $_ = (void**)(malloc(sizeof(struct ' + c.name + '_)));\n')
-							out.push('\t$_[0] = (void *)&' + c.name + '_$vtable_$;\n')
-							out.push('\tstruct ' + c.name + '_* _ = (struct ' + c.name + '_*)($_);\n')
-							out.push('\t' + c.name + '_$this_(')
+							out.push('\tprintf("\(c.name).new_()\\n");fflush(0);\n')
+							out.push('\tvoid* buffer_ = (' + c.name + '_*)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
+							out.push('\t' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
+							out.push('\t_->this_(')
 							let arg = [for (a in args) a + '_']
-							arg.unshift('_')
 							out.push(arg.join(', '))
 							out.push(');\n')
 							out.push('\treturn _;\n')
 							out.push('};\n')
 						} else {
-							if (false) {
 							types.push('\n\tvirtual ')
 							types.push(printFunctionReturnType(funcType))
 							types.push(' ' + name + '_')
 							types.push(printFunctionArguments(args, funcType))
 							types.push(';')
-							}
 
-							thisArgument = 'struct ' + c.name + '_* $this'
-							vtable.push('\n\t')
-							vtable.push(printFunctionReturnType(funcType))
-							vtable.push(' (*const ' + name + '_) ')
-							vtable.push(printFunctionArguments(args, funcType))
-							vtable.push(';')
+							thisArgument = null
 
-							forwardFunctions.push(printFunctionReturnType(funcType))
-							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
-							forwardFunctions.push(printFunctionArguments(args, funcType))
-							forwardFunctions.push(';\n')
 
-							let vbind = '&' + c.name + '_$' + name + '_'
-							vtableBind.push(vbind)
 
 							out.push(printFunctionReturnType(funcType))
-							out.push(' ' + c.name + '_$' + name + '_')
+							out.push(' ' + c.name + '_::' + name + '_')
 							out.push(printFunctionArguments(args, funcType))
 							let _currentReturnType = currentReturnType
 							currentReturnType = getFunctionReturnType(funcType)
-							customThis = '$this'
+							customThis = 'this'
 							thisArgument = null
 							out.push(' ' + printBlock(expr) + ';\n')
 							customThis = null
@@ -267,7 +252,7 @@ module
 							currentReturnType = getFunctionReturnType(funcType)
 							let arg = [for (a in args) a + '_']
 							arg.unshift('this')
-							out.push(' { return this->$vtable_->' + name + '_(' + arg.join(', ') + '); };\n')
+							out.push(' { return this->' + name + '_(' + arg.join(', ') + '); };\n')
 							}
 							currentReturnType = _currentReturnType
 						}
@@ -275,22 +260,28 @@ module
 
 				for (v in c.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
-						out.push('\(stringifyType(type)) ' + c.name + '_$' + name + '_;\n')
+						types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
+						out.push('\(stringifyType(type)) ' + c.name + '_::' + name + '_;\n')
 					case NiceStatement.Const(name, expr, type):
-						out.push('\(stringifyType(type)) ' + c.name + '_$' + name + '_;\n')
+						types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
+						out.push('\(stringifyType(type)) ' + c.name + '_::' + name + '_;\n')
 				}
 
+				for (v in c.staticMethods) switch (v) {
+					case NiceStatement.Function(name, expr, args, defaults, funcType):
+						types.push('\n\tstatic ')
+						types.push(printFunctionReturnType(funcType))
+						types.push(' ' + name + '_')
+						types.push(printFunctionArguments(args, funcType))
+						types.push(';')
+				}
 
 				types.push('\n};\n')
-				vtable.push('\n};\n')
-				vtableValue.push(vtableBind.join(',\n\t'))
-				vtable.push(vtableValue.join('') + '\n};\n')
-				types.unshift(vtable.join(''))
 
 				for (v in c.staticMethods) switch (v) {
 					case NiceStatement.Function(name, expr, args, defaults, funcType):
 						out.push(printFunctionReturnType(funcType))
-						out.push(' ' + c.name + '_$' + name + '_')
+						out.push(' ' + c.name + '_::' + name + '_')
 						out.push(printFunctionArguments(args, funcType))
 
 						let _currentReturnType = currentReturnType
@@ -318,7 +309,7 @@ module
 			}
 
 			// Init
-			out.push('int main(int argc, char **argv) {\n')
+			out.push('int HEXA_MAIN(int argc, char **argv) {\n')
 			out.push('\t%%%HEXA_STRINGS@@@\n')
 			pushTab()
 
@@ -348,10 +339,10 @@ module
 				for (v in e.staticVars) switch (v) {
 					case NiceStatement.Var(name, expr, type):
 						if (expr != null)
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 					case NiceStatement.Const(name, expr, type):
 						if (expr != null)
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 				}
 			}
 
@@ -368,20 +359,19 @@ module
 					out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
 			}
 
+			if (project.init.length > 1) throw 'project.init.length > 1'
 			let init = printStatement(project.init[0])
-			let strings = ['String_Strings = (struct String_**)malloc(HEXA_STRINGS * sizeof(struct String_*));\n']
+			let strings = ['String_Strings = (String_**)HEXA_NEW(HEXA_STRINGS * sizeof(String_*));\n']
 			for (id in declarationsOfStrings.length) {
 				// TODO set ref counting
-				strings.push('\tString_Strings[\(id)] = String_$fromUTF16z_(L"\(declarationsOfStrings[id])");\n')
+				strings.push('\tString_Strings[\(id)] = String_::fromUTF16z_(L"\(declarationsOfStrings[id])");\n')
 			}
 			out.push('\t')
 			out.push(init)
 			popTab()
 			out.push('\treturn 0;\n}\n')
 
-			out.push('#ifdef __cplusplus\n')
 			out.push('}\n')
-			out.push('#endif\n')
 
 			forward.push('#define HEXA_STRINGS \(declarationsOfStrings.length)')
 
@@ -486,7 +476,7 @@ module
 					out += ' { '
 
 					if (constructor) {
-						out += '\n \(renamed) _xthis = (\(renamed))malloc(sizeof(struct \(renamed)));'
+						out += '\n \(renamed) _xthis = (\(renamed))HEXA_NEW(sizeof(\(renamed)));'
 						// Init fields
 						for (v in c.vars) switch (v) {
 							case NiceStatement.Var(name, expr, type):
@@ -588,7 +578,7 @@ module
 
 					popTab()
 					return r + '\n' + tabs + '}'
-				case NiceStatement.New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
+				case NiceStatement.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
 				case NiceStatement.Const(name, expr, type):
 					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
 				case NiceStatement.Var(name, expr, type):
@@ -629,6 +619,21 @@ module
 					if (eelse != null) r += ' else ' + printStatement(eelse)
 					return r
 				case NiceStatement.Call(e, args, expects, kind):
+					// Avoid undefined behavior
+					let arguments: [String] = []
+					for (i in args.length) {
+						let temp = tempId++
+						if (isPrimitive(args[i])) {
+							arguments.push(printTypeConverter(printExpression(args[i]), getType(args[i]), expects[i]))
+						} else {
+							metaBlock.push(
+								stringifyType(expects[i] ?? getType(args[i])) + ' _$\(temp) = ' + printTypeConverter(printExpression(args[i]), getType(args[i]), expects[i] ?? getType(args[i]))
+							)
+							arguments.push('_$\(temp)')
+						}
+					}
+					return printExpression(e) + '(' + arguments.join(', ') + ')'
+
 					switch (kind) {
 						// TODO error on (_,_) if simple enum case CallKind.VirtualMethod(_, _): return '*.virtual'
 						case CallKind.VirtualMethod:
@@ -656,6 +661,12 @@ module
 				case NiceStatement.Assign(a, v):
 					switch (a) {
 						case NiceExpression.Dot(expr, name):
+							switch (expr) {
+								case NiceExpression.Ident(id):
+									// Static
+									if (id.charAt(0) == id.charAt(0).toUpperCase())
+										return id + '_::' + name + '_' + ' = ' + printExpression(v)
+							}
 							// Dynamic
 							let type = getType(expr)
 							if ((type == project.typer.typeAny) || (type == null))
@@ -666,7 +677,7 @@ module
 				case NiceStatement.Throw(e):
 					return '_throw(' + printExpression(e) + ')'
 				case NiceStatement.For(name, over, by):
-					return 'for (struct Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
+					return 'for (Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
 				case NiceStatement.Increment(e): return printExpression(e) + '++'
 				case NiceStatement.Decrement(e): return printExpression(e) + '--'
 				case NiceStatement.While(econd, e, pre):
@@ -810,7 +821,7 @@ module
 		var thisArgument: String? = null
 		function printFunctionArguments(args: [String], funcType: Type, defaults: Bool = false) {
 			if (args.length == 0, thisArgument != null) return '(' + thisArgument + ')'
-			if (args.length == 0) return '(void)' // Otherwise C function takes infinite number of arguments
+			if (args.length == 0) return '()'
 			switch (funcType) {
 				case Type.Function(types, _):
 					let results: [String] = []
@@ -819,8 +830,8 @@ module
 					for (a in args.length) {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) switch (types[a]) {
-							case Type.Nullable(_): result += ' = ((struct Unknown_ *)0)'
-							case Type.UnknownNullable(_): result += ' = ((struct Unknown_ *)0)'
+							case Type.Nullable(_): result += ' = ((Unknown_ *)0)'
+							case Type.UnknownNullable(_): result += ' = ((Unknown_ *)0)'
 						}
 						results.push(result)
 					}
@@ -829,14 +840,14 @@ module
 					return '(' + [for (a in args.length) {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) switch (types[a]) {
-							case Type.Nullable(_): result += ' = ((struct Unknown_ *)0)'
-							case Type.UnknownNullable(_): result += ' = ((struct Unknown_ *)0)'
+							case Type.Nullable(_): result += ' = ((Unknown_ *)0)'
+							case Type.UnknownNullable(_): result += ' = ((Unknown_ *)0)'
 						}
 						result
 					}].join(', ') + ')'
 			}
 			return '(' + [for (a in args.length)
-				'struct Any_* ' + args[a] + '_'
+				'Any_* ' + args[a] + '_'
 			].join(', ') + ')'
 			// TODO defaults
 			// 'void* ' + args[a] + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
@@ -879,19 +890,20 @@ module
 				case Type.UnknownNullable(handle): return stringifyType(handle.value)
 				case Type.ClassInstance(type):
 					if (type.name == 'Int') return 'int32_t'
+					if (type.name == 'Int32') return 'int32_t'
 
 					// Keeps three states: 1 = true, 0 = false, 2 = null
 					if (type.name == 'Bool') return 'uint8_t'
 					if (type.name == 'Void') return 'void'
 					if (type.name == 'Float') return 'double'
-					return 'struct ' + type.name + '_*'
-				case Type.Class(type): return 'struct ' + type.name + '_*'
+					return /*'/ *ClassInstance* /' +*/ type.name + '_*'
+				case Type.Class(type): return '/*Class*/ ' + type.name + '_*'
 				case Type.Enum(type):
 					if (let sub = type.fieldsTypeSimple)
 						return stringifyType(sub)
-					return 'struct ' + type.name + '_*'
-				case Type.EnumInstance(type): return 'struct ' + type.name + '_*'
-				case Type.Struct(_): return 'struct Any_*/*Struct*/'
+					return '' + type.name + '_*'
+				case Type.EnumInstance(type): return '' + type.name + '_*'
+				case Type.Struct(_): return 'Any_*/*Struct*/'
 				case Type.Function(args, returns):
 					let temp = tempId++
 					typedefFunctions.push('typedef ')
@@ -906,7 +918,7 @@ module
 					typedefFunctions.push(a.join(', '))
 					typedefFunctions.push(');\n')
 					return '_$\(temp)'
-				case null: return 'struct Any_*/*null?*/'
+				case null: return 'Any_*/*null?*/'
 				case _: throw 'stringifyType ' + t
 			}
 		}
@@ -920,11 +932,26 @@ module
 			case NiceExpression.Ident(_, type): return type
 			case NiceExpression.Parenthesis(expr): return getType(expr)
 			case NiceExpression.Call(_, _, type): return type
+			//case NiceExpression.If(_): return project.typer.typeAny
 			case NiceExpression.Binop(_, _, _, type): return type
 			case NiceExpression.Dot(_, _, type): return type
 			case NiceExpression.This(type): return type
+			case NiceExpression.Null(_): return Type.UnknownNullable({value: null})
+			case NiceExpression.UnsafeBitCast(_, to): return to
 			case _:
 			return project.typer.typeAny
+		}
+
+		function isPrimitive(e: NiceExpression): Bool switch (e) {
+			case NiceExpression.Int(_): return true
+			case NiceExpression.Float(_): return true
+			case NiceExpression.String(_): return true
+			case NiceExpression.True(_): return true
+			case NiceExpression.False(_): return true
+			case NiceExpression.Ident(_, type): return true
+			case NiceExpression.This(type): return true
+			case NiceExpression.Null(_): return true
+			case _: return false
 		}
 
 		function registerString(string: String): Int {
@@ -936,11 +963,13 @@ module
 		function printExpression(e: NiceExpression) {
 			switch (e) {
 				case NiceExpression.This: return customThis ?? 'this'
-				case NiceExpression.Ident(name): return '' + name + '_'
+				case NiceExpression.Ident(name):
+					if (project.native.get(e) == true) return name
+					return '' + name + '_'
 				case NiceExpression.Null:
 					// TODO infer actual type of null in typer,
 					// to print type conversion `((T*)0)`
-					return '((struct Unknown_ *)0)'
+					return '((Unknown_ *)0)'
 				case NiceExpression.Int(v): return '(int32_t)' + v
 				case NiceExpression.Float(v):
 					if (v.indexOf('.') == -1) return '(double)' + v + '.0'
@@ -995,7 +1024,7 @@ module
 					case NiceExpression.Ident(id):
 						// Static
 						if (id.charAt(0) == id.charAt(0).toUpperCase())
-							return id + '_$' + name + '_'
+							return id + '_::' + name + '_'
 						// Dynamic
 						let type = getType(expr)
 						if ((type == project.typer.typeAny) || (type == null))
@@ -1005,10 +1034,28 @@ module
 						return printExpression(expr) + '->' + name + '_'
 				}
 				case NiceExpression.Call(e, args, type, kind):
+					// Avoid undefined behavior
+					let arguments: [String] = []
+					for (i in args.length) {
+						let temp = tempId++
+						let expects = getType(args[i]) // TODO
+
+						if (isPrimitive(args[i])) {
+							arguments.push(printTypeConverter(printExpression(args[i]), getType(args[i]), expects))
+						} else {
+							metaBlock.push(
+								stringifyType(expects ?? getType(args[i])) + ' _$\(temp) = ' + printTypeConverter(printExpression(args[i]), getType(args[i]), expects ?? getType(args[i]))
+							)
+							arguments.push('_$\(temp)')
+						}
+					}
+
 					switch (kind) {
 						case CallKind.Static:
+							return printExpression(e) + '(' + arguments.join(', ') + ')'
 							return printExpression(e) + '/*static*/' + printCallArguments(args)
 						case CallKind.VirtualMethod:
+							return printExpression(e) + '(' + arguments.join(', ') + ')'
 						switch (e) {
 							case NiceExpression.Dot(expr, name, result):
 							let temp = tempId++
@@ -1017,10 +1064,10 @@ module
 							metaBlock = []
 							let meta = stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr)
 
-							let result = '_$\(temp)->$vtable_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+							let result = '_$\(temp)->' + name + '_' + printCallArguments(args)
 
-							for (b in metaBlock) mb.push('/*b*/' + b)
-							mb.push('/*meta*/' + meta)
+							for (b in metaBlock) mb.push(b)
+							mb.push(meta)
 							metaBlock = mb
 							return result
 						}
@@ -1029,14 +1076,14 @@ module
 				case NiceExpression.Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
-					let result = '[&]' + printFunctionArguments(args, defaults)
+					let result = '[&]' + printFunctionArguments(args, funcType, true)
 					+ '->' + printFunctionReturnType(funcType) + ' '
 					+ printBlock(expr)
 					currentReturnType = _currentReturnType
 					return result
-				case NiceExpression.New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
+				case NiceExpression.New(e, args): return '/*'+e+'*/'+'' + printExpression(e) + '::new_' + printCallArguments(args)
 				case NiceExpression.Array(el):
-					if (el.length == 0) return 'Array_$new_(0)'
+					if (el.length == 0) return 'Array_::new_(0)'
 					return 'Array_from(' + [for (a in el) printExpression(a)].join(', ') + ')'
 				case NiceExpression.Unop(op, postfix, e):
 					if (postfix) return printExpression(e) + Token.stringify(op)
@@ -1071,7 +1118,7 @@ module
 				case NiceExpression.Object(names, el):
 					return 'Object_from(' + [for (i in el.length) ((names[i]) + ', ' + printExpression(el[i]))].join(', ') + ')'
 				case NiceExpression.Map(keys, values):
-					if (keys.length == 0) return 'Map_$new_()'
+					if (keys.length == 0) return 'Map_::new_()'
 					return 'Map_from(' +
 					[for (i in keys.length) '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')
 					+ ')'
@@ -1083,6 +1130,8 @@ module
 					case NativeOperatorKind.Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
 					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
+				case NiceExpression.UnsafeBitCast(e, to):
+					return printTypeConverter(printExpression(e), getType(e), to)
 				case NiceExpression.Enum(typeName, tagName, tag, args):
 					return '' + typeName + '_$' + tagName + '_(' + [for (a in args) printExpression(a)].join(', ') + ')'
 				case NiceExpression.EnumParameter(expr, index):
