@@ -73,7 +73,7 @@ module
 			for (file in collected) {
 				var didInit = false
 				var lastOne = file[0]
-				for (e in file) switch (e) {
+				for (e in file) { switch (e) {
 					case Node.TModule(path, el):
 						if (didInit) fail(
 							'Modules should follow before expressions\n'
@@ -84,7 +84,7 @@ module
 						lastOne = e
 						didInit = true
 				}
-			}
+			}}
 
 			var intermediate: [String] = []
 
@@ -133,10 +133,10 @@ module
 
 			// Fill module scopes of all files at first
 			pushScope()
-			for (file in collected) for (e in file) switch (e) {
+			for (file in collected) { for (e in file) { switch (e) {
 				case Node.TModule(path, el):
 					// Fill classes first
-					for (node in el) switch (node) {
+					for (node in el) { switch (node) {
 						case Node.TClass(_):
 							parents.set(node, e)
 							fill(node)
@@ -144,25 +144,25 @@ module
 							parents.set(node, e)
 							fill(node)
 						case _:
-					}
-					for (node in el) switch (node) {
+					}}
+					for (node in el) { switch (node) {
 						case Node.TClass(_):
 						case Node.TEnum(_):
 						case _:
 							parents.set(node, e)
 							fill(node)
-					}
+					}}
 				case _:
-			}
+			}}}
 			popScope()
 
 			// Fill initialization code at files roots
 			for (file in collected) {
 				pushScope()
-				for (e in file) switch (e) {
+				for (e in file) { switch (e) {
 					case Node.TModule(path, el):
 					case _: fill(e)
-				}
+				}}
 				popScope()
 			}
 		}
@@ -271,7 +271,9 @@ module
 						}
 
 						if (let ext = extend) toType(ext, node)
-						for (impl in implement) toType(impl, node)
+						for (impl in implement) {
+							toType(impl, node)
+						}
 						pushScope()
 
 						// Fill scopes
@@ -320,7 +322,7 @@ module
 						}
 
 						// Fill fields with non-ambiguous types
-						for (field in f) switch (field) {
+						for (field in f) { switch (field) {
 							// `var\let a: known T`
 							case Node.TVar(name, t, e, const):
 								if (let t = t) types.set(field, toType(t, field))
@@ -329,10 +331,10 @@ module
 								if (let rettype = rettype, vars.length == 0) {
 									types.set(field, Type.Function([], toType(rettype, field)))
 								}
-						}
+						}}
 
 						// Fill expressions
-						for (field in f) switch (field) {
+						for (field in f) { switch (field) {
 							// Instance method
 							case Node.TFunction(name, expr, vars, rettype):
 								if (name == 'new') type.constructor = type.fieldNames.length - 1
@@ -405,7 +407,7 @@ module
 
 							case _:
 								fail('Wrong class field format', node)
-						}
+						}}
 
 						popScope()
 					case _:
@@ -547,7 +549,7 @@ module
 					}
 
 					// Fill expressions
-					for (field in f) switch (field) {
+					for (field in f) { switch (field) {
 						case Node.TFunction(name, expr, vars, rettype):
 							fillFunction(field, expr, vars, rettype)
 						case Node.TVar(name, _):
@@ -578,7 +580,7 @@ module
 						case Node.TBinop(_): // TODO validate them
 						case _:
 							fail('Unknown enum field format', field)
-					}
+					}}
 					popScope()
 					case _:
 						fail('EnumType expects (declare) enum node, but got ' + node, node)
@@ -654,7 +656,11 @@ module
 				case Node.TModule(_, els): el = els
 				case _: return null // No root
 			}
-			for (e in el) if (name == nameOfModuleItem(e)) return e
+			for (e in el) {
+				if (name == nameOfModuleItem(e)) {
+					return e
+				}
+			}
 			return null
 		}
 
@@ -895,12 +901,16 @@ module
 
 				// `var a = e, b: T, c`
 				case Node.TVars(e):
-					for (ee in e) fill(ee)
+					for (ee in e) {
+						fill(ee)
+					}
 
 				// `{...}`
 				case Node.TBlock(el):
 					pushScope()
-					for (e in el) fill(e)
+					for (e in el) {
+						fill(e)
+					}
 					popScope()
 
 				// `var name: t = e`
@@ -990,6 +1000,11 @@ module
 					addScope(name, node)
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
+					switch (by) {
+						case Node.TBlock(_):
+						case _:
+							fail('Loop body must be a `{` block `}`', by)
+					}
 					fill(by)
 					allowBreakAndContinue = _allowBreakAndContinue
 					popScope()
@@ -1204,7 +1219,9 @@ module
 
 							types.set(node, typeArray.instantiateGeneric([types.get(by)]))
 						case _:
-							for (e in el) fillExpression(e)
+							for (e in el) {
+								fillExpression(e)
+							}
 							types.set(node, typeArray.instantiateGeneric([types.get(el[0])]))
 					}
 
@@ -1255,9 +1272,9 @@ module
 						types.set(node, Type.Struct([], []))
 					} else {
 						pushScope()
-						for (i in el.length) if (i < el.length - 1) {
+						for (i in el.length) { if (i < el.length - 1) {
 							fill(el[i])
-						}
+						}}
 						let latest = el[el.length - 1]
 						fillExpression(latest)
 						types.set(node, types.get(latest))
@@ -1288,7 +1305,7 @@ module
 							switch (type.parent) {
 								case Node.TClass(t, extend, implement, fields, external):
 									registerClassType(type.parent)
-									for (field in fields)
+									for (field in fields) {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
 											parents.set(node, field)
@@ -1297,6 +1314,7 @@ module
 												fail('Type for this field is null: ' + n, field)
 											}
 										}
+									}
 								case _:
 									fail(type.parent, type.parent)
 							}
@@ -1309,11 +1327,12 @@ module
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
 							switch (type.parent) {
 								case Node.TClass(t, extend, implement, fields, external):
-									for (field in fields)
+									for (field in fields) {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
 											parents.set(node, field)
 										}
+									}
 								case _:
 									fail(type.parent, type.parent)
 							}
@@ -1325,7 +1344,7 @@ module
 								fail('Enum field `.\(n)` is not static', node)
 							switch (type.parent) {
 								case Node.TEnum(t, fields, valuesType):
-									for (field in fields) switch (field) {
+									for (field in fields) { switch (field) {
 										case Node.TCall(_):
 										case Node.NodeTypeValue(_):
 										case Node.TBinop(_):
@@ -1334,7 +1353,7 @@ module
 											types.set(node, types.get(field))
 											parents.set(node, field)
 										}
-									}
+									}}
 								case _:
 									fail(type.parent, type.parent)
 							}
@@ -1421,7 +1440,9 @@ module
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
 					parents.set(node, subj)
-					for (e in el) fillExpression(e)
+					for (e in el) {
+						fillExpression(e)
+					}
 					switch (type) {
 						case Type.ClassInstance(type):
 							if (type.constructor == -1)
@@ -1435,11 +1456,15 @@ module
 
 				// `{names:el, ...}`
 				case Node.TObject(names, el):
-					for (name in names.length)
+					for (name in names.length) {
 						if (names.indexOf(names[name]) != name)
 							fail('Field `\(names[name])` already exists', node)
+					}
 
-					for (e in el) fillExpression(e)
+					for (e in el) {
+						fillExpression(e)
+					}
+
 					let els = [for (e in el) types.get(e)]
 					types.set(node, Type.Struct(names, els))
 
@@ -1514,12 +1539,16 @@ module
 						case _:
 				 			fillExpression(e)
 				 	}
-					for (e in el) fillExpression(e)
+
+					for (e in el) {
+						fillExpression(e)
+					}
+
 				 	switch (types.get(e)) {
 				 		case Type.Function(args, returns):
-				 			for (i in el.length) if (let arg = args[i]) {
+				 			for (i in el.length) { if (let arg = args[i]) {
 				 				unify(arg, types.get(el[i]), el[i])
-				 			}
+				 			}}
 				 			types.set(node, returns)
 				 			// TODO (name: )
 				 			// TODO Not enough
@@ -1746,8 +1775,6 @@ module
 				// Errors
 				case Node.Underscore:
 					fail('Cannot use underscore `_` outside of case pattern', node)
-				case Node.TExport(_):
-					fail('Cannot use `export` here: only applicable to module declarations', node)
 				case Node.TStatic(_):
 					fail('Cannot use `static` here: only applicable to class fields', node)
 				case Node.TPrivate(_):
@@ -1849,7 +1876,7 @@ module
 									follow(ex)
 									currentTagBind = 0
 
-									for (ee in args) switch (ee) {
+									for (ee in args) { switch (ee) {
 										case Node.TIdent(name):
 											follow(ee)
 											currentTagBind++
@@ -1857,7 +1884,7 @@ module
 											currentTagBind++
 										case _:
 											fail('This case pattern is not supported', e)
-									}
+									}}
 								}
 								case Node.TIdent(name): // Bind (var)
 								{
