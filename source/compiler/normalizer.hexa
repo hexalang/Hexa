@@ -183,21 +183,22 @@ module
 						case null:
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(Project.data.get(e))
 						case Node.TVar(name, _, _):
-							if (let map = typer.parents.get(source)) switch (map) {
+							if (let map = typer.parents.get(source)) { switch (map) {
 								case Node.TModule(path, _):
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
 									let type = typer.types.get(typer.parents.get(source))
 									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
-							}
+							}}
 						case Node.TFunction(name, _):
-							if (let map = typer.parents.get(source)) switch (map) {
+							if (let map = typer.parents.get(source)) { switch (map) {
 								case Node.TModule(path, _):
 									return NiceExpression.Ident(globalAccessor + name, null)
 								case _:
 									let type = typer.types.get(typer.parents.get(source))
 									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
+							}}
 							}
 						case Node.TStatic(f):
 							let staticSource = typer.parents.get(source)
@@ -221,28 +222,33 @@ module
 				}
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
-						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) return tag
+						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) {
+							return tag
+						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 					case Node.TClass(_):
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
-				if (let type = typer.types.get(expr)) switch (type) {
+				if (let type = typer.types.get(expr)) {
+					switch (type) {
 					case Type.ClassInstance(type):
 						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
 						if (let rename = renamed) {
 							return NiceExpression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
 						}
-				}
 				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
+				}}
 
 				case Node.TDotUpper(expr, name):
 				let parent = typer.parents.get(expr)
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
-						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name))
+						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) {
 							return tag
-						if (!nativeEnums, valuesType == null, let tag = getTag(parent, name))
+						}
+						if (!nativeEnums, valuesType == null, let tag = getTag(parent, name)) {
 							return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, [])
+						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
@@ -251,15 +257,15 @@ module
 				case Node.TCall(expr, args, argNames):
 
 				// Optimize `'String'.charCodeAt(0)`
-				if (args.length == 1) switch (expr) {
-					case Node.TDot(expr, name): if (name == 'charCodeAt') switch (expr) {
-						case Node.TString(s): if (s.indexOf('\\') == -1) switch (args[0]) {
+				if (args.length == 1) { switch (expr) {
+					case Node.TDot(expr, name): if (name == 'charCodeAt') { switch (expr) {
+						case Node.TString(s): if (s.indexOf('\\') == -1) { switch (args[0]) {
 							case Node.TInt(v):
 								let i = parseInt(v)
 								if (i < s.length, i > -1) return NiceExpression.Int(s.charCodeAt(i))
-						}
-					}
-				}
+						}}
+					}}
+				}}
 
 				// Call kind
 				var kind = CallKind.Function
@@ -277,28 +283,29 @@ module
 				}
 
 				// Enum constructor
-				if (!nativeEnums) switch (expr) {
+				if (!nativeEnums) { switch (expr) {
 					case Node.TDotUpper(expr, name):
 						let parent = typer.parents.get(expr)
 						switch (parent) {
 							case Node.TEnum(t, fields, valuesType):
-								if (let tag = getTag(parent, name))
+								if (let tag = getTag(parent, name)) {
 									return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, a)
+								}
 						}
-				}
+				}}
 				let atts = Project.mapAttributes.get(typer.parents.get(expr))
 
 				let infix = getAtt(atts, 'infix')
-				if (infix != null) switch (infix.values[0]) {
+				if (infix != null) { switch (infix.values[0]) {
 					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
 					case _: throw '@infix takes string as argument'
-				}
+				}}
 
 				let operator = getAtt(atts, 'operator')
-				if (operator != null) switch (operator.values[0]) {
+				if (operator != null) { switch (operator.values[0]) {
 					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
 					case _: throw '@operator takes string as argument'
-				}
+				}}
 
 				let v = nodeToExpression(expr)
 
@@ -315,14 +322,14 @@ module
 				let eb = nodeToExpression(b)
 
 				// `"abc" + "dce" = "abcdce"`
-				if (op == Token.OpAdd) switch (ea) {
+				if (op == Token.OpAdd) { switch (ea) {
 					case NiceExpression.String(sa): switch (eb) {
 						case NiceExpression.String(sb): return NiceExpression.String(sa + sb)
 					}
-				}
+				}}
 
 				// TODO use nested pattern matching here
-				if (op == Token.OpBoolOr) switch (ea) {
+				if (op == Token.OpBoolOr) { switch (ea) {
 					case NiceExpression.True(_):  switch (eb) {
 						// `true || false = true`
 						case NiceExpression.False(_): return NiceExpression.True
@@ -335,9 +342,10 @@ module
 						// `false || true = true`
 						case NiceExpression.True(_): return NiceExpression.True
 					}
-				}
+				}}
 
-				if (op == Token.OpBoolAnd) switch (ea) {
+				if (op == Token.OpBoolAnd) {
+					switch (ea) {
 					case NiceExpression.True(_):  switch (eb) {
 						// `true && false = false`
 						case NiceExpression.False(_): return NiceExpression.False
@@ -350,7 +358,7 @@ module
 						// `false && true = false`
 						case NiceExpression.True(_): return NiceExpression.False
 					}
-				}
+				}}
 
 				return NiceExpression.Binop(ea, op, eb, typer.types.get(e))
 
@@ -370,8 +378,11 @@ module
 					case Node.TVar(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-						if (expr != null) defaults.push(nodeToExpression(expr))
-						else defaults.push(null)
+						if (expr != null) {
+							defaults.push(nodeToExpression(expr))
+						} else {
+							defaults.push(null)
+						}
 				}}
 				return NiceExpression.Function(name!=null?unique(name, e):null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
 
@@ -383,20 +394,27 @@ module
 					case Node.TVar(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-						if (expr != null) defaults.push(nodeToExpression(expr))
-						else defaults.push(null)
 				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype)
+						if (expr != null) {
+							defaults.push(nodeToExpression(expr))
+						} else {
+							defaults.push(null)
+						}
 				}}
 
 				case Node.TBlock(el):
-				if (el.length == 0)
+				if (el.length == 0) {
 					return NiceExpression.Object([], [], [])
-				if (el.length == 1)
+				}
+				if (el.length == 1) {
 					return nodeToExpression(el[0])
+				}
 				let block = []
 				var i = 0
 				while (i < el.length - 1) {
-					if (let s = nodeToStatement(el[i])) block.push(s)
+					if (let s = nodeToStatement(el[i])) {
+						block.push(s)
+					}
 					i++
 				}
 				let result = el[el.length - 1]
@@ -434,7 +452,7 @@ module
 				return NiceExpression.Parenthesis(value)
 
 				case Node.TArray(el):
-				if (el.length == 1) switch (el[0]) {
+				if (el.length == 1) { switch (el[0]) {
 					case Node.TFor(name, over, by, range):
 					let block = []
 					let result = unique('result')
@@ -477,7 +495,8 @@ module
 						typer.types.get(e),
 						CallKind.Function
 					) // TODO resultType?
-				}
+				}}
+
 				let els = []
 				let types = []
 				for (e in el) {
@@ -528,8 +547,9 @@ module
 					binds = true
 				}}
 
-				if (!binds && econd.length == 1)
-				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+				if (!binds && econd.length == 1) {
+					return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+				}
 
 				if (!binds) {
 					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
@@ -585,27 +605,32 @@ module
 
 		function nodeToStatement(e: Node): NiceStatement? {
 			let result = nodeToStatementWithoutPosition(e)
-			if (result != null) project.statementPosition.set(result, Project.data.get(e))
+			if (result != null) {
+				project.statementPosition.set(result, Project.data.get(e))
+			}
 			return result
 		}
 
 		function nodeToStatementWithoutPosition(e: Node): NiceStatement? {
-			if (e == null) return null
+			if (e == null) {
+				return null
+			}
 
 			switch (e) {
 				case Node.TBlock(el):
 				var els = [] // TODO break after: break, continue, return, throw
 				for(e in el) {
 					let statement = nodeToStatement(e)
-					if (statement != null) // Optimized away
-					els.push(statement)
+					if (statement != null) { // Optimized away
+						els.push(statement)
+					}
 				}
 
 				// Unwrap `{{{{block}}}}`
-				if (els.length == 1) switch (els[0]) {
+				if (els.length == 1) { switch (els[0]) {
 					case NiceStatement.Block(_):
 						return els[0]
-				}
+				}}
 
 				return NiceStatement.Block(els)
 
@@ -648,8 +673,9 @@ module
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
 									type.staticVars.push(NiceStatement.Const(uname, value, typer.types.get(field)))
+								} else {
+									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
@@ -659,8 +685,11 @@ module
 									case Node.TVar(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if (expr != null) defaults.push(nodeToExpression(expr))
-										else defaults.push(null)
+										if (expr != null) {
+											defaults.push(nodeToExpression(expr))
+										} else {
+											defaults.push(null)
+										}
 								}}
 								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field)))
 							case _: console.error("(internal warning) Unknown complex enum static field kind:", field)
@@ -705,8 +734,9 @@ module
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
 									type.staticVars.push(NiceStatement.Const(uname, value, typer.types.get(field)))
+								} else {
+									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
@@ -716,8 +746,11 @@ module
 									case Node.TVar(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if (expr != null) defaults.push(nodeToExpression(expr))
-										else defaults.push(null)
+										if (expr != null) {
+											defaults.push(nodeToExpression(expr))
+										} else {
+											defaults.push(null)
+										}
 								}}
 								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field)))
 							case _: console.error("(internal warning) Unknown simple enum static field kind:", field)
@@ -758,18 +791,20 @@ module
 				let atts = Project.mapAttributes.get(e)
 
 				let require = getAtt(atts, 'require')
-				if (require != null) switch (require.values[0]) {
+				if (require != null) { switch (require.values[0]) {
 					case Node.TString(s): type.jsRequire = s
 					case _: throw '@require takes string as argument'
-				}
+				}}
 
 				let native = getAtt(atts, 'native')
-				if (native != null) switch (native.values[0]) {
+				if (native != null) { switch (native.values[0]) {
 					case Node.TString(s):
 						type.jsNative = s
 						type.name = unique(s, e)
 					case _: throw '@native takes string as argument'
-				} else type.name = unique(DataHelper.extractTypeName(t), e)
+				}} else {
+					type.name = unique(DataHelper.extractTypeName(t), e)
+				}
 				globals.push(type.name)
 
 				for (f in fields) { switch (f) {
@@ -779,14 +814,18 @@ module
 							let value = nodeToExpression(expr)
 							saveInlineIfViable(f, value)
 							type.vars.push(NiceStatement.Const(uname, value, typer.types.get(f)))
+						} else {
+							type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 						}
-						else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 					case Node.Property(field, _, _):
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(f) ?? unique(name, f)
-								if (const) type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
-								else type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+								if (const) {
+									type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+								} else {
+									type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+								}
 								type.property.push(uname)
 						}
 					case Node.TFunction(name, expr, vars, rettype, external):
@@ -798,8 +837,11 @@ module
 							case Node.TVar(name, t, expr, const):
 								a.push(unique(name, arg))
 								types.push(t)
-								if (expr != null) defaults.push(nodeToExpression(expr))
-								else defaults.push(null)
+								if (expr != null) {
+									defaults.push(nodeToExpression(expr))
+								} else {
+									defaults.push(null)
+								}
 						}}
 						type.methods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f)))
 					case Node.TStatic(field):
@@ -810,8 +852,9 @@ module
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
 									type.staticVars.push(NiceStatement.Const(uname, value, typer.types.get(field)))
+								} else {
+									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-								else type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 							case Node.TFunction(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
@@ -821,8 +864,11 @@ module
 									case Node.TVar(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if (expr != null) defaults.push(nodeToExpression(expr))
-										else defaults.push(null)
+										if (expr != null) {
+											defaults.push(nodeToExpression(expr))
+										} else {
+											defaults.push(null)
+										}
 								}}
 								type.staticMethods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field)))
 							case _: console.error("(internal warning) Unknown class static field kind:", field)
@@ -904,7 +950,10 @@ module
 
 				case Node.TVar(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
-				if (external) return null
+				if (external) {
+					return null
+				}
+
 				if (const) {
 					let value = nodeToExpression(expr)
 
@@ -925,14 +974,19 @@ module
 					case Node.TVar(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-						if (expr != null) defaults.push(nodeToExpression(expr))
-						else defaults.push(null)
+						if (expr != null) {
+							defaults.push(nodeToExpression(expr))
+						} else {
+							defaults.push(null)
+						}
 				}}
-				if (name == 'new') return NiceStatement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e))
+				if (name == 'new') {
+					return NiceStatement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e))
+				}
 				return NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e))
 
 				case Node.TFor(name, over, by, range):
-				if (range == null) switch (over) {
+				if (range == null) { switch (over) {
 					case Node.TInt(s):
 					let i = unique(name, e)
 					// This allows to call `continue` within loop body,
@@ -955,8 +1009,9 @@ module
 					var iteratorOverInt = false
 					switch (typer.types.get(over)) {
 						case Type.ClassInstance(type, generic):
-							if (generic == null || generic.length == 0, type.name == 'Int')
+							if (generic == null || generic.length == 0, type.name == 'Int') {
 								iteratorOverInt = true
+							}
 					}
 
 					if (iteratorOverInt) {
@@ -983,7 +1038,7 @@ module
 								true)
 						])
 					}
-				}
+				}}
 				if (let range = range) {
 					/*
 						let i = 0
@@ -1018,7 +1073,9 @@ module
 				return NiceStatement.For(name, nodeToExpression(over), nodeToStatement(by))
 
 				case Node.TReturn(e):
-				if (e == null) return NiceStatement.Return(null)
+				if (e == null) {
+					return NiceStatement.Return(null)
+				}
 				return NiceStatement.Return(nodeToExpression(e))
 
 				// TODO this.name
@@ -1036,8 +1093,9 @@ module
 				}}
 
 				// Just plain `if`
-				if (!binds && econd.length == 1)
-				return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
+				if (!binds && econd.length == 1) {
+					return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
+				}
 
 				// if(cond, cond, cond...)
 				if (!binds) {
@@ -1153,8 +1211,12 @@ module
 					case _:
 					let sa = nodeToStatement(a)
 					let sb = nodeToStatement(b)
-					if (sa == null, sb == null) return null
-					if ((sa == null) || (sb == null)) return sa ?? sb
+					if (sa == null, sb == null) {
+						return null
+					}
+					if ((sa == null) || (sb == null)) {
+						return sa ?? sb
+					}
 					return NiceStatement.Statements([sa, sb])
 				}
 
@@ -1180,7 +1242,9 @@ module
 				return nodeToStatement(unwrapNestedParens(inner))
 
 				case Node.TSwitch(exprs, conds, guards, cases):
-				if (exprs.length > 1) console.error('Multiple switch values not yet supported:', e, Project.data.get(e))
+				if (exprs.length > 1) {
+					console.error('Multiple switch values not yet supported:', e, Project.data.get(e))
+				}
 				let s = []
 				let c = []
 
@@ -1188,14 +1252,16 @@ module
 					let index = nodeToExpression(exprs[0])
 					for (i in cases.length) {
 
-						function toCase(co) switch (co) {
+						function toCase(co) { switch (co) {
 							case Node.Null(_): return NiceExpression.Null
 							case Node.Underscore(_): return NiceExpression.Underscore
 							case Node.TString(v): return NiceExpression.String(v)
 							case Node.TInt(v): return NiceExpression.Int(v)
 							case Node.TFloat(v): return NiceExpression.Float(v)
 							case Node.TBool(v):
-								if (v) return NiceExpression.True
+								if (v) {
+									return NiceExpression.True
+								}
 								return NiceExpression.False
 							case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
 							case Node.TDotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
@@ -1216,7 +1282,7 @@ module
 							}
 							case _:
 							console.error('(internal warning) Unknown native enum case kind:', co, Project.data.get(co))
-						}
+						}}
 
 						c.push([toCase(conds[i])])
 						s.push(nodeToStatement(cases[i]))
@@ -1242,23 +1308,27 @@ module
 					let co = conds[i]
 					let cx = []
 
-					function addTag(co) switch (co) {
+					function addTag(co) { switch (co) {
 						case Node.Null(_): cx.push(NiceExpression.Null)
 						case Node.Underscore(_):
 						case Node.TString(v): cx.push(NiceExpression.String(v))
 						case Node.TInt(v): cx.push(NiceExpression.Int(v))
 						case Node.TFloat(v): cx.push(NiceExpression.Float(v))
 						case Node.TBool(v):
-							if (v) cx.push(NiceExpression.True)
-							else cx.push(NiceExpression.False)
+							if (v) {
+								cx.push(NiceExpression.True)
+							} else {
+								cx.push(NiceExpression.False)
+							}
 						case Node.TCall(e, args, argNames): switch (e) {
 							case Node.TDotUpper(expr, name):
 								let parent = typer.parents.get(expr)
 								let tag = getTag(parent, name)
 								cx.push(tag)
 							// Promote to complex enum
-							if (!promoted)
+							if (!promoted) {
 								index = NiceExpression.EnumTag(index)
+							}
 							promoted = true
 							for (arg in args.length) { switch (args[arg]) {
 								case Node.TIdent(name):
@@ -1287,7 +1357,7 @@ module
 						}
 						case _:
 						console.error('(internal warning) Unknown case kind:', co, Project.data.get(co))
-					}
+					}}
 
 					addTag(co)
 
@@ -1305,7 +1375,9 @@ module
 				case Node.TVars(vars):
 				let s = []
 				for (v in vars) {
-					if (let st = nodeToStatement(v)) s.push(st)
+					if (let st = nodeToStatement(v)) {
+						s.push(st)
+					}
 				}
 				return NiceStatement.Statements(s)
 
@@ -1356,21 +1428,29 @@ module
 					switch (f) {
 						case Node.NodeTypeValue(t): switch (t) {
 							case NodeType.Type(n):
-								if (n == name)
-									if (typed.fieldsTypeSimple == typer.typeString)
+								if (n == name) {
+									if (typed.fieldsTypeSimple == typer.typeString) {
 										return NiceExpression.String(n)
-								if (n == name) return NiceExpression.Int(i)
+									}
+								}
+								if (n == name) {
+									return NiceExpression.Int(i)
+								}
 						}
 						case Node.TCall(e, _): switch (e) {
 							case Node.NodeTypeValue(t): switch (t) {
 								case NodeType.Type(n):
-									if (n == name) return NiceExpression.Int(i)
+									if (n == name) {
+										return NiceExpression.Int(i)
+									}
 							}
 						}
 						case Node.TBinop(a, op, b): switch (a) {
 							case Node.NodeTypeValue(t): switch (t) {
 								case NodeType.Type(n):
-									if (n == name) return nodeToExpression(b)
+									if (n == name) {
+										return nodeToExpression(b)
+									}
 							}
 						}
 						case Node.TStatic(_): return null // Not a tag
@@ -1431,7 +1511,9 @@ module
 			) {
 			}
 			addToScope(uname)
-			if (node != null) parentNames.set(node, uname)
+			if (node != null) {
+				parentNames.set(node, uname)
+			}
 			return uname
 		}
 
@@ -1452,37 +1534,52 @@ module
 					let atts = Project.mapAttributes.get(f)
 
 					let native = getAtt(atts, 'native')
-					if (native != null) switch (native.values[0]) {
-						case Node.TString(s): if (parentNames.get(f) == null) unique(s, f)
+					if (native != null) { switch (native.values[0]) {
+						case Node.TString(s): if (parentNames.get(f) == null) {
+							unique(s, f)
+						}
 						case _: throw '@native takes string as argument'
-					} else
-					if (parentNames.get(f) == null) unique(name, f)
+					}} else
+					if (parentNames.get(f) == null) {
+						unique(name, f)
+					}
 				case Node.TFunction(name, expr, vars, rettype):
-					if (name == 'new') parentNames.set(f, 'new')
-					else {
+					if (name == 'new') {
+						parentNames.set(f, 'new')
+					} else {
 						let atts = Project.mapAttributes.get(f)
 
 						let native = getAtt(atts, 'native')
-						if (native != null) switch (native.values[0]) {
-							case Node.TString(s): if (parentNames.get(f) == null) unique(s, f)
+						if (native != null) { switch (native.values[0]) {
+							case Node.TString(s): if (parentNames.get(f) == null) {
+								unique(s, f)
+							}
 							case _: throw '@native takes string as argument'
-						} else
+						}} else
 
-						if (parentNames.get(f) == null) unique(name, f)
+						if (parentNames.get(f) == null) {
+							unique(name, f)
+						}
 					}
 				case Node.TStatic(field): switch (field) {
 					case Node.TVar(name, t, expr, const):
-						if (parentNames.get(field) == null) unique(name, field)
+						if (parentNames.get(field) == null) {
+							unique(name, field)
+						}
 					case Node.TFunction(name, expr, vars, rettype):
 						let atts = Project.mapAttributes.get(f)
 
 						let native = getAtt(atts, 'native')
-						if (native != null) switch (native.values[0]) {
-							case Node.TString(s): if (parentNames.get(field) == null) unique(s, field)
+						if (native != null) { switch (native.values[0]) {
+							case Node.TString(s): if (parentNames.get(field) == null) {
+								unique(s, field)
+							}
 							case _: throw '@native takes string as argument'
-						} else
+						}} else
 
-						if (parentNames.get(field) == null) unique(name, field)
+						if (parentNames.get(field) == null) {
+							unique(name, field)
+						}
 				}
 			}}
 			popScope()
@@ -1493,29 +1590,34 @@ module
 			switch (expr) {
 				case Node.TClass(t, ext, impl, fields, external): for (f in fields) { switch (f) {
 					case Node.TStatic(sf):
-					if (DataHelper.nameOf(sf) == name)
-					return parentNames.get(sf) ?? name
+					if (DataHelper.nameOf(sf) == name) {
+						return parentNames.get(sf) ?? name
+					}
 					case Node.TVar(n, _):
-					if (n == name)
-					return parentNames.get(f) ?? name
+					if (n == name) {
+						return parentNames.get(f) ?? name
+					}
 				}}
 				case Node.TEnum(t, fields, valuesType): for (f in fields) { switch (f) {
 					case Node.TStatic(sf):
-					if (DataHelper.nameOf(sf) == name)
-					return parentNames.get(sf) ?? name
+					if (DataHelper.nameOf(sf) == name) {
+						return parentNames.get(sf) ?? name
+					}
 				}}
 			}
 			return null
 		}
 
 		// Converts `{ { { ... } } }` into just `...`
-		function unwrapNestingBlocks(block) switch (block) {
+		function unwrapNestingBlocks(block) { switch (block) {
 			case NiceStatement.Block(el):
-				if (el.length == 1) return unwrapNestingBlocks(el[0])
+				if (el.length == 1) {
+					return unwrapNestingBlocks(el[0])
+				}
 				return block
 			case _:
 				return block
-		}
+		}}
 
 		// Saves if value viable for constant propagation
 		function saveInlineIfViable(e: Node, value: NiceExpression) {
