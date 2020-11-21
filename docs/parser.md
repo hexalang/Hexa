@@ -10,11 +10,11 @@ Takes [array of tokens](https://github.com/hexalang/hexa/blob/kawaii/source/data
 
 ## Tasks 0.1
 
-- [ ] Convert `@atts` attributes to nodes
+- [ ] Convert `@atts` decorators to nodes
 - [ ] Evaluate conditionals `#if #else` upfront
 - [ ] Return flag if conditionals `#if #else` exists in file (for syntax linter)
 - [ ] Ensure `private @att static @att var` and alikes are impossible (BTW may be useful for syntax transformers - move to typer?)
-- [ ] Support attributes for function arguments declaration
+- [ ] Support decorators for function arguments declaration
 - [ ] Ignore comments tokens
   - [ ] Implement them as nodes
 - [ ] Parse [destructuring assignment](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Destructuring_assignment) `var\let []\{} = ...`
