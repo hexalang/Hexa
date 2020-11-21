@@ -50,8 +50,12 @@ class Main{
 			bytesRead = Fs.readSync(stdin, buf, 0, bufsize)
 		} catch (e: Any) {{
 			let e: { code: String } = e
-			if (e.code == 'EAGAIN') return 'ERROR: interactive stdin input not supported.'
-			if (e.code == 'EOF') return ''
+			if (e.code == 'EAGAIN') {
+				return 'ERROR: interactive stdin input not supported.'
+			}
+			if (e.code == 'EOF') {
+				return ''
+			}
 			throw e // unexpected exception
 		}}
 		if (bytesRead == 0) {
@@ -71,23 +75,30 @@ class Main{
 	function init() {
 		if (Fs.existsSync("hexa.json")) {
 			let create = question("Hexa package 'hexa.json' already exists here. Create new? (no)")
-			if (create.toLowerCase() != 'yes', create.toLowerCase() != 'y')
+			if (create.toLowerCase() != 'yes', create.toLowerCase() != 'y') {
 				Process.exit(1)
+			}
 		}
 
 		var currentDirTmp = process.cwd().split(Path.sep)
 		var packageFileName = currentDirTmp.splice(0, -1).join(Path.sep) + Path.sep + "hexa.json"
 		var currentDir = currentDirTmp[currentDirTmp.length - 1]
 		var name = question('Enter package name (\(currentDir)): ')
-		if (name == "") name = currentDir
+		if (name == "") {
+			name = currentDir
+		}
 
 		var version = question("Enter package version (1.0.0): ")
-		if (version == "") version = "1.0.0"
+		if (version == "") {
+			version = "1.0.0"
+		}
 
 		var description = question("Enter package description: ")
 
 		var main = question("Enter main file (main.hexa): ")
-		if (main == "") main = "main.hexa"
+		if (main == "") {
+			main = "main.hexa"
+		}
 
 		let target = {
 			name: "default",
@@ -96,9 +107,11 @@ class Main{
 			options: []
 		}
 		let generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe\n")
-		if (generatorstr.toUpperCase() == "C" || generatorstr == "2") target.generator = "native"
-		else if (generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") target.generator = "haxe"
-		else {
+		if (generatorstr.toUpperCase() == "C" || generatorstr == "2") {
+			target.generator = "native"
+		} else if (generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") {
+			target.generator = "haxe"
+		} else {
 			target.output += '.js'
 			let option = question("Select standard library (no library):\n1. no library\n2. nodejs\n3. browser\n")
 			switch (option) {
@@ -123,16 +136,24 @@ class Main{
 		let extras = []
 
 		var addGit = false
-		if (Fs.existsSync('.git'))
-			if (!Fs.existsSync('.gitignore') || !Fs.existsSync('.gitattributes'))
+		if (Fs.existsSync('.git')) {
+			if (!Fs.existsSync('.gitignore') || !Fs.existsSync('.gitattributes')) {
 				if (['y','yes',''].includes(question('Create additional git files? (.gitignore, .gitattributes)').toLowerCase().trim())) {
-					if (!Fs.existsSync('.gitignore')) extras.push('.gitignore')
-					if (!Fs.existsSync('.gitattributes')) extras.push('.gitattributes')
+					if (!Fs.existsSync('.gitignore')) {
+						extras.push('.gitignore')
+					}
+					if (!Fs.existsSync('.gitattributes')) {
+						extras.push('.gitattributes')
+					}
 					addGit = true
 				}
+			}
+		}
 
 		let addMain = Fs.existsSync(main) == false
-		if (addMain) extras.push(main)
+		if (addMain) {
+			extras.push(main)
+		}
 
 		// Convert to \r\n
 		let packageStr = JSON.stringify(pack, null, "\t").split('\r\n').join('\n').split('\n').join('\r\n')
@@ -147,15 +168,20 @@ class Main{
 		// Handle yes
 		Fs.writeFileSync("hexa.json", packageStr + '\r\n')
 
-		if (addMain, !Fs.existsSync(main)) Fs.writeFileSync(main, 'console.log("Thank you for choosing Hexa")')
+		if (addMain, !Fs.existsSync(main)) {
+			Fs.writeFileSync(main, 'console.log("Thank you for choosing Hexa")')
+		}
 
-		if (addGit, !Fs.existsSync('.gitattributes')) Fs.writeFileSync('.gitattributes', [
+		if (addGit, !Fs.existsSync('.gitattributes')) {
+			Fs.writeFileSync('.gitattributes', [
 			'# Auto detect text files and perform LF normalization',
 			'* text=auto',
 			''
-		].join('\r\n'))
+			].join('\r\n'))
+		}
 
-		if (addGit, !Fs.existsSync('.gitignore')) Fs.writeFileSync('.gitignore', [
+		if (addGit, !Fs.existsSync('.gitignore')) {
+			Fs.writeFileSync('.gitignore', [
 			'# Mac & Win',
 			'*~',
 			'._*',
@@ -174,7 +200,8 @@ class Main{
 			target.output, // Re-generated on each compilation
 			'node_modules',
 			''
-		].join('\r\n'))
+			].join('\r\n'))
+		}
 
 		Process.stdout.write("Hexa package initialized!")
 	}
@@ -196,11 +223,12 @@ class Main{
 	var targetIndex = 0
 
 	// Parses a file
-	function processFile(target: String): Node {
+	function processFile(target: String): [Node] {
 		let content = Fs.readFileSync(target)
 		let tokens = Lexer.tokenize(content, target)
-		if (tokens.length > 0)
+		if (tokens.length > 0) {
 			lines += tokens.line[tokens.length - 1]
+		}
 		let parsed = Parser.parseNodes(tokens)
 		return parsed
 	}
@@ -215,7 +243,9 @@ class Main{
 		let tokens = Lexer.tokenize(buffer, path)
 		let parser = Parser.parseNodes(tokens)
 		let collected = [js, nodejs, parser]
-		if (parser == null) return null
+		if (parser == null) {
+			return null
+		}
 		let files = collected
 		let typer = new Typer()
 		typer.fillFiles(files)
@@ -225,8 +255,12 @@ class Main{
 		normalizer.collected = files
 		normalizer.nativeEnums = generator.nativeEnums
 		normalizer.package = input
-		if (let randomSeed = input.randomSeed) normalizer.id = randomSeed
-		if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
+		if (let randomSeed = input.randomSeed) {
+			normalizer.id = randomSeed
+		}
+		if (let globalAccessor = generator.globalAccessor) {
+			normalizer.globalAccessor = globalAccessor
+		}
 		normalizer.typer = typer
 		let normal = normalizer.normalize()
 		return generator.perform(normal)
@@ -251,15 +285,21 @@ class Main{
 			if (line == '.exit') {
 				return
 			}
-			if (line.length == 0) continue
+			if (line.length == 0) {
+				continue
+			}
 			linesLatest.push(line)
 			try {
 				var code = '"use strict"\r\n'
 				try {
 					let content = linesAll.join('\n') + '\n' + linesLatest.join('\n')
 					let compiled = simplyCompileToJs(Buffer.fromString(content), "REPL")
-					if (compiled == null) continue
-					if (let compiled = compiled) code = compiled
+					if (compiled == null) {
+						continue
+					}
+					if (let compiled = compiled) {
+						code = compiled
+					}
 				} catch (e: Any) {
 					let error = '' + e
 					if (error.indexOf('<!--eof-->')  == -1) {
@@ -340,7 +380,9 @@ class Main{
 		}
 
 		// Add standard library
-		if (pack.files == null) pack.files = []
+		if (pack.files == null) {
+			pack.files = []
+		}
 		if (pack.noLib == true) {
 			// Nothing
 		} else {
@@ -355,7 +397,9 @@ class Main{
 		}
 
 		// Defaults
-		if (pack.addLicenseNoticeToOutput == null) pack.addLicenseNoticeToOutput = true
+		if (pack.addLicenseNoticeToOutput == null) {
+			pack.addLicenseNoticeToOutput = true
+		}
 
 		return pack
 	}
@@ -374,7 +418,9 @@ class Main{
 		if (Process.argv[0].endsWith('node.exe') || Process.argv[0].endsWith('node')) {
 			Process.argv.shift()
 			Process.argv.shift()
-		} else if (Process.argv[0].endsWith(/*hexa*/'.exe')) Process.argv.shift()
+		} else if (Process.argv[0].endsWith(/*hexa*/'.exe')) {
+			Process.argv.shift()
+		}
 
 		// Gather defines `--define name=value`
 		let defines: Any = {}
@@ -485,10 +531,11 @@ class Main{
 			}
 			input = loadPackage(currentFile, targetName)
 			ignoreArguments(0)
-			if (targetName != 'default')
+			if (targetName != 'default') {
 				console.log("[Building \(input.name) - \(targetName)]")
-			else
+			} else {
 				console.log("[Building \(input.name)]")
+			}
 		}
 		// Search for project in the selected folder
 		else if (Fs.existsSync(currentFile), Fs.lstatSync(currentFile).isDirectory()) {
@@ -523,8 +570,9 @@ class Main{
 		if (input.files != null) {
 			let fileList = input.files.map(function(file) {
 				// Avoid global paths
-				if (file.startsWith('/') || file.charAt(1) == ':') return Path.resolve(file)
-				return Path.resolve(packageFolder + Path.sep + file)
+				if (file.startsWith('/') || file.charAt(1) == ':') {
+					return Path.resolve(file)
+				}
 			})
 			files = processFiles(fileList)
 		}
@@ -551,8 +599,9 @@ class Main{
 		let generators = [:]
 
 		function registerTarget(name: String, generator) {
-			if (let generator = generators.get(name))
+			if (let generator = generators.get(name)) {
 				console.log('Note: generator `\(name)` was overridden')
+			}
 			generators.set(name, generator)
 		}
 
@@ -570,8 +619,12 @@ class Main{
 				normalizer.nativeEnums = generator.nativeEnums
 				normalizer.reservedGlobals = generator.reservedGlobals ?? normalizer.reservedGlobals
 				normalizer.package = input
-				if (let randomSeed = input.randomSeed) normalizer.id = randomSeed
-				if (let globalAccessor = generator.globalAccessor) normalizer.globalAccessor = globalAccessor
+				if (let randomSeed = input.randomSeed) {
+					normalizer.id = randomSeed
+				}
+				if (let globalAccessor = generator.globalAccessor) {
+					normalizer.globalAccessor = globalAccessor
+				}
 				normalizer.typer = typer
 
 				#if times
