@@ -50,10 +50,12 @@ module
 						case Node.TVar(name, t, expr, const, external):
 							let atts = Project.mapAttributes.get(e)
 							let native = getAtt(atts, 'native')
-							if (native != null) switch (native.values[0]) {
+							if (native != null) { switch (native.values[0]) {
 								case Node.TString(s): uniqueNative(s, e)
 								case _: throw '@native takes string as argument'
-							} else unique(name, e)
+							}} else {
+								unique(name, e)
+							}
 						case Node.TFunction(name, expr, vars, rettype, external):
 							if (let name = name) unique(name, e)
 					}}
@@ -70,15 +72,18 @@ module
 							pushScope()
 							for (e in el) { switch (e) {
 								case Node.TFunction(_):
-									if (let s = nodeToStatement(e)) // Non-declare ones
+									if (let s = nodeToStatement(e)) { // Non-declare ones
 										project.globalFuncs.push(s)
+									}
 								case Node.TVar(_):
-									if (let s = nodeToStatement(e)) // Non-declare ones
+									if (let s = nodeToStatement(e)) { // Non-declare ones
 										project.globalVars.push(s)
+									}
 								case Node.TVars(vars):
 									for (v in vars) {
-										if (let s = nodeToStatement(v)) // Non-declare ones
+										if (let s = nodeToStatement(v)) { // Non-declare ones
 											project.globalVars.push(s)
+										}
 									}
 								case _:
 									fillStatement(e, path)
@@ -89,26 +94,40 @@ module
 							switch (statement) {
 								case null:
 								case NiceStatement.Block(el):
-								if (el.length > 0) // Don't output empty blocks
+								if (el.length > 0) { // Don't output empty blocks
 									initial.push(statement)
+								}
 								case _:
 									initial.push(statement)
 							}
 					}
 				}
 				popScope()
-				if (initial.length > 0) init.push(NiceStatement.Block(initial))
+				if (initial.length > 0) {
+					init.push(NiceStatement.Block(initial))
+				}
 			}
+
 			project.init.push(NiceStatement.Block(init))
-			if (project.init.length > 1) throw "too many inits"
+
+			if (project.init.length > 1) {
+				throw "too many inits"
+			}
+
 			project.package = package
 			project.typer = typer
 
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
 			project.classes.sort(function(a, b) {
-				if (a.external == true) return -1
-				if (a.extend == null) return 0
+				if (a.external == true) {
+					return -1
+				}
+
+				if (a.extend == null) {
+					return 0
+				}
+
 			    return 1
 			})
 
@@ -119,14 +138,17 @@ module
 			let result = nodeToExpressionWithoutPosition(e)
 			if (result != null) {
 				project.expressionPosition.set(result, Project.data.get(e))
-				if (project.expressionType.get(result) == null)
+				if (project.expressionType.get(result) == null) {
 					project.expressionType.set(result, typer.types.get(e))
+				}
 			}
 			return result
 		}
 
 		function nodeToExpressionWithoutPosition(e: Node): NiceExpression? {
-			if (e == null) return null
+			if (e == null) {
+				return null
+			}
 
 			switch (e) {
 				// Transformation not required
@@ -137,7 +159,9 @@ module
 				case Node.TFloat(v):
 					return NiceExpression.Float(v)
 				case Node.TBool(v):
-					if (v) return NiceExpression.True
+					if (v) {
+						return NiceExpression.True
+					}
 					return NiceExpression.False
 				case Node.Null:
 					return NiceExpression.Null
@@ -151,7 +175,10 @@ module
 				case Node.TIdent(name):
 					var source = typer.parents.get(e)
 					// Constant propagation
-					if (let value = inline.get(source)) return value
+					if (let value = inline.get(source)) {
+						return value
+					}
+
 					switch (source) {
 						case null:
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(Project.data.get(e))

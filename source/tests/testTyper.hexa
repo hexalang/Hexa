@@ -172,8 +172,8 @@ module
 			shouldError('function x(y: Int): Void {} var z: Int = x(1)')
 			shouldError('function x(y: Int) {} var z: Int = x(1)')
 			shouldError('function x(y: Int) {} x(x(1))')
-			shouldNotError('function x(y: Int) return 1 var z: Int = x(1)')
-			shouldNotError('function x(y: Int): Int return 1 var z: Int = x(1)')
+			shouldNotError('function x(y: Int) {return 1} var z: Int = x(1)')
+			shouldNotError('function x(y: Int): Int {return 1} var z: Int = x(1)')
 			shouldError('function x(): Int { return }')
 			shouldError('function x() { {return} {return 1} }')
 			shouldError('function x(y: Int): Bool return 1 var z: Int = x(1)')
@@ -233,19 +233,19 @@ module
 			shouldError('try {} catch(e: ()=>Void) {}')
 
 			// Unhandled exceptions in functions
-			shouldNotError('function f() throw 123') // Infers @throws(Int)
+			shouldNotError('function f() {throw 123}') // Infers @throws(Int)
 			shouldError('@noThrow(0) function f() {}')
 			shouldNotError('@noThrow function f() {}')
-			shouldError('@noThrow function f() throw 123')
-			shouldError('@noThrow @throws(Int) function f() throw 123')
+			shouldError('@noThrow function f() {throw 123}')
+			shouldError('@noThrow @throws(Int) function f() {throw 123}')
 			shouldError('@noThrow @throws function f() {}')
-			shouldNotError('@throws function f() throw 123')
-			shouldNotError('let f = @throws function() throw 123')
-			shouldError('let f = @noThrow function() throw 123')
-			shouldError('let f = @noThrow @throws function() throw 123')
-			shouldNotError('@throws(Int) function f() throw 123')
+			shouldNotError('@throws function f() {throw 123}')
+			shouldNotError('let f = @throws function() {throw 123}')
+			shouldError('let f = @noThrow function() {throw 123}')
+			shouldError('let f = @noThrow @throws function() {throw 123}')
+			shouldNotError('@throws(Int) function f() {throw 123}')
 			shouldNotError('@throws(Int) function f() {}') // Fake exceptions
-			shouldNotError('function f() try { throw 123 } catch(e: Int) {}')
+			shouldNotError('function f() {try { throw 123 } catch(e: Int) {}}')
 
 			// Loops
 			shouldError('{ break }') // Outside of loop
@@ -307,9 +307,12 @@ module
 			shouldNotError('enum A { static var v: Int }')
 			shouldNotError('enum A { A(x: Int) } switch (A.A(0)) { case A.A(x): {} }')
 			shouldError('enum A { A(x: Int) } switch (A.A(0)) { case A.A(x, y): {} }')
-			shouldNotError('enum A {}')
-			shouldNotError('enum A : Int { }')
-			shouldNotError('enum A : String { }')
+			shouldError('enum A {}')
+			shouldNotError('enum A { Value }')
+			shouldError('enum A : Int { }')
+			shouldNotError('enum A : Int { Value }')
+			shouldError('enum A : String { }')
+			shouldNotError('enum A : String { Value }')
 			shouldError('enum A : Float { }')
 			shouldError('enum A : String { F = 1 }')
 			shouldError('enum A : Int { F = "1" }')
@@ -341,10 +344,10 @@ module
 			shouldError('class A implements Unknown {}')
 
 			// Typing inference
-			shouldError('let x = if (true) false else 1')
-			shouldNotError('let x = if (true) 0 else 1')
-			shouldError('var x = if (true) 0 else 1 x = true')
-			shouldNotError('var x = if (true) 0 else 1 x = 2')
+			shouldError('let x = if (true) {false} else {1}')
+			shouldNotError('let x = if (true) {0} else {1}')
+			shouldError('var x = if (true) {0} else {1} x = true')
+			shouldNotError('var x = if (true) {0} else {1} x = 2')
 
 			shouldNotError('let x = 0 ?? 1')
 			shouldError('let x = 0 ?? true')
@@ -366,7 +369,7 @@ module
 			shouldError('let t = 1 t as Unknown')
 			shouldNotError('let t = 1 t as Int')
 			shouldError('let t = 1 t as Void')
-			shouldNotError('function int(): Int return 1 int() as Int')
+			shouldNotError('function int(): Int {return 1} int() as Int')
 			shouldError('function void(): Void {} void() as Int')
 
 			// Generics
@@ -400,15 +403,17 @@ module
 		static function shouldNotError(input: String): Void {
 			overall++
 			var errorText = didError(input)
-			if (errorText != null)
+			if (errorText != null) {
 				throw 'TestTyper test fail: `\(input)` should NOT throw error, but it did.\r\n' + errorText
+			}
 			passed++
 		}
 
 		static function shouldError(input: String): Void {
 			overall++
-			if (didError(input) == null)
+			if (didError(input) == null) {
 				throw 'TestTyper test fail: `\(input)` should throw error, but it did not.'
+			}
 			passed++
 		}
 
@@ -416,16 +421,16 @@ module
 			let tests = []
 			for (ta in a) {
 				let ca = code.split('$a$').join(ta)
-				if (let bs = b) for (tb in bs) {
+				if (let bs = b) { for (tb in bs) {
 					let cb = ca.split('$b$').join(tb)
-					if (let cs = c) for (tc in cs) {
+					if (let cs = c) { for (tc in cs) {
 						let cc = cb.split('$c$').join(tc)
-						if (let ds = d) for (td in ds) {
+						if (let ds = d) { for (td in ds) {
 							let cd = cc.split('$d$').join(td)
-							if (tests.indexOf(cd) == -1) tests.push(cd)
-						} else if (tests.indexOf(cc) == -1) tests.push(cc)
-					} else if (tests.indexOf(cb) == -1) tests.push(cb)
-				} else if (tests.indexOf(ca) == -1) tests.push(ca)
+							if (tests.indexOf(cd) == -1) { tests.push(cd) }
+						}} else { if (tests.indexOf(cc) == -1) { tests.push(cc) } }
+					}} else if (tests.indexOf(cb) == -1) { tests.push(cb) }
+				}} else if (tests.indexOf(ca) == -1) { tests.push(ca) }
 			}
 			return tests
 		}
