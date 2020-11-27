@@ -1122,17 +1122,23 @@ module
 				case Node.TFor(name, over, by, range):
 					pushScope()
 					fillExpression(over)
-					switch (types.get(over)) {
+					let overType = types.get(over)
+					switch (overType) {
 						case Type.ClassInstance(type, generic):
 							// Extract Array<T>
 							if (generic != null, generic.length == 1) {
 								types.set(node, generic[0])
-							} else if (generic == null) {
-								types.set(node, types.get(over))
+							} else if (overType == typeInt) {
+								types.set(node, typeInt)
 							} else {
-								fail('Type of iterable is neither Int nor Array '+Type.stringify(types.get(over)), over)
+								fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
 							}
+
+						case Type.Nullable(_):
+							fail('Type of iterable should not be nullable', over)
+
 						case Type.UnknownNullable(_):
+							fail('Type of iterable should not be nullable', over)
 
 						case null:
 						case _:
@@ -1140,8 +1146,14 @@ module
 					}
 					if (let range = range) {
 						fillExpression(range)
-						// Ranges always integer for now
-						types.set(node, toType(NodeType.Type("Int"), node))
+						// Ranges always integer/Int for now
+						if (types.get(range) != typeInt) {
+							fail('Range end must be of Int type', range)
+						}
+						if (overType != typeInt) {
+							fail('Range start must be of Int type', over)
+						}
+						types.set(node, typeInt)
 					}
 					addScope(name, node)
 					let _allowBreakAndContinue = allowBreakAndContinue
@@ -1827,8 +1839,8 @@ module
 						let type = types.get(e)
 						if (type != typeBool, type != typeAny, type != null) {
 							fail('Operator `!value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
-						types.set(node, toType(NodeType.Type("Bool"), node))
 						}
+						types.set(node, typeBool)
 						return
 					}
 
