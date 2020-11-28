@@ -596,6 +596,11 @@ module
 													fail('Enum constructor arguments should have names `E(name1: T, name2: T)', args[i])
 												}
 													tagBindVars[i] = nodeToNodeType(args[i])
+
+													if (tagBindVarsNames.includes(argNames[i])) {
+														fail('Enum constructor argument `\(argNames[i])` already exists', args[i])
+													}
+
 													tagBindVarsNames[i] = argNames[i]
 											}
 										case _:
@@ -2204,6 +2209,7 @@ module
 					}
 
 					var enumType: EnumType? = null
+					var shortHandSyntax = false
 
 					// TODO typeArray
 					// TODO typeMap?
@@ -2251,6 +2257,7 @@ module
 					// TODO error on not-all-matched patterns of enum by default,
 					// but @hint makes it only a hint and @ok to ignore
 
+					var tags: [String] = []
 					var i = 0
 					while (i < cases.length) {
 						pushScope()
@@ -2259,14 +2266,22 @@ module
 						var currentType = null
 						var currentTag = null
 						var currentTagBind = 0
+						var interval = false
+
 						function follow(e: Node) {
 							switch (e) {
 								case Node.TDotUpper(ex, name):
 									fillExpression(e)
-									switch (types.get(ex)) {
+									switch (types.get(ex) as! Type) {
 										case Type.Enum(type):
 											currentType = type
 											currentTag = name
+											if (tags.includes(currentTag)) {
+												fail('Tag `\(currentTag)` already matched', e)
+												// TODO .. at line
+											} else {
+												tags.push(currentTag)
+											}
 									}
 								case Node.TParenthesis(e): {fill(e)}
 								// `case _:` default case
@@ -2292,25 +2307,69 @@ module
 									follow(ex)
 									currentTagBind = 0
 
-									for (ee in args) { switch (ee) {
+									if (args.length == 0) {
+										fail('Do not use `()` empty pattern, use `\(currentTag)(...)` syntax to ignore all bindings', e)
+									}
+
+									if (
+										let enumType = enumType,
+										shortHandSyntax == true,
+										let i = enumType.fieldNames.indexOf(currentTag),
+										let binds = enumType.tagBindVarsNames[i],
+										binds.length == 0
+									) {
+										switch (args[0]) {
+											case Node.Interval(_):
+												// Okay
+											case _:
+												fail('The `\(currentTag)` has no `()` bindings, use `\(currentTag)(...)` syntax to ignore all future bindings added', e)
+										}
+									}
+
+									for (ee in args) {
+										if (interval) {
+											fail('Do not match any patterns after `...` interval', ee)
+										}
+
+										switch (ee) {
+										case Node.Interval(_):
+											interval = true
 										case Node.TIdent(name):
 											follow(ee)
 											currentTagBind++
 										case Node.Underscore:
+											if (
+												let enumType = enumType,
+												shortHandSyntax == true,
+												let i = enumType.fieldNames.indexOf(currentTag),
+												let binds = enumType.tagBindVarsNames[i],
+												binds.length <= currentTagBind
+											) {
+												fail('Too many bindings ignored with `_` for `F` tag, use `...` syntax to ignore all future bindings', e)
+											}
+
 											currentTagBind++
 										case _:
 											fail('This case pattern is not supported', e)
-									}}
+										}
+									}
 								}
 
 								// case TagName:
 								case Node.NodeTypeValue(t):
+									shortHandSyntax = true
 									switch (t) {
 										case NodeType.Type(name):
 											if (let enumType = enumType) {
 												if (let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true) {
 													currentType = enumType
 													currentTag = name
+													if (tags.includes(currentTag)) {
+														fail('Tag `\(currentTag)` already matched', e)
+														// TODO .. at line
+													} else {
+														tags.push(currentTag)
+													}
 												} else {
 													fail('The `\(name)` is not an enum constructor of `\(enumType.name)`', e)
 												}
@@ -2340,7 +2399,7 @@ module
 												if (available.length == 0) {
 													fail('No bindings available for `.' + currentTag + '`', e)
 												}
-												fail('Too many bindings requested for `.\(currentTag)`, available are: ' + available, e)
+												fail('Too many bindings requested for `\(currentTag)`, available are: ' + available, e)
 											}
 											if (type != null) {
 												types.set(e, toType(type, e))
