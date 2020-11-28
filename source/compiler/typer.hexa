@@ -755,18 +755,25 @@ module
 
 		// Scopes
 		private let scopes: [[String : Node]] = [[:]]
+		private let scopeTypes: [[String : Type]] = [[:]]
 		let parents: [Node : Node] = [:]
 
-		private function pushScope() {
-			scopes.push(([:]))
+		private function pushScope(): Void {
+			scopes.push([:])
+			scopeTypes.push([:])
 		}
 
-		private function popScope() {
+		private function popScope(): Void {
 			scopes.pop()
+			scopeTypes.pop()
 		}
 
-		private function addScope(name, node) {
+		private function addScope(name: String, node: Node): Void {
 			scopes[scopes.length - 1].set(name, node)
+		}
+
+		private function addScopeType(name: String, type: Type): Void {
+			scopeTypes[scopeTypes.length - 1].set(name, type)
 		}
 
 		// Types
@@ -867,6 +874,16 @@ module
 			return findInNamespaceRoots(name)
 		}
 
+		function findActualType(name: String): Type? {
+			for (i in scopeTypes.length) {
+				if (let subj = scopeTypes[scopeTypes.length - i - 1].get(name)) {
+					return subj
+				}
+			}
+			// TODO global
+			return null
+		}
+
 		function toType(t: NodeType, node: Node): Type {
 			switch (t) {
 				case NodeType.Type(name):
@@ -875,7 +892,8 @@ module
 						case Node.TClass(_): registerClassType(nodeType)
 						case Node.TEnum(_): registerEnumType(nodeType)
 					}}
-					switch (types.get(nodeType)) {
+					let type = types.get(nodeType) ?? findActualType(name)
+					switch (type) {
 						case Type.Class(type):
 							return type.instantiate()
 						case Type.Enum(type):
@@ -900,7 +918,8 @@ module
 						case Node.TClass(_): registerClassType(nodeType)
 						case Node.TEnum(_): registerEnumType(nodeType)
 					}}
-					switch (types.get(nodeType)) {
+					let type = types.get(nodeType) ?? findActualType(name)
+					switch (type) {
 						case Type.Class(type):
 							return type.instantiateGeneric([for (p in params) toType(p, node)])
 						case null:
