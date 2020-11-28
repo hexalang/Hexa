@@ -130,13 +130,13 @@ module
 			}
 
 			// Types cache
+			findBasicType('Any', function (type) {typeAny = type.instantiate()})
 			findBasicType('Int', function (type) {typeInt = type.instantiate()})
 			findBasicType('Bool', function (type) {typeBool = type.instantiate()})
 			findBasicType('Float', function (type) {typeFloat = type.instantiate()})
 			findBasicType('String', function (type) {typeString = type.instantiate()})
 			findBasicType('Array', function (type) {typeArray = type})
 			findBasicType('Map', function (type) {typeMap = type})
-			findBasicType('Any', function (type) {typeAny = type.instantiate()})
 			findBasicType('Void', function (type) {typeVoid = type.instantiate()})
 
 			// Fill module scopes of all files at first
@@ -282,11 +282,12 @@ module
 					case Node.TClass(t, extend, implement, f, external):
 						switch (t) {
 							case NodeType.ParametricType(name, params):
-								let names = [DataHelper.extractTypeName(params[0])]
+								type.genericParams.push(DataHelper.extractTypeName(params[0]))
+								let names = type.genericParams
 								for (i in 1 ... params.length) {
 									let name = DataHelper.extractTypeName(params[i])
 									if (names.includes(name)) {
-										fail('Parametric type `\(name)` already exists in `<T, ...>`', node)
+										fail('Parameter `\(name)` already exists in `<T, ...>`', node)
 									}
 									names.push(name)
 								}
@@ -299,6 +300,10 @@ module
 							toType(impl, node)
 						}
 						pushScope()
+
+						for (genericParam in type.genericParams) {
+							addScopeType(genericParam, typeAny)
+						}
 
 						// Fill scopes
 						for (field in f) {
@@ -895,21 +900,18 @@ module
 					let type = types.get(nodeType) ?? findActualType(name)
 					switch (type) {
 						case Type.Class(type):
+							if (type.genericParams.length > 0) {
+								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
+							}
 							return type.instantiate()
 						case Type.Enum(type):
 							return types.get(nodeType)
 						case null:
-							if (name == 'T') {
-								return typeAny
-							}
-							if (name == 'V') {
-								return typeAny
-							}
-							if (name == 'K') {
-								return typeAny
-							}
 							fail('Cannot find type `\(name)`', node)
 						case _:
+							if (type == typeAny) {
+								return typeAny
+							}
 							fail('Unsupported type `\(name)`', node)
 					}
 				case NodeType.ParametricType(name, params):
@@ -921,10 +923,20 @@ module
 					let type = types.get(nodeType) ?? findActualType(name)
 					switch (type) {
 						case Type.Class(type):
+							if (type.genericParams.length == 0) {
+								fail('The type `\(type.name)` requires zero generic parameters', node)
+							}
+							if (type.genericParams.length != params.length) {
+								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
+							}
 							return type.instantiateGeneric([for (p in params) toType(p, node)])
 						case null:
 							fail('Cannot find type `\(name)`', node)
 						case _:
+							if (type == typeAny) {
+								// Ignore all parameters here
+								return typeAny
+							}
 							fail('Unsupported type `\(name)`', node)
 					}
 				case NodeType.Optional(t):
