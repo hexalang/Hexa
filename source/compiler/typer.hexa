@@ -173,6 +173,11 @@ module
 				}}
 				popScope()
 			}
+
+			if (failures.length > 0) {
+				throw new CompilerErrors(failures)
+				// TODO failures = []
+			}
 		}
 
 		function find(name: String): Node? {
@@ -676,13 +681,23 @@ module
 		}
 
 		static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
+		static let failures: [{msg: String, node: Node?}] = []
 
+		// TODO node: Node = null error
 		static function fail(msg: String, node: Node = null): Void {
+			failNonFatal(msg, node)
+			let errors = failures.slice()
+			failures = [] // TODO failures is `let` not `var`!
+			throw new CompilerErrors(failures)
+		}
+
+		static function failNonFatal(msg: String, node: Node = null): Void {
 			let data = Project.data.get(node)
-			if (data == null) {
-				throw new CompilerError(Fail.TyperError, msg, 0, 0, "")
+			if (let data = data) {
+				failures.push(new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName))
+			} else {
+				failures.push(new CompilerError(Fail.TyperError, msg, 0, 0, ""))
 			}
-			throw new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName)
 		}
 
 		static function positionOf(node: Node) {
@@ -1628,9 +1643,9 @@ module
 							}
 							types.set(node, els[index])
 						case Type.UnknownNullable(handle):
-							fail('Cannot access `null.\(n)` nullable of type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
+							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
 						case Type.Nullable(type):
-							fail('Cannot access `null.\(n)` nullable of type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
+							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
 						case null:
 							fail('Cannot access `.\(n)` due to type being `null`, seems to be internal compiler error', node)
 						case _:
