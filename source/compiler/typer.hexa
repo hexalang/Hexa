@@ -1509,7 +1509,13 @@ module
 							for (e in el) {
 								fillExpression(e)
 							}
-							types.set(node, typeArray.instantiateGeneric([types.get(el[0])]))
+							types.set(node, typeArray.instantiateGeneric([
+								if (el.length > 0) {
+									types.get(el[0])
+								} else {
+									Type.Unknown({ value: null })
+								}
+							]))
 					}
 
 				// `[k:v, k:v]`
@@ -1674,13 +1680,23 @@ module
 							types.set(node, els[index])
 						case Type.UnknownNullable(handle):
 							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
+							types.set(node, typeAny) // TODO unwrap proper type
 						case Type.Nullable(type):
 							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
+							types.set(node, typeAny) // TODO unwrap proper type
+						case Type.Unknown(handle):
+							if (let type = handle.value) {
+								// TODO
+							} else {
+								failNonFatal('Cannot access `.\(n)` due to type of value being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
+								types.set(node, typeAny) // TODO unwrap proper type
+							}
 						case null:
 							fail('Cannot access `.\(n)` due to type being `null`, seems to be internal compiler error', node)
 						case _:
 							fail('Cannot access `.\(n)` due to type being unhandled `\(Type.stringify(etype))`, seems to be internal compiler error', node)
-					}}
+					}} else {
+					}
 
 				// `e.N`
 				case Node.TDotUpper(e, n):
@@ -2170,7 +2186,7 @@ module
 					}
 
 					if (types.get(exprs[0]) == null) {
-						fail('Value of switch must have a known type at this postition', exprs[0])
+						fail('Value of switch `\(Node.stringify(exprs[0]))` must have a known type at this postition', exprs[0])
 					}
 
 					// TODO if typeof(expr) == typeInt ... special code path
