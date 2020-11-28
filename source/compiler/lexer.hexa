@@ -20,18 +20,20 @@ module
 		var token: Buffer<Token> // let = new.
 		// Values of an unique lexemes, like integers and strings
 		var value: [String]
+		var meta: [Meta]
 		var length: Int
 		var line: [Int]
 		var column: [Int]
 		var fileName: String
 
-		new (tokens, length, values, lines, columns, fileName) {
+		new (tokens, length, values, lines, columns, fileName, meta) {
 			this.token = tokens
 			this.length = length
 			this.value = values
 			this.line = lines
 			this.column = columns
 			this.fileName = fileName
+			this.meta = meta
 		}
 	}
 
@@ -51,6 +53,7 @@ module
 			// Prefetch
 			let params = []
 			let tokens = Buffer.alloc(len + 1)
+			let meta: [Meta] = []
 			var lines = []
 			var columns = []
 
@@ -64,6 +67,13 @@ module
 			// Add parametrized token
 			@inline function addn(t: Token, p: String) {
 				params[to] = p
+				add(t)
+			}
+
+			// Add parametrized token with meta
+			@inline function addm(t: Token, p: String, m: Meta) {
+				params[to] = p
+				meta[to] = m
 				add(t)
 			}
 
@@ -297,6 +307,7 @@ module
 					p = position
 					p += 2
 					_8 = get_8(position)
+
 					while (
 						(_8 >= 65 && _8 <= 70) // A...F
 						||
@@ -306,11 +317,53 @@ module
 					) {
 						_8 = get_8(++p)
 					}
+
 					if (p - position == 2) {
 						throw fail("Integer `0x` not allowed!")
 					}
-					addn(Token.LInt, bytes.toString('ascii', position, p))
-					position = p
+
+					var m = Meta.Default
+					var offset = 0
+
+					if (get_8(p) == "n".charCodeAt(0)) {
+						m = Meta.BigInt
+						offset = 1
+					} else if (get_8(p) == "i".charCodeAt(0)) {
+						// TODO yeah this should be shorter
+						let header = bytes.readUInt16LE(p + 1)
+						if (get_8(p + 1) == "8".charCodeAt(0)) {
+							m = Meta.Int8
+							offset = 2
+						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+							m = Meta.Int32
+							offset = 3
+						} else if (header == "6".charCodeAt(0) + "4".charCodeAt(0) * 256) {
+							m = Meta.Int64
+							offset = 3
+						} else if (header == "1".charCodeAt(0) + "6".charCodeAt(0) * 256) {
+							m = Meta.Int16
+							offset = 3
+						}
+					} else if (get_8(p) == "u".charCodeAt(0)) {
+						let header = bytes.readUInt16LE(p + 1)
+						if (get_8(p + 1) == "8".charCodeAt(0)) {
+							m = Meta.UInt8
+							offset = 2
+						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+							m = Meta.UInt32
+							offset = 3
+						} else if (header == "6".charCodeAt(0) + "4".charCodeAt(0) * 256) {
+							m = Meta.UInt64
+							offset = 3
+						} else if (header == "1".charCodeAt(0) + "6".charCodeAt(0) * 256) {
+							m = Meta.UInt16
+							offset = 3
+						}
+					}
+
+					addm(Token.LInt, bytes.toString('ascii', position, p), m)
+					position = p + offset
+
 					continue
 				}
 
@@ -352,8 +405,55 @@ module
 						}
 						found = Token.LFloat
 					}
-					addn(found, bytes.toString('ascii', position, p))
-					position = p
+
+					var m = Meta.Default
+					var offset = 0
+
+					// TODO reuse code
+					if (get_8(p) == "n".charCodeAt(0)) {
+						m = Meta.BigInt
+						offset = 1
+					} else if (get_8(p) == "i".charCodeAt(0)) {
+						// TODO yeah this should be shorter
+						let header = bytes.readUInt16LE(p + 1)
+						if (get_8(p + 1) == "8".charCodeAt(0)) {
+							m = Meta.Int8
+							offset = 2
+						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+							m = Meta.Int32
+							offset = 3
+						} else if (header == "6".charCodeAt(0) + "4".charCodeAt(0) * 256) {
+							m = Meta.Int64
+							offset = 3
+						} else if (header == "1".charCodeAt(0) + "6".charCodeAt(0) * 256) {
+							m = Meta.Int16
+							offset = 3
+						}
+					} else if (get_8(p) == "u".charCodeAt(0)) {
+						let header = bytes.readUInt16LE(p + 1)
+						if (get_8(p + 1) == "8".charCodeAt(0)) {
+							m = Meta.UInt8
+							offset = 2
+						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+							m = Meta.UInt32
+							offset = 3
+						} else if (header == "6".charCodeAt(0) + "4".charCodeAt(0) * 256) {
+							m = Meta.UInt64
+							offset = 3
+						} else if (header == "1".charCodeAt(0) + "6".charCodeAt(0) * 256) {
+							m = Meta.UInt16
+							offset = 3
+						}
+					} else if (get_8(p) == "f".charCodeAt(0)) {
+						let header = bytes.readUInt16LE(p + 1)
+						if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+							m = Meta.Float32
+							offset = 3
+						}
+					}
+
+					addm(found, bytes.toString('ascii', position, p), m)
+					position = p + offset
 					continue
 				}
 
@@ -364,7 +464,7 @@ module
 				throw fail('Unexpected character ' + String.fromCharCode(_8))
 				break
 			}
-			return new Tokens(tokens, to, params, lines, columns, fileName)
+			return new Tokens(tokens, to, params, lines, columns, fileName, meta)
 		}
 
 		static function init() {

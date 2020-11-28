@@ -718,9 +718,24 @@ module
 
 			result = fix(value)
 		case Token.LFloat:
-			result = Node.TFloat(getgo(Token.LFloat))
+			// TODO handle Meta
+			result = Node.TFloat(parseFloat(getgo(Token.LFloat)))
 		case Token.LInt:
-			result = Node.TInt(getgo(Token.LInt))
+			let meta = lex.meta[i]
+			let value = getgo(Token.LInt)
+			switch (meta) {
+				case Meta.Default:
+					let at = i
+					let v = parseInt(value)
+					if (v > 2147483647 || v < -2147483647) {
+						i = at
+						fail('Integer `\(value)` is too large for 32 bit, use `\(value)i64` or `\(value)n`')
+					}
+					result = Node.TInt(v)
+				case _:
+					result = Node.MetaInt(parseBigInt(value), meta)
+			}
+
 		case Token.LUpper:
 			if (lex.token[i + 1] == Token.OpLt) {
 				var res = parseType()
