@@ -1294,12 +1294,15 @@ module
 				let value = nodeToExpression(exprs[0])
 				var index = NiceExpression.Ident(temp, null)
 				var promoted = false
+				var enumType: EnumType? = null
 
 				switch (typer.types.get(exprs[0])) {
 					case Type.Enum(type):
 						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
+						enumType = type
 					case Type.EnumInstance(type):
 						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
+						enumType = type
 				}
 
 				var i = 0
@@ -1320,11 +1323,22 @@ module
 							} else {
 								cx.push(NiceExpression.False)
 							}
-						case Node.TCall(e, args, argNames): switch (e) {
-							case Node.TDotUpper(expr, name):
+						case Node.TCall(e, args, argNames):
+							switch (e) {
+								case Node.TDotUpper(expr, name):
 								let parent = typer.parents.get(expr)
 								let tag = getTag(parent, name)
 								cx.push(tag)
+								case Node.NodeTypeValue(t):
+									switch (t) {
+										case NodeType.Type(name):
+											if (let enumType = enumType) {
+												cx.push(getTag(enumType.parent, name))
+											}
+									}
+								case _:
+									console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
+							}
 							// Promote to complex enum
 							if (!promoted) {
 								index = NiceExpression.EnumTag(index)
@@ -1345,16 +1359,22 @@ module
 								case Node.Underscore: {}
 								case _: console.log('(internal warning) Unknown case extract value kind:', arg)
 							}}
-							case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
-						}
 						case Node.TDotUpper(expr, name):
 							cx.push(getTag(typer.parents.get(expr), name))
-						case Node.TBinop(a, op, b): switch (op) {
+						case Node.TBinop(a, op, b):
+						switch (op) {
 							case Token.OpOr:
 							addTag(a)
 							addTag(b)
 							case _: console.error('(internal warning) Unknown case binop kind:', e, typer.parents.get(e))
 						}
+						case Node.NodeTypeValue(t):
+							switch (t) {
+								case NodeType.Type(name):
+									if (let enumType = enumType) {
+										cx.push(getTag(enumType.parent, name))
+									}
+							}
 						case _:
 						console.error('(internal warning) Unknown case kind:', co, Project.data.get(co))
 					}}
