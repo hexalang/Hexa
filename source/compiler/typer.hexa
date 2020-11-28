@@ -175,7 +175,6 @@ module
 			}
 
 			if (failures.length > 0) {
-				// TODO failures = []
 				let errors = failures.slice()
 				failures = []
 				throw new CompilerErrors(errors)
@@ -365,6 +364,23 @@ module
 							parents.set(field, node)
 						}
 
+						function varTypes(vars: [Node]): [Type] {
+							let varTypes: [Type] = []
+
+							for (v in vars) {
+								switch (v) {
+									case Node.TVar(_, t):
+										if (let t = t) {
+											varTypes.push(toType(t, v))
+										} else {
+											varTypes.push(Type.Unknown({ value: null }))
+										}
+								}
+							}
+
+							return varTypes
+						}
+
 						// Fill fields with non-ambiguous types
 						for (field in f) { switch (field) {
 							// `var\let a: known T`
@@ -374,9 +390,21 @@ module
 								}
 							// `function a(args with known types or no args): known ret type`
 							case Node.TFunction(name, expr, vars, rettype):
-								if (let rettype = rettype, vars.length == 0) {
-									types.set(field, Type.Function([], toType(rettype, field)))
+								if (let rettype = rettype) {
+									types.set(field, Type.Function(varTypes(vars), toType(rettype, field)))
 								}
+							case Node.TStatic(f): switch (f) {
+								case Node.TFunction(name, expr, vars, rettype):
+									if (let rettype = rettype) {
+										types.set(f, Type.Function(varTypes(vars), toType(rettype, f)))
+										types.set(field, types.get(f))
+									}
+								case Node.TVar(name, t, e, const):
+									if (let t = t) {
+										types.set(f, toType(t, f))
+										types.set(field, types.get(f))
+									}
+							}
 						}}
 
 						// Fill expressions
@@ -401,7 +429,7 @@ module
 									fillFunction(field, expr, vars, rettype)
 								}
 								if (external, types.get(field) == null) {
-									types.set(field, Type.Function([], rettype!=null? toType(rettype, field) : typeVoid))
+									types.set(field, Type.Function(varTypes(vars), rettype!=null? toType(rettype, field) : typeVoid))
 								}
 								insideClassMethod = _insideClassMethod
 								allowSuper = _allowSuper
@@ -456,7 +484,7 @@ module
 										fillFunction(f, expr, vars, rettype)
 									}
 									if (external) {
-										types.set(f, Type.Function([], rettype!=null? toType(rettype, f) : typeVoid))
+										types.set(f, Type.Function(varTypes(vars), rettype!=null? toType(rettype, f) : typeVoid))
 									}
 									insideClassMethod = _insideClassMethod
 									if (types.get(f) == null) {
