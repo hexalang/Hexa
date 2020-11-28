@@ -385,7 +385,7 @@ module
 				case NiceStatement.Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 
-				case NiceStatement.Switch(expr, cases, statements):
+				case NiceStatement.Switch(expr, cases, statements, guards, binds):
 					var r = 'switch (' + printExpression(expr) + ') {'
 
 					// case 1: case 2: case 3:
@@ -403,9 +403,25 @@ module
 						}}
 						pushTab()
 						r += '{\n' + tabs
+						if (let binders = binds[i]) {
+							for (bind in binders) {
+								r += printStatement(bind) + ';\n' + tabs
+							}
+						}
+
+						if (let guard = guards[i]) {
+							pushTab()
+							r += 'if (' + printExpression(guard) + ') {\n' + tabs
+						}
+
 						r += printStatement(statements[i])
 						popTab()
-						r += '\n' + tabs + '} break;\n' + tabs
+						if (let guard = guards[i]) {
+							popTab()
+							r += '\n\t' + tabs + 'break; } }\n' + tabs
+						} else {
+							r += '\n' + tabs + '} break;\n' + tabs
+						}
 					}}
 
 					// default:

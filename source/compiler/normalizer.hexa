@@ -1245,6 +1245,7 @@ module
 				if (exprs.length > 1) {
 					console.error('Multiple switch values not yet supported:', e, Project.data.get(e))
 				}
+
 				let s = []
 				let c = []
 
@@ -1287,7 +1288,7 @@ module
 						c.push([toCase(conds[i])])
 						s.push(nodeToStatement(cases[i]))
 					}
-					return NiceStatement.Switch(index, c, s)
+					return NiceStatement.Switch(index, c, s, [], [])
 				}
 
 				let temp = unique('temp')
@@ -1306,10 +1307,15 @@ module
 				}
 
 				var i = 0
+				let guardians: [NiceExpression] = []
+				let binds: [[NiceStatement]] = []
+
 				for (ec in cases) {
 					let block = []
 					let co = conds[i]
 					let cx = []
+					let binders: [NiceStatement] = []
+					binds.push(binders)
 
 					function addTag(co) { switch (co) {
 						case Node.Null(_): cx.push(NiceExpression.Null)
@@ -1346,7 +1352,7 @@ module
 							promoted = true
 							for (arg in args.length) { switch (args[arg]) {
 								case Node.TIdent(name):
-									block.push(
+									binders.push(
 										NiceStatement.Const(
 											unique(name, args[arg]),
 											NiceExpression.EnumParameter(
@@ -1385,12 +1391,19 @@ module
 					c.push(cx)
 					block.push(unwrapNestingBlocks(nodeToStatement(ec)))
 					s.push(unwrapNestingBlocks(NiceStatement.Block(block)))
+
+					if (let guard = guards[i]) {
+						guardians.push(nodeToExpression(guard))
+					} else {
+						guardians.push(null)
+					}
+
 					i++
 				}
 
 				return NiceStatement.Block([
 					NiceStatement.Const(temp, value, typer.types.get(exprs[0])),
-					NiceStatement.Switch(index, c, s)
+					NiceStatement.Switch(index, c, s, guardians, binds)
 				])
 
 				case Node.TVars(vars):
