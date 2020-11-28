@@ -2185,8 +2185,45 @@ module
 						fail('Multiple switch values are not yet supported', expr)
 					}
 
-					if (types.get(exprs[0]) == null) {
+
+					function unwrapUnknownAndNullable(type: Type?): Type? {
+						switch (type) {
+							case null: return null
+							case Type.Nullable(type): return unwrapUnknownAndNullable(type)
+							case Type.Unknown(type): return unwrapUnknownAndNullable(type.value)
+							case Type.UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
+						}
+
+						return type
+					}
+
+					let etype = unwrapUnknownAndNullable(types.get(exprs[0]))
+
+					if (etype == null) {
 						fail('Value of switch `\(Node.stringify(exprs[0]))` must have a known type at this postition', exprs[0])
+					}
+
+					var enumType: EnumType? = null
+
+					// TODO typeArray
+					// TODO typeMap?
+					if (etype == typeBool) {
+						// Okay
+					} else if (etype == typeInt) {
+						// Okay
+					} else if (etype == typeString) {
+						// Okay
+					} else if (etype == typeFloat) {
+						fail('Due to imprecise nature of `Float` type, switching over it is not allowed', exprs[0])
+					} else {
+						switch (etype) {
+							case Type.Enum(type):
+								enumType = type
+							case Type.EnumInstance(type, _):
+								enumType = type
+							case _:
+								fail('Cannot switch over `\(Type.stringify(etype))` type', exprs[0])
+						}
 					}
 
 					// TODO if typeof(expr) == typeInt ... special code path
@@ -2237,9 +2274,18 @@ module
 
 								// TODO error on complex enums
 								case Node.Null: {}
-								case Node.TBool(_): {}
-								case Node.TInt(_): {}
-								case Node.TString(_): {}
+								case Node.TBool(_):
+									if (etype != typeBool) {
+										fail('Cannot switch over boolean here', e)
+									}
+								case Node.TInt(_):
+									if (etype != typeInt) {
+										fail('Cannot switch over number here', e)
+									}
+								case Node.TString(_):
+									if (etype != typeString) {
+										fail('Cannot switch over string here', e)
+									}
 								case Node.TCall(ex, args, argNames): {
 									// TODO rethink nested pattern mechanics
 									// TODO don't follow nested patterns for now
@@ -2256,6 +2302,25 @@ module
 											fail('This case pattern is not supported', e)
 									}}
 								}
+
+								// case TagName:
+								case Node.NodeTypeValue(t):
+									switch (t) {
+										case NodeType.Type(name):
+											if (let enumType = enumType) {
+												if (let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true) {
+													currentType = enumType
+													currentTag = name
+												} else {
+													fail('The `\(name)` is not an enum constructor of `\(enumType.name)`', e)
+												}
+											} else {
+												fail('This case pattern is not supported over non-enum types', e)
+											}
+										case _:
+											fail('This case pattern is not supported', e)
+									}
+
 								case Node.TIdent(name): // Bind (var)
 								{
 									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
@@ -2288,10 +2353,12 @@ module
 									}
 								}
 								case Node.TBinop(a, op, b):
-								if (op == Token.OpOr) {follow(a) follow(b)}
-								else {
-									fail('This case pattern is not supported', e)
-								}
+									if (op == Token.OpOr) {
+										follow(a)
+										follow(b)
+									} else {
+										fail('This case pattern is not supported', e)
+									}
 								case Node.TIf(econd, _, _):
 									pushScope()
 									fill(econd[0])
