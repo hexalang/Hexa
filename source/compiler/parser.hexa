@@ -29,6 +29,11 @@ module
 
 		static function parseNodes(lexe: Tokens): [Node] {
 			let parser = new Parser(lexe)
+
+			if (parser.hints.length > 0) {
+				throw new CompilerErrors(parser.hints)
+			}
+
 			return parser.nodes
 		}
 
@@ -361,7 +366,8 @@ module
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
-		throw new CompilerError(Fail.ParserError, message, line, column, filename)
+		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
+		throw new CompilerErrors(hints)
 	}
 
 	function getgo(t): String {
@@ -420,15 +426,13 @@ module
 		var nodePosition = { line: lex.line[i], column: lex.column[i] }
 		var result: Node? = null
 		switch (node) {
-
 		// declare class C {}
-		case Token.KDeclare:
 		// declare T = V
 		// declare class
 		// declare let
 		// declare var
 		// declare function
-
+		case Token.KDeclare:
 			i++
 			switch (tok()) {
 				case Token.KFunction | Token.KFun:
@@ -587,8 +591,8 @@ module
 				step(Token.BrClose)
 				result = Node.TBlock(el)
 			}
-		// if (econd) eif
-		// if (econd) eif else eelse
+		// if econd { eif }
+		// if econd { eif } else { eelse }
 		case Token.KIf:
 			i++
 			// TODO
@@ -729,7 +733,8 @@ module
 					let v = parseInt(value)
 					if (v > 2147483647 || v < -2147483647) {
 						i = at
-						fail('Integer `\(value)` is too large for 32 bit, use `\(value)i64` or `\(value)n`')
+						fail('Integer `\(value)` is too large for *signed* 32 bit, use `\(value)u32` or `\(value)n`')
+						// TODO recommend i64/u64 depending on value size
 					}
 					result = Node.TInt(v)
 				case _:
@@ -1675,6 +1680,7 @@ module
 						}
 						i++
 					}
+					// TODO wrap into error
 					throw 'String interpolation error: unclosed inner parenthesis'
 				}
 				while(i < s.length) {
@@ -1689,6 +1695,7 @@ module
 					}
 					i++
 				}
+				// TODO wrap into error
 				throw 'String interpolation error: unclosed parenthesis'
 			}
 			var result = ['"']
@@ -1716,7 +1723,9 @@ module
 		try {
 			var parsed = toNode(parseNodes(tokens))
 			switch (parsed) {
-				case Node.TBlock(_): throw "Parse interpolation error: got a block"
+				case Node.TBlock(_):
+					// TODO wrap into error
+					throw "Parse interpolation error: got a block"
 				case _: return parsed
 			}
 		}
