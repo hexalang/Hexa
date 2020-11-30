@@ -267,10 +267,13 @@ module
 				}
 			} else {
 				let type = new ClassType()
+				let typeName = DataHelper.nameOf(node)
 				let _thisType = thisType
-				thisType = type
+				let _thisNode = thisNode
+				thisType = type.instantiate()
+				thisNode = node
 				type.parent = node
-				type.name = DataHelper.nameOf(node)
+				type.name = typeName
 				types.set(node, Type.Class(type))
 
 				// Solve race condition
@@ -516,6 +519,7 @@ module
 				}
 
 				thisType = _thisType
+				thisNode = _thisNode
 				return type
 			}
 		}
@@ -868,6 +872,7 @@ module
 		var insideClassMethod = false // `class T { function () { insideClassMethod } }` non-static!
 		var allowSuper = false // `class T extends C { function () { super() } }` non-static!
 		var thisType: Type = null as! Type // Current class
+		var thisNode: Node = null as! Node // Current class node
 
 		// var to = from
 		function unify(to: Type, fromValue: Type, node: Node): Type {
@@ -2165,7 +2170,11 @@ module
 					if (!insideClassMethod) {
 						fail('Cannot access `this` outside of class method', node)
 					}
+					if (thisType == null) {
+						fail('Cannot access `this` in class method', node)
+					}
 					types.set(node, thisType)
+					parents.set(node, thisNode)
 
 				// `super`
 				case Node.Super(_):
