@@ -1,0 +1,48 @@
+// The Hexa Compiler
+// Copyright (C) 2020  Oleg Petrenko
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, version 3 of the License.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+module
+
+/// Based on https://stackoverflow.com/questions/3430939/node-js-readsync-from-stdin
+function question(query: String): String {
+	Process.stdout.write(query)
+	var bufsize = 256
+	var buf = new Buffer(bufsize)
+	var bytesRead = 0
+	let stdin = (process.platform == "win32")? Process.stdin.fd : Fs.openSync('/dev/stdin', 'rs')
+	try {
+		bytesRead = Fs.readSync(stdin, buf, 0, bufsize)
+	} catch (e: Any) {{
+		let e: { code: String } = e
+		if (e.code == 'EAGAIN') {
+			return 'ERROR: interactive stdin input not supported.'
+		}
+		if (e.code == 'EOF') {
+			return ''
+		}
+		throw e // unexpected exception
+	}}
+	if (bytesRead == 0) {
+		// No more stdin input available.
+		// OS X 10.8.3: regardless of input method, this is how the end
+		// of input is signaled.
+		// Windows 7: this is how the end of input is signaled for
+		// *interactive* stdin input.
+		return ''
+	}
+	// Process the chunk read.
+	let answer = buf.toString('utf8', 0, bytesRead).trim()
+	return answer
+}
