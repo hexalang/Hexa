@@ -144,6 +144,13 @@ module
 				for (i in vars.length) {
 					v.push(Node.TVar(vars[i], types[i], values[i], true, false))
 				}
+				switch (expr) {
+					case null:
+					case Node.TBlock(_):
+					case _:
+						i--
+						fail('Constructor `new` should have a `{ block }` as a body')
+				}
 				let field = Node.TFunction('new', expr, v, null, false)
 				Project.data.set(field, pos)
 				fields.push(field)
@@ -368,6 +375,15 @@ module
 		let filename = filename != null ? filename : lex.fileName
 		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
 		throw new CompilerErrors(hints)
+	}
+
+	let hints: [CompilerError] = []
+
+	function failHint(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
+		let line = line != null ? line : lex.line[i]
+		let column = column != null ? column : lex.column[i]
+		let filename = filename != null ? filename : lex.fileName
+		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
 	}
 
 	function getgo(t): String {
@@ -609,15 +625,38 @@ module
 				step(Token.PClose)
 			}
 			var eif = null
+			var eifAt = i
 			if (tok() != Token.Colon) {
 				eif = parseExpr()
 			}
 			var eelse: Node? = null
+			var eelseAt = i
 			if (tok() == Token.KElse) {
 				i++
 				eelse = parseExpr()
 			}
 			result = Node.TIf(econd, eif, eelse)
+			if (eif != null) {
+				switch (eif) {
+					case Node.TBlock(_):
+					case _:
+						let temp = i
+						i = eifAt
+						failHint('`if` body must be a `{` block `}`')
+						i = temp
+				}
+			}
+			if (eelse != null) {
+				switch (eelse) {
+					case Node.TBlock(_):
+					case Node.TIf(_):
+					case _:
+						let temp = i
+						i = eelseAt
+						failHint('`else` body must be a `{` block `}`')
+						i = temp
+				}
+			}
 		// while () {}
 		case Token.KWhile:
 			i++
@@ -1606,6 +1645,15 @@ module
 			let n = Node.TVar(vars[i], types[i], values[i], true, false)
 			Project.data.set(n, new NodeData(pos[i].line, pos[i].column, lex.fileName))
 			v.push(n)
+		}
+		switch (expr) {
+			case null:
+			case Node.TBlock(_):
+			case _:
+				let named = name ?? 'fun'
+				// TODO proper error position
+				i--
+				fail('Function `\(named)` should have a `{ block }` as a body')
 		}
 		return Node.TFunction(name, expr, v, rettype, external)
 	}
