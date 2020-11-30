@@ -1,0 +1,106 @@
+// The Hexa Compiler
+// Copyright (C) 2020  Oleg Petrenko
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, version 3 of the License.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+module
+
+enum ServerCommandKind : String {
+	GetWholeFileSyntaxErrors
+}
+
+declare class ServerCommand {
+	let kind: ServerCommandKind
+	let payload: Any
+}
+
+class Server {
+	var port: Int
+
+	new (port: String?) {
+		this.port = port == null? 3978 : parseInt(port)
+		let port = this.port
+		console.log('Requested language server at localhost:' + port)
+
+		// Initialize compiler
+		Lexer.init()
+
+		let http = require('http')
+		let fs = require('fs')
+		let path = require('path')
+		let url = require('url')
+
+		let project = {}
+
+		let handleRequest = function (project, req, res) {
+			let chunks = []
+
+			req.on('data', (chunk) => {
+				chunks.push(chunk)
+			})
+
+			req.on('end', function () {
+				let data = Buffer.concat(chunks)
+				let text = data.toString().trim()
+				if (text.length > 0) {
+					let json = JSON.parse(data.toString())
+
+					let commands: [ServerCommand] = json
+
+					if (commands.length == 0) {
+						res.writeHead(404, {})
+						res.write('{}')
+						res.end()
+					} else {
+						for (command in commands) {
+							switch (command.kind) {
+								case ServerCommandKind.GetWholeFileSyntaxErrors:
+									res.writeHead(200, {})
+									let file = 'hexa.hexa'
+									let content = Buffer.fromString(command.payload)
+									try {
+										let tokens = Lexer.tokenize(content, file)
+										try {
+											let parser = Parser.parseNodes(tokens, true)
+										} catch (e: Any) {
+											res.write(JSON.stringify(e.errors))
+										}
+									} catch (e: Any) {
+										res.write(JSON.stringify(e.errors))
+									}
+
+									res.end()
+								case _:
+									res.writeHead(502, {})
+									res.write('{}')
+									res.end()
+							}
+						}
+					}
+				} else {
+					res.writeHead(400, {})
+					res.write('{}')
+					res.end()
+				}
+			})
+		}
+
+		let server = http.createServer((req, res) => handleRequest(project, req, res))
+
+		server.listen(port, () => {
+			// TODO handle fail
+			console.log('Compiler version:', version)
+			console.log('Ready to Hexa!')
+		})
+	}
+}
