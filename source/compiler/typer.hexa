@@ -154,7 +154,7 @@ module
 			pushScope()
 			for (file in collected) { for (e in file) { switch (e) {
 				case Node.TModule(path, el):
-					// Fill classes first
+					// Fill classes and non-ambiguous nodes first
 					for (node in el) { switch (node) {
 						case Node.TClass(_):
 							parents.set(node, e)
@@ -162,6 +162,14 @@ module
 						case Node.TEnum(_):
 							parents.set(node, e)
 							fill(node)
+						case Node.TFunction(name, expr, vars, rettype):
+							if (let rettype = rettype) {
+								types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
+							}
+						case Node.TVar(name, t, e, const):
+							if (let t = t) {
+								types.set(node, toType(t, node))
+							}
 						case _:
 					}}
 					for (node in el) { switch (node) {
@@ -373,23 +381,6 @@ module
 									fail('Wrong class field format', field)
 							}
 							parents.set(field, node)
-						}
-
-						function varTypes(vars: [Node]): [Type] {
-							let varTypes: [Type] = []
-
-							for (v in vars) {
-								switch (v) {
-									case Node.TVar(_, t):
-										if (let t = t) {
-											varTypes.push(toType(t, v))
-										} else {
-											varTypes.push(Type.Unknown({ value: null }))
-										}
-								}
-							}
-
-							return varTypes
 						}
 
 						// Fill fields with non-ambiguous types
@@ -1049,6 +1040,23 @@ module
 			if (t != null, e == null) {
 				types.set(node, toType(t, node))
 			}
+		}
+
+		function varTypes(vars: [Node]): [Type] {
+			let varTypes: [Type] = []
+
+			for (v in vars) {
+				switch (v) {
+					case Node.TVar(_, t):
+						if (let t = t) {
+							varTypes.push(toType(t, v))
+						} else {
+							varTypes.push(Type.Unknown({ value: null }))
+						}
+				}
+			}
+
+			return varTypes
 		}
 
 		// Uses idea of stacks to track nested function behavior
