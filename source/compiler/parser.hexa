@@ -863,6 +863,55 @@ module
 			}
 			result = Node.TTry(expr, t, v, catches)
 
+		case Token.KImport:
+			i++
+
+			if (tok() == Token.LString) {
+				result = Node.Import([], getgo(Token.LString))
+				Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+				return result
+			}
+
+			var el: [ImportNode] = []
+
+			while (true) {
+				// TODO pos
+				if (tok() == Token.LLower) {
+					el.push(ImportNode.Lower(getgo(Token.LLower)))
+				} else if (tok() == Token.LUpper) {
+					el.push(ImportNode.Upper(getgo(Token.LUpper)))
+				} else if (tok() == Token.OpMult) {
+					i++
+					step(Token.KAs)
+					el.push(ImportNode.As(ImportNode.AllTheThings, ImportNode.Lower(getgo(Token.LLower))))
+				} else {
+					fail('Incorrect `import` syntax')
+				}
+
+				if (tok() == Token.KAs) {
+					i++
+					if (tok() == Token.LLower) {
+						el.push(ImportNode.As(el.pop(), ImportNode.Lower(getgo(Token.LLower))))
+					} else if (tok() == Token.LUpper) {
+						el.push(ImportNode.As(el.pop(), ImportNode.Upper(getgo(Token.LUpper))))
+					} else {
+						fail('Incorrect `import x as y` syntax')
+					}
+				}
+
+				if (tok() == Token.Comma) {
+					i++
+				} else {
+					break
+				}
+			}
+
+			step(Token.KIn)
+
+			result = Node.Import(el, getgo(Token.LString))
+			Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+			return result
+
 		case Token.KModule:
 			i++
 			var path = []
@@ -1221,17 +1270,6 @@ module
 		case Token.KPrivate:
 			next()
 			result = Node.TPrivate(parseExpr())
-		// case LComment:
-		// 	next()
-		// 	// var arr: [Node] = new Array()
-		// 	// arr.push(TString(getgo(LComment)))
-		// 	// atts.push({
-		// 	// 	name: "comment",
-		// 	// 	values: arr })
-		// 	null
-		// case LCommentLine:
-		// 	next()
-		// null
 
 		case _: unexpected()
 		}
