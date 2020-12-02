@@ -109,6 +109,25 @@ module
 				'module a module b': 'TBlock([TModule(a,[]),TModule(b,[])])'
 			])
 
+			shouldAllEqual([
+				'import "test"': 'Import([],test)',
+				'import xxx in "test"': 'Import([Lower(xxx)],test)',
+				'import xxx as yyy in "test"': 'Import([Lower(xxx){as}Lower(yyy)],test)',
+				'import XXX as YYY in "test"': 'Import([Upper(XXX){as}Upper(YYY)],test)',
+				'import * as mmm in "test"': 'Import([*{as}Lower(mmm)],test)',
+				'import XXX, YYY as ZZZ, www in "test"': 'Import([Upper(XXX),Upper(YYY){as}Upper(ZZZ),Lower(www)],test)'
+			])
+
+			shouldAllError([
+				'import',
+				//'import ""',
+				'import hehe',
+				'import _ as B in "test"',
+				'import * in "test"',
+				'import * as B in "test"'
+			//	'import a as B in ""'
+			])
+
 			// Types parsing in expressions
 			shouldAllEqual([
 				'var a = new Array<A>()' : 'TVar(a,null,TNew([],ParametricType(Array,[Type(A)]),[],[],[],[]),false,false)',
@@ -375,6 +394,17 @@ module
 			case Node.TEnum(t, els): return 'TEnum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
 			case Node.TModule(paths, els):
 				return "TModule(" + paths.join('.') + "," + TestParser.stringifyNodeArray(els) + ")"
+			case Node.Import(els, path):
+				function stringifyImportNode(node: ImportNode): String {
+					switch (node) {
+						case ImportNode.Lower(name): return 'Lower(\(name))'
+						case ImportNode.Upper(name): return 'Upper(\(name))'
+						case ImportNode.AllTheThings(_): return '*'
+						case ImportNode.As(left, right):  return stringifyImportNode(left) + '{as}' + stringifyImportNode(right)
+					}
+				}
+
+				return "Import([" + [for(p in els) stringifyImportNode(p)].join(',') + "]," + path + ")"
 
 			case Node.TMap(k, v): return 'TMap([' + [for(p in k) TestParser.stringify(p)].join(',') + '],[' + [for(p in v) TestParser.stringify(p)].join(',') + '])'
 
