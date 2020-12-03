@@ -27,8 +27,8 @@ module
 			return nodes[0]
 		}
 
-		static function parseNodes(lexe: Tokens): [Node] {
-			let parser = new Parser(lexe)
+		static function parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
+			let parser = new Parser(lexe, project, lint)
 
 			if (parser.hints.length > 0) {
 				throw new CompilerErrors(parser.hints)
@@ -37,8 +37,12 @@ module
 			return parser.nodes
 		}
 
-		private new (lexe: Tokens) {
+		var project: Project
+		var lint = false
+		private new (lexe: Tokens, project: Project, lint: Bool) {
 			lex = lexe
+			this.lint = lint
+			this.project = project
 
 			nodes = []
 			while (i < lex.length && tok() != Token.Eof) {
@@ -70,30 +74,30 @@ module
 				i++
 			case Token.KVar:
 				var f = parseExpr()
-				Project.data.set(f, pos)
+				project.data.set(f, pos)
 				if (_static) {
 					f = Node.TStatic(f)
-					Project.data.set(f, pos)
+					project.data.set(f, pos)
 				}
-				Project.mapDecorators.set(f, atts)
+				project.mapDecorators.set(f, atts)
 				fields.push(f)
 			case Token.KFunction | Token.KFun:
 				var f = parseExpr()
-				Project.data.set(f, pos)
+				project.data.set(f, pos)
 				if (_static) {
 					f = Node.TStatic(f)
-					Project.data.set(f, pos)
+					project.data.set(f, pos)
 				}
-				Project.mapDecorators.set(f, atts)
+				project.mapDecorators.set(f, atts)
 				fields.push(f)
 			case Token.KLet:
 				var f = parseExpr()
-				Project.data.set(f, pos)
+				project.data.set(f, pos)
 				if (_static) {
 					f = Node.TStatic(f)
-					Project.data.set(f, pos)
+					project.data.set(f, pos)
 				}
-				Project.mapDecorators.set(f, atts)
+				project.mapDecorators.set(f, atts)
 				fields.push(f)
 			case Token.KNew:
 				i++
@@ -152,7 +156,7 @@ module
 						fail('Constructor `new` should have a `{ block }` as a body')
 				}
 				let field = Node.TFunction('new', expr, v, null, false)
-				Project.data.set(field, pos)
+				project.data.set(field, pos)
 				fields.push(field)
 			case Token.LLower:
 				let name = getgo(Token.LLower)
@@ -253,9 +257,9 @@ module
 					getter,
 					setter
 				)
-				Project.data.set(property, new NodeData(pos.line, pos.column, lex.fileName))
-				Project.data.set(getter, new NodeData(pos.line, pos.column, lex.fileName))
-				Project.data.set(setter, new NodeData(pos.line, pos.column, lex.fileName))
+				project.data.set(property, new NodeData(pos.line, pos.column, lex.fileName))
+				project.data.set(getter, new NodeData(pos.line, pos.column, lex.fileName))
+				project.data.set(setter, new NodeData(pos.line, pos.column, lex.fileName))
 				fields.push(property)
 				if (let getter = getter) {
 					fields.push(getter)
@@ -286,11 +290,6 @@ module
 	//------------------
 	//     HELPERS
 	//------------------
-
-	static var uuid = 0
-	static function uid() {
-		return uuid++
-	}
 
 	// Current token
 	function tok() {
@@ -328,8 +327,8 @@ module
 			i++ // #
 			i++ // if
 			let defName = getgo(Token.LLower)
-			let def = Project.defines[defName]
 			if (def == null) fail(
+			let def = project.defines[defName]
 				"`#if` looks for the `" + defName + "` parameter which is *not* defined in project file." +
 				' Add `"define": { "\(defName)": false }` to `hexa.json` or `--define \(defName)=false` to suppress this message.')
 			if (def == true) endif++
@@ -480,10 +479,10 @@ module
 					var left = parseType()
 					step(Token.OpAssign)
 					let leftNode = Node.NodeTypeValue(left)
-					Project.data.set(leftNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+					project.data.set(leftNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 
 					let rightNode = Node.NodeTypeValue(parseType())
-					Project.data.set(rightNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+					project.data.set(rightNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 
 					e = Node.TBinop(leftNode, Token.OpAssign, rightNode)
 				case _:
@@ -868,7 +867,7 @@ module
 
 			if (tok() == Token.LString) {
 				result = Node.Import([], getgo(Token.LString))
-				Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+				project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 				return result
 			}
 
@@ -909,27 +908,20 @@ module
 			step(Token.KIn)
 
 			result = Node.Import(el, getgo(Token.LString))
-			Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 			return result
 
 		case Token.KModule:
 			i++
 			var path = []
 			// TODO Corrent by upperlower mode
-			if (tok() == Token.LLower) {
-				path.push(getgo(Token.LLower))
-				while (tok() == Token.Dot) {
-					i++
-					path.push(getgo(Token.LLower))
-				}
-			}
 
 			var el = []
 			while (tok() != Token.KModule && tok() != Token.BrOpen && tok() != Token.Eof) {
 				el.push(parseExpr())
 			}
 			result = Node.TModule(path, el)
-			Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 			return result
 
 		case Token.KEnum:
@@ -961,8 +953,7 @@ module
 			var att = atts
 			atts = []
 			let me = parseClass()
-			//Project.mapDecorators.set(me, atts)
-			Project.mapDecorators.set(me, att)
+			project.mapDecorators.set(me, att)
 			result = me
 		case Token.KFunction | Token.KFun:
 			result = parseFunction()
@@ -1279,10 +1270,10 @@ module
 			fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
 		}
 
-		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
+		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
 		if (atts.length > 0) {
-			Project.mapDecorators.set(result, atts)
+			project.mapDecorators.set(result, atts)
 			atts = []
 		}
 
@@ -1291,7 +1282,7 @@ module
 		//--------------
 		var done = i >= lex.length
 		while (!done) {
-			Project.data.set(result, new NodeData(lex.line[i], lex.column[i], lex.fileName))
+			project.data.set(result, new NodeData(lex.line[i], lex.column[i], lex.fileName))
 			switch (tok()) {
 			case Token.Eof: done = true
 			case Token.BkOpen:
@@ -1449,10 +1440,10 @@ module
 		}
 
 		if (atts.length > 0) {
-			Project.mapDecorators.set(result, atts)
+			project.mapDecorators.set(result, atts)
 			atts = []
 		}
-		Project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 		return result
 		}
 
@@ -1681,7 +1672,7 @@ module
 		var v = []
 		for (i in vars.length) {
 			let n = Node.TVar(vars[i], types[i], values[i], true, false)
-			Project.data.set(n, new NodeData(pos[i].line, pos[i].column, lex.fileName))
+			project.data.set(n, new NodeData(pos[i].line, pos[i].column, lex.fileName))
 			v.push(n)
 		}
 		switch (expr) {
@@ -1807,7 +1798,7 @@ module
 		var resStr = interpolate(str)
 		var tokens = Lexer.tokenize(Buffer.fromString(resStr), lex.fileName)
 		try {
-			var parsed = toNode(parseNodes(tokens))
+			var parsed = toNode(parseNodes(tokens, project))
 			switch (parsed) {
 				case Node.TBlock(_):
 					// TODO wrap into error

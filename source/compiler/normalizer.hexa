@@ -18,7 +18,8 @@ module
 	/// for easier later generation
 	/// See: `/docs/normalizer.md`
 	class Normalizer {
-		let project = new NiceProject()
+		var project: Project
+		let niceProject = new NiceProject()
 		var keywords: [String] = []
 		var reservedGlobals: [String] = []
 		var collected: [[Node]] = []
@@ -30,7 +31,8 @@ module
 		// Pre-computed value of say `let x = 123` thus `inline[x] == 123`
 		let inline: [Node : NiceExpression] = [:]
 
-		new () {
+		new (project: Project) {
+			this.project = project
 		}
 
 		function normalize() {
@@ -48,7 +50,7 @@ module
 						case Node.TEnum(t, fields, valuesType):
 							renameClassFields(fields)
 						case Node.TVar(name, t, expr, const, external):
-							let atts = Project.mapDecorators.get(e)
+							let atts = project.mapDecorators.get(e)
 							if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
 								case Node.TString(s): uniqueNative(s, e)
 								case _: throw '@native takes string as argument'
@@ -72,16 +74,16 @@ module
 							for (e in el) { switch (e) {
 								case Node.TFunction(_):
 									if (let s = nodeToStatement(e)) { // Non-declare ones
-										project.globalFuncs.push(s)
+										niceProject.globalFuncs.push(s)
 									}
 								case Node.TVar(_):
 									if (let s = nodeToStatement(e)) { // Non-declare ones
-										project.globalVars.push(s)
+										niceProject.globalVars.push(s)
 									}
 								case Node.TVars(vars):
 									for (v in vars) {
 										if (let s = nodeToStatement(v)) { // Non-declare ones
-											project.globalVars.push(s)
+											niceProject.globalVars.push(s)
 										}
 									}
 								case _:
@@ -107,18 +109,18 @@ module
 				}
 			}
 
-			project.init.push(NiceStatement.Block(init))
+			niceProject.init.push(NiceStatement.Block(init))
 
-			if (project.init.length > 1) {
+			if (niceProject.init.length > 1) {
 				throw "too many inits"
 			}
 
-			project.package = package
-			project.typer = typer
+			niceProject.package = package
+			niceProject.typer = typer
 
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
-			project.classes.sort(function(a, b) {
+			niceProject.classes.sort(function(a, b) {
 				if (a.external == true) {
 					return -1
 				}
@@ -130,15 +132,15 @@ module
 			    return 1
 			})
 
-			return project
+			return niceProject
 		}
 
 		function nodeToExpression(e: Node): NiceExpression? {
 			let result = nodeToExpressionWithoutPosition(e)
 			if (result != null) {
-				project.expressionPosition.set(result, Project.data.get(e))
-				if (project.expressionType.get(result) == null) {
-					project.expressionType.set(result, typer.types.get(e))
+				niceProject.expressionPosition.set(result, project.data.get(e))
+				if (niceProject.expressionType.get(result) == null) {
+					niceProject.expressionType.set(result, typer.types.get(e))
 				}
 			}
 			return result
@@ -294,7 +296,7 @@ module
 								}
 						}
 				}}
-				let atts = Project.mapDecorators.get(typer.parents.get(expr))
+				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
 				if (let infix = getAtt(atts, 'infix')) { switch (infix.values[0]) {
 					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
@@ -596,7 +598,7 @@ module
 						CallKind.Function
 					)
 
-				case _: console.error('(internal warning) Unknown node type for expression:', e, Project.data.get(e))
+				case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
 			}
 
 			return null
@@ -605,7 +607,7 @@ module
 		function nodeToStatement(e: Node): NiceStatement? {
 			let result = nodeToStatementWithoutPosition(e)
 			if (result != null) {
-				project.statementPosition.set(result, Project.data.get(e))
+				niceProject.statementPosition.set(result, project.data.get(e))
 			}
 			return result
 		}
@@ -699,7 +701,7 @@ module
 					type.constructors = constructors
 					type.constructorsTypes = constructorsTypes
 					type.types = types
-					project.enumsComplex.push(type)
+					niceProject.enumsComplex.push(type)
 					return null //type
 				} else {
 					let type = new NiceSimpleEnum()
@@ -758,7 +760,7 @@ module
 					}}
 					type.names = names
 					type.values = values
-					project.enumsSimple.push(type)
+					niceProject.enumsSimple.push(type)
 					return null //type
 				}
 
@@ -787,7 +789,7 @@ module
 						type.genericParams = [for(param in params) DataHelper.extractTypeName(param)]
 				}
 
-				let atts = Project.mapDecorators.get(e)
+				let atts = project.mapDecorators.get(e)
 
 				if (let require = getAtt(atts, 'require')) { switch (require.values[0]) {
 					case Node.TString(s): type.jsRequire = s
@@ -872,7 +874,7 @@ module
 						}
 					case _: console.error("(internal warning) Unknown class field kind:", f)
 				}}
-				project.classes.push(type)
+				niceProject.classes.push(type)
 				return null //type
 
 				case Node.TypeAlias(_):
@@ -1240,7 +1242,7 @@ module
 
 				case Node.TSwitch(exprs, conds, guards, cases):
 				if (exprs.length > 1) {
-					console.error('Multiple switch values not yet supported:', e, Project.data.get(e))
+					console.error('Multiple switch values not yet supported:', e, project.data.get(e))
 				}
 
 				let s = []
@@ -1279,7 +1281,7 @@ module
 								case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
 							}
 							case _:
-							console.error('(internal warning) Unknown native enum case kind:', co, Project.data.get(co))
+							console.error('(internal warning) Unknown native enum case kind:', co, project.data.get(co))
 						}}
 
 						c.push([toCase(conds[i])])
@@ -1380,7 +1382,7 @@ module
 									}
 							}
 						case _:
-						console.error('(internal warning) Unknown case kind:', co, Project.data.get(co))
+						console.error('(internal warning) Unknown case kind:', co, project.data.get(co))
 					}}
 
 					addTag(co)
@@ -1414,7 +1416,7 @@ module
 
 				// Optimize away
 				case Node.TIndex(v, index):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', project.data.get(e)))
 					// No need to compute constant index
 					switch (index) {
 						case Node.TString(_): return nodeToStatement(v)
@@ -1426,19 +1428,19 @@ module
 
 				// Optimize away
 				case Node.TIdent(name):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', project.data.get(e)))
 				case Node.TArrow(_):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', project.data.get(e)))
 				case Node.TString(v):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', project.data.get(e)))
 				case Node.TBool(v):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', project.data.get(e)))
 				case Node.TInt(v):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', project.data.get(e)))
 				case Node.TFloat(v):
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
 				case Node.Null:
-					Project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', Project.data.get(e)))
+					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
 				case _:
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 			}
@@ -1562,7 +1564,7 @@ module
 			pushScope()
 			for (f in fields) { switch (f) {
 				case Node.TVar(name, t, expr, const):
-					let atts = Project.mapDecorators.get(f)
+					let atts = project.mapDecorators.get(f)
 
 					if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
 						case Node.TString(s): if (parentNames.get(f) == null) {
@@ -1577,7 +1579,7 @@ module
 					if (name == 'new') {
 						parentNames.set(f, 'new')
 					} else {
-						let atts = Project.mapDecorators.get(f)
+						let atts = project.mapDecorators.get(f)
 
 						if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
 							case Node.TString(s): if (parentNames.get(f) == null) {
@@ -1596,7 +1598,7 @@ module
 							unique(name, field)
 						}
 					case Node.TFunction(name, expr, vars, rettype):
-						let atts = Project.mapDecorators.get(f)
+						let atts = project.mapDecorators.get(f)
 
 						if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
 							case Node.TString(s): if (parentNames.get(field) == null) {
