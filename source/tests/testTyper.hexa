@@ -67,7 +67,6 @@ module
 			shouldError('class A { static function x() {} var x = 1 }') // Duplicate
 			shouldError('class A { static let x = 1 static var x = 1 }') // Duplicate
 			shouldError('class A { static let x = 1 function x() {} }') // Duplicate
-			shouldNotError('module { class A { static function x() {} } } A.x()')
 			shouldError('class A { static function x() {} } B.y()')
 			shouldError('class A { static function x() {} } A.y()')
 			shouldError('module { class A { static function x() {} } } A.y()')
@@ -137,7 +136,7 @@ module
 			)
 
 			// Function
-			shouldNotError('var x = function() {return 1} var x = 1')
+			shouldNotError('{ var x = function() {return 1} var x = 1 }')
 			shouldError('let x = function() {return 1} x = 1')
 			shouldError('function x() {return 1} x = 1')
 			shouldError('function x() {return 1} x = function() {return 1}')
@@ -190,6 +189,14 @@ module
 			shouldNotError('function x(y: Int) { { return 1 } return 1 }')
 			shouldNotError('enum E { V } function x() { return E.V }')
 			shouldError('function x() { return Int }')
+
+			shouldNotError('function x(z = 123) { }')
+			shouldNotError('function x(z: Int = 123) { }')
+			// TODO shouldError('function x(z: Int = null) { }')
+			shouldNotError('function x(z: Int? = 123) { }')
+			shouldNotError('function x(z: Int? = null) { }')
+			shouldError('function x(z: String = 123) { }')
+			shouldNotError('function x(z: Bool = true) { }')
 
 			// Arrays
 			shouldNotError('let a = [2, 4, 1, 2, 5]')
@@ -275,11 +282,11 @@ module
 
 			// Global modules
 			shouldNotError('class A {}')
-			shouldError('module { class A {} class A {} }') // Can not redefine in same namespace
-			shouldError('module { let x = 1 } x = 1') // Constant
-			shouldNotError('module { var x = 1 } var x = 1') // Overlapping of global var x
-			shouldNotError('module { var x = 1 } x = 1') // Global var x
-			shouldError('module { class A {} } module { class A {} }') // Can not redefine in same namespace
+			shouldError('class A {} class A {}') // Can not redefine in same namespace
+			shouldError('{ let x = 1 } x = 1') // Constant
+			shouldNotError('{ var x = 1 } var x = 1') // Overlapping of global var x
+			shouldError('{ class A {} }') // Can not define type in expression
+			shouldError('{ enum A {} }') // Can not define type in expression
 			shouldNotError('class A {new() {} let a: A = new A()}') // `A` sees itself
 			shouldError('function f() {} f(var a)') // Type cannot be inferred
 			shouldError('function f(x) {} f(var a)') // Type cannot be inferred
@@ -287,7 +294,6 @@ module
 
 			// Module namespaces
 			shouldError('module hi { function hi() }') // Non-declare should have a body
-			shouldError('module hi { function () {} }') // Module function should have a name
 			shouldError('function hi() { static var x = 1 }')
 			shouldError('function hi() { private var x = 1 }')
 			shouldError('class A {} A = null')
@@ -488,12 +494,21 @@ module
 			let lexeLibrary = Lexer.tokenize(library, "library/js/js.hexa")
 			let lexeInput = Lexer.tokenize(Buffer.fromString(input), "TEST")
 			let project = new Project()
+			let typer = new Typer(project)
 
 			try {
-				(new Typer(project)).fillFiles([
-					Parser.parseNodes(lexeLibrary, project),
-					Parser.parseNodes(lexeInput, project)
-				])
+				let lib = Parser.parseNodes(lexeLibrary, project)
+				let code = Parser.parseNodes(lexeInput, project)
+				let info = new Module()
+				for (node in lib) {
+					info.nodes.push(node)
+				}
+				for (node in code) {
+					info.nodes.push(node)
+				}
+				project.moduleName.push('TEST')
+				project.moduleInfo.push(info)
+				typer.fillModules()
 			} catch(e: Any) {
 				return '' + e
 			}
