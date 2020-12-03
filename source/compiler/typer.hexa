@@ -203,6 +203,146 @@ module
 			}
 		}
 
+		function fillModules() {
+			// Globals already pre-filled in package loader
+			// so we do not fill them here
+			function checkOverrides(info: Module, name: String, e: Node) {
+				if (info.exported.has(name)) {
+					fail('Module `\(info.path)` already exports name `\(name)`', e)
+				}
+
+				if (info.imported.has(name)) {
+					fail('Module `\(info.path)` already imports name `\(name)`', e)
+				}
+			}
+
+			// Fill exports first to allow recursive imports
+			for (info in project.moduleInfo) {
+				let nodes = info.nodes
+
+				for (e in nodes) {
+					var named = true
+					switch (e) {
+						case Node.TVar(_):
+						case Node.TEnum(_):
+						case Node.TFunction(_):
+						case Node.TClass(_):
+						// TODO type alias
+						case _:
+							named = false
+					}
+
+					if (named) {
+						let name = DataHelper.nameOf(e)
+						info.exported.set(name, e)
+					}
+				}
+			}
+
+			// Imports & expressions
+			for (info in project.moduleInfo) {
+				let nodes = info.nodes
+				pushScope()
+
+				var doneImports = false
+				for (e in nodes) {
+					var named = true
+					var lastOne = nodes[0]
+					switch (e) {
+						case Node.Import(els, path):
+							if (doneImports) {
+								fail(
+									'Imports should follow before expressions\n'
+									+ positionOf(lastOne) + 'Expression is here',
+								e)
+							}
+
+							let index = project.moduleName.indexOf(path)
+							if (index == -1) {
+								fail('Cannot import ' + path, e)
+							}
+
+							for (el in els) {
+								switch (el) {
+									case ImportNode.Lower(name):
+										if (let target = project.moduleInfo[index]) {
+											if (let what = target.exported.get(name)) {
+												checkOverrides(info, name, e)
+												info.imported.set(name, what)
+											} else {
+												// TODO only camelCase
+												let has = [for (key in target.exported.keys()) key].join(', ')
+												fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
+											}
+										}
+									case ImportNode.Upper(name):
+										if (let target = project.moduleInfo[index]) {
+											if (let what = target.exported.get(name)) {
+												checkOverrides(info, name, e)
+												info.imported.set(name, what)
+											} else {
+												// TODO only TitleCase
+												let has = [for (key in target.exported.keys()) key].join(', ')
+												fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
+											}
+										}
+									case _:
+										fail('This import kind not implemented yet', e)
+								}
+							}
+						case _:
+							lastOne = e
+							doneImports = true
+
+							// Fill classes and non-ambiguous nodes first
+							let node = e
+							currentModule = info
+							switch (node) {
+								case Node.TClass(_):
+									parents.set(node, e)
+									fillModuleTypes(node)
+								case Node.TEnum(_):
+									parents.set(node, e)
+									fillModuleTypes(node)
+								case Node.TFunction(name, expr, vars, rettype):
+									if (let rettype = rettype) {
+										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
+									}
+								case Node.TVar(name, t, e, const):
+									if (let t = t) {
+										types.set(node, toType(t, node))
+									}
+								case _:
+							}
+					}
+				}
+			}
+
+			for (info in project.moduleInfo) {
+				let nodes = info.nodes
+				pushScope()
+				// Fill expression bodies
+				for (node in nodes) {
+					switch (node) {
+						case Node.Import(_):
+						case Node.TClass(_):
+						case Node.TEnum(_):
+						case _:
+							parents.set(node, Node.TModule(info.path, info.nodes)) // TODO module itself
+							fill(node)
+					}
+				}
+
+				popScope()
+			}
+
+			if (failures.length > 0) {
+				let errors = failures.slice()
+				failures = []
+				throw new CompilerErrors(errors)
+			}
+		}
+
 		function find(name: String): Node? {
 			var subj = null
 			for (i in scopes.length) {
@@ -566,7 +706,7 @@ module
 							case Node.NodeTypeValue(t): switch (t) {
 								case NodeType.Type(name):
 									if (type.fieldNames.includes(name)) {
-										throw Typer.fail('Field `\(name)` already exists', node)
+										throw fail('Field `\(name)` already exists', node)
 									}
 									type.fieldNames.push(name)
 									// TODO refactor `length - 1`
@@ -581,13 +721,13 @@ module
 							// `enum E { A(b: C) }`
 							case Node.TCall(e, args, argNames):
 								if (valuesType != null) {
-									throw Typer.fail('Cannot use `Value(args)` format for simple enum', node)
+									throw fail('Cannot use `Value(args)` format for simple enum', node)
 								}
 								switch (e) {
 									case Node.NodeTypeValue(t): switch (t) {
 										case NodeType.Type(name):
 											if (type.fieldNames.includes(name)) {
-												throw Typer.fail('Field `\(name)` already exists', node)
+												throw fail('Field `\(name)` already exists', node)
 											}
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
@@ -729,14 +869,14 @@ module
 		static var failures: [{msg: String, node: Node?}] = []
 
 		// TODO node: Node = null error
-		static function fail(msg: String, node: Node = null): Void {
+		function fail(msg: String, node: Node = null): Void {
 			failNonFatal(msg, node)
 			let errors = failures.slice()
 			failures = []
 			throw new CompilerErrors(errors)
 		}
 
-		static function failNonFatal(msg: String, node: Node = null): Void {
+		function failNonFatal(msg: String, node: Node = null): Void {
 			let data = project.data.get(node)
 			if (let data = data) {
 				failures.push(new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName))
@@ -745,7 +885,7 @@ module
 			}
 		}
 
-		static function positionOf(node: Node) {
+		function positionOf(node: Node) {
 			let data = project.data.get(node)
 			if (data == null) {
 				return "[Unknown]: "
@@ -800,7 +940,18 @@ module
 			}
 		}
 
+		var currentModule: Module = new Module()
 		function findInNamespaceRoots(name: String): Node? {
+			if (let node = currentModule.imported.get(name)) {
+				return node
+			}
+
+			if (let node = project.globals.get(name)) {
+				return node
+			}
+
+			return null
+
 			if (namespaces.get(name) != null) {
 				return namespaces.get(name)
 			}
@@ -976,12 +1127,12 @@ module
 		function toType(t: NodeType, node: Node): Type {
 			switch (t) {
 				case NodeType.Type(name):
-					let nodeType: Node = findType(name)
 					if (types.get(nodeType) == null) { switch (nodeType) {
 						case Node.TClass(_): registerClassType(nodeType)
 						case Node.TEnum(_): registerEnumType(nodeType)
+					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
 					}}
-					let type = types.get(nodeType) ?? findActualType(name)
+					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch (type) {
 						case Type.Class(type):
 							if (type.genericParams.length > 0) {
@@ -999,12 +1150,12 @@ module
 							fail('Unsupported type `\(name)`', node)
 					}
 				case NodeType.ParametricType(name, params):
-					let nodeType: Node = findType(name)
+					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
 					if (types.get(nodeType) == null) { switch (nodeType) {
 						case Node.TClass(_): registerClassType(nodeType)
 						case Node.TEnum(_): registerEnumType(nodeType)
 					}}
-					let type = types.get(nodeType) ?? findActualType(name)
+					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch (type) {
 						case Type.Class(type):
 							if (type.genericParams.length == 0) {
@@ -1156,12 +1307,8 @@ module
 			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: ret))
 		}
 
-		// Syntax tree traverse
-		private function fill(node: Node): Void {
+		private function fillModuleTypes(node: Node): Void {
 			switch (node) {
-				// Types
-				// **Note:** supports types *not* placed into `module`s
-
 				// `class T {}`
 				case Node.TClass(t, extend, implement, f, external):
 					addScope(DataHelper.extractTypeName(t), node)
@@ -1176,6 +1323,24 @@ module
 				case Node.TypeAlias(alias, value):
 					types.set(node, Type.Alias(null))
 					addScope(nameOfModuleItem(node), node)
+			}
+		}
+
+		// Syntax tree traverse
+		private function fill(node: Node): Void {
+			switch (node) {
+
+				// Types
+
+				case Node.TClass(_):
+					fail('Defining classes within blocks not allowed', node)
+				case Node.TEnum(_):
+					fail('Defining enums within blocks not allowed', node)
+				case Node.TypeAlias(_):
+					types.set(node, Type.Alias(null))
+					addScope(nameOfModuleItem(node), node)
+					// TODO
+					// fail('Defining types within blocks not allowed', node)
 
 				// Statements do not return value
 
@@ -2232,7 +2397,6 @@ module
 				case Node.TPrivate(_):
 					fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
 				case Node.TModule(_):
-					fail('Modules should be at a file\' upper scope', node)
 
 				// Not expressions
 				case Node.Break:
@@ -2245,6 +2409,8 @@ module
 					fail('Cannot use `enum` as a value', node)
 				case Node.TypeAlias(_):
 					fail('Cannot use `declare` as a value', node)
+				case Node.Import(_):
+					fail('Cannot use `import` as a value', node)
 				case Node.TVar(name, _, _, const):
 					let prefix = const? 'let' : 'var'
 					fail('Cannot use `\(prefix) \(name)` as a value', node)

@@ -42,9 +42,7 @@ module
 			}
 
 			// Rename upfront to avoid race condition
-			for (file in collected) { for (e in file) { switch (e) {
-				case Node.TModule(path, el):
-					for (e in el) { switch (e) {
+			for (file in project.moduleInfo) { for (e in file.nodes) { switch (e) {
 						case Node.TClass(t, ext, impl, fields, external):
 							renameClassFields(fields)
 						case Node.TEnum(t, fields, valuesType):
@@ -58,20 +56,22 @@ module
 								unique(name, e)
 							}
 						case Node.TFunction(name, expr, vars, rettype, external):
-							if (let name = name) unique(name, e)
-					}}
+							if (parentNames.get(e) == null) {
+								if (let name = getNative(e)) {
+									uniqueNative(name, e)
+								} else if (let name = name) {
+									unique(name, e)
+								}
+							}
 			}}}
 
 			// Fill statements
 			let init = []
-			for (file in collected) {
+			for (file in project.moduleInfo) {
 				let initial = []
 				pushScope()
-				for (e in file) {
+				for (e in file.nodes) {
 					switch (e) {
-						case Node.TModule(path, el):
-							pushScope()
-							for (e in el) { switch (e) {
 								case Node.TFunction(_):
 									if (let s = nodeToStatement(e)) { // Non-declare ones
 										niceProject.globalFuncs.push(s)
@@ -86,10 +86,10 @@ module
 											niceProject.globalVars.push(s)
 										}
 									}
-								case _:
-									fillStatement(e, path)
-							}}
-							popScope()
+								case Node.TEnum(_):
+									fillStatement(e, 'path')
+								case Node.TClass(_):
+									fillStatement(e, 'path')
 						case _:
 							let statement = fillStatement(e, null)
 							switch (statement) {
@@ -184,10 +184,10 @@ module
 
 					switch (source) {
 						case null:
-							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(Project.data.get(e))
+							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
 						case Node.TVar(name, _, _):
 							if (let map = typer.parents.get(source)) { switch (map) {
-								case Node.TModule(path, _):
+								case Node.TModule(_):
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
@@ -203,6 +203,7 @@ module
 									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
 							}}
 							}
+
 						case Node.TStatic(f):
 							let staticSource = typer.parents.get(source)
 							switch (staticSource) {
@@ -598,6 +599,8 @@ module
 						CallKind.Function
 					)
 
+				case Node.TModule(_):
+				case Node.Import(_):
 				case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
 			}
 
@@ -1441,6 +1444,7 @@ module
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
 				case Node.Null:
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
+				case Node.TModule(_):
 				case _:
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 			}
@@ -1497,9 +1501,21 @@ module
 		}
 
 		static function getAtt(atts: [Attribute], atname: String): Attribute? {
-			if (atts != null && atts.length > 0) for (att in atts) {
-				if (att.name == atname) return att
-			}
+			if (atts != null && atts.length > 0) { for (att in atts) {
+				if (att.name == atname) {
+					return att
+				}
+			}}
+			return null
+		}
+
+		function getNative(e: Node): String? {
+			let atts = project.mapDecorators.get(e)
+			if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
+					case Node.TString(s):
+						return s
+					case _: throw '@native takes string as argument'
+			}}
 			return null
 		}
 
