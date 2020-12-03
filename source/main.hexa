@@ -193,33 +193,34 @@ class Main {
 	var targetIndex = 0
 
 	// Parses a file
-	function processFile(target: String): [Node] {
+	function processFile(target: String, project: Project): [Node] {
 		let content = Fs.readFileSync(target)
 		let tokens = Lexer.tokenize(content, target)
 		if (tokens.length > 0) {
 			lines += tokens.line[tokens.length - 1]
 		}
-		let parsed = Parser.parseNodes(tokens)
+		let parsed = Parser.parseNodes(tokens, project)
 		return parsed
 	}
 
 	function simplyCompileToJs(buffer: Buffer, path: String): String? {
+		let project = new Project()
 		let input: Package = {
 			files: []
 		} as! Package
 		// Load standard library
-		let js = processFile(__dirname + '/library/js/js.hexa')
-		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa')
+		let js = processFile(__dirname + '/library/js/js.hexa', project)
+		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa', project)
 		let tokens = Lexer.tokenize(buffer, path)
-		let parser = Parser.parseNodes(tokens)
+		let parser = Parser.parseNodes(tokens, project)
 		let collected = [js, nodejs, parser]
 		if (parser == null) {
 			return null
 		}
 		let files = collected
-		let typer = new Typer()
+		let typer = new Typer(project)
 		typer.fillFiles(files)
-		let normalizer = new Normalizer()
+		let normalizer = new Normalizer(project)
 		let generator = new GenJs()
 		normalizer.keywords = generator.reserved
 		normalizer.collected = files
@@ -305,7 +306,8 @@ class Main {
 			}
 
 			try {
-				res.push(processFile(target))
+				let parsed = processFile(target, project)
+				res.push(parsed)
 			} catch (e: Any) {
 				console.log('\x1b[31m' + e.toString() + '\x1b[0m')
 			}
@@ -327,10 +329,10 @@ class Main {
 		let pack: Package = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8').split('\r\n').join('\n'))
 		if (pack.name == null) incorrect('name')
 		if (pack.targets == null) incorrect('targets')
-		if (let define = pack.define) for (key in Reflect.ownKeys(define)) {
-			if (!Reflect.has(Project.defines, key)) // `--define` has higher priority
-				Reflect.set(Project.defines, key, Reflect.get(define, key))
 		}
+		if (let define = pack.define) { for (key in Reflect.ownKeys(define)) {
+			if (!Reflect.has(project.defines, key)) { // `--define` has higher priority
+				Reflect.set(project.defines, key, Reflect.get(define, key))
 
 		let t = (function () {
 			for (t in pack.targets.length) {
@@ -356,7 +358,7 @@ class Main {
 		if (pack.noLib == true) {
 			// Nothing
 		} else {
-			setLibrary(generator, t.options, pack.files, Project.defines)
+			setLibrary(generator, t.options, pack.files, project.defines)
 			// Add files from specific build target
 			if (let extra = pack.targets[targetIndex].files) {
 				// Push to the end of list, cause extras generally contain target-specific entry points
@@ -401,7 +403,10 @@ class Main {
 			let v = JSON.parse(kv[1])
 			defines[k] = v
 		}
-		Project.defines = defines
+
+		// Spawn project
+		let project = new Project()
+		project.defines = defines
 
 		// Exit before self-test
 		if (Process.argv[0] == "syntax-linter") {
@@ -414,7 +419,7 @@ class Main {
 					try {
 						let tokens = Lexer.tokenize(content, file)
 						try {
-							let parser = Parser.parseNodes(tokens)
+							let parser = Parser.parseNodes(tokens, project, true)
 						} catch (e: Any) {
 							console.log("\(e)")
 						}
@@ -498,7 +503,7 @@ class Main {
 				targetName = process.argv[0] ?? 'default'
 				process.argv.shift()
 			}
-			input = loadPackage(currentFile, targetName)
+			input = loadPackage(currentFile, targetName, project)
 			ignoreArguments(0)
 			if (targetName != 'default') {
 				console.log("[Building \(input.name) - \(targetName)]")
@@ -551,7 +556,7 @@ class Main {
 			let beginTyper = Date.now()
 		#end
 
-		let typer = new Typer()
+		let typer = new Typer(project)
 		try {
 			typer.fillFiles(files)
 		} catch (e: Any) {
@@ -563,7 +568,7 @@ class Main {
 			console.log("[Typer finished in \(Date.now() - beginTyper) ms]")
 		#end
 
-		let normalizer = new Normalizer()
+		let normalizer = new Normalizer(project)
 
 		let generators = [:]
 
@@ -608,7 +613,7 @@ class Main {
 				#end
 
 				// Print hints out
-				for (hint in Project.hints) {
+				for (hint in project.hints) {
 					console.log(hint.toString())
 				}
 

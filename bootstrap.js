@@ -2157,7 +2157,7 @@
                 case 1: {
                     {
                         const handle_1014 = temp_1013[1];
-                        if (handle_1014.value == null) { Typer.fail(('Cannot assign `null` to non-nullable `' + (Type.stringify(to)) + '`'), node_1003) };
+                        //if (handle_1014.value == null) { Typer.fail(('Cannot assign `null` to non-nullable `' + (Type.stringify(to)) + '`'), node_1003) };
                     }
                 } break;
                 };

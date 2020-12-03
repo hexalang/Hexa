@@ -18,7 +18,10 @@ module
 	class Typer {
 		// Note that we use new instance for each build to avoid collisions with unit tests
 		// and to support parallel compilation in future
-		new () {}
+		var project: Project
+		new (project: Project) {
+			this.project = project
+		}
 
 		// A starting point of typer
 		// Validates that file starts with `module`s and has own namespace
@@ -294,7 +297,7 @@ module
 				}
 
 				function getRename(f: Node): String? {
-					let atts = Project.mapDecorators.get(f)
+					let atts = project.mapDecorators.get(f)
 					if (let native = DataHelper.getAttribute(atts, 'native')) {
 						if (native.values.length != 1) {
 							throw '@native takes one string argument'
@@ -734,7 +737,7 @@ module
 		}
 
 		static function failNonFatal(msg: String, node: Node = null): Void {
-			let data = Project.data.get(node)
+			let data = project.data.get(node)
 			if (let data = data) {
 				failures.push(new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName))
 			} else {
@@ -743,7 +746,7 @@ module
 		}
 
 		static function positionOf(node: Node) {
-			let data = Project.data.get(node)
+			let data = project.data.get(node)
 			if (data == null) {
 				return "[Unknown]: "
 			}
@@ -1108,7 +1111,7 @@ module
 			functionReturnsAType = ret
 			functionActuallyReturns = false
 
-			let atts = Project.mapDecorators.get(node)
+			let atts = project.mapDecorators.get(node)
 
 			if (let noThrow = DataHelper.getAttribute(atts, 'noThrow')) {
 				if (noThrow.values.length > 0) {
