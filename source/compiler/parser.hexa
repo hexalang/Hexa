@@ -16,7 +16,7 @@
 
 	// See: `/docs/parser.md`
 	class Parser {
-		static function toNode(nodes: [Node]): Node? {
+		static fun toNode(nodes: [Node]): Node? {
 			if (nodes.length == 0) {
 				return null
 			}
@@ -26,7 +26,7 @@
 			return nodes[0]
 		}
 
-		static function parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
+		static fun parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
 			let parser = new Parser(lexe, project, lint)
 
 			if (parser.hints.length > 0) {
@@ -49,7 +49,7 @@
 			}
 		}
 
-		function parseFields() {
+		fun parseFields() {
 		var fields = []
 		while (tok() != Token.BrClose) {
 			var atts: Array<Attribute> = []
@@ -80,7 +80,7 @@
 				}
 				project.mapDecorators.set(f, atts)
 				fields.push(f)
-			case Token.KFunction | Token.KFun:
+			case Token.KFun:
 				var f = parseExpr()
 				project.data.set(f, pos)
 				if (_static) {
@@ -134,7 +134,6 @@
 
 				if (
 					tok() != Token.BrClose
-					&& tok() != Token.KFunction
 					&& tok() != Token.KFun
 				) {
 					i = tmp
@@ -179,7 +178,7 @@
 						fail('Use `new()` syntax instead of `constructor()`')
 					}
 					if (_static) {
-						fail('Use `static function ' + name + '()` syntax for static methods')
+						fail('Use `static fun ' + name + '()` syntax for static methods')
 					} else {
 						fail('Use `function ' + name + '()` syntax for methods')
 					}
@@ -358,17 +357,17 @@
 		return lex.token[i]
 	}
 
-	function print() {
+	fun print() {
 		return Token.stringify(lex.token[i], lex.value[i])
 	}
 
-	function expect(t) {
+	fun expect(t) {
 		if (t != tok()) {
 			expected(Token.stringify(t))
 		}
 	}
 
-	function fail(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
+	fun fail(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
@@ -378,28 +377,28 @@
 
 	let hints: [CompilerError] = []
 
-	function failHint(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
+	fun failHint(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
 		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
 	}
 
-	function getgo(t): String {
+	fun getgo(t): String {
 		expect(t)
 		return lex.value[i++]
 	}
 
-	function step(t): Void {
+	fun step(t): Void {
 		expect(t)
 		i++
 	}
 
-	@inline function next(): Void {
+	@inline fun next(): Void {
 		i++
 	}
 
-	@inline function offset(v): Token {
+	@inline fun offset(v): Token {
 		return lex.token[i+v]
 	}
 
@@ -407,7 +406,7 @@
 	//   ERRORS
 	//------------
 
-	function unexpected() {
+	fun unexpected() {
 		var token = Token.stringify(lex.token[i], lex.value[i])
 		var error = 'Unexpected `\(token)`'
 		if (tok() == Token.Semicolon) {
@@ -419,7 +418,7 @@
 		fail(error)
 	}
 
-	function expected(str: String) {
+	fun expected(str: String) {
 		var token = Token.stringify(lex.token[i], lex.value[i])
 		fail('Expected `\(str)` before `\(token)`')
 	}
@@ -429,7 +428,7 @@
 	//-----------------
 
 	var classExternal = false
-	function parseExpr(): Node {
+	fun parseExpr(): Node {
 		var atts: Array<Attribute> = []
 		while (tok() == Token.At) {
 			atts.push(parseAttribute())
@@ -446,11 +445,11 @@
 		// declare class
 		// declare let
 		// declare var
-		// declare function
+		// declare fun
 		case Token.KDeclare:
 			i++
 			switch (tok()) {
-				case Token.KFunction | Token.KFun:
+				case Token.KFun:
 					result = parseFunction(false, external: true)
 				case Token.KVar | Token.KLet:
 					let parsed = parseVar(external: true)
@@ -537,7 +536,7 @@
 				case Node.Vars(_):
 					fail('Place only one variable into `declare`')
 				case _:
-					fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare function name(): T`')
+					fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare fun name(): T`')
 			}
 			// Having name is ok here, coz we search by name in scopes
 			result = Node.TDeclare(name, e)
@@ -748,7 +747,7 @@
 			let value = parseExpr()
 
 			// All unops have larger priority than binops
-			function fix(value: Node) {
+			fun fix(value: Node) {
 				switch (value) {
 					case Node.Binop(aa, op, bb):
 						return Node.Binop(fix(aa), op, bb)
@@ -905,17 +904,9 @@
 
 			step(Token.KIn)
 
+
+
 			result = Node.Import(el, getgo(Token.LString))
-			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
-			return result
-
-		case Token.KModule:
-			i++
-			var path = []
-			// TODO Corrent by upperlower mode
-
-			var el = []
-			result = Node.Module('', el)
 			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 			return result
 
@@ -950,7 +941,7 @@
 			let me = parseClass()
 			project.mapDecorators.set(me, att)
 			result = me
-		case Token.KFunction | Token.KFun:
+		case Token.KFun:
 			result = parseFunction()
 		case Token.BkOpen: // [a, b, c]
 			i++
@@ -1442,7 +1433,7 @@
 		return result
 		}
 
-		function parseVar(external: Bool = false): [Node] {
+		fun parseVar(external: Bool = false): [Node] {
 
 		// let data.Node.Ident(s1) = node
 		var const = tok() == Token.KLet
@@ -1460,7 +1451,7 @@
 			fail("Hexa doesn't support PHP-style variables, replace it to `\(prefix) \(name)`")
 		}
 
-		function parseSingleVar(): Node {
+		fun parseSingleVar(): Node {
 			var varname = getgo(Token.LLower)
 			if (varname.endsWith("___")) {
 				fail("Variables can't end with `___`, it is reserved.")
@@ -1470,7 +1461,7 @@
 			return Node.Var(varname, type, expr, const, external ?? false)
 		}
 
-		function parseSingleBinding(): Node {
+		fun parseSingleBinding(): Node {
 			var path = []
 			// Path let path.path.path.
 			while (tok() == Token.LLower && offset(1) == Token.Dot) {
@@ -1581,7 +1572,7 @@
 		return vars
 	}
 
-	function parseFunction(parseBody: Bool = true, external: Bool = false): Node {
+	fun parseFunction(parseBody: Bool = true, external: Bool = false): Node {
 		let parseBody = (parseBody != null) ? parseBody : true
 		i++
 		var expr = null
@@ -1638,7 +1629,7 @@
 			case Token.BrClose: {}
 			case Token.KStatic: {}
 			case Token.KPrivate: {}
-			case Token.KFunction | Token.KFun: {}
+			case Token.KFun: {}
 			case Token.KVar: {}
 			case Token.KLet: {}
 			case Token.At: {
@@ -1651,7 +1642,6 @@
 					tok() != Token.BrClose
 					&& tok() != Token.KStatic
 					&& tok() != Token.KPrivate
-					&& tok() != Token.KFunction
 					&& tok() != Token.KFun
 				) {
 					i = tmp
@@ -1681,7 +1671,7 @@
 		return Node.Function(name, expr, v, rettype, external)
 	}
 
-	function parseClass(external: Bool = false): Node {
+	fun parseClass(external: Bool = false): Node {
 		let _classExternal = classExternal
 		classExternal = external
 		var isInterface = tok() == Token.KInterface? ClassKind.Interface : ClassKind.Class
@@ -1708,7 +1698,7 @@
 		return me
 	}
 
-	function hasInterpolation(str: String): Bool {
+	fun hasInterpolation(str: String): Bool {
 		var chars = str.split("")
 		var i = 0
 		while (i < chars.length) {
@@ -1726,18 +1716,18 @@
 		return false
 	}
 
-	function parseInterpolations(str: String): Node {
-		function interpolate(s: String): String {
+	fun parseInterpolations(str: String): Node {
+		fun interpolate(s: String): String {
 			var out = ['"']
 			if(s.length < 2) {
 				return s
 			}
 			var i = 0
 			let s = s.split('"').join('\\"')
-			function pushInterpolator() {
+			fun pushInterpolator() {
 				i++
 				i++
-				function pushParen(): Void {
+				fun pushParen(): Void {
 					i++
 					while(i < s.length) {
 						out.push(s.charAt(i))
@@ -1805,7 +1795,7 @@
 		}
 	}
 
-	function parseAttribute() {
+	fun parseAttribute() {
 		i++
 		var name = getgo(Token.LLower)
 		var values = []
@@ -1826,7 +1816,7 @@
 
 	var parametricTypeNesting = 0
 	var parametricTypeNestingToken = Token.Eof
-	function parseType(): NodeType {
+	fun parseType(): NodeType {
 		var path = []
 		while (tok() == Token.LLower && offset(1) == Token.Dot) {
 			path.push(getgo(Token.LLower))
@@ -2000,7 +1990,7 @@
 		return result
 		}
 
-		static function precedence(op: Token) {
+		static fun precedence(op: Token) {
 			let left = 100
 			let right = 0
 			switch (op) {
@@ -2030,7 +2020,7 @@
 			}
 		}
 
-		static function isBinop(t: Token): Bool {
+		static fun isBinop(t: Token): Bool {
 			switch (t) {
 			case Token.OpAdd: return true
 			case Token.OpMult: return true
