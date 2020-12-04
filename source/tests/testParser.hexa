@@ -46,10 +46,10 @@ module
 				"0xFABCDEF" : 'TInt(0xFABCDEF)',
 
 				"0.0"		 : 'TFloat(0.0)',
-				"0.123" 	 : 'TFloat(0.123)',
+				"0.123" 	 : 'Float(0.123)',
 
-				"'s'"		 : 'TString(s)',
-				"\"s\"" 	 : 'TString(s)'
+				"'s'"		 : 'String(s)',
+				"\"s\"" 	 : 'String(s)'
 			])
 
 			shouldAllEqual([
@@ -58,22 +58,22 @@ module
 					TInt(1),
 					TInt(2),
 					TInt(3),
-					TBinop(
-					TCall(TIdent(trace),[TString(Hello!),TString(World!)]),
+					Binop(
+					TCall(Ident(trace),[String(Hello!),String(World!)]),
 					+,
 					TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
 
 				'enum Test { Demo } hello World':
 					'TBlock([TEnum(Type(Test),[NodeTypeValue(Type(Demo))]),
-					TIdent(hello),
+					Ident(hello),
 					NodeTypeValue(Type(World))])'
 			])
 
 			// Operators
 			shouldAllEqual([
-				'i ++ ++ i': "TBlock([TUnop(++,true,TIdent(i)),TUnop(++,false,TIdent(i))])",
-				'a + b': "TBinop(TIdent(a),+,TIdent(b))",
-				'a += b': "AssignOp(TIdent(a),+,TIdent(b))"
+				'i ++ ++ i': "TBlock([Unop(++,true,Ident(i)),Unop(++,false,Ident(i))])",
+				'a + b': "Binop(Ident(a),+,Ident(b))",
+				'a += b': "AssignOp(Ident(a),+,Ident(b))"
 			])
 
 			// String interpolation
@@ -116,13 +116,13 @@ module
 			// Types parsing in expressions
 			shouldAllEqual([
 				'var a = new Array<A>()' : 'TVar(a,null,TNew([],ParametricType(Array,[Type(A)]),[],[],[],[]),false,false)',
-				'a = Array<A>.staticField()' : 'TBinop(TIdent(a),=,TCall(TDot(NodeTypeValue(ParametricType(Array,[Type(A)])),staticField),[]))',
-				'a = EnumTest.EnumField' : 'TBinop(TIdent(a),=,TDotUpper(NodeTypeValue(Type(EnumTest)),EnumField))',
-				'a = EnumTest.EnumField(arg)' : 'TBinop(TIdent(a),=,TCall(TDotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[TIdent(arg)]))',
-				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'TBinop(TIdent(a),=,TCall(TDotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[argName:TIdent(argValue),TIdent(arg2),arg3:TIdent(arg3)]))',
-				'a = EnumTest<A,B>.EnumField' : 'TBinop(TIdent(a),=,TDotUpper(NodeTypeValue(ParametricType(EnumTest,[Type(A),Type(B)])),EnumField))',
-				'var a = b as B, c = d as! B, e = f as? B' : 'Vars([TVar(a,null,TAs(TIdent(b),<!--default-->,Type(B)),false,false),TVar(c,null,TAs(TIdent(d),!,Type(B)),false,false),TVar(e,null,TAs(TIdent(f),?,Type(B)),false,false)])',
-				'var a = b is B, c = d is B, e = f is B' : 'Vars([TVar(a,null,TAs(TIdent(b),Type(B)),false,false),TVar(c,null,TAs(TIdent(d),Type(B)),false,false),TVar(e,null,TAs(TIdent(f),Type(B)),false,false)])'
+				'a = Array<A>.staticField()' : 'Binop(Ident(a),=,TCall(TDot(NodeTypeValue(ParametricType(Array,[Type(A)])),staticField),[]))',
+				'a = EnumTest.EnumField' : 'Binop(Ident(a),=,DotUpper(NodeTypeValue(Type(EnumTest)),EnumField))',
+				'a = EnumTest.EnumField(arg)' : 'Binop(Ident(a),=,TCall(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[Ident(arg)]))',
+				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'Binop(Ident(a),=,TCall(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[argName:Ident(argValue),Ident(arg2),arg3:Ident(arg3)]))',
+				'a = EnumTest<A,B>.EnumField' : 'Binop(Ident(a),=,DotUpper(NodeTypeValue(ParametricType(EnumTest,[Type(A),Type(B)])),EnumField))',
+				'var a = b as B, c = d as! B, e = f as? B' : 'Vars([TVar(a,null,TAs(Ident(b),<!--default-->,Type(B)),false,false),TVar(c,null,TAs(Ident(d),!,Type(B)),false,false),TVar(e,null,TAs(Ident(f),?,Type(B)),false,false)])',
+				'var a = b is B, c = d is B, e = f is B' : 'Vars([TVar(a,null,TAs(Ident(b),Type(B)),false,false),TVar(c,null,TAs(Ident(d),Type(B)),false,false),TVar(e,null,TAs(Ident(f),Type(B)),false,false)])'
 			])
 
 			// Types parsing in declarations
@@ -153,9 +153,9 @@ module
 				'new A(a: 1, b: 2)' : 'TNew([],Type(A),[TInt(1),TInt(2)],[],[],[a,b])',
 				'class A {} var a = new A { } ()' : "TBlock([TClass(Type(A),null,[],[],false),TVar(a,null,TNew([],Type(A),[],[],[],[]),false,false)])",
 				'class A { var field: String } var a = new A { field: "Value" } ()' :
-					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[TString(Value)],[]),false,false)])",
+					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false,false)],false),TVar(a,null,TNew([],Type(A),[],[field],[String(Value)],[]),false,false)])",
 				'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' :
-					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false,false),TVar(otherfield,Type(Int),null,false,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[TString(Value),TInt(25)],[]),false,false)])"
+					"TBlock([TClass(Type(A),null,[],[TVar(field,Type(String),null,false,false),TVar(otherfield,Type(Int),null,false,false)],false),TVar(a,null,TNew([],Type(A),[],[field,otherfield],[String(Value),TInt(25)],[]),false,false)])"
 			])
 
 			// Functions
@@ -237,10 +237,10 @@ module
 			shouldAllEqual([
 				'declare var a: T' : 'TVar(a,Type(T),null,false,true)',
 				'declare let a: T' : 'TVar(a,Type(T),null,true,true)',
-				'declare fun name()' : 'TFunction(name,null,[],null,true)',
-				'declare fun name() hi()' : 'TBlock([TFunction(name,null,[],null,true),TCall(TIdent(hi),[])])',
+				'declare fun name()' : 'Function(name,null,[],null,true)',
+				'declare fun name() hi()' : 'TBlock([Function(name,null,[],null,true),TCall(Ident(hi),[])])',
 				// External functions do not parse body
-				'declare fun name() {}' : 'TBlock([TFunction(name,null,[],null,true),TBlock([])])',
+				'declare fun name() {}' : 'TBlock([Function(name,null,[],null,true),TBlock([])])',
 				'declare class A {}' : 'TClass(Type(A),null,[],[],true)',
 				'declare A = B' : 'TypeAlias(Type(A),Type(B))'
 			])
@@ -252,8 +252,8 @@ module
 
 			// Array and map
 			shouldAllEqual([
-				'push([:])' : 'TCall(TIdent(push),[TMap([],[])])',
-				'push([])' : 'TCall(TIdent(push),[TArray([])])',
+				'push([:])' : 'TCall(Ident(push),[TMap([],[])])',
+				'push([])' : 'TCall(Ident(push),[TArray([])])',
 				'[].length' : 'TDot(TArray([]),length)',
 				'[:].length' : 'TDot(TMap([],[]),length)',
 				'[[:]]': 'TArray([TMap([],[])])'
@@ -333,13 +333,13 @@ module
 			case null: return '<!--null-->'
 
 			// Have no sub-nodes
-			case Node.TString(s): return 'TString(\(s))'
-			case Node.TIdent(s): return 'TIdent(\(s))'
+			case Node.String(s): return 'String(\(s))'
+			case Node.Ident(s): return 'Ident(\(s))'
 			case Node.TBool(b): return 'TBool(\(b))'
 			case Node.This: return 'This'
 			case Node.Super: return 'Super'
 			case Node.TInt(s): return 'TInt(\(s))'
-			case Node.TFloat(s): return 'TFloat(\(s))'
+			case Node.Float(s): return 'Float(\(s))'
 			case Node.Null: return 'Null'
 			case Node.Break: return 'Break'
 			case Node.Continue: return 'Continue'
@@ -347,7 +347,7 @@ module
 			// Have sub-nodes
 			case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
 			case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
-			case Node.TBinop(a, op, b): return 'TBinop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
+			case Node.Binop(a, op, b): return 'Binop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
 			case Node.AssignOp(a, op, b): return 'AssignOp(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
 			case Node.TBlock(els): return 'TBlock(' + TestParser.stringifyNodeArray(els) + ')'
 			case Node.TVar(name, t, expr, const, external):
@@ -355,8 +355,8 @@ module
 			"," + ((expr != null) ? TestParser.stringify(expr) : "null") +',\(const),\(external))'
 			case Node.Vars(vars): return 'Vars(' + TestParser.stringifyNodeArray(vars) + ")"
 
-			case Node.TFunction(name, expr, vars, rettype, external):
-				return 'TFunction(\(name),'
+			case Node.Function(name, expr, vars, rettype, external):
+				return 'Function(\(name),'
 				+ (expr == null ? "null" : TestParser.stringify(expr))
 				+ "," + TestParser.stringifyNodeArray(vars) + ',' + ((rettype != null) ? TestParser.stringifyType(rettype) : "null") + ",\(external))"
 
@@ -407,13 +407,13 @@ module
 			case Node.NodeTypeValue(type): return 'NodeTypeValue(' + TestParser.stringifyType(type) + ")"
 			case Node.TypeAlias(alias, value): return 'TypeAlias(' + TestParser.stringifyType(alias) + "," + TestParser.stringifyType(value) + ")"
 			case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
-			case Node.TDotUpper(l, r): return "TDotUpper(" + TestParser.stringify(l) + "," + r + ")"
+			case Node.DotUpper(l, r): return "DotUpper(" + TestParser.stringify(l) + "," + r + ")"
 
 			case Node.Private(expr): return 'Private(' + TestParser.stringify(expr) + ')'
 			case Node.TIf(econd, eif, eelse):
 				return 'TIf(' + TestParser.stringifyNodeArray(econd) + ',' + TestParser.stringify(eif) + ',' + TestParser.stringify(eelse) + ')'
 			case Node.TArray(el): return 'TArray(' + TestParser.stringifyNodeArray(el) + ')'
-			case Node.TUnop(op, postfix, e): return 'TUnop(' + Token.stringify(op) + ',' + postfix + ',' + TestParser.stringify(e) + ')'
+			case Node.Unop(op, postfix, e): return 'Unop(' + Token.stringify(op) + ',' + postfix + ',' + TestParser.stringify(e) + ')'
 			case _: throw '<!--' + node + '-->'
 			}
 		}

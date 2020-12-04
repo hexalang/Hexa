@@ -155,7 +155,7 @@ module
 						i--
 						fail('Constructor `new` should have a `{ block }` as a body')
 				}
-				let field = Node.TFunction('new', expr, v, null, false)
+				let field = Node.Function('new', expr, v, null, false)
 				project.data.set(field, pos)
 				fields.push(field)
 			case Token.LLower:
@@ -248,8 +248,8 @@ module
 
 				step(Token.BrClose)
 
-				let getter: Node? = (getterExpr == null)? null : Node.TFunction('get_' + n, getterExpr, [], t, false)
-				let setter: Node? = (setterExpr == null)? null : Node.TFunction('set_' + n, setterExpr, [
+				let getter: Node? = (getterExpr == null)? null : Node.Function('get_' + n, getterExpr, [], t, false)
+				let setter: Node? = (setterExpr == null)? null : Node.Function('set_' + n, setterExpr, [
 						Node.TVar(setterVar, t, null, true, false)
 					], null, false)
 				let property = Node.Property(
@@ -485,7 +485,7 @@ module
 					let rightNode = Node.NodeTypeValue(parseType())
 					project.data.set(rightNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 
-					e = Node.TBinop(leftNode, Token.OpAssign, rightNode)
+					e = Node.Binop(leftNode, Token.OpAssign, rightNode)
 				case _:
 					e = parseExpr()
 
@@ -508,7 +508,7 @@ module
 			}
 
 			switch (extracted) {
-				case Node.TBinop(a, op, b):
+				case Node.Binop(a, op, b):
 					if(op != Token.OpAssign) fail('declare =')
 					switch(a) {
 						case Node.NodeTypeValue(t):
@@ -516,7 +516,7 @@ module
 								case NodeType.Type(n): name = n
 								case NodeType.ParametricType(n, _): name = n
 							}
-						case Node.TIdent(n): name = n
+						case Node.Ident(n): name = n
 					}
 
 				case Node.TClass(t, _):
@@ -530,7 +530,7 @@ module
 					if(e != null) fail('Variable `\(n)` in `declare` should *not* have a value')
 					name = n
 
-				case Node.TFunction(n, e, _, _):
+				case Node.Function(n, e, _, _):
 					if(n == null) fail('Function in `declare` should have a name')
 					if(e != null) fail('Functions in `declare` should *not* have a body')
 					name = n
@@ -753,16 +753,16 @@ module
 			// All unops have larger priority than binops
 			function fix(value: Node) {
 				switch (value) {
-					case Node.TBinop(aa, op, bb):
-						return Node.TBinop(fix(aa), op, bb)
-					case _: return Node.TUnop(id, false, value)
+					case Node.Binop(aa, op, bb):
+						return Node.Binop(fix(aa), op, bb)
+					case _: return Node.Unop(id, false, value)
 				}
 			}
 
 			result = fix(value)
 		case Token.LFloat:
 			// TODO handle Meta
-			result = Node.TFloat(parseFloat(getgo(Token.LFloat)))
+			result = Node.Float(parseFloat(getgo(Token.LFloat)))
 		case Token.LInt:
 			let meta = lex.meta[i]
 			let value = getgo(Token.LInt)
@@ -798,17 +798,17 @@ module
 				next()
 				result = Node.TArrow(parseExpr(), [Node.TVar(name, null, null, true, false)], null)
 			} else {
-				result = Node.TIdent(name)
+				result = Node.Ident(name)
 			}
 		case Token.LBacktick:
-			result = Node.TString(getgo(Token.LBacktick))
+			result = Node.String(getgo(Token.LBacktick))
 		case Token.LString:
 			var str = getgo(Token.LString)
 			// TODO Check have interpolations in string
 			if (hasInterpolation(str)) {
 				result = Node.TParenthesis(parseInterpolations(str))
 			} else {
-				result = Node.TString(str)
+				result = Node.String(str)
 			}
 		case Token.KTrue:
 			i++ result = Node.TBool(true)
@@ -1355,23 +1355,23 @@ module
 			// i++
 			case Token.OpIncrement:
 				switch (result) {
-					case Node.TUnop(_): return result
+					case Node.Unop(_): return result
 				}
-				i++ result = Node.TUnop(Token.OpIncrement, true, result)
+				i++ result = Node.Unop(Token.OpIncrement, true, result)
 
 			// i--
 			case Token.OpDecrement:
 				switch (result) {
-					case Node.TUnop(_): return result
+					case Node.Unop(_): return result
 				}
-				i++ result = Node.TUnop(Token.OpDecrement, true, result)
+				i++ result = Node.Unop(Token.OpDecrement, true, result)
 
 			// a.b
 			// a.B
 			case Token.Dot: i++
 				switch (tok()) {
 					case Token.LUpper:
-						result = Node.TDotUpper(result, getgo(Token.LUpper))
+						result = Node.DotUpper(result, getgo(Token.LUpper))
 					case _:
 						result = Node.TDot(result, getgo(Token.LLower))
 				}
@@ -1413,7 +1413,7 @@ module
 				var b = parseExpr()
 				var a = result
 				switch (b) {
-				case Node.TBinop(aa, op, bb):
+				case Node.Binop(aa, op, bb):
 					var tp = precedence(t)
 					var tLeft = tp > 99
 					tp = tp % 100
@@ -1447,7 +1447,7 @@ module
 
 		function parseVar(external: Bool = false): [Node] {
 
-		// let data.Node.TIdent(s1) = node
+		// let data.Node.Ident(s1) = node
 		var const = tok() == Token.KLet
 		i++
 		var vars: [Node] = []
@@ -1558,7 +1558,7 @@ module
 				// }
 				// // var Left.B
 				// else {
-					var left = Node.TIdent(getgo(Token.LUpper))
+					var left = Node.Ident(getgo(Token.LUpper))
 					var res = left
 					// var Left.B.C.D...
 					while (tok() == Token.Dot) {
@@ -1681,7 +1681,7 @@ module
 				i--
 				fail('Function `\(named)` should have a `{ block }` as a body')
 		}
-		return Node.TFunction(name, expr, v, rettype, external)
+		return Node.Function(name, expr, v, rettype, external)
 	}
 
 	function parseClass(external: Bool = false): Node {

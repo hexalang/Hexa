@@ -50,12 +50,12 @@ module
 						case Node.TVar(name, t, expr, const, external):
 							let atts = project.mapDecorators.get(e)
 							if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
-								case Node.TString(s): uniqueNative(s, e)
+								case Node.String(s): uniqueNative(s, e)
 								case _: throw '@native takes string as argument'
 							}} else {
 								unique(name, e)
 							}
-						case Node.TFunction(name, expr, vars, rettype, external):
+						case Node.Function(name, expr, vars, rettype, external):
 							if (parentNames.get(e) == null) {
 								if (let name = getNative(e)) {
 									uniqueNative(name, e)
@@ -72,7 +72,7 @@ module
 				pushScope()
 				for (e in file.nodes) {
 					switch (e) {
-								case Node.TFunction(_):
+								case Node.Function(_):
 									if (let s = nodeToStatement(e)) { // Non-declare ones
 										niceProject.globalFuncs.push(s)
 									}
@@ -153,13 +153,13 @@ module
 
 			switch (e) {
 				// Transformation not required
-				case Node.TString(v):
+				case Node.String(v):
 					return NiceExpression.String(v)
 				case Node.TInt(v):
 					return NiceExpression.Int(v)
 				case Node.MetaInt(v, meta):
 					return NiceExpression.MetaInt(v, meta, typer.types.get(e))
-				case Node.TFloat(v):
+				case Node.Float(v):
 					return NiceExpression.Float(v)
 				case Node.TBool(v):
 					if (v) {
@@ -175,8 +175,8 @@ module
 				}
 
 				// Transform
-				case Node.TIdent(name):
 					var source = typer.parents.get(e)
+				case Node.Ident(name):
 					// Constant propagation
 					if (let value = inline.get(source)) {
 						return value
@@ -187,21 +187,21 @@ module
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
 						case Node.TVar(name, _, _):
 							if (let map = typer.parents.get(source)) { switch (map) {
-								case Node.TModule(_):
+								case Node.Module(_):
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
 									let type = typer.types.get(typer.parents.get(source))
 									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
 							}}
-						case Node.TFunction(name, _):
 							if (let map = typer.parents.get(source)) { switch (map) {
-								case Node.TModule(path, _):
 									return NiceExpression.Ident(globalAccessor + name, null)
+						case Node.Function(name, _):
+								case Node.Module(_):
 								case _:
 									let type = typer.types.get(typer.parents.get(source))
 									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
-							}}
+							}
 							}
 
 							let staticSource = typer.parents.get(source)
@@ -243,8 +243,8 @@ module
 				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 				}}
 
-				case Node.TDotUpper(expr, name):
 				let parent = typer.parents.get(expr)
+				case Node.DotUpper(expr, name):
 				switch (parent) {
 					case Node.TEnum(t, fields, valuesType):
 						if (!nativeEnums, let vt = valuesType, let tag = getTag(parent, name)) {
@@ -263,7 +263,7 @@ module
 				// Optimize `'String'.charCodeAt(0)`
 				if (args.length == 1) { switch (expr) {
 					case Node.TDot(expr, name): if (name == 'charCodeAt') { switch (expr) {
-						case Node.TString(s): if (s.indexOf('\\') == -1) { switch (args[0]) {
+						case Node.String(s): if (s.indexOf('\\') == -1) { switch (args[0]) {
 							case Node.TInt(v):
 								let i = parseInt(v)
 								if (i < s.length, i > -1) return NiceExpression.Int(s.charCodeAt(i))
@@ -288,8 +288,8 @@ module
 
 				// Enum constructor
 				if (!nativeEnums) { switch (expr) {
-					case Node.TDotUpper(expr, name):
 						let parent = typer.parents.get(expr)
+					case Node.DotUpper(expr, name):
 						switch (parent) {
 							case Node.TEnum(t, fields, valuesType):
 								if (let tag = getTag(parent, name)) {
@@ -300,12 +300,12 @@ module
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
 				if (let infix = getAtt(atts, 'infix')) { switch (infix.values[0]) {
-					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
+					case Node.String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
 					case _: throw '@infix takes string as argument'
 				}}
 
 				if (let operator = getAtt(atts, 'operator')) { switch (operator.values[0]) {
-					case Node.TString(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
+					case Node.String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
 					case _: throw '@operator takes string as argument'
 				}}
 
@@ -319,7 +319,7 @@ module
 
 				return NiceExpression.Call(v, a, typer.types.get(e), kind)
 
-				case Node.TBinop(a, op, b):
+				case Node.Binop(a, op, b):
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
@@ -372,7 +372,7 @@ module
 				}
 				return NiceExpression.New(v, a)
 
-				case Node.TFunction(name, expr, vars, rettype, external):
+				case Node.Function(name, expr, vars, rettype, external):
 				let a = []
 				let defaults = []
 				let types = []
@@ -520,7 +520,7 @@ module
 					)
 					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
-				case Node.TUnop(op, postfix, e):
+				case Node.Unop(op, postfix, e):
 					return NiceExpression.Unop(op, postfix, nodeToExpression(e))
 
 				case Node.This:
@@ -680,7 +680,7 @@ module
 								} else {
 									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-							case Node.TFunction(name, expr, vars, rettype, external):
+							case Node.Function(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
@@ -713,7 +713,7 @@ module
 					let values = []
 					for (f in fields) { switch (f) {
 						// `ValueName = b`
-						case Node.TBinop(a, op, b): // op == OpAssign
+						case Node.Binop(a, op, b): // op == OpAssign
 							switch (a) {
 								case Node.NodeTypeValue(t): switch (t) {
 									case NodeType.Type(name):
@@ -721,7 +721,7 @@ module
 								}
 							}
 							switch (b) {
-								case Node.TString(s): values.push(NiceExpression.String(s))
+								case Node.String(s): values.push(NiceExpression.String(s))
 								case Node.TInt(s): values.push(NiceExpression.Int(s))
 								case _: console.error("(internal warning) Unknown node field value kind:", b)
 							}
@@ -741,7 +741,7 @@ module
 								} else {
 									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-							case Node.TFunction(name, expr, vars, rettype, external):
+							case Node.Function(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
@@ -795,12 +795,12 @@ module
 				let atts = project.mapDecorators.get(e)
 
 				if (let require = getAtt(atts, 'require')) { switch (require.values[0]) {
-					case Node.TString(s): type.jsRequire = s
+					case Node.String(s): type.jsRequire = s
 					case _: throw '@require takes string as argument'
 				}}
 
 				if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
-					case Node.TString(s):
+					case Node.String(s):
 						type.jsNative = s
 						type.name = unique(s, e)
 					case _: throw '@native takes string as argument'
@@ -830,7 +830,7 @@ module
 								}
 								type.property.push(uname)
 						}
-					case Node.TFunction(name, expr, vars, rettype, external):
+					case Node.Function(name, expr, vars, rettype, external):
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
 						let a = []
 						let defaults = []
@@ -857,7 +857,7 @@ module
 								} else {
 									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-							case Node.TFunction(name, expr, vars, rettype):
+							case Node.Function(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
@@ -1083,7 +1083,7 @@ module
 				// TODO this.name
 				case Node.TDot(expr, name):
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
-				case Node.TDotUpper(expr, name):
+				case Node.DotUpper(expr, name):
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 
 				case Node.TIf(econd, eif, eelse):
@@ -1206,7 +1206,7 @@ module
 				case Node.AssignOp(a, op, b):
 				return NiceStatement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
-				case Node.TBinop(a, op, b):
+				case Node.Binop(a, op, b):
 				switch (op) {
 					case Token.OpAssign:
 					return NiceStatement.Assign(nodeToExpression(a), nodeToExpression(b), null)
@@ -1228,7 +1228,7 @@ module
 				case Node.TWhile(econd, e, pre):
 				return NiceStatement.While(nodeToExpression(econd), nodeToStatement(e), pre)
 
-				case Node.TUnop(op, postfix, e):
+				case Node.Unop(op, postfix, e):
 					switch (op) {
 						case Token.OpIncrement: return NiceStatement.Increment(nodeToExpression(e))
 						case Token.OpDecrement: return NiceStatement.Decrement(nodeToExpression(e))
@@ -1258,25 +1258,25 @@ module
 						function toCase(co) { switch (co) {
 							case Node.Null(_): return NiceExpression.Null
 							case Node.Underscore(_): return NiceExpression.Underscore
-							case Node.TString(v): return NiceExpression.String(v)
+							case Node.String(v): return NiceExpression.String(v)
 							case Node.TInt(v): return NiceExpression.Int(v)
-							case Node.TFloat(v): return NiceExpression.Float(v)
+							case Node.Float(v): return NiceExpression.Float(v)
 							case Node.TBool(v):
 								if (v) {
 									return NiceExpression.True
 								}
 								return NiceExpression.False
 							case Node.TDot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
-							case Node.TDotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
-							case Node.TBinop(a, op, b): switch (op) {
+							case Node.DotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
+							case Node.Binop(a, op, b): switch (op) {
 							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b), null)
 								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
 							}
 							case Node.TCall(e, args, argNames): switch (e) {
-								case Node.TDotUpper(expr, name):
+								case Node.DotUpper(expr, name):
 									let a = []
 									for (arg in args.length) { switch (args[arg]) {
-										case Node.TIdent(name): a.push(NiceExpression.Ident(unique(name, args[arg]), null))
+										case Node.Ident(name): a.push(NiceExpression.Ident(unique(name, args[arg]), null))
 										case Node.Underscore: a.push(NiceExpression.Underscore)
 										case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
 									}}
@@ -1322,9 +1322,9 @@ module
 					function addTag(co) { switch (co) {
 						case Node.Null(_): cx.push(NiceExpression.Null)
 						case Node.Underscore(_):
-						case Node.TString(v): cx.push(NiceExpression.String(v))
+						case Node.String(v): cx.push(NiceExpression.String(v))
 						case Node.TInt(v): cx.push(NiceExpression.Int(v))
-						case Node.TFloat(v): cx.push(NiceExpression.Float(v))
+						case Node.Float(v): cx.push(NiceExpression.Float(v))
 						case Node.TBool(v):
 							if (v) {
 								cx.push(NiceExpression.True)
@@ -1333,7 +1333,7 @@ module
 							}
 						case Node.TCall(e, args, argNames):
 							switch (e) {
-								case Node.TDotUpper(expr, name):
+								case Node.DotUpper(expr, name):
 								let parent = typer.parents.get(expr)
 								let tag = getTag(parent, name)
 								cx.push(tag)
@@ -1353,7 +1353,7 @@ module
 							}
 							promoted = true
 							for (arg in args.length) { switch (args[arg]) {
-								case Node.TIdent(name):
+								case Node.Ident(name):
 									binders.push(
 										NiceStatement.Const(
 											unique(name, args[arg]),
@@ -1368,9 +1368,9 @@ module
 								case Node.Interval: {}
 								case _: console.log('(internal warning) Unknown case extract value kind:', arg)
 							}}
-						case Node.TDotUpper(expr, name):
+						case Node.DotUpper(expr, name):
 							cx.push(getTag(typer.parents.get(expr), name))
-						case Node.TBinop(a, op, b):
+						case Node.Binop(a, op, b):
 						switch (op) {
 							case Token.OpOr:
 							addTag(a)
@@ -1422,25 +1422,25 @@ module
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', project.data.get(e)))
 					// No need to compute constant index
 					switch (index) {
-						case Node.TString(_): return nodeToStatement(v)
+						case Node.String(_): return nodeToStatement(v)
 						case Node.TInt(_): return nodeToStatement(v)
 						case Node.TBool(_): return nodeToStatement(v)
-						case Node.TFloat(_): return nodeToStatement(v)
+						case Node.Float(_): return nodeToStatement(v)
 					}
 				return NiceStatement.Statements([nodeToStatement(v), nodeToStatement(index)])
 
 				// Optimize away
-				case Node.TIdent(name):
+				case Node.Ident(name):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', project.data.get(e)))
 				case Node.TArrow(_):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', project.data.get(e)))
-				case Node.TString(v):
+				case Node.String(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', project.data.get(e)))
 				case Node.TBool(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', project.data.get(e)))
 				case Node.TInt(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', project.data.get(e)))
-				case Node.TFloat(v):
+				case Node.Float(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
 				case Node.Null:
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
@@ -1482,7 +1482,7 @@ module
 									}
 							}
 						}
-						case Node.TBinop(a, op, b): switch (a) {
+						case Node.Binop(a, op, b): switch (a) {
 							case Node.NodeTypeValue(t): switch (t) {
 								case NodeType.Type(n):
 									if (n == name) {
@@ -1512,7 +1512,7 @@ module
 		function getNative(e: Node): String? {
 			let atts = project.mapDecorators.get(e)
 			if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
-					case Node.TString(s):
+					case Node.String(s):
 						return s
 					case _: throw '@native takes string as argument'
 			}}
@@ -1583,7 +1583,7 @@ module
 					let atts = project.mapDecorators.get(f)
 
 					if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
-						case Node.TString(s): if (parentNames.get(f) == null) {
+						case Node.String(s): if (parentNames.get(f) == null) {
 							unique(s, f)
 						}
 						case _: throw '@native takes string as argument'
@@ -1591,14 +1591,14 @@ module
 					if (parentNames.get(f) == null) {
 						unique(name, f)
 					}
-				case Node.TFunction(name, expr, vars, rettype):
+				case Node.Function(name, expr, vars, rettype):
 					if (name == 'new') {
 						parentNames.set(f, 'new')
 					} else {
 						let atts = project.mapDecorators.get(f)
 
 						if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
-							case Node.TString(s): if (parentNames.get(f) == null) {
+							case Node.String(s): if (parentNames.get(f) == null) {
 								unique(s, f)
 							}
 							case _: throw '@native takes string as argument'
@@ -1613,11 +1613,11 @@ module
 						if (parentNames.get(field) == null) {
 							unique(name, field)
 						}
-					case Node.TFunction(name, expr, vars, rettype):
+					case Node.Function(name, expr, vars, rettype):
 						let atts = project.mapDecorators.get(f)
 
 						if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
-							case Node.TString(s): if (parentNames.get(field) == null) {
+							case Node.String(s): if (parentNames.get(field) == null) {
 								unique(s, field)
 							}
 							case _: throw '@native takes string as argument'
