@@ -43,7 +43,7 @@ module
 
 			// Rename upfront to avoid race condition
 			for (file in project.moduleInfo) { for (e in file.nodes) { switch (e) {
-						case Node.TClass(t, ext, impl, fields, external):
+						case Node.Class(t, ext, impl, fields, external):
 							renameClassFields(fields)
 						case Node.TEnum(t, fields, valuesType):
 							renameClassFields(fields)
@@ -88,7 +88,7 @@ module
 									}
 								case Node.TEnum(_):
 									fillStatement(e, 'path')
-								case Node.TClass(_):
+								case Node.Class(_):
 									fillStatement(e, 'path')
 						case _:
 							let statement = fillStatement(e, null)
@@ -161,7 +161,7 @@ module
 					return NiceExpression.MetaInt(v, meta, typer.types.get(e))
 				case Node.Float(v):
 					return NiceExpression.Float(v)
-				case Node.TBool(v):
+				case Node.Bool(v):
 					if (v) {
 						return NiceExpression.True
 					}
@@ -207,7 +207,7 @@ module
 							let staticSource = typer.parents.get(source)
 						case Node.Static(f):
 							switch (staticSource) {
-								case Node.TClass(t, _):
+								case Node.Class(t, _):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 								case Node.TEnum(t,_):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
@@ -230,7 +230,7 @@ module
 							return tag
 						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
-					case Node.TClass(_):
+					case Node.Class(_):
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				if (let type = typer.types.get(expr)) {
@@ -254,7 +254,7 @@ module
 							return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, [])
 						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
-					case Node.TClass(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+					case Node.Class(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 
@@ -364,7 +364,7 @@ module
 
 				return NiceExpression.Binop(ea, op, eb, typer.types.get(e))
 
-				case Node.TNew(path, t, args, fields, el):
+				case Node.New(path, t, args, fields, el):
 				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for (arg in args) {
@@ -388,7 +388,7 @@ module
 				}}
 				return NiceExpression.Function(name!=null?unique(name, e):null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
 
-				case Node.TArrow(expr, vars, rettype):
+				case Node.Arrow(expr, vars, rettype):
 				let a = []
 				let defaults = []
 				let types = []
@@ -432,10 +432,10 @@ module
 				}
 				return NiceExpression.Object(names, els, types)
 
-				case Node.TParenthesis(inner):
+				case Node.Parenthesis(inner):
 				function unwrapNestedParens(inner: Node) {
 					switch (inner) {
-						case Node.TParenthesis(i): return unwrapNestedParens(i)
+						case Node.Parenthesis(i): return unwrapNestedParens(i)
 						case _: return inner
 					}
 				}
@@ -453,7 +453,7 @@ module
 
 				return NiceExpression.Parenthesis(value)
 
-				case Node.TArray(el):
+				case Node.Array(el):
 				if (el.length == 1) { switch (el[0]) {
 					case Node.TFor(name, over, by, range):
 					let block = []
@@ -526,7 +526,7 @@ module
 				case Node.This:
 					return NiceExpression.This(typer.types.get(e))
 
-				case Node.TMap(keys, values):
+				case Node.Map(keys, values):
 				let k = []
 				let v = []
 				for (key in keys) {
@@ -565,7 +565,7 @@ module
 
 				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 
-				case Node.TIndex(expr, index):
+				case Node.Index(expr, index):
 				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
 
 				case Node.TAs(e, kind, t): switch (kind) {
@@ -589,7 +589,7 @@ module
 				    for (c in cases) {
 				    	resultType = typer.types.get(c)
 				    	funcType = Type.Function([], resultType)
-				    	caseRet.push(Node.TReturn(c))
+				    	caseRet.push(Node.Return(c))
 				    }
 				    block.push(nodeToStatement(Node.TSwitch(exprs, conds, guards, caseRet)))
 					return NiceExpression.Call(
@@ -767,7 +767,7 @@ module
 					return null //type
 				}
 
-				case Node.TClass(t, ext, impl, fields, external):
+				case Node.Class(t, ext, impl, fields, external):
 				renameClassFields(fields)
 				let type = new NiceClass()
 
@@ -883,7 +883,7 @@ module
 				case Node.TypeAlias(_):
 
 				// Expressions
-				case Node.TNew(path, t, args, fields, values, _):
+				case Node.New(path, t, args, fields, values, _):
 				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for (arg in args) {
@@ -965,9 +965,9 @@ module
 				}
 				return NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(e))
 
-				case Node.TFunction(name, expr, vars, rettype, external):
 				let uname: String? = (name!=null)?(parentNames.get(e) ?? unique(name, e)):null as! String
 				if (external) return null
+				case Node.Function(name, expr, vars, rettype, external):
 				var rettype = rettype
 				let a = []
 				let defaults = []
@@ -1074,7 +1074,7 @@ module
 				}
 				return NiceStatement.For(name, nodeToExpression(over), nodeToStatement(by))
 
-				case Node.TReturn(e):
+				case Node.Return(e):
 				if (e == null) {
 					return NiceStatement.Return(null)
 				}
@@ -1184,7 +1184,7 @@ module
 
 				return NiceStatement.Block(block)
 
-				case Node.TTry(expr, t, v, catches):
+				case Node.Try(expr, t, v, catches):
 				var temp = unique('temp') // Used for `catch(temp)` in JS
 				var tt = []
 				var vv = []
@@ -1200,7 +1200,7 @@ module
 				}
 				return NiceStatement.Try(nodeToStatement(expr), tt, vv, cc, temp)
 
-				case Node.TThrow(value):
+				case Node.Throw(value):
 				return NiceStatement.Throw(nodeToExpression(value))
 
 				case Node.AssignOp(a, op, b):
@@ -1225,7 +1225,7 @@ module
 				case Node.Continue: return NiceStatement.Continue
 				case Node.Break: return NiceStatement.Break
 
-				case Node.TWhile(econd, e, pre):
+				case Node.While(econd, e, pre):
 				return NiceStatement.While(nodeToExpression(econd), nodeToStatement(e), pre)
 
 				case Node.Unop(op, postfix, e):
@@ -1234,10 +1234,10 @@ module
 						case Token.OpDecrement: return NiceStatement.Decrement(nodeToExpression(e))
 						case _: // Optimize away
 					}
-				case Node.TParenthesis(inner):
+				case Node.Parenthesis(inner):
 				function unwrapNestedParens(inner: Node) {
 					switch (inner) {
-						case Node.TParenthesis(i): return unwrapNestedParens(i)
+						case Node.Parenthesis(i): return unwrapNestedParens(i)
 						case _: return inner
 					}
 				}
@@ -1261,7 +1261,7 @@ module
 							case Node.String(v): return NiceExpression.String(v)
 							case Node.TInt(v): return NiceExpression.Int(v)
 							case Node.Float(v): return NiceExpression.Float(v)
-							case Node.TBool(v):
+							case Node.Bool(v):
 								if (v) {
 									return NiceExpression.True
 								}
@@ -1325,7 +1325,7 @@ module
 						case Node.String(v): cx.push(NiceExpression.String(v))
 						case Node.TInt(v): cx.push(NiceExpression.Int(v))
 						case Node.Float(v): cx.push(NiceExpression.Float(v))
-						case Node.TBool(v):
+						case Node.Bool(v):
 							if (v) {
 								cx.push(NiceExpression.True)
 							} else {
@@ -1418,13 +1418,13 @@ module
 				return NiceStatement.Statements(s)
 
 				// Optimize away
-				case Node.TIndex(v, index):
+				case Node.Index(v, index):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', project.data.get(e)))
 					// No need to compute constant index
 					switch (index) {
 						case Node.String(_): return nodeToStatement(v)
 						case Node.TInt(_): return nodeToStatement(v)
-						case Node.TBool(_): return nodeToStatement(v)
+						case Node.Bool(_): return nodeToStatement(v)
 						case Node.Float(_): return nodeToStatement(v)
 					}
 				return NiceStatement.Statements([nodeToStatement(v), nodeToStatement(index)])
@@ -1432,11 +1432,11 @@ module
 				// Optimize away
 				case Node.Ident(name):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', project.data.get(e)))
-				case Node.TArrow(_):
+				case Node.Arrow(_):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', project.data.get(e)))
 				case Node.String(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', project.data.get(e)))
-				case Node.TBool(v):
+				case Node.Bool(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', project.data.get(e)))
 				case Node.TInt(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', project.data.get(e)))
@@ -1634,7 +1634,7 @@ module
 		// Used for `something.name`
 		function getClassDotField(expr: Node, name: String): String? {
 			switch (expr) {
-				case Node.TClass(t, ext, impl, fields, external): for (f in fields) { switch (f) {
+				case Node.Class(t, ext, impl, fields, external): for (f in fields) { switch (f) {
 					case Node.Static(sf):
 					if (DataHelper.nameOf(sf) == name) {
 						return parentNames.get(sf) ?? name

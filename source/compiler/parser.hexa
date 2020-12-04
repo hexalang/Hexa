@@ -490,7 +490,7 @@ module
 					e = parseExpr()
 
 					switch (e) {
-						case Node.TClass(t, ext, impl, fields, _): e = Node.TClass(t, ext, impl, fields, true)
+						case Node.Class(t, ext, impl, fields, _): e = Node.Class(t, ext, impl, fields, true)
 						case _:
 					}
 			}
@@ -519,7 +519,7 @@ module
 						case Node.Ident(n): name = n
 					}
 
-				case Node.TClass(t, _):
+				case Node.Class(t, _):
 				switch (t) {
 					case NodeType.Type(n): name = n
 					case NodeType.ParametricType(n, _): name = n
@@ -662,14 +662,14 @@ module
 			i++
 			var econd = parseExpr()
 			var e = parseExpr()
-			result = Node.TWhile(econd, e, true)
+			result = Node.While(econd, e, true)
 		// do {} while ()
 		case Token.KDo:
 			i++
 			var e = parseExpr()
 			step(Token.KWhile)
 			var econd = parseExpr()
-			result = Node.TWhile(econd, e, false)
+			result = Node.While(econd, e, false)
 		case Token.POpen:
 			next()
 			if (
@@ -705,29 +705,29 @@ module
 				for (i in vars.length) {
 					v.push(Node.TVar(vars[i], types[i], values[i], true, false))
 				}
-				result = Node.TArrow(parseExpr(), v, null)
+				result = Node.Arrow(parseExpr(), v, null)
 			} else {
 				var expr = parseExpr()
 				step(Token.PClose)
-				result = Node.TParenthesis(expr)
+				result = Node.Parenthesis(expr)
 			}
 		// return e
 		// return
 		case Token.KReturn:
 			i++
 			switch (tok()) {
-				case Token.BrClose: result = Node.TReturn(null)
-				case Token.KVar: result = Node.TReturn(null)
-				case Token.KLet: result = Node.TReturn(null)
-				case Token.KCase: result = Node.TReturn(null)
-				case Token.KBreak: result = Node.TReturn(null)
-				case Token.KContinue: result = Node.TReturn(null)
-				case Token.KReturn: result = Node.TReturn(null)
-				case _: result = Node.TReturn(parseExpr())
+				case Token.BrClose: result = Node.Return(null)
+				case Token.KVar: result = Node.Return(null)
+				case Token.KLet: result = Node.Return(null)
+				case Token.KCase: result = Node.Return(null)
+				case Token.KBreak: result = Node.Return(null)
+				case Token.KContinue: result = Node.Return(null)
+				case Token.KReturn: result = Node.Return(null)
+				case _: result = Node.Return(parseExpr())
 			}
 		case Token.KThrow:
 			i++
-			result = Node.TThrow(parseExpr())
+			result = Node.Throw(parseExpr())
 		case Token.KContinue:
 			i++
 			result = Node.Continue
@@ -796,7 +796,7 @@ module
 			var name = getgo(Token.LLower)
 			if (tok() == Token.OpArrow) {
 				next()
-				result = Node.TArrow(parseExpr(), [Node.TVar(name, null, null, true, false)], null)
+				result = Node.Arrow(parseExpr(), [Node.TVar(name, null, null, true, false)], null)
 			} else {
 				result = Node.Ident(name)
 			}
@@ -806,14 +806,14 @@ module
 			var str = getgo(Token.LString)
 			// TODO Check have interpolations in string
 			if (hasInterpolation(str)) {
-				result = Node.TParenthesis(parseInterpolations(str))
+				result = Node.Parenthesis(parseInterpolations(str))
 			} else {
 				result = Node.String(str)
 			}
 		case Token.KTrue:
-			i++ result = Node.TBool(true)
+			i++ result = Node.Bool(true)
 		case Token.KFalse:
-			i++ result = Node.TBool(false)
+			i++ result = Node.Bool(false)
 		case Token.KThis:
 			i++ result = Node.This
 		case Token.KNull:
@@ -861,7 +861,7 @@ module
 				}
 				catches.push(parseExpr())
 			}
-			result = Node.TTry(expr, t, v, catches)
+			result = Node.Try(expr, t, v, catches)
 
 		case Token.KImport:
 			i++
@@ -986,9 +986,9 @@ module
 			step(Token.BkClose)
 
 			if (isMap) {
-				result = Node.TMap(el, values)
+				result = Node.Map(el, values)
 			} else {
-				result = Node.TArray(el)
+				result = Node.Array(el)
 			}
 		case Token.KNew:
 			i++
@@ -1043,7 +1043,7 @@ module
 			}}
 			step(Token.PClose)
 
-			result = Node.TNew([], t, args, names, values, argNames)
+			result = Node.New([], t, args, names, values, argNames)
 		case Token.KSwitch:
 			i++
 			var exprs = [parseExpr()]
@@ -1294,7 +1294,7 @@ module
 					)
 				}
 				step(Token.BkClose)
-				result = Node.TIndex(result, index)
+				result = Node.Index(result, index)
 			case Token.KIs:
 				i++
 				switch (tok()) {
@@ -1350,7 +1350,7 @@ module
 			}
 			case Token.OpArrow:
 				next()
-				result = Node.TArrow(parseExpr(), [result], null)
+				result = Node.Arrow(parseExpr(), [result], null)
 
 			// i++
 			case Token.OpIncrement:
@@ -1706,7 +1706,7 @@ module
 		step(Token.BrOpen)
 		var fields = parseFields()
 		step(Token.BrClose)
-		var me = Node.TClass(t, ext, impl, fields, external ?? false, isInterface)
+		var me = Node.Class(t, ext, impl, fields, external ?? false, isInterface)
 		classExternal = _classExternal
 		return me
 	}

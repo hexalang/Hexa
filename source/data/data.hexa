@@ -77,7 +77,7 @@ enum Node {
 		// ident
 		Ident(name: String)
 		// true/false
-		TBool(b: Bool)
+		Bool(b: Bool)
 		// this
 		This
 		// super
@@ -114,9 +114,9 @@ enum Node {
 		// if (econd[0], ...econd[n]) { eif } [else { eelse }]
 		TIf(econd: [Node], eif: Node, eelse: Node?)
 
-		TParenthesis(inner: Node) // (inner)
-		TReturn(e: Node?) // return e
-		TThrow(e: Node) // throw e
+		Parenthesis(inner: Node) // (inner)
+		Return(e: Node?) // return e
+		Throw(e: Node) // throw e
 		Break // break
 		Continue // continue
 
@@ -124,13 +124,13 @@ enum Node {
 		Unop(op: Token, postfix: Bool, e: Node)
 
 		// while (econd) { e } or if pre == true then do { e } while (econd)
-		TWhile(econd: Node, e: Node, pre: Bool)
+		While(econd: Node, e: Node, pre: Bool)
 
 		// [declare] fun name(vars): rettype { expr }
 		Function(name: String, expr: Node, vars: [Node], retType: NodeType, external: Bool)
 
 		// (vars): rettype => { expr }
-		TArrow(expr: Node, vars: [Node], retType: NodeType)
+		Arrow(expr: Node, vars: [Node], retType: NodeType)
 
 		// [declare] (const ? let : var) name: t = expr
 		TVar(name: String, t: NodeType, expr: Node, const: Bool, external: Bool)
@@ -139,14 +139,14 @@ enum Node {
 		Vars(vars: [Node])
 
 		// external class t extends extend implements implement { fields }
-		TClass(t: NodeType, extend: NodeType?, implement: [NodeType], fields: [Node], external: Bool, kind: ClassKind)
+		Class(t: NodeType, extend: NodeType?, implement: [NodeType], fields: [Node], external: Bool, kind: ClassKind)
 
 		// var name: T { get { return x } set (v) {} }
 		// TVar, Function, Function
 		Property(v: Node, g: Node, s: Node)
 
 		// try { expr } catch(v[0]:t[0]) { catches[0] } ... catch(v[n]:t[n]) { catches[n] }
-		TTry(expr: Node, t: [NodeType], v: [Node], catches: [Node])
+		Try(expr: Node, t: [NodeType], v: [Node], catches: [Node])
 
 		// expr.name
 		TDot(expr: Node, name: String)
@@ -155,16 +155,16 @@ enum Node {
 		DotUpper(expr: Node, name: String)
 
 		// new t { } (args)
-		TNew(path: [String], t: NodeType, args: [Node], fields: [String], el: [Node], argNames: [String])
+		New(path: [String], t: NodeType, args: [Node], fields: [String], el: [Node], argNames: [String])
 
 		// [elements[0], ...elements[n]]
-		TArray(elements: [Node])
+		Array(elements: [Node])
 
 		// [keys[0] : values[0], ... keys[n] : values[n]]
-		TMap(keys: [Node], values: [Node])
+		Map(keys: [Node], values: [Node])
 
 		// expr[index]
-		TIndex(expr: Node, index: Node)
+		Index(expr: Node, index: Node)
 
 		// switch (exprs[0], exprs[n]) {
 		//     case cases[0]: conds[0]
@@ -219,13 +219,13 @@ enum Node {
 			switch (node) {
 				case Node.String(s): return "'\(s)'"
 				case Node.Ident(name): return name
-				case Node.TBool(b): return b? "true" : "false"
+				case Node.Bool(b): return b? "true" : "false"
 				case Node.TInt(s): return s.toString()
 				case Node.Float(s): return s.toString()
 				case Node.Null: return "null"
 				case Node.This: return "this"
-				case Node.TParenthesis(expr): return "(" + Node.stringify(expr) + ")"
-				case Node.TIndex(expr, index): return Node.stringify(expr) + '[' + Node.stringify(index) + ']'
+				case Node.Parenthesis(expr): return "(" + Node.stringify(expr) + ")"
+				case Node.Index(expr, index): return Node.stringify(expr) + '[' + Node.stringify(index) + ']'
 				case Node.TDot(expr, name): return Node.stringify(expr) + '.' + name
 				case Node.DotUpper(expr, name): return Node.stringify(expr) + '.' + name
 				case Node.TCall(e, args, argNames):
@@ -238,7 +238,7 @@ enum Node {
 						}
 					}
 					return Node.stringify(e) + '(' + arg.join(', ') + ')'
-				case Node.TArray(elements): return '[' + [for (el in elements) Node.stringify(el)].join(', ') + ']'
+				case Node.Array(elements): return '[' + [for (el in elements) Node.stringify(el)].join(', ') + ']'
 				case Node.Binop(a, op, b): return Node.stringify(a) + ' ' + Token.stringify(op) + ' ' + Node.stringify(b)
 				case Node.Object(names, el):
 					return '{' + [for (i in el.length) names[i] + ': ' + Node.stringify(el[i])].join(', ') + '}'
@@ -274,7 +274,7 @@ class DataHelper {
 					throw "unreachable"
 
 				case Node.Function(name,_): return name
-				case Node.TClass(t, _):
+				case Node.Class(t, _):
 					switch (t) {
 						case NodeType.Type(name): return name
 						case NodeType.ParametricType(name, _): return name
@@ -312,7 +312,7 @@ class DataHelper {
 		static function isVoidValue(block: Node): Bool {
 			switch (block) {
 				case null: return true
-				case Node.TReturn(_): return true
+				case Node.Return(_): return true
 				case Node.Break: return true
 				case Node.Continue: return true
 				case Node.TVar(_): return true
@@ -320,7 +320,7 @@ class DataHelper {
 					return true
 				}
 				case Node.TEnum(_): return true
-				case Node.TClass(_): return true
+				case Node.Class(_): return true
 				case Node.TSwitch(_): return true
 				// Also recursively traverses { ... { ... { ... void }}}
 				case Node.TBlock(el):
