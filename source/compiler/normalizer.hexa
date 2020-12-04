@@ -34,7 +34,7 @@
 			this.project = project
 		}
 
-		function normalize() {
+		fun normalize() {
 			// Reserve globals
 			for (global in reservedGlobals) {
 				addToScope(global)
@@ -119,7 +119,7 @@
 
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
-			niceProject.classes.sort(function(a, b) {
+			niceProject.classes.sort(fun(a, b) {
 				if (a.external == true) {
 					return -1
 				}
@@ -134,7 +134,7 @@
 			return niceProject
 		}
 
-		function nodeToExpression(e: Node): NiceExpression? {
+		fun nodeToExpression(e: Node): NiceExpression? {
 			let result = nodeToExpressionWithoutPosition(e)
 			if (result != null) {
 				niceProject.expressionPosition.set(result, project.data.get(e))
@@ -145,7 +145,7 @@
 			return result
 		}
 
-		function nodeToExpressionWithoutPosition(e: Node): NiceExpression? {
+		fun nodeToExpressionWithoutPosition(e: Node): NiceExpression? {
 			if (e == null) {
 				return null
 			}
@@ -432,7 +432,7 @@
 				return NiceExpression.Object(names, els, types)
 
 				case Node.Parenthesis(inner):
-				function unwrapNestedParens(inner: Node) {
+				fun unwrapNestedParens(inner: Node) {
 					switch (inner) {
 						case Node.Parenthesis(i): return unwrapNestedParens(i)
 						case _: return inner
@@ -464,7 +464,7 @@
 					block.push(NiceStatement.Const(value, nodeToExpression(over), valueType))
 
 					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
-					function fillLoop() {
+					fun fillLoop() {
 						switch (over) {
 							case Node.Int(s):
 							let i = name
@@ -606,7 +606,7 @@
 			return null
 		}
 
-		function nodeToStatement(e: Node): NiceStatement? {
+		fun nodeToStatement(e: Node): NiceStatement? {
 			let result = nodeToStatementWithoutPosition(e)
 			if (result != null) {
 				niceProject.statementPosition.set(result, project.data.get(e))
@@ -614,7 +614,7 @@
 			return result
 		}
 
-		function nodeToStatementWithoutPosition(e: Node): NiceStatement? {
+		fun nodeToStatementWithoutPosition(e: Node): NiceStatement? {
 			if (e == null) {
 				return null
 			}
@@ -1234,7 +1234,7 @@
 						case _: // Optimize away
 					}
 				case Node.Parenthesis(inner):
-				function unwrapNestedParens(inner: Node) {
+				fun unwrapNestedParens(inner: Node) {
 					switch (inner) {
 						case Node.Parenthesis(i): return unwrapNestedParens(i)
 						case _: return inner
@@ -1451,7 +1451,7 @@
 			return null
 		}
 
-		function getTag(enumNode: Node, name: String): NiceExpression? {
+		fun getTag(enumNode: Node, name: String): NiceExpression? {
 			switch (enumNode) {
 				case Node.Enum(t, fields, valuesType):
 				var typed: EnumType = null as! EnumType
@@ -1499,7 +1499,7 @@
 			}
 		}
 
-		static function getAtt(atts: [Attribute], atname: String): Attribute? {
+		static fun getAtt(atts: [Attribute], atname: String): Attribute? {
 			if (atts != null && atts.length > 0) { for (att in atts) {
 				if (att.name == atname) {
 					return att
@@ -1508,7 +1508,7 @@
 			return null
 		}
 
-		function getNative(e: Node): String? {
+		fun getNative(e: Node): String? {
 			let atts = project.mapDecorators.get(e)
 			if (let native = getAtt(atts, 'native')) { switch (native.values[0]) {
 					case Node.String(s):
@@ -1524,15 +1524,15 @@
 		// Randomization for the un-hack-ability
 		var id = Math.round(Math.random() * 123.0)
 
-		function pushScope() {
+		fun pushScope() {
 			scopes.push(([:]))
 		}
 
-		function popScope() {
+		fun popScope() {
 			scopes.pop()
 		}
 
-		function hasInScope(name: String) {
+		fun hasInScope(name: String) {
 			for (scope in scopes) {
 				if (scope.get(name) != null) {
 					return true
@@ -1541,7 +1541,7 @@
 			return false
 		}
 
-		function addToScope(name: String) {
+		fun addToScope(name: String) {
 			scopes[scopes.length-1].set(name, true)
 		}
 
@@ -1550,7 +1550,7 @@
 
 		// Returns new name if name occupied or reserved
 		// Returns same name and calls addToScope if name is free
-		function unique(name: String, node: Node = null): String {
+		fun unique(name: String, node: Node = null): String {
 			var uname = name
 			while (
 				hasInScope(uname) ||
@@ -1566,16 +1566,16 @@
 		}
 
 		// Sets name without renaming for `@native`
-		function uniqueNative(name: String, node: Node) {
+		fun uniqueNative(name: String, node: Node) {
 			addToScope(name)
 			parentNames.set(node, name)
 		}
 
-		function fillStatement(e: Node): NiceStatement {
+		fun fillStatement(e: Node): NiceStatement {
 			return nodeToStatement(e)
 		}
 
-		function renameClassFields(fields: [Node]) {
+		fun renameClassFields(fields: [Node]) {
 			pushScope()
 			for (f in fields) { switch (f) {
 				case Node.Var(name, t, expr, const):
@@ -1631,7 +1631,7 @@
 		}
 
 		// Used for `something.name`
-		function getClassDotField(expr: Node, name: String): String? {
+		fun getClassDotField(expr: Node, name: String): String? {
 			switch (expr) {
 				case Node.Class(t, ext, impl, fields, external): for (f in fields) { switch (f) {
 					case Node.Static(sf):
@@ -1665,7 +1665,7 @@
 		}}
 
 		// Saves if value viable for constant propagation
-		function saveInlineIfViable(e: Node, value: NiceExpression) {
+		fun saveInlineIfViable(e: Node, value: NiceExpression) {
 			switch (value) {
 				case NiceExpression.Int(_): inline.set(e, value)
 				case NiceExpression.String(_): inline.set(e, value)

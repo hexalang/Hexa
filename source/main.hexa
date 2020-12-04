@@ -44,7 +44,7 @@ declare class Package {
 
 class Main {
 	// Asks a couple of questions and creates hexa.json
-	function init() {
+	fun init() {
 		if (Fs.existsSync("hexa.json")) {
 			let create = question("Hexa package 'hexa.json' already exists here. Create new? (no)")
 			if (create.toLowerCase() != 'yes', create.toLowerCase() != 'y') {
@@ -178,9 +178,9 @@ class Main {
 		Process.stdout.write("Hexa package initialized!")
 	}
 
-	function symlink(): Void {
 		switch (process.platform) {
 			case 'linux':
+	fun symlink(): Void {
 				// TODO probably just copy or do actual symlinking?
 				Fs.renameSync('./hexa', '/usr/bin/hexa')
 				console.log("Symlinked successfully!")
@@ -195,7 +195,7 @@ class Main {
 	var targetIndex = 0
 
 	// Parses a file
-	function processFile(target: String, project: Project): [Node] {
+	fun processFile(target: String, project: Project): [Node] {
 		let content = Fs.readFileSync(target)
 		let tokens = Lexer.tokenize(content, target)
 		if (tokens.length > 0) {
@@ -205,7 +205,7 @@ class Main {
 		return parsed
 	}
 
-	function simplyCompileToJs(buffer: Buffer, path: String): String? {
+	fun simplyCompileToJs(buffer: Buffer, path: String): String? {
 		let project = new Project()
 		let input: Package = {
 			files: []
@@ -240,7 +240,7 @@ class Main {
 	}
 
 	// Read-eval-print loop, starts if hexa called without arguments
-	function repl() {
+	fun repl() {
 		console.log('\x1b[35m' + 'Hexa \(version) on node.js ' + Process.versions.node + '\x1b[0m')
 		console.log('\x1b[33m' + 'To print something onto screen use `console.log(value)`' + '\x1b[0m')
 		console.log('\x1b[33m' + 'To clear REPL memory use `.clear`' + '\x1b[0m')
@@ -298,7 +298,7 @@ class Main {
 		}
 	}
 
-	static function processGlobals(project: Project, path: String) {
+	static fun processGlobals(project: Project, path: String) {
 		let index = project.moduleName.indexOf(path)
 
 		if (let info = project.moduleInfo[index]) {
@@ -329,7 +329,7 @@ class Main {
 		}
 	}
 
-	static function processModule(project: Project, path: String, global: Bool): Int {
+	static fun processModule(project: Project, path: String, global: Bool): Int {
 		let index = project.moduleName.indexOf(path)
 		var lines = 0
 
@@ -344,6 +344,7 @@ class Main {
 		for (root in project.roots) {
 			let file = Path.join(root, path + '.hexa')
 			if (Fs.existsSync(file)) {
+				try {
 				let content = Fs.readFileSync(file)
 				let tokens = Lexer.tokenize(content, file)
 				if (tokens.length > 0) {
@@ -369,6 +370,10 @@ class Main {
 				}
 
 				return lines
+			} catch e: Any {
+				console.error(e.toString())
+				Process.exit(500)
+			}
 			}
 		}
 
@@ -384,7 +389,7 @@ class Main {
 	}
 
 	// Parses all files, shows errors and stops if any
-	function processFiles(targets: [String], relativePath: String, loaded: [String:Bool], project: Project): [[Node]] {
+	fun processFiles(targets: [String], relativePath: String, loaded: [String:Bool], project: Project): [[Node]] {
 		var res: [[Node]] = []
 		let imports: [String] = []
 		for (target in targets) {
@@ -428,18 +433,18 @@ class Main {
 		return res
 	}
 
-	function incorrect(what: String) {
+	fun incorrect(what: String) {
 		Process.stdout.write("Incorrect package file! Field `\(what)` does not exists\n")
 		Process.exit(1)
 	}
 
-	function readPackage(filename: String): Package {
+	fun readPackage(filename: String): Package {
 		let pack: Package = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8').split('\r\n').join('\n'))
 		return pack
 	}
 
 	// Loads hexa.json
-	function loadPackage(filename: String, target: String, project: Project): Package {
+	fun loadPackage(filename: String, target: String, project: Project): Package {
 		let pack: Package = readPackage(filename)
 
 		if (let name = pack.name) {
@@ -466,7 +471,7 @@ class Main {
 			}
 		}}
 
-		let t = (function () {
+		let t = (fun () {
 			for (t in pack.targets.length) {
 				if (pack.targets[t].name == target) {
 					targetIndex = t
@@ -595,7 +600,7 @@ class Main {
 			#end
 		#end
 
-		function ignoreArguments(fromIndex: Int)	{
+		fun ignoreArguments(fromIndex: Int)	{
 			if (fromIndex == Process.argv.length) { return }
 			let args = []
 			let count: Int = Process.argv.length - fromIndex
@@ -694,7 +699,7 @@ class Main {
 		if (false, input.files != null) {
 			let relativePath = packageFolder + Path.sep
 			let loaded: [String: Bool] = [:]
-			let fileList = input.files.map(function(file) {
+			let fileList = input.files.map(fun(file) {
 				// Avoid global paths
 				if (file.startsWith('/') || file.charAt(1) == ':') {
 					return Path.resolve(file)
@@ -737,7 +742,7 @@ class Main {
 
 		let generators = [:]
 
-		function registerTarget(name: String, generator) {
+		fun registerTarget(name: String, generator) {
 			if (let generator = generators.get(name)) {
 				console.log('Note: generator `\(name)` was overridden')
 			}
@@ -801,7 +806,7 @@ class Main {
 		let delta = Date.now() - begin
 		let lps = Math.round(lines / (delta/1000))
 		console.log("[Finished in \(delta) ms, \(lines) lines, \(lps) lines per second]")
-		Process.stdout.once('drain', function () { Process.exit(0) })
+		Process.stdout.once('drain', fun () { Process.exit(0) })
 		Process.stdout.write('')
 	}
 }
