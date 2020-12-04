@@ -80,7 +80,7 @@ module
 									if (let s = nodeToStatement(e)) { // Non-declare ones
 										niceProject.globalVars.push(s)
 									}
-								case Node.TVars(vars):
+								case Node.Vars(vars):
 									for (v in vars) {
 										if (let s = nodeToStatement(v)) { // Non-declare ones
 											niceProject.globalVars.push(s)
@@ -204,8 +204,8 @@ module
 							}}
 							}
 
-						case Node.TStatic(f):
 							let staticSource = typer.parents.get(source)
+						case Node.Static(f):
 							switch (staticSource) {
 								case Node.TClass(t, _):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
@@ -423,7 +423,7 @@ module
 				block.push(NiceStatement.Return(nodeToExpression(result)))
 				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], null)), [], typer.types.get(result), CallKind.Function)
 
-				case Node.TObject(names, el):
+				case Node.Object(names, el):
 				let els = []
 				let types = []
 				for (e in el) {
@@ -538,7 +538,7 @@ module
 				// TODO probably just transfer the Map<> type itself
 				return NiceExpression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]))
 
-				case Node.TAssignop(a, op, b):
+				case Node.AssignOp(a, op, b):
 				return NiceExpression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
 				case Node.TIf(econd, eif, eelse):
@@ -599,7 +599,7 @@ module
 						CallKind.Function
 					)
 
-				case Node.TModule(_):
+				case Node.Module(_):
 				case Node.Import(_):
 				case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
 			}
@@ -669,7 +669,7 @@ module
 							constructorsTypes.push([for (arg in args) typer.toType(Typer.nodeToNodeType(arg), arg)])
 							types.push([for (arg in args) unique(arg as! String)])
 							// TODO as! String
-						case Node.TStatic(field):
+						case Node.Static(field):
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -730,7 +730,7 @@ module
 							case NodeType.Type(name):
 								names.push(name)
 						}
-						case Node.TStatic(field):
+						case Node.Static(field):
 							switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -846,7 +846,7 @@ module
 								}
 						}}
 						type.methods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f)))
-					case Node.TStatic(field):
+					case Node.Static(field):
 						switch (field) {
 							case Node.TVar(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -1203,7 +1203,7 @@ module
 				case Node.TThrow(value):
 				return NiceStatement.Throw(nodeToExpression(value))
 
-				case Node.TAssignop(a, op, b):
+				case Node.AssignOp(a, op, b):
 				return NiceStatement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
 				case Node.TBinop(a, op, b):
@@ -1408,7 +1408,7 @@ module
 					NiceStatement.Switch(index, c, s, guardians, binds)
 				])
 
-				case Node.TVars(vars):
+				case Node.Vars(vars):
 				let s = []
 				for (v in vars) {
 					if (let st = nodeToStatement(v)) {
@@ -1444,7 +1444,7 @@ module
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
 				case Node.Null:
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
-				case Node.TModule(_):
+				case Node.Module(_):
 				case _:
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 			}
@@ -1490,7 +1490,7 @@ module
 									}
 							}
 						}
-						case Node.TStatic(_): return null // Not a tag
+						case Node.Static(_): return null // Not a tag
 						case _:
 							console.error('(internal warning) Unknown enum tag kind:', f)
 					}
@@ -1608,7 +1608,7 @@ module
 							unique(name, f)
 						}
 					}
-				case Node.TStatic(field): switch (field) {
+				case Node.Static(field): switch (field) {
 					case Node.TVar(name, t, expr, const):
 						if (parentNames.get(field) == null) {
 							unique(name, field)
@@ -1635,7 +1635,7 @@ module
 		function getClassDotField(expr: Node, name: String): String? {
 			switch (expr) {
 				case Node.TClass(t, ext, impl, fields, external): for (f in fields) { switch (f) {
-					case Node.TStatic(sf):
+					case Node.Static(sf):
 					if (DataHelper.nameOf(sf) == name) {
 						return parentNames.get(sf) ?? name
 					}
@@ -1645,7 +1645,7 @@ module
 					}
 				}}
 				case Node.TEnum(t, fields, valuesType): for (f in fields) { switch (f) {
-					case Node.TStatic(sf):
+					case Node.Static(sf):
 					if (DataHelper.nameOf(sf) == name) {
 						return parentNames.get(sf) ?? name
 					}

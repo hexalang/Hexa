@@ -69,7 +69,6 @@ class NodeData {
 	var fileName: String
 }
 
-	// TODO remove `T` prefix
 	// TODO move to nodes.hexa
 // Syntax tree
 enum Node {
@@ -104,7 +103,7 @@ enum Node {
 		TBinop(a: Node, op: Token, b: Node)
 
 		// a op= b
-		TAssignop(a: Node, op: Token, b: Node)
+		AssignOp(a: Node, op: Token, b: Node)
 
 		// { el[0] ... el[n] }
 		TBlock(el: [Node])
@@ -137,7 +136,7 @@ enum Node {
 		TVar(name: String, t: NodeType, expr: Node, const: Bool, external: Bool)
 
 		// var TVar[0], ..., TVar[n]
-		TVars(vars: [Node])
+		Vars(vars: [Node])
 
 		// external class t extends extend implements implement { fields }
 		TClass(t: NodeType, extend: NodeType?, implement: [NodeType], fields: [Node], external: Bool, kind: ClassKind)
@@ -174,20 +173,20 @@ enum Node {
 		TSwitch(exprs: [Node], conds: [Node], guards: [Node], cases: [Node])
 
 		// module path[0].path[1].r..path[n] { el }
-		TModule(path: String, el: [Node])
+		Module(path: String, el: [Node])
 
 		// import xxx as yyy in "test"
 		Import(el: [ImportNode], path: String)
 
 		// { name[0]: el[0], name[1]: el[1], ... name[n]: el[n] }
 		// NOTE: Do not use Map here
-		TObject(names: [String], el: [Node])
+		Object(names: [String], el: [Node])
 
 		// enum t : valuesType extends extend { fields[0] ... fields[n] }
 		TEnum(t: NodeType, fields: [Node], valuesType: NodeType, extend: NodeType?)
 
 		// let expr(extract[0], ..., extract[n]) = name
-		TEnumExtract(path: [String], bind: [Node/*.TVar*/], expr: Node)
+		EnumExtract(path: [String], bind: [Node/*.TVar*/], expr: Node)
 
 
 		// expr is t
@@ -203,8 +202,8 @@ enum Node {
 		// ...
 		Interval
 
-		TStatic(field: Node) // `static` field
-		TPrivate(field: Node) // `private` field or type
+		Static(field: Node) // `static` field
+		Private(field: Node) // `private` field or type
 
 		// for (name in over) by
 		// for (name in over ... range) by
@@ -241,11 +240,11 @@ enum Node {
 					return Node.stringify(e) + '(' + arg.join(', ') + ')'
 				case Node.TArray(elements): return '[' + [for (el in elements) Node.stringify(el)].join(', ') + ']'
 				case Node.TBinop(a, op, b): return Node.stringify(a) + ' ' + Token.stringify(op) + ' ' + Node.stringify(b)
-				case Node.TObject(names, el):
+				case Node.Object(names, el):
 					return '{' + [for (i in el.length) names[i] + ': ' + Node.stringify(el[i])].join(', ') + '}'
 				case Node.NodeTypeValue(t):
 					return DataHelper.extractTypeName(t)
-				case Node.TStatic(f): return 'static ' + Node.stringify(f)
+				case Node.Static(f): return 'static ' + Node.stringify(f)
 				case _: return "..."
 			}
 		}
@@ -264,7 +263,7 @@ class DataHelper {
 		// returns var NAME, enum NAME {}, function NAME(), etc
 		static function nameOf(v: Node): String {
 			switch (v) {
-				case Node.TPrivate(node): return nameOf(node)
+				case Node.Private(node): return nameOf(node)
 				case Node.Property(node): return nameOf(node)
 				case Node.TVar(name,_): return name
 				case Node.TEnum(t, _):
@@ -286,7 +285,7 @@ class DataHelper {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
-				case Node.TStatic(field): return nameOf(field)
+				case Node.Static(field): return nameOf(field)
 				case _: throw 'nameOf expected named node, but got `\(v)`'
 			}
 		}
