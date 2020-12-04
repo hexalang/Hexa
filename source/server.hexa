@@ -39,6 +39,7 @@ class Server {
 		let url = require('url')
 
 		let project = new Project()
+		let empty = '[]'
 
 		let handleRequest = fun (project, req, res) {
 			let chunks = []
@@ -57,37 +58,43 @@ class Server {
 
 					if (commands.length == 0) {
 						res.writeHead(404, {})
-						res.write('{}')
+						res.write(empty)
 						res.end()
 					} else {
+						let response: [Any] = []
 						for command in commands {
 							switch (command.kind) {
 								case ServerCommandKind.GetWholeFileSyntaxErrors:
-									res.writeHead(200, {})
 									let file = 'hexa.hexa'
 									let content = Buffer.fromString(command.payload)
 									try {
 										let tokens = Lexer.tokenize(content, file)
 										try {
 											let parser = Parser.parseNodes(tokens, new Project(), true)
-										} catch (e: Any) {
-											res.write(JSON.stringify(e.errors))
+										} catch (e: CompilerErrors) {
+											let errors: [CompilerError] = e.errors
+											for error in errors {
+												response.push(error)
+											}
 										}
-									} catch (e: Any) {
-										res.write(JSON.stringify(e.errors))
+									} catch (e: CompilerErrors) {
+										let errors: [CompilerError] = e.errors
+										for error in errors {
+											response.push(error)
+										}
 									}
 
-									res.end()
 								case _:
-									res.writeHead(502, {})
-									res.write('{}')
-									res.end()
 							}
 						}
+
+						res.writeHead(200, {})
+						res.write(JSON.stringify(response))
+						res.end()
 					}
 				} else {
 					res.writeHead(400, {})
-					res.write('{}')
+					res.write(empty)
 					res.end()
 				}
 			})
