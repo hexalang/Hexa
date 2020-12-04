@@ -83,7 +83,7 @@ enum Node {
 		// super
 		Super
 		// 123
-		TInt(s: Int)
+		Int(s: Int)
 		// 123n
 		// 123u32
 		MetaInt(s: BigInt, meta: Meta)
@@ -106,10 +106,10 @@ enum Node {
 		AssignOp(a: Node, op: Token, b: Node)
 
 		// { el[0] ... el[n] }
-		TBlock(el: [Node])
+		Block(el: [Node])
 
 		// e(args[0], ...args[n])
-		TCall(e: Node, args: [Node], argNames: [String])
+		Call(e: Node, args: [Node], argNames: [String])
 
 		// if (econd[0], ...econd[n]) { eif } [else { eelse }]
 		TIf(econd: [Node], eif: Node, eelse: Node?)
@@ -133,23 +133,23 @@ enum Node {
 		Arrow(expr: Node, vars: [Node], retType: NodeType)
 
 		// [declare] (const ? let : var) name: t = expr
-		TVar(name: String, t: NodeType, expr: Node, const: Bool, external: Bool)
+		Var(name: String, t: NodeType, expr: Node, const: Bool, external: Bool)
 
-		// var TVar[0], ..., TVar[n]
+		// var Var[0], ..., Var[n]
 		Vars(vars: [Node])
 
 		// external class t extends extend implements implement { fields }
 		Class(t: NodeType, extend: NodeType?, implement: [NodeType], fields: [Node], external: Bool, kind: ClassKind)
 
 		// var name: T { get { return x } set (v) {} }
-		// TVar, Function, Function
+		// Var, Function, Function
 		Property(v: Node, g: Node, s: Node)
 
 		// try { expr } catch(v[0]:t[0]) { catches[0] } ... catch(v[n]:t[n]) { catches[n] }
 		Try(expr: Node, t: [NodeType], v: [Node], catches: [Node])
 
 		// expr.name
-		TDot(expr: Node, name: String)
+		Dot(expr: Node, name: String)
 
 		// expr.Name
 		DotUpper(expr: Node, name: String)
@@ -170,7 +170,7 @@ enum Node {
 		//     case cases[0]: conds[0]
 		//     case cases[n]: conds[n]
 		// }
-		TSwitch(exprs: [Node], conds: [Node], guards: [Node], cases: [Node])
+		Switch(exprs: [Node], conds: [Node], guards: [Node], cases: [Node])
 
 		// module path[0].path[1].r..path[n] { el }
 		Module(path: String, el: [Node])
@@ -183,18 +183,18 @@ enum Node {
 		Object(names: [String], el: [Node])
 
 		// enum t : valuesType extends extend { fields[0] ... fields[n] }
-		TEnum(t: NodeType, fields: [Node], valuesType: NodeType, extend: NodeType?)
+		Enum(t: NodeType, fields: [Node], valuesType: NodeType, extend: NodeType?)
 
 		// let expr(extract[0], ..., extract[n]) = name
-		EnumExtract(path: [String], bind: [Node/*.TVar*/], expr: Node)
+		EnumExtract(path: [String], bind: [Node/*.Var*/], expr: Node)
 
 
 		// expr is t
-		TIs(expr: Node, t: NodeType)
+		Is(expr: Node, t: NodeType)
 
 		// expr as t
 		// expr as? t
-		TAs(expr: Node, kind: Token, t: NodeType)
+		As(expr: Node, kind: Token, t: NodeType)
 
 		// _
 		Underscore
@@ -207,7 +207,7 @@ enum Node {
 
 		// for (name in over) by
 		// for (name in over ... range) by
-		TFor(name: String, over: Node, by: Node, range: Node)
+		For(name: String, over: Node, by: Node, range: Node)
 
 		// nullable ?? othewise
 		Elvis(nullable: Node, othewise: Node)
@@ -220,15 +220,15 @@ enum Node {
 				case Node.String(s): return "'\(s)'"
 				case Node.Ident(name): return name
 				case Node.Bool(b): return b? "true" : "false"
-				case Node.TInt(s): return s.toString()
+				case Node.Int(s): return s.toString()
 				case Node.Float(s): return s.toString()
 				case Node.Null: return "null"
 				case Node.This: return "this"
 				case Node.Parenthesis(expr): return "(" + Node.stringify(expr) + ")"
 				case Node.Index(expr, index): return Node.stringify(expr) + '[' + Node.stringify(index) + ']'
-				case Node.TDot(expr, name): return Node.stringify(expr) + '.' + name
+				case Node.Dot(expr, name): return Node.stringify(expr) + '.' + name
 				case Node.DotUpper(expr, name): return Node.stringify(expr) + '.' + name
-				case Node.TCall(e, args, argNames):
+				case Node.Call(e, args, argNames):
 					let arg = []
 					for (i in args.length) {
 						if (let name = argNames[i]) {
@@ -255,8 +255,8 @@ class DataHelper {
 		// returns var NAME
 		static function varName(v: Node) {
 			switch (v) {
-				case Node.TVar(name,_): return name
-				case _: throw 'varName got not a TVar, but `\(v)`'
+				case Node.Var(name,_): return name
+				case _: throw 'varName got not a Var, but `\(v)`'
 			}
 		}
 
@@ -265,8 +265,8 @@ class DataHelper {
 			switch (v) {
 				case Node.Private(node): return nameOf(node)
 				case Node.Property(node): return nameOf(node)
-				case Node.TVar(name,_): return name
-				case Node.TEnum(t, _):
+				case Node.Var(name,_): return name
+				case Node.Enum(t, _):
 					switch (t) {
 						case NodeType.Type(name): return name
 						case NodeType.ParametricType(name, _): return name
@@ -303,7 +303,7 @@ class DataHelper {
 		static function getLastOfBlock(block: Node): Node? {
 			switch (block) {
 				case null: throw 'Got null, not a block'
-				case Node.TBlock(el): return el[el.length - 1]
+				case Node.Block(el): return el[el.length - 1]
 				case _: throw 'Got `\(block)`, not a block'
 			}
 		}
@@ -315,15 +315,15 @@ class DataHelper {
 				case Node.Return(_): return true
 				case Node.Break: return true
 				case Node.Continue: return true
-				case Node.TVar(_): return true
-				case Node.TIf(_,_,eelse): if (eelse == null) {
+				case Node.Var(_): return true
+				case Node.If(_,_,eelse): if (eelse == null) {
 					return true
 				}
-				case Node.TEnum(_): return true
+				case Node.Enum(_): return true
 				case Node.Class(_): return true
-				case Node.TSwitch(_): return true
+				case Node.Switch(_): return true
 				// Also recursively traverses { ... { ... { ... void }}}
-				case Node.TBlock(el):
+				case Node.Block(el):
 				if (el.length == 0) {
 					return true
 				}

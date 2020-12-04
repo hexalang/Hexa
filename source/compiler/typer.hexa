@@ -162,14 +162,14 @@ module
 						case Node.Class(_):
 							parents.set(node, e)
 							fill(node)
-						case Node.TEnum(_):
+						case Node.Enum(_):
 							parents.set(node, e)
 							fill(node)
 						case Node.Function(name, expr, vars, rettype):
 							if (let rettype = rettype) {
 								types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
 							}
-						case Node.TVar(name, t, e, const):
+						case Node.Var(name, t, e, const):
 							if (let t = t) {
 								types.set(node, toType(t, node))
 							}
@@ -177,7 +177,7 @@ module
 					}}
 					for (node in el) { switch (node) {
 						case Node.Class(_):
-						case Node.TEnum(_):
+						case Node.Enum(_):
 						case _:
 							parents.set(node, e)
 							fill(node)
@@ -223,8 +223,8 @@ module
 				for (e in nodes) {
 					var named = true
 					switch (e) {
-						case Node.TVar(_):
-						case Node.TEnum(_):
+						case Node.Var(_):
+						case Node.Enum(_):
 						case Node.Function(_):
 						case Node.Class(_):
 						// TODO type alias
@@ -313,14 +313,14 @@ module
 								case Node.Class(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
-								case Node.TEnum(_):
+								case Node.Enum(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
 								case Node.Function(name, expr, vars, rettype):
 									if (let rettype = rettype) {
 										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
 									}
-								case Node.TVar(name, t, e, const):
+								case Node.Var(name, t, e, const):
 									if (let t = t) {
 										types.set(node, toType(t, node))
 									}
@@ -338,7 +338,7 @@ module
 					switch (node) {
 						case Node.Import(_):
 						case Node.Class(_):
-						case Node.TEnum(_):
+						case Node.Enum(_):
 						case _:
 							parents.set(node, Node.Module(info.path, info.nodes)) // TODO module itself
 							fill(node)
@@ -503,7 +503,7 @@ module
 										type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
 									}
 									addScope(name, field)
-								case Node.TVar(name, t, e, _):
+								case Node.Var(name, t, e, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', field)
 									}
@@ -513,7 +513,7 @@ module
 									addScope(name, field)
 								case Node.Property(field, _, _):
 									switch (field) {
-										case Node.TVar(name, _):
+										case Node.Var(name, _):
 											if (type.fieldNames.includes(name)) {
 												fail('Field `\(name)` already exists', field)
 											}
@@ -528,7 +528,7 @@ module
 										type.fieldNames.push(name)
 										type.fieldStatic[type.fieldNames.length - 1] = true
 										addScope(name, field)
-									case Node.TVar(name, _):
+									case Node.Var(name, _):
 										if (type.fieldNames.includes(name)) {
 											fail('Field `\(name)` already exists', field)
 										}
@@ -545,7 +545,7 @@ module
 						// Fill fields with non-ambiguous types
 						for (field in f) { switch (field) {
 							// `var\let a: known T`
-							case Node.TVar(name, t, e, const):
+							case Node.Var(name, t, e, const):
 								if (let t = t) {
 									types.set(field, toType(t, field))
 								}
@@ -561,7 +561,7 @@ module
 										types.set(f, Type.Function(varTypes(vars), toType(rettype, f)))
 										types.set(field, types.get(f))
 									}
-								case Node.TVar(name, t, e, const):
+								case Node.Var(name, t, e, const):
 									if (let t = t) {
 										types.set(f, toType(t, f))
 										types.set(field, types.get(f))
@@ -597,7 +597,7 @@ module
 								allowSuper = _allowSuper
 
 							// Field of `var` or `let`
-							case Node.TVar(name, t, e, const):
+							case Node.Var(name, t, e, const):
 								if (external, e != null) {
 									fail('External class field `var \(name)` cannot have `= value`', field)
 								}
@@ -616,7 +616,7 @@ module
 							// The thing with getters and setters
 							case Node.Property(f, _, _):
 									switch (f) {
-										case Node.TVar(name, t, e, const):
+										case Node.Var(name, t, e, const):
 											if (external, e != null) {
 												fail('External class field `var \(name)` cannot have expression', field)
 											}
@@ -653,7 +653,7 @@ module
 										fail('Function get no type: class ' + DataHelper.nameOf(node) + ' static ' + name, f)
 									}
 									types.set(field, types.get(f))
-								case Node.TVar(name, t, e, const):
+								case Node.Var(name, t, e, const):
 									if (external, e != null) {
 										fail('External class field `static var \(name)` cannot have expression', field)
 									}
@@ -693,7 +693,7 @@ module
 				types.set(node, Type.Enum(type))
 
 				switch (node) {
-					case Node.TEnum(t, f, valuesType, extend):
+					case Node.Enum(t, f, valuesType, extend):
 					pushScope()
 					if (let valuesType = valuesType) {
 						type.fieldsTypeSimple = toType(valuesType, node)
@@ -731,7 +731,7 @@ module
 							}
 
 							// `enum E { A(b: C) }`
-							case Node.TCall(e, args, argNames):
+							case Node.Call(e, args, argNames):
 								if (valuesType != null) {
 									throw fail('Cannot use `Value(args)` format for simple enum', node)
 								}
@@ -787,7 +787,7 @@ module
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 											switch (b) {
-												case Node.TInt(_): if (type.fieldsTypeSimple != typeInt) {
+												case Node.Int(_): if (type.fieldsTypeSimple != typeInt) {
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
 												case Node.String(_): if (type.fieldsTypeSimple != typeString) {
@@ -814,7 +814,7 @@ module
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
 									addScope(name, field)
-								case Node.TVar(name, _):
+								case Node.Var(name, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', node)
 									}
@@ -834,7 +834,7 @@ module
 					for (field in f) { switch (field) {
 						case Node.Function(name, expr, vars, rettype):
 							fillFunction(field, expr, vars, rettype)
-						case Node.TVar(name, _):
+						case Node.Var(name, _):
 						case Node.Static(f): switch (f) {
 							case Node.Function(name, expr, vars, rettype):
 								let _insideClassMethod = insideClassMethod
@@ -855,7 +855,7 @@ module
 									fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' static ' + name, f)
 								}
 								types.set(field, types.get(f))
-							case Node.TVar(name, t, e, const):
+							case Node.Var(name, t, e, const):
 								if (e != null) {
 									fillExpression(e)
 								}
@@ -863,7 +863,7 @@ module
 								types.set(field, types.get(f))
 						}
 						case Node.NodeTypeValue(_): // Ok
-						case Node.TCall(_): // Ok
+						case Node.Call(_): // Ok
 						case Node.Binop(_): // TODO validate them
 						case _:
 							fail('Unknown enum field format', field)
@@ -923,7 +923,7 @@ module
 		// Takes only nodes valid for `module { node }`
 		function nameOfModuleItem(node: Node): String {
 			switch (node) {
-				case Node.TVar(name, _): return name
+				case Node.Var(name, _): return name
 				case Node.Function(name, _):
 					if (let named = name) {
 						return named
@@ -940,7 +940,7 @@ module
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
-				case Node.TEnum(t, _): switch (t) {
+				case Node.Enum(t, _): switch (t) {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
@@ -1143,7 +1143,7 @@ module
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
 						case Node.Class(_):
 							registerClassType(nodeType)
-						case Node.TEnum(_):
+						case Node.Enum(_):
 							registerEnumType(nodeType)
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
@@ -1168,7 +1168,7 @@ module
 					if (types.get(nodeType) == null) { switch (nodeType) {
 						case Node.Class(_):
 							registerClassType(nodeType)
-						case Node.TEnum(_):
+						case Node.Enum(_):
 							registerEnumType(nodeType)
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
@@ -1223,7 +1223,7 @@ module
 
 			for (v in vars) {
 				switch (v) {
-					case Node.TVar(_, t):
+					case Node.Var(_, t):
 						if (let t = t) {
 							varTypes.push(toType(t, v))
 						} else {
@@ -1249,7 +1249,7 @@ module
 			for (i in vars.length) {
 				let v = vars[i]
 				switch (v) {
-					case Node.TVar(vname, t, e, const):
+					case Node.Var(vname, t, e, const):
 						if (t != null, toType(t, v) == typeVoid) {
 							fail('Argument cannot be of type `Void`', v)
 						}
@@ -1331,7 +1331,7 @@ module
 					registerClassType(node)
 
 				// `enum T {}`
-				case Node.TEnum(t, f, valuesType):
+				case Node.Enum(t, f, valuesType):
 					addScope(DataHelper.extractTypeName(t), node)
 					registerEnumType(node)
 
@@ -1350,7 +1350,7 @@ module
 
 				case Node.Class(_):
 					fail('Defining classes within blocks not allowed', node)
-				case Node.TEnum(_):
+				case Node.Enum(_):
 					fail('Defining enums within blocks not allowed', node)
 				case Node.TypeAlias(_):
 					types.set(node, Type.Alias(null))
@@ -1367,7 +1367,7 @@ module
 					}
 
 				// `{...}`
-				case Node.TBlock(el):
+				case Node.Block(el):
 					pushScope()
 					for (e in el) {
 						fill(e)
@@ -1375,7 +1375,7 @@ module
 					popScope()
 
 				// `var name: t = e`
-				case Node.TVar(name, t, e, const, external):
+				case Node.Var(name, t, e, const, external):
 					if (e == null, const, !external) {
 						fail('Constant should have a value `let \(name) = value`', node)
 					}
@@ -1404,7 +1404,7 @@ module
 					// `a = b`
 					if (op == Token.OpAssign) { switch (parent) {
 						case null:
-						case Node.TVar(name, _, _, const):
+						case Node.Var(name, _, _, const):
 							if (const) {
 								fail(
 									'Cannot reassign a constant `let \(name)`, redefine it as `var \(name)` to allow reassignment\n'
@@ -1418,9 +1418,9 @@ module
 							fail('Cannot reassign a function `\(name)`', node)
 						case Node.Class(_):
 							fail('Cannot reassign class', node)
-						case Node.TEnum(_):
+						case Node.Enum(_):
 							fail('Cannot reassign enum', node)
-						case Node.TFor(name, _):
+						case Node.For(name, _):
 							fail(
 								'Cannot reassign iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
@@ -1439,7 +1439,7 @@ module
 					}
 
 				// `for (name in over ... range) { by }`
-				case Node.TFor(name, over, by, range):
+				case Node.For(name, over, by, range):
 					pushScope()
 					fillExpression(over)
 					let overType = types.get(over)
@@ -1479,7 +1479,7 @@ module
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
 					switch (by) {
-						case Node.TBlock(_):
+						case Node.Block(_):
 						case _:
 							fail('Loop body must be a `{` block `}`', by)
 					}
@@ -1488,7 +1488,7 @@ module
 					popScope()
 
 				// `function name(vars): rettype {expr}`
-				// `vars` are `TVar(name, t, ...)` where `function(name: t)`
+				// `vars` are `Var(name, t, ...)` where `function(name: t)`
 				case Node.Function(name, expr, vars, rettype, external):
 					if (!external, expr == null) {
 						fail('Non-external function `\(name)` should have a body', node)
@@ -1518,11 +1518,11 @@ module
 				// `if (econd) eif else eelse`
 				// `if (econd) eif`
 				// Also `if (let bind = value, econd..., econd...)`
-				case Node.TIf(econd, eif, eelse):
+				case Node.If(econd, eif, eelse):
 					var depth = 0
 					for (e in econd) {
 						switch (e) {
-							case Node.TVar(name, t, expr, const):
+							case Node.Var(name, t, expr, const):
 								if (!const) {
 									fail('Only if-let bindings supported, not if-var', node)
 								}
@@ -1568,7 +1568,7 @@ module
 					}
 
 				// `switch (exprs) { case conds if (guards): { cases } }`
-				case Node.TSwitch(exprs, conds, guards, cases):
+				case Node.Switch(exprs, conds, guards, cases):
 					fillSwitch(node, false)
 
 				// `try { } catch (e: T) { }`
@@ -1578,7 +1578,7 @@ module
 					// Reset stack
 					insideTry = true
 					switch (e) {
-						case Node.TBlock(_):
+						case Node.Block(_):
 						case _:
 							fail('Try body must be a `{ block }`', e)
 					}
@@ -1598,7 +1598,7 @@ module
 						pushScope()
 						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
 						switch (ca[i]) {
-							case Node.TBlock(_):
+							case Node.Block(_):
 							case _:
 								fail('Catch body must be a `{ block }`', ca[i])
 						}
@@ -1615,7 +1615,7 @@ module
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
 					switch (e) {
-						case Node.TBlock(_):
+						case Node.Block(_):
 						case _:
 							fail('`while` statements must be wrapped with a `{` block `}`', e)
 					}
@@ -1718,7 +1718,7 @@ module
 				case Node.Array(el):
 					// `[for(name in over ... range) by]`
 					switch (el[0]) {
-						case Node.TFor(name, over, by, range):
+						case Node.For(name, over, by, range):
 							if (el.length > 1) {
 								fail('Cannot use loop `for` within array of more than one element `[for(), ...]`', el[1])
 							}
@@ -1770,7 +1770,7 @@ module
 				// `e as  t`
 				// `e as! t`
 				// `e as? t`
-				case Node.TAs(e, kind, t):
+				case Node.As(e, kind, t):
 					let type = toType(t, node)
 					if (type == typeVoid) {
 						fail('Conversion `as Void` makes no sense', e)
@@ -1783,7 +1783,7 @@ module
 					types.set(node, type)
 
 				// `e is t`
-				case Node.TIs(e, t):
+				case Node.Is(e, t):
 					let type = toType(t, node)
 					if (type == typeAny) {
 						fail('Comparing `is Any` makes no sense, always true', e)
@@ -1796,7 +1796,7 @@ module
 					types.set(node, typeBool)
 
 				// `{...}`
-				case Node.TBlock(el):
+				case Node.Block(el):
 					if (el.length == 0) {
 						types.set(node, Type.Struct([], []))
 					} else {
@@ -1811,7 +1811,7 @@ module
 					}
 
 				// `e.n`
-				case Node.TDot(e, n):
+				case Node.Dot(e, n):
 					switch (e) {
 						case Node.Super(_):
 							if (!allowSuper) {
@@ -1879,9 +1879,9 @@ module
 								fail('Enum field `.\(n)` is not static', node)
 							}
 							switch (type.parent) {
-								case Node.TEnum(t, fields, valuesType):
+								case Node.Enum(t, fields, valuesType):
 									for (field in fields) { switch (field) {
-										case Node.TCall(_):
+										case Node.Call(_):
 										case Node.NodeTypeValue(_):
 										case Node.Binop(_):
 										case _:
@@ -1982,7 +1982,7 @@ module
 							// Try eager on-demand type build
 							switch (subj) {
 								case Node.Class(_): registerClassType(subj)
-								case Node.TEnum(_): registerEnumType(subj)
+								case Node.Enum(_): registerEnumType(subj)
 							}
 
 							if (let type = types.get(subj)) {
@@ -2052,12 +2052,12 @@ module
 					types.set(node, types.get(e))
 
 				// `if (econd) eif else eelse`
-				case Node.TIf(econd, eif, eelse, ternary):
+				case Node.If(econd, eif, eelse, ternary):
 					if (econd.length > 1) {
 						fail('More than one condition is not yet supported', econd[1])
 					}
 					switch (econd[0]) {
-						case Node.TVar(_):
+						case Node.Var(_):
 							fail('Variable bindings in ternary conditions are not yet supported', econd[0])
 					}
 					if (eelse == null) {
@@ -2066,12 +2066,12 @@ module
 					fillExpression(econd[0])
 					if (ternary == false) {
 						switch (eif) {
-							case Node.TBlock(_):
+							case Node.Block(_):
 							case _:
 								fail('Ternary `if` should have a `{ block }` as a body', eif)
 						}
 						switch (eelse) {
-							case Node.TBlock(_):
+							case Node.Block(_):
 							case _:
 								fail('Ternary `else` should have a `{ block }` as a body', eelse)
 						}
@@ -2090,7 +2090,7 @@ module
 				case Node.Bool(_):
 					types.set(node, typeBool)
 
-				case Node.TInt(_):
+				case Node.Int(_):
 					types.set(node, typeInt)
 
 				case Node.MetaInt(_, meta):
@@ -2128,7 +2128,7 @@ module
 					types.set(node, types.get(b))
 
 				// `e(elNames: el, ...)`
-				case Node.TCall(e, el, elNames):
+				case Node.Call(e, el, elNames):
 					// JavaScript evaluates arguments first
 					switch (e) {
 						case Node.Super(_):
@@ -2230,7 +2230,7 @@ module
 					if (!mutates) { return }
 					var parent: Node = parents.get(e)
 					switch (parent) {
-						case Node.TVar(name, _, _, const):
+						case Node.Var(name, _, _, const):
 							if (const) {
 								fail(
 									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
@@ -2239,7 +2239,7 @@ module
 							}
 						case Node.Function(name, _):
 							fail('Cannot `\(Token.stringify(op))` a function `\(name)`', node)
-						case Node.TFor(name, _):
+						case Node.For(name, _):
 							fail(
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
@@ -2247,7 +2247,7 @@ module
 						case Node.Static(f): switch (f) {
 							case Node.Function(name, _):
 								fail('Cannot `\(Token.stringify(op))` a static function `\(name)`', node)
-							case Node.TVar(name, _, _, const):
+							case Node.Var(name, _, _, const):
 								if (const) {
 									fail(
 									'Cannot change a constant `static let \(name)`, redefine it as `static var \(name)` to allow value changes\n'
@@ -2325,7 +2325,7 @@ module
 					fillExpression(a)
 					var parent: Node = parents.get(a)
 					switch (parent) {
-						case Node.TVar(name, _, _, const):
+						case Node.Var(name, _, _, const):
 							if (const) {
 								fail(
 									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
@@ -2334,7 +2334,7 @@ module
 							}
 						case Node.Function(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
-						case Node.TFor(name, _):
+						case Node.For(name, _):
 							fail(
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
@@ -2375,7 +2375,7 @@ module
 				// `return e`
 				case Node.Return(e):
 					switch (e) {
-						case Node.TVar(name, _, _, const):
+						case Node.Var(name, _, _, const):
 							let prefix = const? 'let' : 'var'
 							fail('This `return` tries to return a variable `\(prefix) \(name)`. Try to wrap it into braces like this `{ return } \(prefix) \(name)`', node)
 						case Node.Return(_):
@@ -2421,20 +2421,20 @@ module
 					fail('Cannot use `continue` as a value', node)
 				case Node.Class(_):
 					fail('Cannot use `class` as a value', node)
-				case Node.TEnum(_):
+				case Node.Enum(_):
 					fail('Cannot use `enum` as a value', node)
 				case Node.TypeAlias(_):
 					fail('Cannot use `declare` as a value', node)
 				case Node.Import(_):
 					fail('Cannot use `import` as a value', node)
-				case Node.TVar(name, _, _, const):
+				case Node.Var(name, _, _, const):
 					let prefix = const? 'let' : 'var'
 					fail('Cannot use `\(prefix) \(name)` as a value', node)
-				case Node.TSwitch(_):
+				case Node.Switch(_):
 					fillSwitch(node, true)
 				case Node.While(_):
 					fail('Cannot use `while` as a value', node)
-				case Node.TFor(_):
+				case Node.For(_):
 					fail('Cannot use `for` as a value. To build array from loop, surround with `[for()]` brackets.', node)
 
 				// Fails
@@ -2448,7 +2448,7 @@ module
 		function fillSwitch(node, value: Bool) {
 			switch (node) {
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
-				case Node.TSwitch(exprs, conds, guards, cases):
+				case Node.Switch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fillExpression(e) popScope() }
 					if (let expr = exprs[1]) {
 						fail('Multiple switch values are not yet supported', expr)
@@ -2557,7 +2557,7 @@ module
 									if (etype != typeBool) {
 										fail('Cannot switch over boolean here', e)
 									}
-								case Node.TInt(_):
+								case Node.Int(_):
 									if (etype != typeInt) {
 										fail('Cannot switch over number here', e)
 									}
@@ -2565,7 +2565,7 @@ module
 									if (etype != typeString) {
 										fail('Cannot switch over string here', e)
 									}
-								case Node.TCall(ex, args, argNames): {
+								case Node.Call(ex, args, argNames): {
 									// TODO rethink nested pattern mechanics
 									// TODO don't follow nested patterns for now
 									follow(ex)
@@ -2689,7 +2689,7 @@ module
 									} else {
 										fail('This case pattern is not supported', e)
 									}
-								case Node.TIf(econd, _, _):
+								case Node.If(econd, _, _):
 									pushScope()
 									fill(econd[0])
 									popScope()

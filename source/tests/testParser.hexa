@@ -31,21 +31,21 @@ module
 				'\n\n'		 : '<!--null-->',
 				'\r\r\n\r\n\r\t' : '<!--null-->',
 
-				'{}' : 'TBlock([])',
-				'{{}}' : 'TBlock([TBlock([])])',
-				'{ 0 0 0 }' : 'TBlock([TInt(0),TInt(0),TInt(0)])',
-
-				'0' 		 : 'TInt(0)',
-				' 0 '		 : 'TInt(0)',
-				'123'		 : 'TInt(123)',
-				'12'		 : 'TInt(12)',
 				"0x1"		 : 'TInt(0x1)',
 				"0x0"		 : 'TInt(0x0)',
 				"0xF"		 : 'TInt(0xF)',
 				"0xFA"		 : 'TInt(0xFA)',
 				"0xFABCDEF" : 'TInt(0xFABCDEF)',
-
 				"0.0"		 : 'TFloat(0.0)',
+				'{}' : 'Block([])',
+				'{{}}' : 'Block([Block([])])',
+				'{ 0 0 0 }' : 'Block([Int(0),Int(0),Int(0)])',
+
+				'0' 		 : 'Int(0)',
+				' 0 '		 : 'Int(0)',
+				'123'		 : 'Int(123)',
+				'12'		 : 'Int(12)',
+
 				"0.123" 	 : 'Float(0.123)',
 
 				"'s'"		 : 'String(s)',
@@ -54,24 +54,24 @@ module
 
 			shouldAllEqual([
 				'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
-					'TBlock([
-					TInt(1),
-					TInt(2),
-					TInt(3),
+					'Block([
+					Int(1),
+					Int(2),
+					Int(3),
 					Binop(
-					TCall(Ident(trace),[String(Hello!),String(World!)]),
+					Call(Ident(trace),[String(Hello!),String(World!)]),
 					+,
 					TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
 
 				'enum Test { Demo } hello World':
-					'TBlock([TEnum(Type(Test),[NodeTypeValue(Type(Demo))]),
+					'Block([Enum(Type(Test),[NodeTypeValue(Type(Demo))]),
 					Ident(hello),
 					NodeTypeValue(Type(World))])'
 			])
 
 			// Operators
 			shouldAllEqual([
-				'i ++ ++ i': "TBlock([Unop(++,true,Ident(i)),Unop(++,false,Ident(i))])",
+				'i ++ ++ i': "Block([Unop(++,true,Ident(i)),Unop(++,false,Ident(i))])",
 				'a + b': "Binop(Ident(a),+,Ident(b))",
 				'a += b': "AssignOp(Ident(a),+,Ident(b))"
 			])
@@ -115,47 +115,47 @@ module
 
 			// Types parsing in expressions
 			shouldAllEqual([
-				'var a = new Array<A>()' : 'TVar(a,null,New([],ParametricType(Array,[Type(A)]),[],[],[],[]),false,false)',
-				'a = Array<A>.staticField()' : 'Binop(Ident(a),=,TCall(TDot(NodeTypeValue(ParametricType(Array,[Type(A)])),staticField),[]))',
+				'var a = new Array<A>()' : 'Var(a,null,New([],ParametricType(Array,[Type(A)]),[],[],[],[]),false,false)',
+				'a = Array<A>.staticField()' : 'Binop(Ident(a),=,Call(Dot(NodeTypeValue(ParametricType(Array,[Type(A)])),staticField),[]))',
 				'a = EnumTest.EnumField' : 'Binop(Ident(a),=,DotUpper(NodeTypeValue(Type(EnumTest)),EnumField))',
-				'a = EnumTest.EnumField(arg)' : 'Binop(Ident(a),=,TCall(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[Ident(arg)]))',
-				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'Binop(Ident(a),=,TCall(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[argName:Ident(argValue),Ident(arg2),arg3:Ident(arg3)]))',
+				'a = EnumTest.EnumField(arg)' : 'Binop(Ident(a),=,Call(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[Ident(arg)]))',
+				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'Binop(Ident(a),=,Call(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[argName:Ident(argValue),Ident(arg2),arg3:Ident(arg3)]))',
 				'a = EnumTest<A,B>.EnumField' : 'Binop(Ident(a),=,DotUpper(NodeTypeValue(ParametricType(EnumTest,[Type(A),Type(B)])),EnumField))',
-				'var a = b as B, c = d as! B, e = f as? B' : 'Vars([TVar(a,null,TAs(Ident(b),<!--default-->,Type(B)),false,false),TVar(c,null,TAs(Ident(d),!,Type(B)),false,false),TVar(e,null,TAs(Ident(f),?,Type(B)),false,false)])',
-				'var a = b is B, c = d is B, e = f is B' : 'Vars([TVar(a,null,TAs(Ident(b),Type(B)),false,false),TVar(c,null,TAs(Ident(d),Type(B)),false,false),TVar(e,null,TAs(Ident(f),Type(B)),false,false)])'
+				'var a = b as B, c = d as! B, e = f as? B' : 'Vars([Var(a,null,As(Ident(b),<!--default-->,Type(B)),false,false),Var(c,null,As(Ident(d),!,Type(B)),false,false),Var(e,null,As(Ident(f),?,Type(B)),false,false)])',
+				'var a = b is B, c = d is B, e = f is B' : 'Vars([Var(a,null,As(Ident(b),Type(B)),false,false),Var(c,null,As(Ident(d),Type(B)),false,false),Var(e,null,As(Ident(f),Type(B)),false,false)])'
 			])
 
 			// Types parsing in declarations
 			shouldAllEqual([
-				'var x:[Array<T>]' : 'TVar(x,ParametricType(Array,[ParametricType(Array,[Type(T)])]),null,false,false)',
-				'var x:[Map<K,V> : Array<T>]' : 'TVar(x,ParametricType(Map,[ParametricType(Map,[Type(K),Type(V)]),ParametricType(Array,[Type(T)])]),null,false,false)',
-				'var x:{}, y:[], z:[:], w:()=>{}' : 'Vars([TVar(x,Object([],[]),null,false,false),TVar(y,ParametricType(Array,[Object([],[])]),null,false,false),TVar(z,ParametricType(Map,[Object([],[]),Object([],[])]),null,false,false),TVar(w,Function([],Object([],[])),null,false,false)])',
-				'let x:()=>()=>()=>()=>Void' : 'TVar(x,Function([],Function([],Function([],Function([],Type(Void))))),null,true,false)'
+				'var x:[Array<T>]' : 'Var(x,ParametricType(Array,[ParametricType(Array,[Type(T)])]),null,false,false)',
+				'var x:[Map<K,V> : Array<T>]' : 'Var(x,ParametricType(Map,[ParametricType(Map,[Type(K),Type(V)]),ParametricType(Array,[Type(T)])]),null,false,false)',
+				'var x:{}, y:[], z:[:], w:()=>{}' : 'Vars([Var(x,Object([],[]),null,false,false),Var(y,ParametricType(Array,[Object([],[])]),null,false,false),Var(z,ParametricType(Map,[Object([],[]),Object([],[])]),null,false,false),Var(w,Function([],Object([],[])),null,false,false)])',
+				'let x:()=>()=>()=>()=>Void' : 'Var(x,Function([],Function([],Function([],Function([],Type(Void))))),null,true,false)'
 			])
 
 			// Enumerations
 			shouldAllEqual([
-				'enum A {}' : 'TEnum(Type(A),[])',
-				'enum A { A B C }' : 'TEnum(Type(A),[NodeTypeValue(Type(A)),NodeTypeValue(Type(B)),NodeTypeValue(Type(C))])',
+				'enum A {}' : 'Enum(Type(A),[])',
+				'enum A { A B C }' : 'Enum(Type(A),[NodeTypeValue(Type(A)),NodeTypeValue(Type(B)),NodeTypeValue(Type(C))])',
 				'enum A { A(v:Int) B C(v:[K:V], a:Array<T>) }' :
-					'TEnum(Type(A),[
-					TCall(NodeTypeValue(Type(A)),[v:NodeTypeValue(Type(Int))]),
+					'Enum(Type(A),[
+					Call(NodeTypeValue(Type(A)),[v:NodeTypeValue(Type(Int))]),
 					NodeTypeValue(Type(B)),
-					TCall(NodeTypeValue(Type(C)),[v:Map([NodeTypeValue(Type(K))],[NodeTypeValue(Type(V))]),a:NodeTypeValue(ParametricType(Array,[Type(T)]))])
+					Call(NodeTypeValue(Type(C)),[v:Map([NodeTypeValue(Type(K))],[NodeTypeValue(Type(V))]),a:NodeTypeValue(ParametricType(Array,[Type(T)]))])
 					])',
-				'enum A { E(v: T<T>?) }' : 'TEnum(Type(A),[TCall(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(ParametricType(T,[Type(T)])))])])',
-				'enum A { E(v: T<T?>) }' : 'TEnum(Type(A),[TCall(NodeTypeValue(Type(E)),[v:NodeTypeValue(ParametricType(T,[Optional(Type(T))]))])])',
-				'enum A { E(v: T?) }' : 'TEnum(Type(A),[TCall(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(Type(T)))])])'
+				'enum A { E(v: T<T>?) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(ParametricType(T,[Type(T)])))])])',
+				'enum A { E(v: T<T?>) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(ParametricType(T,[Optional(Type(T))]))])])',
+				'enum A { E(v: T?) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(Type(T)))])])'
 			])
 
 			// Constructor
 			shouldAllEqual([
-				'new A(a: 1, b: 2)' : 'New([],Type(A),[TInt(1),TInt(2)],[],[],[a,b])',
-				'class A {} var a = new A { } ()' : "TBlock([Class(Type(A),null,[],[],false),TVar(a,null,New([],Type(A),[],[],[],[]),false,false)])",
+				'new A(a: 1, b: 2)' : 'New([],Type(A),[Int(1),Int(2)],[],[],[a,b])',
+				'class A {} var a = new A { } ()' : "Block([Class(Type(A),null,[],[],false),Var(a,null,New([],Type(A),[],[],[],[]),false,false)])",
 				'class A { var field: String } var a = new A { field: "Value" } ()' :
-					"TBlock([Class(Type(A),null,[],[TVar(field,Type(String),null,false,false)],false),TVar(a,null,New([],Type(A),[],[field],[String(Value)],[]),false,false)])",
+					"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false)],false),Var(a,null,New([],Type(A),[],[field],[String(Value)],[]),false,false)])",
 				'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' :
-					"TBlock([Class(Type(A),null,[],[TVar(field,Type(String),null,false,false),TVar(otherfield,Type(Int),null,false,false)],false),TVar(a,null,New([],Type(A),[],[field,otherfield],[String(Value),TInt(25)],[]),false,false)])"
+					"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false),Var(otherfield,Type(Int),null,false,false)],false),Var(a,null,New([],Type(A),[],[field,otherfield],[String(Value),Int(25)],[]),false,false)])"
 			])
 
 			// Functions
@@ -227,20 +227,20 @@ module
 
 			// Conditions
 			shouldAllEqual([
-				'if (this) { this }' : 'TIf([This],TBlock([This]),<!--null-->)',
-				'if (this, this) { this } else { break }' : 'TIf([This,This],TBlock([This]),TBlock([Break]))',
-				'if (this, let a = this) { this } else { break }' : 'TIf([This,TVar(a,null,This,true,false)],TBlock([This]),TBlock([Break]))',
-				'if (let a = this, let b = this, this) { this }' : 'TIf([TVar(a,null,This,true,false),TVar(b,null,This,true,false),This],TBlock([This]),<!--null-->)'
+				'if (this) { this }' : 'If([This],Block([This]),<!--null-->)',
+				'if (this, this) { this } else { break }' : 'If([This,This],Block([This]),Block([Break]))',
+				'if (this, let a = this) { this } else { break }' : 'If([This,Var(a,null,This,true,false)],Block([This]),Block([Break]))',
+				'if (let a = this, let b = this, this) { this }' : 'If([Var(a,null,This,true,false),Var(b,null,This,true,false),This],Block([This]),<!--null-->)'
 			])
 
 			// External declarations
 			shouldAllEqual([
-				'declare var a: T' : 'TVar(a,Type(T),null,false,true)',
-				'declare let a: T' : 'TVar(a,Type(T),null,true,true)',
+				'declare var a: T' : 'Var(a,Type(T),null,false,true)',
+				'declare let a: T' : 'Var(a,Type(T),null,true,true)',
 				'declare fun name()' : 'Function(name,null,[],null,true)',
-				'declare fun name() hi()' : 'TBlock([Function(name,null,[],null,true),TCall(Ident(hi),[])])',
+				'declare fun name() hi()' : 'Block([Function(name,null,[],null,true),Call(Ident(hi),[])])',
 				// External functions do not parse body
-				'declare fun name() {}' : 'TBlock([Function(name,null,[],null,true),TBlock([])])',
+				'declare fun name() {}' : 'Block([Function(name,null,[],null,true),Block([])])',
 				'declare class A {}' : 'Class(Type(A),null,[],[],true)',
 				'declare A = B' : 'TypeAlias(Type(A),Type(B))'
 			])
@@ -252,10 +252,10 @@ module
 
 			// Array and map
 			shouldAllEqual([
-				'push([:])' : 'TCall(Ident(push),[Map([],[])])',
-				'push([])' : 'TCall(Ident(push),[Array([])])',
-				'[].length' : 'TDot(Array([]),length)',
-				'[:].length' : 'TDot(Map([],[]),length)',
+				'push([:])' : 'Call(Ident(push),[Map([],[])])',
+				'push([])' : 'Call(Ident(push),[Array([])])',
+				'[].length' : 'Dot(Array([]),length)',
+				'[:].length' : 'Dot(Map([],[]),length)',
 				'[[:]]': 'Array([Map([],[])])'
 			])
 
@@ -338,20 +338,20 @@ module
 			case Node.Bool(b): return 'Bool(\(b))'
 			case Node.This: return 'This'
 			case Node.Super: return 'Super'
-			case Node.TInt(s): return 'TInt(\(s))'
+			case Node.Int(s): return 'Int(\(s))'
 			case Node.Float(s): return 'Float(\(s))'
 			case Node.Null: return 'Null'
 			case Node.Break: return 'Break'
 			case Node.Continue: return 'Continue'
 
 			// Have sub-nodes
-			case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
-			case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
+			case Node.Is(expr, type): return 'As(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
+			case Node.As(expr, kind, type): return 'As(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
 			case Node.Binop(a, op, b): return 'Binop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
 			case Node.AssignOp(a, op, b): return 'AssignOp(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
-			case Node.TBlock(els): return 'TBlock(' + TestParser.stringifyNodeArray(els) + ')'
-			case Node.TVar(name, t, expr, const, external):
-			return 'TVar(\(name),' + ((t != null) ? TestParser.stringifyType(t) : "null") +
+			case Node.Block(els): return 'Block(' + TestParser.stringifyNodeArray(els) + ')'
+			case Node.Var(name, t, expr, const, external):
+			return 'Var(\(name),' + ((t != null) ? TestParser.stringifyType(t) : "null") +
 			"," + ((expr != null) ? TestParser.stringify(expr) : "null") +',\(const),\(external))'
 			case Node.Vars(vars): return 'Vars(' + TestParser.stringifyNodeArray(vars) + ")"
 
@@ -365,8 +365,8 @@ module
 				+ (expr == null ? "null" : TestParser.stringify(expr))
 				+ "," + TestParser.stringifyNodeArray(vars) + ',' + ((rettype != null) ? TestParser.stringifyType(rettype) : "null") + ")"
 
-			case Node.TCall(e, el, argNames):
-				var res = 'TCall(' + TestParser.stringify(e) + ',['
+			case Node.Call(e, el, argNames):
+				var res = 'Call(' + TestParser.stringify(e) + ',['
 				for (i in el.length) {
 					res += (argNames[i] == null) ? "" : argNames[i] + ":"
 					res += TestParser.stringify(el[i]) + ((i != el.length - 1) ? "," : "")
@@ -376,7 +376,7 @@ module
 			case Node.Parenthesis(e): return 'Parenthesis(' + TestParser.stringify(e) + ')'
 			case Node.Return(e): return 'Return(' + TestParser.stringify(e) + ')'
 			case Node.Throw(e): return 'Throw(' + TestParser.stringify(e) + ')'
-			case Node.TEnum(t, els): return 'TEnum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
+			case Node.Enum(t, els): return 'Enum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
 			case Node.Module(path, els):
 				return "Module(" + path + "," + TestParser.stringifyNodeArray(els) + ")"
 			case Node.Import(els, path):
@@ -406,12 +406,12 @@ module
 
 			case Node.NodeTypeValue(type): return 'NodeTypeValue(' + TestParser.stringifyType(type) + ")"
 			case Node.TypeAlias(alias, value): return 'TypeAlias(' + TestParser.stringifyType(alias) + "," + TestParser.stringifyType(value) + ")"
-			case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
+			case Node.Dot(l, r): return "Dot(" + TestParser.stringify(l) + "," + r + ")"
 			case Node.DotUpper(l, r): return "DotUpper(" + TestParser.stringify(l) + "," + r + ")"
 
 			case Node.Private(expr): return 'Private(' + TestParser.stringify(expr) + ')'
-			case Node.TIf(econd, eif, eelse):
-				return 'TIf(' + TestParser.stringifyNodeArray(econd) + ',' + TestParser.stringify(eif) + ',' + TestParser.stringify(eelse) + ')'
+			case Node.If(econd, eif, eelse):
+				return 'If(' + TestParser.stringifyNodeArray(econd) + ',' + TestParser.stringify(eif) + ',' + TestParser.stringify(eelse) + ')'
 			case Node.Array(el): return 'Array(' + TestParser.stringifyNodeArray(el) + ')'
 			case Node.Unop(op, postfix, e): return 'Unop(' + Token.stringify(op) + ',' + postfix + ',' + TestParser.stringify(e) + ')'
 			case _: throw '<!--' + node + '-->'
