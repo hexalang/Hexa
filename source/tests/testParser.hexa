@@ -73,7 +73,7 @@ module
 			shouldAllEqual([
 				'i ++ ++ i': "TBlock([TUnop(++,true,TIdent(i)),TUnop(++,false,TIdent(i))])",
 				'a + b': "TBinop(TIdent(a),+,TIdent(b))",
-				'a += b': "TAssignop(TIdent(a),+,TIdent(b))"
+				'a += b': "AssignOp(TIdent(a),+,TIdent(b))"
 			])
 
 			// String interpolation
@@ -121,15 +121,15 @@ module
 				'a = EnumTest.EnumField(arg)' : 'TBinop(TIdent(a),=,TCall(TDotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[TIdent(arg)]))',
 				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'TBinop(TIdent(a),=,TCall(TDotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[argName:TIdent(argValue),TIdent(arg2),arg3:TIdent(arg3)]))',
 				'a = EnumTest<A,B>.EnumField' : 'TBinop(TIdent(a),=,TDotUpper(NodeTypeValue(ParametricType(EnumTest,[Type(A),Type(B)])),EnumField))',
-				'var a = b as B, c = d as! B, e = f as? B' : 'TVars([TVar(a,null,TAs(TIdent(b),<!--default-->,Type(B)),false,false),TVar(c,null,TAs(TIdent(d),!,Type(B)),false,false),TVar(e,null,TAs(TIdent(f),?,Type(B)),false,false)])',
-				'var a = b is B, c = d is B, e = f is B' : 'TVars([TVar(a,null,TAs(TIdent(b),Type(B)),false,false),TVar(c,null,TAs(TIdent(d),Type(B)),false,false),TVar(e,null,TAs(TIdent(f),Type(B)),false,false)])'
+				'var a = b as B, c = d as! B, e = f as? B' : 'Vars([TVar(a,null,TAs(TIdent(b),<!--default-->,Type(B)),false,false),TVar(c,null,TAs(TIdent(d),!,Type(B)),false,false),TVar(e,null,TAs(TIdent(f),?,Type(B)),false,false)])',
+				'var a = b is B, c = d is B, e = f is B' : 'Vars([TVar(a,null,TAs(TIdent(b),Type(B)),false,false),TVar(c,null,TAs(TIdent(d),Type(B)),false,false),TVar(e,null,TAs(TIdent(f),Type(B)),false,false)])'
 			])
 
 			// Types parsing in declarations
 			shouldAllEqual([
 				'var x:[Array<T>]' : 'TVar(x,ParametricType(Array,[ParametricType(Array,[Type(T)])]),null,false,false)',
 				'var x:[Map<K,V> : Array<T>]' : 'TVar(x,ParametricType(Map,[ParametricType(Map,[Type(K),Type(V)]),ParametricType(Array,[Type(T)])]),null,false,false)',
-				'var x:{}, y:[], z:[:], w:()=>{}' : 'TVars([TVar(x,Object([],[]),null,false,false),TVar(y,ParametricType(Array,[Object([],[])]),null,false,false),TVar(z,ParametricType(Map,[Object([],[]),Object([],[])]),null,false,false),TVar(w,Function([],Object([],[])),null,false,false)])',
+				'var x:{}, y:[], z:[:], w:()=>{}' : 'Vars([TVar(x,Object([],[]),null,false,false),TVar(y,ParametricType(Array,[Object([],[])]),null,false,false),TVar(z,ParametricType(Map,[Object([],[]),Object([],[])]),null,false,false),TVar(w,Function([],Object([],[])),null,false,false)])',
 				'let x:()=>()=>()=>()=>Void' : 'TVar(x,Function([],Function([],Function([],Function([],Type(Void))))),null,true,false)'
 			])
 
@@ -348,12 +348,12 @@ module
 			case Node.TIs(expr, type): return 'TAs(' + TestParser.stringify(expr) + "," + TestParser.stringifyType(type) + ")"
 			case Node.TAs(expr, kind, type): return 'TAs(' + TestParser.stringify(expr) + "," + Token.stringify(kind) + "," + TestParser.stringifyType(type) + ")"
 			case Node.TBinop(a, op, b): return 'TBinop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
-			case Node.TAssignop(a, op, b): return 'TAssignop(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
+			case Node.AssignOp(a, op, b): return 'AssignOp(' + TestParser.stringify(a) + ',' + Token.stringify(op) + ',' + TestParser.stringify(b) + ')'
 			case Node.TBlock(els): return 'TBlock(' + TestParser.stringifyNodeArray(els) + ')'
 			case Node.TVar(name, t, expr, const, external):
 			return 'TVar(\(name),' + ((t != null) ? TestParser.stringifyType(t) : "null") +
 			"," + ((expr != null) ? TestParser.stringify(expr) : "null") +',\(const),\(external))'
-			case Node.TVars(vars): return 'TVars(' + TestParser.stringifyNodeArray(vars) + ")"
+			case Node.Vars(vars): return 'Vars(' + TestParser.stringifyNodeArray(vars) + ")"
 
 			case Node.TFunction(name, expr, vars, rettype, external):
 				return 'TFunction(\(name),'
@@ -377,8 +377,8 @@ module
 			case Node.TReturn(e): return 'TReturn(' + TestParser.stringify(e) + ')'
 			case Node.TThrow(e): return 'TThrow(' + TestParser.stringify(e) + ')'
 			case Node.TEnum(t, els): return 'TEnum(' + TestParser.stringifyType(t) + ',' + TestParser.stringifyNodeArray(els) + ')'
-			case Node.TModule(path, els):
-				return "TModule(" + path + "," + TestParser.stringifyNodeArray(els) + ")"
+			case Node.Module(path, els):
+				return "Module(" + path + "," + TestParser.stringifyNodeArray(els) + ")"
 			case Node.Import(els, path):
 				function stringifyImportNode(node: ImportNode): String {
 					switch (node) {
@@ -409,7 +409,7 @@ module
 			case Node.TDot(l, r): return "TDot(" + TestParser.stringify(l) + "," + r + ")"
 			case Node.TDotUpper(l, r): return "TDotUpper(" + TestParser.stringify(l) + "," + r + ")"
 
-			case Node.TPrivate(expr): return 'TPrivate(' + TestParser.stringify(expr) + ')'
+			case Node.Private(expr): return 'Private(' + TestParser.stringify(expr) + ')'
 			case Node.TIf(econd, eif, eelse):
 				return 'TIf(' + TestParser.stringifyNodeArray(econd) + ',' + TestParser.stringify(eif) + ',' + TestParser.stringify(eelse) + ')'
 			case Node.TArray(el): return 'TArray(' + TestParser.stringifyNodeArray(el) + ')'

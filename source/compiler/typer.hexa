@@ -31,7 +31,7 @@ module
 				var el: [Node] = null as! [Node] // TODO
 				var root: String? = null
 				switch (m) {
-					case Node.TModule(path, els):
+					case Node.Module(path, els):
 					el = els
 					root = path.join('.')
 					case _: throw 'Unreachable #2'
@@ -42,7 +42,7 @@ module
 				} else {
 					var els: [Node] = null as! [Node] // TODO
 					switch (namespaces.get(root)) {
-						case Node.TModule(_, el): els = el
+						case Node.Module(_, el): els = el
 						case _: throw 'Unreachable #1'
 					}
 					while (el.length > 0) {
@@ -53,7 +53,7 @@ module
 				{
 					var els: [Node] = null as! [Node] // TODO
 					switch (namespaces.get(root)) {
-						case Node.TModule(_, el): els = el
+						case Node.Module(_, el): els = el
 						case _: throw 'Unreachable #4'
 					}
 
@@ -82,7 +82,7 @@ module
 				var didInit = false
 				var lastOne = file[0]
 				for (e in file) { switch (e) {
-					case Node.TModule(path, el):
+					case Node.Module(path, el):
 						if (didInit) {
 							fail(
 							'Modules should follow before expressions\n'
@@ -119,7 +119,7 @@ module
 				}
 
 				for (path in intermediate) {
-					var m = Node.TModule(path.split('.'), [])
+					var m = Node.Module(path.split('.'), [])
 					namespaces.set(path, m)
 				}
 			}
@@ -156,7 +156,7 @@ module
 			// Fill module scopes of all files at first
 			pushScope()
 			for (file in collected) { for (e in file) { switch (e) {
-				case Node.TModule(path, el):
+				case Node.Module(path, el):
 					// Fill classes and non-ambiguous nodes first
 					for (node in el) { switch (node) {
 						case Node.TClass(_):
@@ -190,7 +190,7 @@ module
 			for (file in collected) {
 				pushScope()
 				for (e in file) { switch (e) {
-					case Node.TModule(path, el):
+					case Node.Module(path, el):
 					case _: fill(e)
 				}}
 				popScope()
@@ -340,7 +340,7 @@ module
 						case Node.TClass(_):
 						case Node.TEnum(_):
 						case _:
-							parents.set(node, Node.TModule(info.path, info.nodes)) // TODO module itself
+							parents.set(node, Node.Module(info.path, info.nodes)) // TODO module itself
 							fill(node)
 					}
 				}
@@ -520,7 +520,7 @@ module
 											type.fieldNames.push(name)
 											addScope(name, field)
 									}
-								case Node.TStatic(f): switch (f) {
+								case Node.Static(f): switch (f) {
 									case Node.TFunction(name, _):
 										if (type.fieldNames.includes(name)) {
 											fail('Field `\(name)` already exists', field)
@@ -555,7 +555,7 @@ module
 									types.set(field, Type.Function(varTypes(vars), toType(rettype, field)))
 								}
 
-							case Node.TStatic(f): switch (f) {
+							case Node.Static(f): switch (f) {
 								case Node.TFunction(name, expr, vars, rettype):
 									if (let rettype = rettype) {
 										types.set(f, Type.Function(varTypes(vars), toType(rettype, f)))
@@ -635,7 +635,7 @@ module
 								}
 
 							// `static f`
-							case Node.TStatic(f): switch (f) {
+							case Node.Static(f): switch (f) {
 								case Node.TFunction(name, expr, vars, rettype):
 									if (external, expr != null) {
 										fail('External class field `static function \(name)` cannot have a body', field)
@@ -806,7 +806,7 @@ module
 								fail('Cannot use lowercase `\(name)` format for enum values', node)
 
 							// `enum E { static ... }`
-							case Node.TStatic(f): switch (f) {
+							case Node.Static(f): switch (f) {
 								case Node.TFunction(name, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', node)
@@ -835,7 +835,7 @@ module
 						case Node.TFunction(name, expr, vars, rettype):
 							fillFunction(field, expr, vars, rettype)
 						case Node.TVar(name, _):
-						case Node.TStatic(f): switch (f) {
+						case Node.Static(f): switch (f) {
 							case Node.TFunction(name, expr, vars, rettype):
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = false
@@ -913,7 +913,7 @@ module
 				return NodeType.ParametricType("Array", [nodeToNodeType(el[0])])
 			case Node.NodeTypeValue(t):
 				return t
-			case Node.TObject(names, el):
+			case Node.Object(names, el):
 				let types = [for (e in el) nodeToNodeType(e)]
 				return NodeType.Object(names, types)
 			case _:
@@ -930,7 +930,7 @@ module
 					} else {
 						throw 'Module function should have a name'
 					}
-				case Node.TPrivate(node): switch (node) {
+				case Node.Private(node): switch (node) {
 					case Node.TClass(t, _): switch (t) {
 						case NodeType.Type(name): return name
 						case NodeType.ParametricType(name): return name
@@ -970,7 +970,7 @@ module
 			var m = namespaces.get('')
 			var el: [Node] = null as! [Node]
 			switch (m) {
-				case Node.TModule(_, els): el = els
+				case Node.Module(_, els): el = els
 				case _: return null // No root
 			}
 			for (e in el) {
@@ -1140,9 +1140,11 @@ module
 			switch (t) {
 				case NodeType.Type(name):
 					if (types.get(nodeType) == null) { switch (nodeType) {
-						case Node.TClass(_): registerClassType(nodeType)
-						case Node.TEnum(_): registerEnumType(nodeType)
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
+						case Node.TClass(_):
+							registerClassType(nodeType)
+						case Node.TEnum(_):
+							registerEnumType(nodeType)
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch (type) {
@@ -1164,8 +1166,10 @@ module
 				case NodeType.ParametricType(name, params):
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
 					if (types.get(nodeType) == null) { switch (nodeType) {
-						case Node.TClass(_): registerClassType(nodeType)
-						case Node.TEnum(_): registerEnumType(nodeType)
+						case Node.TClass(_):
+							registerClassType(nodeType)
+						case Node.TEnum(_):
+							registerEnumType(nodeType)
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch (type) {
@@ -1357,7 +1361,7 @@ module
 				// Statements do not return value
 
 				// `var a = e, b: T, c`
-				case Node.TVars(e):
+				case Node.Vars(e):
 					for (ee in e) {
 						fill(ee)
 					}
@@ -1421,7 +1425,7 @@ module
 								'Cannot reassign iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
 							node)
-						case Node.TStatic(_):
+						case Node.Static(_):
 						case Node.Super(_):
 							fail('Cannot reassign `super`', node)
 						case _:
@@ -2015,7 +2019,7 @@ module
 					types.set(node, type)
 
 				// `{names:el, ...}`
-				case Node.TObject(names, el):
+				case Node.Object(names, el):
 					for (name in names.length) {
 						if (names.indexOf(names[name]) != name) {
 							fail('Field `\(names[name])` already exists', node)
@@ -2240,7 +2244,7 @@ module
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for (\(name) in ...)` is defined here',
 							node)
-						case Node.TStatic(f): switch (f) {
+						case Node.Static(f): switch (f) {
 							case Node.TFunction(name, _):
 								fail('Cannot `\(Token.stringify(op))` a static function `\(name)`', node)
 							case Node.TVar(name, _, _, const):
@@ -2308,7 +2312,7 @@ module
 					}
 
 				// `a op= b`
-				case Node.TAssignop(a, op, b):
+				case Node.AssignOp(a, op, b):
 					// `===`
 					if (op == Token.OpEq) {
 						fail('`===` not supported, use `strictEqual`', node)
@@ -2404,11 +2408,11 @@ module
 				// Errors
 				case Node.Underscore:
 					fail('Cannot use underscore `_` outside of case pattern', node)
-				case Node.TStatic(_):
+				case Node.Static(_):
 					fail('Cannot use `static` here: only applicable to class fields', node)
-				case Node.TPrivate(_):
+				case Node.Private(_):
 					fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
-				case Node.TModule(_):
+				case Node.Module(_):
 
 				// Not expressions
 				case Node.Break:
