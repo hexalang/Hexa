@@ -56,10 +56,10 @@
 						case _: throw 'Unreachable #4'
 					}
 
-					for (e in els) {
+					for e in els {
 						var name = nameOfModuleItem(e)
 						var found = false
-						for (el in els) {
+						for el in els {
 							if (nameOfModuleItem(el) == name) {
 								if (found) {
 									fail(
@@ -77,10 +77,10 @@
 			}
 
 			// Let's fill global namespaces first to avoid delayed expansion
-			for (file in collected) {
+			for file in collected {
 				var didInit = false
 				var lastOne = file[0]
-				for (e in file) { switch (e) {
+				for e in file { switch (e) {
 					case Node.Module(path, el):
 						if (didInit) {
 							fail(
@@ -102,7 +102,7 @@
 			// but no `module aaa.not_exists {}`, it creates `aaa.not_exists` namespace
 			{
 				var intermediateSubs = []
-				for (ns in namespaces.keys()) {
+				for ns in namespaces.keys() {
 					var path = ns.split('.')
 					var namespace = path.shift()
 					fun check(namespace) {
@@ -117,7 +117,7 @@
 					}
 				}
 
-				for (path in intermediate) {
+				for path in intermediate {
 					var m = Node.Module(path.split('.'), [])
 					namespaces.set(path, m)
 				}
@@ -154,10 +154,10 @@
 
 			// Fill module scopes of all files at first
 			pushScope()
-			for (file in collected) { for (e in file) { switch (e) {
+			for file in collected { for e in file { switch (e) {
 				case Node.Module(path, el):
 					// Fill classes and non-ambiguous nodes first
-					for (node in el) { switch (node) {
+					for node in el { switch (node) {
 						case Node.Class(_):
 							parents.set(node, e)
 							fill(node)
@@ -174,7 +174,7 @@
 							}
 						case _:
 					}}
-					for (node in el) { switch (node) {
+					for node in el { switch (node) {
 						case Node.Class(_):
 						case Node.Enum(_):
 						case _:
@@ -186,9 +186,9 @@
 			popScope()
 
 			// Fill initialization code at files roots
-			for (file in collected) {
+			for file in collected {
 				pushScope()
-				for (e in file) { switch (e) {
+				for e in file { switch (e) {
 					case Node.Module(path, el):
 					case _: fill(e)
 				}}
@@ -216,10 +216,10 @@
 			}
 
 			// Fill exports first to allow recursive imports
-			for (info in project.moduleInfo) {
+			for info in project.moduleInfo {
 				let nodes = info.nodes
 
-				for (e in nodes) {
+				for e in nodes {
 					var named = true
 					switch (e) {
 						case Node.Var(_):
@@ -239,12 +239,12 @@
 			}
 
 			// Imports & expressions
-			for (info in project.moduleInfo) {
+			for info in project.moduleInfo {
 				let nodes = info.nodes
 				pushScope()
 
 				var doneImports = false
-				for (e in nodes) {
+				for e in nodes {
 					var named = true
 					var lastOne = nodes[0]
 					switch (e) {
@@ -267,13 +267,13 @@
 										checkOverrides(info, to, e)
 										info.imported.set(to, what)
 									} else {
-										let has = [for (key in target.exported.keys()) key].join(', ')
+										let has = [for key in target.exported.keys() key].join(', ')
 										fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
 									}
 								}
 							}
 
-							for (el in els) {
+							for el in els {
 								switch (el) {
 									case ImportNode.Lower(name):
 										// TODO only camelCase
@@ -329,11 +329,11 @@
 				}
 			}
 
-			for (info in project.moduleInfo) {
+			for info in project.moduleInfo {
 				let nodes = info.nodes
 				pushScope()
 				// Fill expression bodies
-				for (node in nodes) {
+				for node in nodes {
 					switch (node) {
 						case Node.Import(_):
 						case Node.Class(_):
@@ -356,8 +356,8 @@
 
 			var subj = null
 		fun find(name: String): Node? {
-			for (i in scopes.length) {
 				subj = scopes[scopes.length - i - 1].get(name)
+			for i in scopes.length {
 				if (subj != null) {
 					break
 				}
@@ -378,7 +378,7 @@
 			var bestName = ''
 
 			// TODO for (name : index in _) _
-			for (name in names) {
+			for name in names {
 				let named = name.toLowerCase()
 				if (named.startsWith(subject) || subject.startsWith(named)) {
 					return 'Did you mean `\(name)`?\n\n' + available
@@ -387,7 +387,7 @@
 				var index = 0
 				var thisValue = 0
 				// TODO for (name : index in _) _
-				for (char in named.split('')) {
+				for char in named.split('') {
 					if (char == charSubj[index]) {
 						thisValue++
 					}
@@ -467,7 +467,7 @@
 							case NodeType.ParametricType(name, params):
 								type.genericParams.push(DataHelper.extractTypeName(params[0]))
 								let names = type.genericParams
-								for (i in 1 ... params.length) {
+								for i in 1 ... params.length {
 									let name = DataHelper.extractTypeName(params[i])
 									if (names.includes(name)) {
 										fail('Parameter `\(name)` already exists in `<T, ...>`', node)
@@ -479,17 +479,17 @@
 						if let ext = extend {
 							toType(ext, node)
 						}
-						for (impl in implement) {
+						for impl in implement {
 							toType(impl, node)
 						}
 						pushScope()
 
-						for (genericParam in type.genericParams) {
+						for genericParam in type.genericParams {
 							addScopeType(genericParam, typeAny)
 						}
 
 						// Fill scopes
-						for (field in f) {
+						for field in f {
 							switch (field) {
 								case Node.Function(name, _):
 									if (type.fieldNames.includes(name)) {
@@ -542,7 +542,7 @@
 						}
 
 						// Fill fields with non-ambiguous types
-						for (field in f) { switch (field) {
+						for field in f { switch (field) {
 							// `var\let a: known T`
 							case Node.Var(name, t, e, const):
 								if let t = t {
@@ -569,7 +569,7 @@
 						}}
 
 						// Fill expressions
-						for (field in f) { switch (field) {
+						for field in f { switch (field) {
 							// Instance method
 							case Node.Function(name, expr, vars, rettype):
 								if (name == 'new') {
@@ -711,7 +711,7 @@
 					}
 
 					// Check for incompatible tag format and fill scopes
-					for (field in f) {
+					for field in f {
 						switch (field) {
 							// `enum E { A }`
 							case Node.NodeTypeValue(t): switch (t) {
@@ -752,7 +752,7 @@
 												fail('Enum constructor expects more than zero arguments `(value: Type)`', e)
 											}
 
-											for (i in args.length) {
+											for i in args.length {
 												if (argNames[i] == null) {
 													fail('Enum constructor arguments should have names `E(name1: T, name2: T)', args[i])
 												}
@@ -830,7 +830,7 @@
 					}
 
 					// Fill expressions
-					for (field in f) { switch (field) {
+					for field in f { switch (field) {
 						case Node.Function(name, expr, vars, rettype):
 							fillFunction(field, expr, vars, rettype)
 						case Node.Var(name, _):
@@ -913,7 +913,7 @@
 			case Node.NodeTypeValue(t):
 				return t
 			case Node.Object(names, el):
-				let types = [for (e in el) nodeToNodeType(e)]
+				let types = [for e in el nodeToNodeType(e)]
 				return NodeType.Object(names, types)
 			case _:
 				fail('Cannot nodeToNodeType of ' + Node.stringify(node), node)
@@ -972,7 +972,7 @@
 				case Node.Module(_, els): el = els
 				case _: return null // No root
 			}
-			for (e in el) {
+			for e in el {
 				if (name == nameOfModuleItem(e)) {
 					return e
 				}
@@ -1117,7 +1117,7 @@
 		}
 
 		fun findType(name: String): Node? {
-			for (i in scopes.length) {
+			for i in scopes.length {
 				if let subj = scopes[scopes.length - i - 1].get(name) {
 					return subj
 				}
@@ -1126,7 +1126,7 @@
 		}
 
 		fun findActualType(name: String): Type? {
-			for (i in scopeTypes.length) {
+			for i in scopeTypes.length {
 				if let subj = scopeTypes[scopeTypes.length - i - 1].get(name) {
 					return subj
 				}
@@ -1179,7 +1179,7 @@
 							if (type.genericParams.length != params.length) {
 								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
 							}
-							return type.instantiateGeneric([for (p in params) toType(p, node)])
+							return type.instantiateGeneric([for p in params toType(p, node)])
 						case null:
 							fail('Cannot find type `\(name)`', node)
 						case _:
@@ -1192,9 +1192,9 @@
 				case NodeType.Optional(t):
 					return Type.Nullable(toType(t, node))
 				case NodeType.Function(args, ret):
-					return Type.Function([for (arg in args) toType(arg, node)], toType(ret, node))
+					return Type.Function([for arg in args toType(arg, node)], toType(ret, node))
 				case NodeType.Object(names, el):
-					let els = [for (e in el) toType(e, node)]
+					let els = [for e in el toType(e, node)]
 					return Type.Struct(names, els)
 				case _:
 					fail('Unsupported node type ' + t + never, node)
@@ -1220,7 +1220,7 @@
 		fun varTypes(vars: [Node]): [Type] {
 			let varTypes: [Type] = []
 
-			for (v in vars) {
+			for v in vars {
 				switch (v) {
 					case Node.Var(_, t):
 						if let t = t {
@@ -1245,7 +1245,7 @@
 			let _functionActuallyReturns = functionActuallyReturns
 			let _insideTry = insideTry
 
-			for (i in vars.length) {
+			for i in vars.length {
 				let v = vars[i]
 				switch (v) {
 					case Node.Var(vname, t, e, const):
@@ -1319,7 +1319,7 @@
 			functionActuallyReturns = _functionActuallyReturns
 
 			// Set function type
-			types.set(node, Type.Function(args: [for (v in vars) types.get(v)], returns: ret))
+			types.set(node, Type.Function(args: [for v in vars types.get(v)], returns: ret))
 		}
 
 		private fun fillModuleTypes(node: Node): Void {
@@ -1364,7 +1364,7 @@
 				// `{...}`
 				case Node.Block(el):
 					pushScope()
-					for (e in el) {
+					for e in el {
 						fill(e)
 					}
 					popScope()
@@ -1515,7 +1515,7 @@
 				// Also `if (let bind = value, econd..., econd...)`
 				case Node.If(econd, eif, eelse):
 					var depth = 0
-					for (e in econd) {
+					for e in econd {
 						switch (e) {
 							case Node.Var(name, t, expr, const):
 								if (!const) {
@@ -1581,7 +1581,7 @@
 					// Restore stack
 					insideTry = _insideTry
 
-					for (i in ca.length) {
+					for i in ca.length {
 						let type = toType(t[i], ca[i])
 						switch (type) {
 							case Type.Struct(_):
@@ -1640,7 +1640,7 @@
 				// Just `name`
 				case Node.Ident(name):
 					var subj = null
-					for (i in scopes.length) {
+					for i in scopes.length {
 						subj = scopes[scopes.length - i - 1].get(name)
 						if (subj != null) {
 							break
@@ -1667,7 +1667,7 @@
 				// `(args)=>{expr}`
 				case Node.Arrow(expr, vars, rettype):
 					fillFunction(node, expr, vars, rettype, arrow: true)
-					if(false){
+					if (false) {
 					pushScope()
 					// Save stack
 					let _insideFunction = insideFunction
@@ -1689,7 +1689,7 @@
 
 					fillFunction(node, expr, vars, rettype)
 
-					if(false){
+					if (false) {
 					pushScope()
 					addScope(name, node)
 
@@ -1732,7 +1732,7 @@
 
 							types.set(node, typeArray.instantiateGeneric([types.get(by)]))
 						case _:
-							for (e in el) {
+							for e in el {
 								fillExpression(e)
 							}
 							types.set(node, typeArray.instantiateGeneric([
@@ -1753,7 +1753,7 @@
 						]))
 						return
 					}
-					for (i in keys.length) {
+					for i in keys.length {
 						fillExpression(keys[i])
 						fillExpression(values[i])
 					}
@@ -1795,7 +1795,7 @@
 						types.set(node, Type.Struct([], []))
 					} else {
 						pushScope()
-						for (i in el.length) { if (i < el.length - 1) {
+						for i in el.length { if (i < el.length - 1) {
 							fill(el[i])
 						}}
 						let latest = el[el.length - 1]
@@ -1831,7 +1831,7 @@
 							switch (type.parent) {
 								case Node.Class(t, extend, implement, fields, external):
 									registerClassType(type.parent)
-									for (field in fields) {
+									for field in fields {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
 											parents.set(node, field)
@@ -1855,7 +1855,7 @@
 							}
 							switch (type.parent) {
 								case Node.Class(t, extend, implement, fields, external):
-									for (field in fields) {
+									for field in fields {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
 											parents.set(node, field)
@@ -1874,7 +1874,7 @@
 							}
 							switch (type.parent) {
 								case Node.Enum(t, fields, valuesType):
-									for (field in fields) { switch (field) {
+									for field in fields { switch (field) {
 										case Node.Call(_):
 										case Node.NodeTypeValue(_):
 										case Node.Binop(_):
@@ -2014,17 +2014,17 @@
 
 				// `{names:el, ...}`
 				case Node.Object(names, el):
-					for (name in names.length) {
+					for name in names.length {
 						if (names.indexOf(names[name]) != name) {
 							fail('Field `\(names[name])` already exists', node)
 						}
 					}
 
-					for (e in el) {
+					for e in el {
 						fillExpression(e)
 					}
 
-					let els = [for (e in el) types.get(e)]
+					let els = [for e in el types.get(e)]
 					types.set(node, Type.Struct(names, els))
 
 				// `try { ... value } catch (e: T) { ... value }`
@@ -2037,7 +2037,7 @@
 					// Restore stack
 					insideTry = _insideTry
 
-					for (i in ca.length) {
+					for i in ca.length {
 						pushScope()
 						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
 						fill(ca[i])
@@ -2133,13 +2133,13 @@
 				 			fillExpression(e)
 				 	}
 
-					for (e in el) {
+					for e in el {
 						fillExpression(e)
 					}
 
 				 	switch (types.get(e)) {
 				 		case Type.Function(args, returns):
-				 			for (i in el.length) { if let arg = args[i] {
+				 			for i in el.length { if let arg = args[i] {
 				 				unify(arg, types.get(el[i]), el[i])
 				 			}}
 				 			types.set(node, returns)
@@ -2443,7 +2443,7 @@
 			switch (node) {
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
 				case Node.Switch(exprs, conds, guards, cases):
-					for (e in exprs) { pushScope() fillExpression(e) popScope() }
+					for e in exprs { pushScope() fillExpression(e) popScope() }
 					if let expr = exprs[1] {
 						fail('Multiple switch values are not yet supported', expr)
 					}
@@ -2591,7 +2591,7 @@
 										}
 									}
 
-									for (ee in args) {
+									for ee in args {
 										if (interval) {
 											fail('Do not match any patterns after `...` interval', ee)
 										}
