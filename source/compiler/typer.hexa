@@ -262,29 +262,41 @@ module
 								fail('Cannot import ' + path, e)
 							}
 
+							function importAs(name: String, to: String) {
+								if (let target = project.moduleInfo[index]) {
+									if (let what = target.exported.get(name)) {
+										checkOverrides(info, to, e)
+										info.imported.set(to, what)
+									} else {
+										let has = [for (key in target.exported.keys()) key].join(', ')
+										fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
+									}
+								}
+							}
+
 							for (el in els) {
 								switch (el) {
 									case ImportNode.Lower(name):
-										if (let target = project.moduleInfo[index]) {
-											if (let what = target.exported.get(name)) {
-												checkOverrides(info, name, e)
-												info.imported.set(name, what)
-											} else {
-												// TODO only camelCase
-												let has = [for (key in target.exported.keys()) key].join(', ')
-												fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
-											}
-										}
+										// TODO only camelCase
+										importAs(name, name)
 									case ImportNode.Upper(name):
-										if (let target = project.moduleInfo[index]) {
-											if (let what = target.exported.get(name)) {
-												checkOverrides(info, name, e)
-												info.imported.set(name, what)
-											} else {
+										// TODO only TitleCase
+										importAs(name, name)
+									case ImportNode.As(left, right):
+										var lhs = ''
+										switch (left) {
+											case ImportNode.Lower(name):
+												lhs = name
+											case ImportNode.Upper(name):
+												lhs = name
+										}
+										switch (right) {
+											case ImportNode.Lower(name):
+												// TODO only camelCase
+												importAs(lhs, name)
+											case ImportNode.Upper(name):
 												// TODO only TitleCase
-												let has = [for (key in target.exported.keys()) key].join(', ')
-												fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
-											}
+												importAs(lhs, name)
 										}
 									case _:
 										fail('This import kind not implemented yet', e)
