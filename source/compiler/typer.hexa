@@ -165,11 +165,11 @@
 							parents.set(node, e)
 							fill(node)
 						case Node.Function(name, expr, vars, rettype):
-							if (let rettype = rettype) {
+							if let rettype = rettype {
 								types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
 							}
 						case Node.Var(name, t, e, const):
-							if (let t = t) {
+							if let t = t {
 								types.set(node, toType(t, node))
 							}
 						case _:
@@ -262,8 +262,8 @@
 							}
 
 							fun importAs(name: String, to: String) {
-								if (let target = project.moduleInfo[index]) {
-									if (let what = target.exported.get(name)) {
+								if let target = project.moduleInfo[index] {
+									if let what = target.exported.get(name) {
 										checkOverrides(info, to, e)
 										info.imported.set(to, what)
 									} else {
@@ -316,11 +316,11 @@
 									parents.set(node, e)
 									fillModuleTypes(node)
 								case Node.Function(name, expr, vars, rettype):
-									if (let rettype = rettype) {
+									if let rettype = rettype {
 										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
 									}
 								case Node.Var(name, t, e, const):
-									if (let t = t) {
+									if let t = t {
 										types.set(node, toType(t, node))
 									}
 								case _:
@@ -410,11 +410,11 @@
 
 		// `class T {}`
 		fun registerClassType(node: Node, callback: Any): ClassType {
-			if (let type = types.get(node)) {
 				switch (type) {
+			if let type = types.get(node) {
 					// Avoid typing if already typed
 					case Type.Class(t):
-						if (let setup = callback) {
+						if let setup = callback {
 							setup(t)
 						}
 						return t
@@ -432,7 +432,7 @@
 
 				// Solve race condition
 				// TODO do only for std lib
-				if (let setup = callback) {
+				if let setup = callback {
 					setup(type)
 				}
 
@@ -449,7 +449,7 @@
 
 				fun getRename(f: Node): String? {
 					let atts = project.mapDecorators.get(f)
-					if (let native = DataHelper.getDecorator(atts, 'native')) {
+					if let native = DataHelper.getDecorator(atts, 'native') {
 						if (native.values.length != 1) {
 							throw '@native takes one string argument'
 						}
@@ -476,7 +476,7 @@
 								}
 						}
 
-						if (let ext = extend) {
+						if let ext = extend {
 							toType(ext, node)
 						}
 						for (impl in implement) {
@@ -545,23 +545,23 @@
 						for (field in f) { switch (field) {
 							// `var\let a: known T`
 							case Node.Var(name, t, e, const):
-								if (let t = t) {
+								if let t = t {
 									types.set(field, toType(t, field))
 								}
 							// `function a(args with known types or no args): known ret type`
 							case Node.Function(name, expr, vars, rettype):
-								if (let rettype = rettype) {
+								if let rettype = rettype {
 									types.set(field, Type.Function(varTypes(vars), toType(rettype, field)))
 								}
 
 							case Node.Static(f): switch (f) {
 								case Node.Function(name, expr, vars, rettype):
-									if (let rettype = rettype) {
+									if let rettype = rettype {
 										types.set(f, Type.Function(varTypes(vars), toType(rettype, f)))
 										types.set(field, types.get(f))
 									}
 								case Node.Var(name, t, e, const):
-									if (let t = t) {
+									if let t = t {
 										types.set(f, toType(t, f))
 										types.set(field, types.get(f))
 									}
@@ -575,7 +575,7 @@
 								if (name == 'new') {
 									type.constructor = type.fieldNames.length - 1
 								}
-								if (external, expr != null) {
+								if external, expr != null {
 									if (name == 'new') {
 										fail('External class constructor `new()` cannot have a body `{}`', field)
 									} else {
@@ -586,10 +586,10 @@
 								let _allowSuper = allowSuper
 								insideClassMethod = true
 								allowSuper = (extend != null)
-								if (!external) {
+								if !external {
 									fillFunction(field, expr, vars, rettype)
 								}
-								if (external, types.get(field) == null) {
+								if external, types.get(field) == null {
 									types.set(field, Type.Function(varTypes(vars), rettype!=null? toType(rettype, field) : typeVoid))
 								}
 								insideClassMethod = _insideClassMethod
@@ -597,18 +597,18 @@
 
 							// Field of `var` or `let`
 							case Node.Var(name, t, e, const):
-								if (external, e != null) {
+								if external, e != null {
 									fail('External class field `var \(name)` cannot have `= value`', field)
 								}
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = true
-								if (e != null) {
+								if e != null {
 									fillExpression(e)
 								}
 								insideClassMethod = _insideClassMethod
 								mixVarTypes(t, e, field)
 								type.fieldInitialized[type.fieldNames.indexOf(name)] = true
-								if (types.get(field) == null) {
+								if types.get(field) == null {
 									fail('Field `var \(name)` initialized, but got no type '+e, field)
 								}
 
@@ -616,18 +616,18 @@
 							case Node.Property(f, _, _):
 									switch (f) {
 										case Node.Var(name, t, e, const):
-											if (external, e != null) {
+											if external, e != null {
 												fail('External class field `var \(name)` cannot have expression', field)
 											}
 											let _insideClassMethod = insideClassMethod
 											insideClassMethod = true
-											if (e != null) {
+											if e != null {
 												fillExpression(e)
 											}
 											insideClassMethod = _insideClassMethod
 											mixVarTypes(t, e, f)
 											type.fieldInitialized[type.fieldNames.indexOf(name)] = true
-											if (types.get(f) == null) {
+											if types.get(f) == null {
 												fail('Property `\(name)` initialized, but got no type '+e, field)
 											}
 											types.set(field, types.get(f))
@@ -636,15 +636,15 @@
 							// `static f`
 							case Node.Static(f): switch (f) {
 								case Node.Function(name, expr, vars, rettype):
-									if (external, expr != null) {
+									if external, expr != null {
 										fail('External class field `static fun \(name)` cannot have a body', field)
 									}
 									let _insideClassMethod = insideClassMethod
 									insideClassMethod = false
-									if (!external) {
+									if !external {
 										fillFunction(f, expr, vars, rettype)
 									}
-									if (external) {
+									if external {
 										types.set(f, Type.Function(varTypes(vars), rettype!=null? toType(rettype, f) : typeVoid))
 									}
 									insideClassMethod = _insideClassMethod
@@ -653,7 +653,7 @@
 									}
 									types.set(field, types.get(f))
 								case Node.Var(name, t, e, const):
-									if (external, e != null) {
+									if external, e != null {
 										fail('External class field `static var \(name)` cannot have expression', field)
 									}
 									if (e != null) {
@@ -680,8 +680,8 @@
 
 		// `enum T {}`
 		fun registerEnumType(node: Node): Type {
-			if (let type = types.get(node)) {
 				switch (type) {
+			if let type = types.get(node) {
 					// Avoid typing if already typed
 					case Type.Enum(t): return t
 				}
@@ -694,19 +694,19 @@
 				switch (node) {
 					case Node.Enum(t, f, valuesType, extend):
 					pushScope()
-					if (let valuesType = valuesType) {
+					if let valuesType = valuesType {
 						type.fieldsTypeSimple = toType(valuesType, node)
 					}
 
-					if (
+					if
 						type.fieldsTypeSimple != null,
 						type.fieldsTypeSimple != typeInt,
 						type.fieldsTypeSimple != typeString
-					) {
+					{
 						fail('Simple enums may be only of types `Int` and `String`', node)
 					}
 
-					if (f.length == 0, extend == null) {
+					if f.length == 0, extend == null {
 						fail('Enum `\(type.name)` must have at least one value `enum \(type.name) { Value }`', node)
 					}
 
@@ -889,7 +889,7 @@
 
 		fun failNonFatal(msg: String, node: Node = null): Void {
 			let data = project.data.get(node)
-			if (let data = data) {
+			if let data = data {
 				failures.push(new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName))
 			} else {
 				failures.push(new CompilerError(Fail.TyperError, msg, 0, 0, ""))
@@ -924,7 +924,7 @@
 			switch (node) {
 				case Node.Var(name, _): return name
 				case Node.Function(name, _):
-					if (let named = name) {
+					if let named = name {
 						return named
 					} else {
 						throw 'Module function should have a name'
@@ -953,11 +953,11 @@
 
 		var currentModule: Module = new Module()
 		fun findInNamespaceRoots(name: String): Node? {
-			if (let node = currentModule.imported.get(name)) {
+			if let node = currentModule.imported.get(name) {
 				return node
 			}
 
-			if (let node = project.globals.get(name)) {
+			if let node = project.globals.get(name) {
 				return node
 			}
 
@@ -1055,7 +1055,7 @@
 			}
 
 			// `Int` is assignable to `Float`
-			if (to == typeFloat, fromValue == typeInt) {
+			if to == typeFloat, fromValue == typeInt {
 				return typeFloat
 			}
 
@@ -1109,7 +1109,7 @@
 				return to ?? fromValue
 			}
 
-			if (toInstance != fromInstance, unwrapNullable(to) != typeAny, unwrapNullable(fromValue) != typeAny) {
+			if toInstance != fromInstance, unwrapNullable(to) != typeAny, unwrapNullable(fromValue) != typeAny {
 				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
@@ -1118,7 +1118,7 @@
 
 		fun findType(name: String): Node? {
 			for (i in scopes.length) {
-				if (let subj = scopes[scopes.length - i - 1].get(name)) {
+				if let subj = scopes[scopes.length - i - 1].get(name) {
 					return subj
 				}
 			}
@@ -1127,7 +1127,7 @@
 
 		fun findActualType(name: String): Type? {
 			for (i in scopeTypes.length) {
-				if (let subj = scopeTypes[scopeTypes.length - i - 1].get(name)) {
+				if let subj = scopeTypes[scopeTypes.length - i - 1].get(name) {
 					return subj
 				}
 			}
@@ -1203,16 +1203,16 @@
 
 		// `var node: NodeType = e`
 		fun mixVarTypes(t: NodeType?, e: Node?, node: Node) {
-			if (t != null, e != null) {
+			if t != null, e != null {
 				types.set(node, unify(toType(t, node), types.get(e), e))
 			}
-			if (t == null, e != null) {
+			if t == null, e != null {
 				types.set(node, types.get(e))
 			}
-			if (t == null, e == null) {
+			if t == null, e == null {
 				types.set(node, Type.UnknownNullable({value: null}))
 			}
-			if (t != null, e == null) {
+			if t != null, e == null {
 				types.set(node, toType(t, node))
 			}
 		}
@@ -1223,7 +1223,7 @@
 			for (v in vars) {
 				switch (v) {
 					case Node.Var(_, t):
-						if (let t = t) {
+						if let t = t {
 							varTypes.push(toType(t, v))
 						} else {
 							varTypes.push(Type.Unknown({ value: null }))
@@ -1249,7 +1249,7 @@
 				let v = vars[i]
 				switch (v) {
 					case Node.Var(vname, t, e, const):
-						if (t != null, toType(t, v) == typeVoid) {
+						if t != null, toType(t, v) == typeVoid {
 							fail('Argument cannot be of type `Void`', v)
 						}
 
@@ -1260,7 +1260,7 @@
 						if (e != null) {
 							fillExpression(e)
 
-							if (let t = types.get(v)) {
+							if let t = types.get(v) {
 								unify(types.get(e), t, e)
 							}
 						}
@@ -1271,7 +1271,7 @@
 
 			// Reset stack
 			var ret: Type? = null // TODO = if (let)
-			if (let rt = rettype) {
+			if let rt = rettype {
 				ret = toType(rt, node)
 			}
 			functionReturnsAType = ret
@@ -1279,7 +1279,7 @@
 
 			let atts = project.mapDecorators.get(node)
 
-			if (let noThrow = DataHelper.getDecorator(atts, 'noThrow')) {
+			if let noThrow = DataHelper.getDecorator(atts, 'noThrow') {
 				if (noThrow.values.length > 0) {
 					fail('Decorator `@noThrow` should have no parameters', node)
 				}
@@ -1288,7 +1288,7 @@
 				functionAllowedToThrow = true
 			}
 
-			if (let throws = DataHelper.getDecorator(atts, 'throws')) {
+			if let throws = DataHelper.getDecorator(atts, 'throws') {
 				if (functionAllowedToThrow == false) {
 					fail('Decorator `@noThrow` cannot be used with `@throws`', node)
 				}
@@ -1300,10 +1300,10 @@
 			insideFunction = true
 			insideTry = false
 
-			if (arrow, expr != null) {
+			if arrow, expr != null {
 				fillExpression(expr)
 			}
-			if (!arrow, expr != null) {
+			if !arrow, expr != null {
 				fill(expr)
 			}
 			popScope()
@@ -1371,16 +1371,16 @@
 
 				// `var name: t = e`
 				case Node.Var(name, t, e, const, external):
-					if (e == null, const, !external) {
+					if e == null, const, !external {
 						fail('Constant should have a value `let \(name) = value`', node)
 					}
-					if (e != null, external) {
+					if e != null, external {
 						fail('External variable should not have a value `declare let \(name)`', node)
 					}
-					if (t == null, external) {
+					if t == null, external {
 						fail('External variable should have a type `declare let \(name): T`', node)
 					}
-					if (e != null) {
+					if e != null {
 						pushScope()
 						fillExpression(e)
 						popScope()
@@ -1441,9 +1441,9 @@
 					switch (overType) {
 						case Type.ClassInstance(type, generic):
 							// Extract Array<T>
-							if (generic != null, generic.length == 1) {
+							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
-							} else if (overType == typeInt) {
+							} else if overType == typeInt {
 								types.set(node, typeInt)
 							} else {
 								fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
@@ -1459,7 +1459,7 @@
 						case _:
 							fail('Type of iterable is neiter Int nor Array', over)
 					}
-					if (let range = range) {
+					if let range = range {
 						fillExpression(range)
 						// Ranges always integer/Int for now
 						if (types.get(range) != typeInt) {
@@ -1485,15 +1485,15 @@
 				// `function name(vars): rettype {expr}`
 				// `vars` are `Var(name, t, ...)` where `function(name: t)`
 				case Node.Function(name, expr, vars, rettype, external):
-					if (!external, expr == null) {
+					if !external, expr == null {
 						fail('Non-external function `\(name)` should have a body', node)
 					}
-					if (external, rettype == null) {
+					if external, rettype == null {
 						fail('External function `\(name)` should have a returning type', node)
 					}
 					addScope(name, node)
 					fillFunction(node, expr, vars, rettype)
-					if(false){
+					if (false) {
 
 					// Save stack
 					let _insideFunction = insideFunction
@@ -1535,7 +1535,7 @@
 								switch (types.get(expr)) {
 									case Type.Nullable(t): types.set(e, t)
 									case Type.UnknownNullable(handle):
-										if (let t = handle.value) {
+										if let t = handle.value {
 											types.set(e, t)
 										} else {
 											fail('if-let cannot bind not fully known nullable type', node)
@@ -1547,7 +1547,7 @@
 								fillExpression(e)
 								// Only Bool allowed
 								let type = types.get(e)
-								if (type != typeBool, type != typeAny, type != null) {
+								if type != typeBool, type != typeAny, type != null {
 									fail('`if (value)` expects `value` only of type `Bool`, but got `' + Type.stringify(types.get(e)) + '`', e)
 								}
 						}
@@ -1647,23 +1647,22 @@
 						}
 					}
 
-					if (subj == null) {
+					if subj == null {
 						subj = findInNamespaceRoots(name)
 					}
-					if (subj == null, name == 'const') {
+					if subj == null, name == 'const' {
 						fail('No variable named `const` found. Are you trying to use `const` as a keyword? Use `let varname` syntax instead.', node)
 					}
-					if (subj == null) {
+					if subj == null {
 						fail('Cannot find variable with name `\(name)`', node)
 					}
-					if (parents.get(node) != null, parents.get(node) != subj) {
+					if parents.get(node) != null, parents.get(node) != subj {
 						fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 					}
 					parents.set(node, subj)
-					if (let type = types.get(subj)) {
+					if let type = types.get(subj) {
 						types.set(node, type)
 					}
-
 
 				// `(args)=>{expr}`
 				case Node.Arrow(expr, vars, rettype):
@@ -1912,7 +1911,7 @@
 							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if(let)`', node)
 							types.set(node, typeAny) // TODO unwrap proper type
 						case Type.Unknown(handle):
-							if (let type = handle.value) {
+							if let type = handle.value {
 								// TODO
 							} else {
 								failNonFatal('Cannot access `.\(n)` due to type of value being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
@@ -1950,7 +1949,7 @@
 							if (type.fieldEnumConstructor[index] != true) {
 								fail('Enum field `.\(n)` is not a value constructor', node)
 							}
-							if (let fieldType = type.fieldType[index]) {
+							if let fieldType = type.fieldType[index] {
 								types.set(node, fieldType)
 							} else {
 								fail('Enum field type is null for `\(Node.stringify(node))`', node)
@@ -1967,11 +1966,11 @@
 						if (subj == null) {
 							fail('Cannot find type with name `\(name)`', node)
 						}
-						if (parents.get(node) != null, parents.get(node) != subj) {
+						if parents.get(node) != null, parents.get(node) != subj {
 							fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 						}
 						parents.set(node, subj)
-						if (let type = types.get(subj)) {
+						if let type = types.get(subj) {
 							types.set(node, type)
 						} else {
 							// Try eager on-demand type build
@@ -1980,7 +1979,7 @@
 								case Node.Enum(_): registerEnumType(subj)
 							}
 
-							if (let type = types.get(subj)) {
+							if let type = types.get(subj) {
 								types.set(node, type)
 							} else {
 								console.log(positionOf(subj) + '\(name) is here')
@@ -1998,7 +1997,7 @@
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
 					parents.set(node, subj)
-					for (e in el) {
+					for e in el {
 						fillExpression(e)
 					}
 					switch (type) {
@@ -2140,7 +2139,7 @@
 
 				 	switch (types.get(e)) {
 				 		case Type.Function(args, returns):
-				 			for (i in el.length) { if (let arg = args[i]) {
+				 			for (i in el.length) { if let arg = args[i] {
 				 				unify(arg, types.get(el[i]), el[i])
 				 			}}
 				 			types.set(node, returns)
@@ -2186,7 +2185,7 @@
 					fillExpression(b)
 
 					// Anything + String = String
-					if (op == Token.OpAdd, types.get(a) == typeString) {
+					if op == Token.OpAdd, types.get(a) == typeString {
 						types.set(node, types.get(a))
 					} else
 					// Always provides boolean result
@@ -2202,7 +2201,7 @@
 					) {
 						types.set(node, typeBool)
 					} else {
-					types.set(node, types.get(b) ?? types.get(a))
+						types.set(node, types.get(b) ?? types.get(a))
 					}
 
 				// `op e` or `e op`
@@ -2210,9 +2209,9 @@
 					fillExpression(e)
 
 					// Always provides boolean result
-					if (op == Token.OpNot, !postfix) {
+					if op == Token.OpNot, !postfix {
 						let type = types.get(e)
-						if (type != typeBool, type != typeAny, type != null) {
+						if type != typeBool, type != typeAny, type != null {
 							fail('Operator `!value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
 						}
 						types.set(node, typeBool)
@@ -2282,7 +2281,7 @@
 					if (!indexableIsAny) {
 					switch (types.get(i)) {
 						case Type.ClassInstance(type):
-							if (type.name != 'Int', type.name != 'Any') {
+							if type.name != 'Int', type.name != 'Any' {
 								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(types.get(i)) + '`', e)
 							}
 						case _:
@@ -2293,11 +2292,11 @@
 					// For now, only Array[i] supported
 					switch (types.get(e)) {
 						case Type.ClassInstance(type, generic):
-							if (generic != null, generic.length == 1) {
+							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
-							} else if (['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name)) {
+							} else if ['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name) {
 								types.set(node, toType(NodeType.Type("Int"), node))
-							} else if (['Any'].includes(type.name)) {
+							} else if ['Any'].includes(type.name) {
 								types.set(node, toType(NodeType.Type("Any"), node))
 							} else {
 								fail('value[i] generic is null or >1', e)
@@ -2391,7 +2390,7 @@
 						functionReturnsAType = unify(functionReturnsAType, ret, e)
 						functionActuallyReturns = true
 					} else {
-						if (let ret = functionReturnsAType) {
+						if let ret = functionReturnsAType {
 							if (ret != typeVoid) {
 								fail('Expected `return value` of type `\(Type.stringify(ret))`', node)
 							}
@@ -2445,7 +2444,7 @@
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
 				case Node.Switch(exprs, conds, guards, cases):
 					for (e in exprs) { pushScope() fillExpression(e) popScope() }
-					if (let expr = exprs[1]) {
+					if let expr = exprs[1] {
 						fail('Multiple switch values are not yet supported', expr)
 					}
 
@@ -2570,20 +2569,20 @@
 										fail('Do not use `()` empty pattern, use `\(currentTag)(...)` syntax to ignore all bindings', e)
 									}
 
-									if (
+									if
 										let enumType = enumType,
 										enumType.fieldsTypeSimple != null
-									) {
+									{
 										fail('The `\(enumType.name)` is simple enum and has no `()` bindings', e)
 									}
 
-									if (
+									if
 										let enumType = enumType,
 										shortHandSyntax == true,
 										let i = enumType.fieldNames.indexOf(currentTag),
 										let binds = enumType.tagBindVarsNames[i],
 										binds.length == 0
-									) {
+									{
 										switch (args[0]) {
 											case Node.Interval(_):
 												// Okay
@@ -2604,13 +2603,13 @@
 											follow(ee)
 											currentTagBind++
 										case Node.Underscore:
-											if (
+											if
 												let enumType = enumType,
 												shortHandSyntax == true,
 												let i = enumType.fieldNames.indexOf(currentTag),
 												let binds = enumType.tagBindVarsNames[i],
 												binds.length <= currentTagBind
-											) {
+											{
 												fail('Too many bindings ignored with `_` for `F` tag, use `...` syntax to ignore all future bindings', e)
 											}
 
@@ -2626,8 +2625,8 @@
 									shortHandSyntax = true
 									switch (t) {
 										case NodeType.Type(name):
-											if (let enumType = enumType) {
-												if (let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true) {
+											if let enumType = enumType {
+												if let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true {
 													currentType = enumType
 													currentTag = name
 													if (tags.includes(currentTag)) {
@@ -2653,7 +2652,7 @@
 										addScope(name, e)
 
 										// Find tag bind var and set it's type:
-										if (let currentType = currentType) {
+										if let currentType = currentType {
 											let indexOf = currentType.fieldNames.indexOf(currentTag)
 											if (indexOf == -1) {
 												fail('currentType.fieldNames.indexOf == -1', e)
@@ -2697,7 +2696,7 @@
 						var e = cases[i]
 						pushScope()
 
-						if (let guard = guards[i]) {
+						if let guard = guards[i] {
 							fillExpression(guard)
 							if (types.get(guard) != typeBool) {
 								fail('Case guard must be a simple boolean expression', guard)
