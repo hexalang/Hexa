@@ -30,6 +30,10 @@ declare class Package {
 		let randomSeed: Int?
 		let define: Any
 		let noLib: Bool
+		let roots: [String]
+		var global: [String]
+		var entry: String
+		let root: String
 		var files: [String]
 		let targets: [{
 			name: String,
@@ -296,9 +300,95 @@ class Main {
 		}
 	}
 
+	static function processGlobals(project: Project, path: String) {
+		let index = project.moduleName.indexOf(path)
+
+		if (let info = project.moduleInfo[index]) {
+			let nodes = info.nodes
+			for (e in nodes) {
+				var named = true
+				switch (e) {
+					case Node.TVar(_):
+					case Node.TEnum(_):
+					case Node.TFunction(_):
+					case Node.TClass(_):
+					// TODO type alias
+					case _:
+						named = false
+				}
+
+				if (named) {
+					let name = DataHelper.nameOf(e)
+					if (project.globals.has(name)) {
+						// TODO format properly and fit into lang server
+						Process.stdout.write("Global node `\(name)` declared in `\(path)` already defined somewhere\n")
+						Process.exit(502)
+					} else {
+						project.globals.set(name, e)
+					}
+				}
+			}
+		}
+	}
+
+	static function processModule(project: Project, path: String, global: Bool): Int {
+		let index = project.moduleName.indexOf(path)
+		var lines = 0
+
+		// Do not parse again, but upload all globals
+		if (index > -1) {
+			if (global == true) {
+				processGlobals(project, path)
+			}
+			return lines
+		}
+
+		for (root in project.roots) {
+			let file = Path.join(root, path + '.hexa')
+			if (Fs.existsSync(file)) {
+				let content = Fs.readFileSync(file)
+				let tokens = Lexer.tokenize(content, file)
+				if (tokens.length > 0) {
+					lines += tokens.line[tokens.length - 1]
+				}
+				let parsed = Parser.parseNodes(tokens, project)
+				project.moduleName.push(path)
+				let info = new Module()
+				info.nodes = parsed
+				info.file = file
+				info.path = path
+				project.moduleInfo.push(info)
+
+				for (e in parsed) {
+					switch (e) {
+						case Node.Import(_, path):
+							processModule(project, path, false)
+					}
+				}
+
+				if (global == true) {
+					processGlobals(project, path)
+				}
+
+				return lines
+			}
+		}
+
+		Process.stdout.write("Cannot find file `\(path)` in any of the roots\n")
+		if (path.endsWith('.hexa')) {
+			Process.stdout.write("Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`\n")
+		}
+		for (root in project.roots) {
+			let file = Path.join(root, path + '.hexa')
+			Process.stdout.write("Checked here: `\(file)`\n")
+		}
+		Process.exit(404)
+	}
+
 	// Parses all files, shows errors and stops if any
-	function processFiles(targets: [String]): [[Node]] {
+	function processFiles(targets: [String], relativePath: String, loaded: [String:Bool], project: Project): [[Node]] {
 		var res: [[Node]] = []
+		let imports: [String] = []
 		for (target in targets) {
 			if (!Fs.existsSync(target)) {
 				console.log('No such source file on disk `\(target)`')
@@ -308,6 +398,21 @@ class Main {
 			try {
 				let parsed = processFile(target, project)
 				res.push(parsed)
+
+				for (e in parsed) { switch (e) {
+					case Node.Import(el, path):
+						let resolved = Path.resolve(relativePath + path + '.hexa')
+						console.log('processFiles! ' + resolved)
+
+						if (loaded.get(resolved) == true) {
+							console.log('loaded! ' + resolved)
+						}
+
+						if (loaded.get(resolved) != true) {
+							loaded.set(resolved, true)
+							imports.push(resolved)
+						}
+				}}
 			} catch (e: Any) {
 				console.log('\x1b[31m' + e.toString() + '\x1b[0m')
 			}
@@ -315,6 +420,12 @@ class Main {
 		if (targets.length != res.length) {
 			console.log('[Stopped on errors]')
 			Process.exit(1)
+		}
+		if (imports.length > 0) {
+			// TODO [...a, ...b]
+			for (file in processFiles(imports, relativePath, loaded, project)) {
+				res.unshift(file)
+			}
 		}
 		return res
 	}
@@ -324,15 +435,38 @@ class Main {
 		Process.exit(1)
 	}
 
-	// Loads hexa.json
-	function loadPackage(filename: String, target: String): Package {
+	function readPackage(filename: String): Package {
 		let pack: Package = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8').split('\r\n').join('\n'))
-		if (pack.name == null) incorrect('name')
-		if (pack.targets == null) incorrect('targets')
+		return pack
+	}
+
+	// Loads hexa.json
+	function loadPackage(filename: String, target: String, project: Project): Package {
+		let pack: Package = readPackage(filename)
+
+		if (let name = pack.name) {
+			project.name = name
+		} else {
+			incorrect('name')
 		}
+
+		if (pack.targets == null) {
+			incorrect('targets')
+		}
+
+		if (let entry = pack.entry) {
+			if (!entry.startsWith('/')) {
+				pack.entry = '/' + entry
+			}
+		} else {
+			incorrect('entry')
+		}
+
 		if (let define = pack.define) { for (key in Reflect.ownKeys(define)) {
 			if (!Reflect.has(project.defines, key)) { // `--define` has higher priority
 				Reflect.set(project.defines, key, Reflect.get(define, key))
+			}
+		}}
 
 		let t = (function () {
 			for (t in pack.targets.length) {
@@ -351,20 +485,37 @@ class Main {
 			Process.exit(1)
 		}
 
+		// Fill roots
+		project.roots.push(Path.resolve(__dirname + '/library/'))
+		let dir = Path.dirname(filename)
+
+		if (let roots = pack.roots) {
+			for (root in roots) {
+				project.roots.push(Path.resolve(dir + '/' + root))
+			}
+		} else {
+			project.roots.push(Path.resolve(dir))
+		}
+
 		// Add standard library
 		if (pack.files == null) {
 			pack.files = []
 		}
+
+		pack.global = pack.global ?? []
+		for (i in pack.global.length) {
+			if (let file = pack.global[i], !file.startsWith('/')) {
+				pack.global[i] = '/' + file
+			}
+		}
+
 		if (pack.noLib == true) {
 			// Nothing
 		} else {
-			setLibrary(generator, t.options, pack.files, project.defines)
+			let libraries: [String] = setLibrary(generator, t.options, project.defines)
 			// Add files from specific build target
-			if (let extra = pack.targets[targetIndex].files) {
-				// Push to the end of list, cause extras generally contain target-specific entry points
-				for (file in extra) {
-					pack.files.push(file)
-				}
+			for (file in libraries) {
+				pack.global.unshift(file)
 			}
 		}
 
@@ -377,7 +528,7 @@ class Main {
 	}
 
 	/// Entry
-	new() {
+	new () {
 		// Debug information
 
 		/// Used to measure compiler performance and to show a success message
@@ -394,7 +545,7 @@ class Main {
 				Process.exit(1)
 			}
 			Process.argv.shift()
-			let kv = Process.argv.shift().split('=')
+			let kv = (Process.argv.shift() ?? '').split('=')
 			if (kv.length < 2) {
 				console.log("Usage: `--define name=value`")
 				Process.exit(1)
@@ -510,6 +661,8 @@ class Main {
 			} else {
 				console.log("[Building \(input.name)]")
 			}
+
+			console.log("[Using 1 of \(require('os').cpus().length) CPU cores]")
 		}
 		// Search for project in the selected folder
 		else if (Fs.existsSync(currentFile), Fs.lstatSync(currentFile).isDirectory()) {
@@ -541,15 +694,30 @@ class Main {
 		#end
 
 		var files: [[Node]] = []
-		if (input.files != null) {
+		if (false, input.files != null) {
+			let relativePath = packageFolder + Path.sep
+			let loaded: [String: Bool] = [:]
 			let fileList = input.files.map(function(file) {
 				// Avoid global paths
 				if (file.startsWith('/') || file.charAt(1) == ':') {
 					return Path.resolve(file)
 				}
+				let resolved = Path.resolve(relativePath + file)
+				loaded.set(resolved, true)
+				return resolved
 			})
-			files = processFiles(fileList)
+			{
+				files = processFiles(fileList, relativePath + '/' + input.root + '/', loaded, project)
+			}
 		}
+
+		if (let global = input.global) {
+			for (path in global) {
+				lines += processModule(project, path, true)
+			}
+		}
+
+		processModule(project, input.entry, false)
 
 		#if times
 			console.log("[Parsing finished in \(Date.now() - beginParsing) ms]")
@@ -558,7 +726,7 @@ class Main {
 
 		let typer = new Typer(project)
 		try {
-			typer.fillFiles(files)
+			typer.fillModules()
 		} catch (e: Any) {
 			console.log('\x1b[31m' + e.toString() + '\x1b[0m')
 			Process.exit(1)
