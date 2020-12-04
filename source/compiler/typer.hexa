@@ -159,7 +159,7 @@ module
 				case Node.Module(path, el):
 					// Fill classes and non-ambiguous nodes first
 					for (node in el) { switch (node) {
-						case Node.TClass(_):
+						case Node.Class(_):
 							parents.set(node, e)
 							fill(node)
 						case Node.TEnum(_):
@@ -176,7 +176,7 @@ module
 						case _:
 					}}
 					for (node in el) { switch (node) {
-						case Node.TClass(_):
+						case Node.Class(_):
 						case Node.TEnum(_):
 						case _:
 							parents.set(node, e)
@@ -226,7 +226,7 @@ module
 						case Node.TVar(_):
 						case Node.TEnum(_):
 						case Node.Function(_):
-						case Node.TClass(_):
+						case Node.Class(_):
 						// TODO type alias
 						case _:
 							named = false
@@ -310,7 +310,7 @@ module
 							let node = e
 							currentModule = info
 							switch (node) {
-								case Node.TClass(_):
+								case Node.Class(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
 								case Node.TEnum(_):
@@ -337,7 +337,7 @@ module
 				for (node in nodes) {
 					switch (node) {
 						case Node.Import(_):
-						case Node.TClass(_):
+						case Node.Class(_):
 						case Node.TEnum(_):
 						case _:
 							parents.set(node, Node.Module(info.path, info.nodes)) // TODO module itself
@@ -463,7 +463,7 @@ module
 				}
 
 				switch (node) {
-					case Node.TClass(t, extend, implement, f, external):
+					case Node.Class(t, extend, implement, f, external):
 						switch (t) {
 							case NodeType.ParametricType(name, params):
 								type.genericParams.push(DataHelper.extractTypeName(params[0]))
@@ -906,7 +906,7 @@ module
 		}
 
 		static function nodeToNodeType(node: Node): NodeType { switch (node) {
-			case Node.TArray(el):
+			case Node.Array(el):
 				if (el.length > 1) {
 					fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
 				}
@@ -931,12 +931,12 @@ module
 						throw 'Module function should have a name'
 					}
 				case Node.Private(node): switch (node) {
-					case Node.TClass(t, _): switch (t) {
+					case Node.Class(t, _): switch (t) {
 						case NodeType.Type(name): return name
 						case NodeType.ParametricType(name): return name
 					}
 				}
-				case Node.TClass(t, _): switch (t) {
+				case Node.Class(t, _): switch (t) {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
@@ -1141,7 +1141,7 @@ module
 				case NodeType.Type(name):
 					if (types.get(nodeType) == null) { switch (nodeType) {
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
-						case Node.TClass(_):
+						case Node.Class(_):
 							registerClassType(nodeType)
 						case Node.TEnum(_):
 							registerEnumType(nodeType)
@@ -1166,7 +1166,7 @@ module
 				case NodeType.ParametricType(name, params):
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
 					if (types.get(nodeType) == null) { switch (nodeType) {
-						case Node.TClass(_):
+						case Node.Class(_):
 							registerClassType(nodeType)
 						case Node.TEnum(_):
 							registerEnumType(nodeType)
@@ -1326,7 +1326,7 @@ module
 		private function fillModuleTypes(node: Node): Void {
 			switch (node) {
 				// `class T {}`
-				case Node.TClass(t, extend, implement, f, external):
+				case Node.Class(t, extend, implement, f, external):
 					addScope(DataHelper.extractTypeName(t), node)
 					registerClassType(node)
 
@@ -1348,7 +1348,7 @@ module
 
 				// Types
 
-				case Node.TClass(_):
+				case Node.Class(_):
 					fail('Defining classes within blocks not allowed', node)
 				case Node.TEnum(_):
 					fail('Defining enums within blocks not allowed', node)
@@ -1416,7 +1416,7 @@ module
 							fail('Cannot reassign case parameter `\(name)`', node)
 						case Node.Function(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
-						case Node.TClass(_):
+						case Node.Class(_):
 							fail('Cannot reassign class', node)
 						case Node.TEnum(_):
 							fail('Cannot reassign enum', node)
@@ -1572,7 +1572,7 @@ module
 					fillSwitch(node, false)
 
 				// `try { } catch (e: T) { }`
-				case Node.TTry(e, t, v, ca):
+				case Node.Try(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
 					// Reset stack
@@ -1608,7 +1608,7 @@ module
 
 				// `while (econd) e` if pre == true
 				// `do e while (econd)` if pre == false
-				case Node.TWhile(econd, e, pre):
+				case Node.While(econd, e, pre):
 					if (pre == true) {
 						fillExpression(econd)
 					}
@@ -1671,7 +1671,7 @@ module
 
 
 				// `(args)=>{expr}`
-				case Node.TArrow(expr, vars, rettype):
+				case Node.Arrow(expr, vars, rettype):
 					fillFunction(node, expr, vars, rettype, arrow: true)
 					if(false){
 					pushScope()
@@ -1715,7 +1715,7 @@ module
 				}
 
 				// `[a,b,c]`
-				case Node.TArray(el):
+				case Node.Array(el):
 					// `[for(name in over ... range) by]`
 					switch (el[0]) {
 						case Node.TFor(name, over, by, range):
@@ -1751,7 +1751,7 @@ module
 					}
 
 				// `[k:v, k:v]`
-				case Node.TMap(keys, values):
+				case Node.Map(keys, values):
 					if (keys.length == 0) {
 						types.set(node, typeMap.instantiateGeneric([
 							Type.Unknown({value: null}),
@@ -1835,7 +1835,7 @@ module
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is static', node)
 							}
 							switch (type.parent) {
-								case Node.TClass(t, extend, implement, fields, external):
+								case Node.Class(t, extend, implement, fields, external):
 									registerClassType(type.parent)
 									for (field in fields) {
 										if (DataHelper.nameOf(field) == n) {
@@ -1860,7 +1860,7 @@ module
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
 							}
 							switch (type.parent) {
-								case Node.TClass(t, extend, implement, fields, external):
+								case Node.Class(t, extend, implement, fields, external):
 									for (field in fields) {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
@@ -1981,7 +1981,7 @@ module
 						} else {
 							// Try eager on-demand type build
 							switch (subj) {
-								case Node.TClass(_): registerClassType(subj)
+								case Node.Class(_): registerClassType(subj)
 								case Node.TEnum(_): registerEnumType(subj)
 							}
 
@@ -1999,7 +1999,7 @@ module
 				}
 
 				// `new T {names:values} ()`
-				case Node.TNew(path, t, el, names, values):
+				case Node.New(path, t, el, names, values):
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
 					parents.set(node, subj)
@@ -2034,7 +2034,7 @@ module
 					types.set(node, Type.Struct(names, els))
 
 				// `try { ... value } catch (e: T) { ... value }`
-				case Node.TTry(e, t, v, ca):
+				case Node.Try(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
 					// Reset stack
@@ -2087,7 +2087,7 @@ module
 				case Node.String(_):
 					types.set(node, typeString)
 
-				case Node.TBool(_):
+				case Node.Bool(_):
 					types.set(node, typeBool)
 
 				case Node.TInt(_):
@@ -2116,7 +2116,7 @@ module
 					types.set(node, typeFloat)
 
 				// `(e)`
-				case Node.TParenthesis(e):
+				case Node.Parenthesis(e):
 					fillExpression(e)
 					types.set(node, types.get(e))
 
@@ -2257,7 +2257,7 @@ module
 						}
 						case _:
 							switch (e) {
-								case Node.TIndex(_):
+								case Node.Index(_):
 									// Ok
 									// Sets NaN to `[n]` in JavaScript if `[n] == null` and returns NaN
 									// TODO maybe require `a[i] == a[i] ?? n + 1` instead?
@@ -2271,7 +2271,7 @@ module
 
 
 				// `e[i]`
-				case Node.TIndex(e, i):
+				case Node.Index(e, i):
 					fillExpression(e)
 					fillExpression(i)
 
@@ -2345,7 +2345,7 @@ module
 					types.set(node, unify(types.get(a), types.get(b), b))
 
 				// `throw e`
-				case Node.TThrow(e):
+				case Node.Throw(e):
 					if (!insideFunction && !insideTry) {
 						fail('Cannot throw outside of `function` or `try`', node)
 					}
@@ -2373,12 +2373,12 @@ module
 					fail('Cannot use `super` as value', node)
 
 				// `return e`
-				case Node.TReturn(e):
+				case Node.Return(e):
 					switch (e) {
 						case Node.TVar(name, _, _, const):
 							let prefix = const? 'let' : 'var'
 							fail('This `return` tries to return a variable `\(prefix) \(name)`. Try to wrap it into braces like this `{ return } \(prefix) \(name)`', node)
-						case Node.TReturn(_):
+						case Node.Return(_):
 							fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
 					}
 					if (!insideFunction) {
@@ -2419,7 +2419,7 @@ module
 					fail('Cannot use `break` as a value', node)
 				case Node.Continue:
 					fail('Cannot use `continue` as a value', node)
-				case Node.TClass(_):
+				case Node.Class(_):
 					fail('Cannot use `class` as a value', node)
 				case Node.TEnum(_):
 					fail('Cannot use `enum` as a value', node)
@@ -2432,7 +2432,7 @@ module
 					fail('Cannot use `\(prefix) \(name)` as a value', node)
 				case Node.TSwitch(_):
 					fillSwitch(node, true)
-				case Node.TWhile(_):
+				case Node.While(_):
 					fail('Cannot use `while` as a value', node)
 				case Node.TFor(_):
 					fail('Cannot use `for` as a value. To build array from loop, surround with `[for()]` brackets.', node)
@@ -2547,13 +2547,13 @@ module
 												tags.push(currentTag)
 											}
 									}
-								case Node.TParenthesis(e): {fill(e)}
+								case Node.Parenthesis(e): {fill(e)}
 								// `case _:` default case
 								case Node.Underscore: {}
 
 								// TODO error on complex enums
 								case Node.Null: {}
-								case Node.TBool(_):
+								case Node.Bool(_):
 									if (etype != typeBool) {
 										fail('Cannot switch over boolean here', e)
 									}
