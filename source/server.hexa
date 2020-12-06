@@ -57,6 +57,23 @@ fun findProjectFile(fsPath: String) {
 	}
 }
 
+fun syntaxCheckOnly(file: String, content: Buffer): [CompilerError] {
+	try {
+		let tokens = Lexer.tokenize(content, file)
+		try {
+			let parser = Parser.parseNodes(tokens, new Project(), true)
+		} catch (e: CompilerErrors) {
+			let errors: [CompilerError] = e.errors
+			return errors
+		}
+	} catch (e: CompilerErrors) { // TODO catch () here?
+		let errors: [CompilerError] = e.errors
+		return errors
+	}
+
+	return []
+}
+
 class Server {
 	var port: Int
 
@@ -103,21 +120,10 @@ class Server {
 								case GetWholeFileSyntaxErrors:
 									let file = 'hexa.hexa'
 									let content = Buffer.fromString(command.payload)
-									try {
-										let tokens = Lexer.tokenize(content, file)
-										try {
-											let parser = Parser.parseNodes(tokens, new Project(), true)
-										} catch (e: CompilerErrors) {
-											let errors: [CompilerError] = e.errors
-											for error in errors {
-												response.push(error)
-											}
-										}
-									} catch (e: CompilerErrors) { // TODO catch () here?
-										let errors: [CompilerError] = e.errors
-										for error in errors {
-											response.push(error)
-										}
+
+									let errors: [CompilerError] = syntaxCheckOnly(file, content)
+									for error in errors {
+										response.push(error)
 									}
 
 								case SyncFileContents:
@@ -144,8 +150,14 @@ class Server {
 											response.push(error)
 										}
 									} else {
-										// TODO syntax check only
-										console.log('Not found project for', fsPath)
+										// Syntax check only
+										let resolved = Path.resolve(fsPath)
+										if let content = fileContents.get(resolved) {
+											let errors: [CompilerError] = syntaxCheckOnly(resolved, content)
+											for error in errors {
+												response.push(error)
+											}
+										}
 									}
 
 								case FindProjectFile:
