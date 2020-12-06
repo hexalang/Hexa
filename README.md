@@ -62,8 +62,8 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 ### Tools & IDE
 
+- [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle) is the best supported IDE plugin right now!
 - [Sublime Text 3](https://packagecontrol.io/packages/Hexa) — [hexalang/hexa-sublime-bundle](https://github.com/hexalang/hexa-sublime-bundle)
-- [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle)
 - [Atom](https://atom.io/packages/hexa) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
 - [Package manager](https://hexalang.github.io/book/Packages.html) — [hexalang/packages](https://github.com/hexalang/packages)
 
