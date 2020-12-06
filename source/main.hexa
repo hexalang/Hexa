@@ -318,9 +318,10 @@ class Main {
 				if (named) {
 					let name = DataHelper.nameOf(e)
 					if (project.globals.has(name)) {
+						let data = project.data.get(e)
+						let msg = "Global node `\(name)` declared in `\(path)` already defined somewhere\n"
 						// TODO format properly and fit into lang server
-						Process.stdout.write("Global node `\(name)` declared in `\(path)` already defined somewhere\n")
-						Process.exit(502)
+						throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, data.line, data.column, data.fileName)])
 					} else {
 						project.globals.set(name, e)
 					}
@@ -387,15 +388,15 @@ class Main {
 			}
 		}
 
-		Process.stdout.write("Cannot find file `\(path)` in any of the roots\n")
+		var msg = "Cannot find file `\(path)` in any of the roots\n"
 		if (path.endsWith('.hexa')) {
-			Process.stdout.write("Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`\n")
+			msg += "Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`\n"
 		}
 		for root in project.roots {
 			let file = Path.join(root, path + '.hexa')
-			Process.stdout.write("Checked here: `\(file)`\n")
+			msg += "Checked here: `\(file)`\n"
 		}
-		Process.exit(404)
+		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
 	}
 
 	// Parses all files, shows errors and stops if any
@@ -444,8 +445,8 @@ class Main {
 	}
 
 	fun incorrect(what: String) {
-		Process.stdout.write("Incorrect package file! Field `\(what)` does not exists\n")
-		Process.exit(1)
+		let msg = "Incorrect package file! Field `\(what)` does not exists\n"
+		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
 	}
 
 	fun readPackage(filename: String): Package {
@@ -488,14 +489,14 @@ class Main {
 					return pack.targets[t]
 				}
 			}
-			Process.stdout.write("Cannot find `\(target)` target in package file\n")
-			Process.exit(1)
+			let msg = "Cannot find `\(target)` target in package file\n"
+			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
 		})()
 
 		let generator = availableGenerators(t.generator)
 		if (generator == null) {
-			Process.stdout.write("Generator `\(t.generator)` not available or not supported by this compiler version\n")
-			Process.exit(1)
+			let msg = "Generator `\(t.generator)` not available or not supported by this compiler version\n"
+			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
 		}
 
 		// Fill roots
