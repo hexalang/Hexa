@@ -14,13 +14,27 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 enum ServerCommandKind : String {
+	// Only syntax check
 	GetWholeFileSyntaxErrors
+
+	// This has higher priority than on-disk copy
+	SyncFileContents
+	DiscardFileContents
+
+	// Search for `hexa.json` relatively to `.hexa` file
+	// and return directory path to it
+	FindProjectFile
+
+	// Uses `FindProjectFile` internally
+	AutocheckProject
 }
 
 declare class ServerCommand {
 	let kind: ServerCommandKind
 	let payload: Any
 }
+
+let fileContents: [String : String] = [:]
 
 class Server {
 	var port: Int
@@ -61,10 +75,11 @@ class Server {
 						res.write(empty)
 						res.end()
 					} else {
-						let response: [Any] = []
+						let responseToAll: [[Any]] = []
 						for command in commands {
+							let response: [Any] = []
 							switch (command.kind) {
-								case ServerCommandKind.GetWholeFileSyntaxErrors:
+								case GetWholeFileSyntaxErrors:
 									let file = 'hexa.hexa'
 									let content = Buffer.fromString(command.payload)
 									try {
@@ -77,19 +92,53 @@ class Server {
 												response.push(error)
 											}
 										}
-									} catch (e: CompilerErrors) {
+									} catch (e: CompilerErrors) { // TODO catch () here?
 										let errors: [CompilerError] = e.errors
 										for error in errors {
 											response.push(error)
 										}
 									}
 
+								case SyncFileContents:
+									let fsPath: String = command.payload.fsPath
+									let content: String = command.payload.content
+
+									fileContents.set(Path.resolve(fsPath), content)
+
+								case DiscardFileContents:
+									let fsPath: String = command.payload.fsPath
+
+									fileContents.delete(Path.resolve(fsPath))
+
+								case FindProjectFile:
+									let fsPath: String = command.payload
+									var lastPath = '*'
+									var dir = Path.dirname(fsPath)
+									var found = false
+
+									while lastPath != dir {
+										if Fs.existsSync(Path.join(dir, 'hexa.json')) {
+											found = true
+											break
+										}
+
+										lastPath = dir
+										dir = Path.dirname(dir)
+									}
+
+									response.push({
+										found: found,
+										dir: dir
+									})
+
 								case _:
+									console.log('Unknown command kind', command.kind, command)
 							}
+							responseToAll.push(response)
 						}
 
 						res.writeHead(200, {})
-						res.write(JSON.stringify(response))
+						res.write(JSON.stringify(responseToAll))
 						res.end()
 					}
 				} else {
