@@ -396,7 +396,7 @@ class Main {
 			let file = Path.join(root, path + '.hexa')
 			msg += "Checked here: `\(file)`\n"
 		}
-		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
+		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
 	}
 
 	// Parses all files, shows errors and stops if any
@@ -444,9 +444,9 @@ class Main {
 		return res
 	}
 
-	fun incorrect(what: String) {
+	fun incorrect(what: String, project: Project) {
 		let msg = "Incorrect package file! Field `\(what)` does not exists\n"
-		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
+		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
 	}
 
 	fun readPackage(filename: String): Package {
@@ -457,15 +457,16 @@ class Main {
 	// Loads hexa.json
 	fun loadPackage(filename: String, target: String, project: Project): Package {
 		let pack: Package = readPackage(filename)
+		project.json = filename
 
 		if let name = pack.name {
 			project.name = name
 		} else {
-			incorrect('name')
+			incorrect('name', project)
 		}
 
 		if (pack.targets == null) {
-			incorrect('targets')
+			incorrect('targets', project)
 		}
 
 		if let entry = pack.entry {
@@ -473,7 +474,7 @@ class Main {
 				pack.entry = '/' + entry
 			}
 		} else {
-			incorrect('entry')
+			incorrect('entry', project)
 		}
 
 		if let define = pack.define { for key in Reflect.ownKeys(define) {
@@ -490,13 +491,13 @@ class Main {
 				}
 			}
 			let msg = "Cannot find `\(target)` target in package file\n"
-			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
+			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
 		})()
 
 		let generator = availableGenerators(t.generator)
 		if (generator == null) {
 			let msg = "Generator `\(t.generator)` not available or not supported by this compiler version\n"
-			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, "hexa.json")])
+			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
 		}
 
 		// Fill roots
@@ -661,10 +662,10 @@ class Main {
 			if (process.argv[0] == 'targets') {
 				let pack = readPackage(currentFile)
 				if (pack.name == null) {
-					incorrect('name')
+					incorrect('name', project)
 				}
 				if (pack.targets == null) {
-					incorrect('targets')
+					incorrect('targets', project)
 				}
 
 				let targets = []
