@@ -34,7 +34,28 @@ declare class ServerCommand {
 	let payload: Any
 }
 
-let fileContents: [String : String] = [:]
+let fileContents: [String : Buffer] = [:]
+
+fun findProjectFile(fsPath: String) {
+	var lastPath = '*'
+	var dir = Path.dirname(fsPath)
+	var found = false
+
+	while lastPath != dir {
+		if Fs.existsSync(Path.join(dir, 'hexa.json')) {
+			found = true
+			break
+		}
+
+		lastPath = dir
+		dir = Path.dirname(dir)
+	}
+
+	return {
+		found: found,
+		dir: dir
+	}
+}
 
 class Server {
 	var port: Int
@@ -103,33 +124,34 @@ class Server {
 									let fsPath: String = command.payload.fsPath
 									let content: String = command.payload.content
 
-									fileContents.set(Path.resolve(fsPath), content)
+									fileContents.set(Path.resolve(fsPath), Buffer.fromString(content))
 
 								case DiscardFileContents:
 									let fsPath: String = command.payload.fsPath
 
 									fileContents.delete(Path.resolve(fsPath))
 
-								case FindProjectFile:
-									let fsPath: String = command.payload
-									var lastPath = '*'
-									var dir = Path.dirname(fsPath)
-									var found = false
+								case AutocheckProject:
+									let fsPath: String = command.payload.fsPath
+									let project = findProjectFile(fsPath)
 
-									while lastPath != dir {
-										if Fs.existsSync(Path.join(dir, 'hexa.json')) {
-											found = true
-											break
+									if project.found == true {
+										// TODO try-catch `typecheck`
+										let e: CompilerErrors = new Main().typecheck(project.dir)
+
+										let errors: [CompilerError] = e.errors
+										for error in errors {
+											response.push(error)
 										}
-
-										lastPath = dir
-										dir = Path.dirname(dir)
+									} else {
+										// TODO syntax check only
+										console.log('Not found project for', fsPath)
 									}
 
-									response.push({
-										found: found,
-										dir: dir
-									})
+								case FindProjectFile:
+									let fsPath: String = command.payload
+
+									response.push(findProjectFile(fsPath))
 
 								case _:
 									console.log('Unknown command kind', command.kind, command)

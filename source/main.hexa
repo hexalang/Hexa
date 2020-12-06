@@ -345,7 +345,16 @@ class Main {
 			let file = Path.join(root, path + '.hexa')
 			if (Fs.existsSync(file)) {
 				try {
-				let content = Fs.readFileSync(file)
+				let resolved = Path.resolve(file)
+				var cachedBuffer = Buffer.fromString('')
+
+				if let cached = fileContents.get(resolved) {
+					cachedBuffer = cached
+				} else {
+					cachedBuffer = Fs.readFileSync(file)
+				}
+
+				let content = cachedBuffer
 				let tokens = Lexer.tokenize(content, file)
 				if (tokens.length > 0) {
 					lines += tokens.line[tokens.length - 1]
@@ -373,8 +382,7 @@ class Main {
 
 				return lines
 			} catch e: Any {
-				console.error(e.toString())
-				Process.exit(500)
+				throw e
 			}
 			}
 		}
@@ -533,7 +541,20 @@ class Main {
 	}
 
 	/// Entry
-	new () {
+	new () {}
+
+	fun loadModules(project: Project, input: Package) {
+		if let global = input.global {
+			for path in global {
+				lines += processModule(project, path, true)
+			}
+		}
+
+		processModule(project, input.entry, false)
+	}
+
+	/// Default actions
+	fun perform() {
 		// Debug information
 
 		/// Used to measure compiler performance and to show a success message
@@ -567,7 +588,7 @@ class Main {
 		// Exit before self-test
 		if (Process.argv[0] == "syntax-linter") {
 			if (Process.argv.length < 2) {
-				console.log("Usage: `hexa --syntax-linter file.hexa`")
+				console.log("Usage: `hexa syntax-linter file.hexa`")
 			} else {
 				let file = Process.argv[1]
 				try {
@@ -672,7 +693,7 @@ class Main {
 		// Search for project in the selected folder
 		else if Fs.existsSync(currentFile), Fs.lstatSync(currentFile).isDirectory() {
 			ignoreArguments(3)
-			input = loadPackage(currentFile + Path.sep + "hexa.json", targetName)
+			input = loadPackage(currentFile + Path.sep + "hexa.json", targetName, project)
 			packageFolder = currentFile
 		}
 		// Evaluate file directly
@@ -715,13 +736,12 @@ class Main {
 			}
 		}
 
-		if let global = input.global {
-			for path in global {
-				lines += processModule(project, path, true)
-			}
+		try {
+			loadModules(project, input)
+		} catch (e: Any) {
+			console.error(e.toString())
+			Process.exit(500)
 		}
-
-		processModule(project, input.entry, false)
 
 		#if times
 			console.log("[Parsing finished in \(Date.now() - beginParsing) ms]")
@@ -810,5 +830,34 @@ class Main {
 		console.log("[Finished in \(delta) ms, \(lines) lines, \(lps) lines per second]")
 		Process.stdout.once('drain', fun () { Process.exit(0) })
 		Process.stdout.write('')
+	}
+
+	fun typecheck(dir :String): CompilerErrors {
+		// Spawn project
+		try {
+
+		let project = new Project()
+		let defines: Any = {}
+		project.defines = defines
+		let input = loadPackage(dir + Path.sep + "hexa.json", targetName, project)
+
+		try {
+			loadModules(project, input)
+		} catch (e: Any) {
+			return e
+		}
+
+		let typer = new Typer(project)
+		try {
+			typer.fillModules()
+		} catch (e: Any) {
+			return e
+		}
+
+		} catch (e: Any) {
+			return e
+		}
+
+		return new CompilerErrors([])
 	}
 }
