@@ -546,13 +546,33 @@ class Main {
 	new () {}
 
 	fun loadModules(project: Project, input: Package) {
+		let moduleErrors: [CompilerError] = []
+
 		if let global = input.global {
 			for path in global {
-				lines += processModule(project, path, true)
+				try {
+					lines += processModule(project, path, true)
+				} catch (e: CompilerErrors) {
+					let errors: [CompilerError] = e.errors
+					for error in errors {
+						moduleErrors.push(error)
+					}
+				}
 			}
 		}
 
-		processModule(project, input.entry, false)
+		try {
+			processModule(project, input.entry, false)
+		} catch (e: CompilerErrors) {
+			let errors: [CompilerError] = e.errors
+			for error in errors {
+				moduleErrors.push(error)
+			}
+		}
+
+		if (moduleErrors.length > 0) {
+			throw new CompilerErrors(moduleErrors)
+		}
 	}
 
 	/// Default actions
