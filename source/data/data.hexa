@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// @name(values[0], ...values[n])
+/// `@name(values[0], ...values[n])`
+/// `@name(names[0]: values[0], ...names[n]: values[n])`
 class Decorator {
 	var name: String
 	var values: [Node]
@@ -26,6 +27,7 @@ class Decorator {
 
 declare Handle<T> = {value: T}
 
+/// `module.hexa`
 class Module {
 	var file: String = '.hexa'
 	var path: String = 'module'
@@ -38,7 +40,7 @@ class Module {
 	}
 }
 
-// Global data container
+/// Global data container
 class Project {
 	let mapDecorators: [Node : [Decorator]] = [:]
 	let mapNames: [Node : Node] = [:]
@@ -57,9 +59,9 @@ class Project {
 	}
 }
 
-// Node position info
+/// Node position info
 class NodeData {
-	new(atLine, atColumn, atFile) {
+	new (atLine, atColumn, atFile) {
 		line = atLine
 		column = atColumn
 		fileName = atFile
@@ -70,39 +72,47 @@ class NodeData {
 }
 
 	// TODO move to nodes.hexa
-// Syntax tree
+/// Syntax tree
 enum Node {
 		// Constants
+		/// `"text"`
 		String(s: String)
-		// ident
+
+		/// `ident`
 		Ident(name: String)
-		// true/false
+
+		/// `true`/`false`
 		Bool(b: Bool)
-		// this
+
+		/// `this`
 		This
-		// super
+
+		/// `super`
 		Super
-		// 123
+
+		/// `123`
 		Int(s: Int)
-		// 123n
-		// 123u32
+
+		/// `123n`
+		/// `123u32`
 		MetaInt(s: BigInt, meta: Meta)
-		// 0.123
+
+		/// `0.123`
 		Float(s: Float)
-		// null
-		Null
 
 		///////////////////
 		/// Syntax Tree ///
 		///////////////////
+		/// `null`
+		Null
 
-		// declare T = V
+		/// `declare T = V`
 		TypeAlias(alias: NodeType, value: NodeType)
 
-		// a op b
+		/// `a op b`
 		Binop(a: Node, op: Token, b: Node)
 
-		// a op= b
+		/// `a op= b`
 		AssignOp(a: Node, op: Token, b: Node)
 
 		// { el[0] ... el[n] }
@@ -118,7 +128,8 @@ enum Node {
 		Return(e: Node?) // return e
 		Throw(e: Node) // throw e
 		Break // break
-		Continue // continue
+		/// `continue`
+		Continue
 
 		// postfix ? e op : op e
 		Unop(op: Token, postfix: Bool, e: Node)
@@ -193,10 +204,10 @@ enum Node {
 		// expr as? t
 		As(expr: Node, kind: Token, t: NodeType)
 
-		// _
+		/// `_`
 		Underscore
 
-		// ...
+		/// `...`
 		Interval
 
 		Static(field: Node) // `static` field
@@ -206,7 +217,7 @@ enum Node {
 		// for (name in over ... range) by
 		For(name: String, over: Node, by: Node, range: Node)
 
-		// nullable ?? othewise
+		/// `nullable ?? othewise`
 		Elvis(nullable: Node, othewise: Node)
 
 		// (T<A, B>)
@@ -252,7 +263,7 @@ class DataHelper {
 		// returns var NAME
 		static fun varName(v: Node) {
 			switch (v) {
-				case Node.Var(name,_): return name
+				case Var(name,_): return name
 				case _: throw 'varName got not a Var, but `\(v)`'
 			}
 		}
@@ -260,29 +271,29 @@ class DataHelper {
 		// returns var NAME, enum NAME {}, function NAME(), etc
 		static fun nameOf(v: Node): String {
 			switch (v) {
-				case Node.Private(node): return nameOf(node)
-				case Node.Property(node): return nameOf(node)
-				case Node.Var(name,_): return name
-				case Node.Enum(t, _):
+				case Private(node): return nameOf(node)
+				case Property(node): return nameOf(node)
+				case Var(name,_): return name
+				case Enum(t, _):
 					switch (t) {
-						case NodeType.Type(name): return name
-						case NodeType.ParametricType(name, _): return name
+						case Type(name): return name
+						case ParametricType(name, _): return name
 					}
 					throw "unreachable"
 
-				case Node.Function(name,_): return name
-				case Node.Class(t, _):
+				case Function(name,_): return name
+				case Class(t, _):
 					switch (t) {
-						case NodeType.Type(name): return name
-						case NodeType.ParametricType(name, _): return name
+						case Type(name): return name
+						case ParametricType(name, _): return name
 					}
 					throw "unreachable"
 
-				case Node.TypeAlias(t, _): switch (t) {
-					case NodeType.Type(name): return name
-					case NodeType.ParametricType(name): return name
+				case TypeAlias(t, _): switch (t) {
+					case Type(name): return name
+					case ParametricType(name): return name
 				}
-				case Node.Static(field): return nameOf(field)
+				case Static(field): return nameOf(field)
 				case _: throw 'nameOf expected named node, but got `\(v)`'
 			}
 		}
@@ -291,7 +302,7 @@ class DataHelper {
 		static fun asStringAttValue(a: Decorator, index: Int): String {
 			switch (a.values[index]) {
 				case null: throw 'Got null, not a string'
-				case Node.String(s): return s
+				case String(s): return s
 				case _: throw 'Got `\(a.values[index])`, not a string'
 			}
 		}
@@ -300,7 +311,7 @@ class DataHelper {
 		static fun getLastOfBlock(block: Node): Node? {
 			switch (block) {
 				case null: throw 'Got null, not a block'
-				case Node.Block(el): return el[el.length - 1]
+				case Block(el): return el[el.length - 1]
 				case _: throw 'Got `\(block)`, not a block'
 			}
 		}
@@ -309,18 +320,18 @@ class DataHelper {
 		static fun isVoidValue(block: Node): Bool {
 			switch (block) {
 				case null: return true
-				case Node.Return(_): return true
-				case Node.Break: return true
-				case Node.Continue: return true
-				case Node.Var(_): return true
-				case Node.If(_,_,eelse): if (eelse == null) {
+				case Return(_): return true
+				case Break: return true
+				case Continue: return true
+				case Var(_): return true
+				case If(_,_,eelse): if (eelse == null) {
 					return true
 				}
-				case Node.Enum(_): return true
-				case Node.Class(_): return true
-				case Node.Switch(_): return true
+				case Enum(_): return true
+				case Class(_): return true
+				case Switch(_): return true
 				// Also recursively traverses { ... { ... { ... void }}}
-				case Node.Block(el):
+				case Block(el):
 				if (el.length == 0) {
 					return true
 				}
@@ -330,11 +341,11 @@ class DataHelper {
 			return false
 		}
 
-		// Returns the only name of type
+		/// Returns the only name of type
 		static fun extractTypeName(t: NodeType): String? {
 			switch (t) {
-			case NodeType.Type(name): return name
-			case NodeType.ParametricType(name, _): return name
+			case Type(name): return name
+			case ParametricType(name, _): return name
 			case null: return null
 			case _: throw 'Type has no name: ' + t
 			}
@@ -350,11 +361,12 @@ class DataHelper {
 		}
 }
 
-// var a: NodeType
+/// `var a: NodeType`
 enum NodeType {
-	Optional(type: NodeType) // T?
 	Type(name: String)
 	ParametricType(name: String, params: [NodeType])
+	/// `T?`
+	Optional(type: NodeType)
 	Function(args: [NodeType], ret: NodeType)
 	FunctionArg(name: String, type: NodeType, defaultValue: Node)
 	Object(names: [String], types: [NodeType])
