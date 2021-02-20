@@ -223,16 +223,16 @@ class Typer {
 				for e in nodes {
 					var named = true
 					switch (e) {
-						case Node.Var(_):
-						case Node.Enum(_):
-						case Node.Function(_):
-						case Node.Class(_):
+						case Var(_):
+						case Enum(_):
+						case Function(_):
+						case Class(_):
 						// TODO type alias
 						case _:
 							named = false
 					}
 
-					if (named) {
+					if named {
 						let name = DataHelper.nameOf(e)
 						info.exported.set(name, e)
 					}
@@ -249,7 +249,7 @@ class Typer {
 					var named = true
 					var lastOne = nodes[0]
 					switch (e) {
-						case Node.Import(els, path):
+						case Import(els, path):
 							if (doneImports) {
 								fail(
 									'Imports should follow before expressions\n'
@@ -276,25 +276,25 @@ class Typer {
 
 							for el in els {
 								switch (el) {
-									case ImportNode.Lower(name):
+									case Lower(name):
 										// TODO only camelCase
 										importAs(name, name)
-									case ImportNode.Upper(name):
+									case Upper(name):
 										// TODO only TitleCase
 										importAs(name, name)
-									case ImportNode.As(left, right):
+									case As(left, right):
 										var lhs = ''
 										switch (left) {
-											case ImportNode.Lower(name):
+											case Lower(name):
 												lhs = name
-											case ImportNode.Upper(name):
+											case Upper(name):
 												lhs = name
 										}
 										switch (right) {
-											case ImportNode.Lower(name):
+											case Lower(name):
 												// TODO only camelCase
 												importAs(lhs, name)
-											case ImportNode.Upper(name):
+											case Upper(name):
 												// TODO only TitleCase
 												importAs(lhs, name)
 										}
@@ -310,17 +310,17 @@ class Typer {
 							let node = e
 							currentModule = info
 							switch (node) {
-								case Node.Class(_):
+								case Class(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
-								case Node.Enum(_):
+								case Enum(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
-								case Node.Function(name, expr, vars, rettype):
+								case Function(name, expr, vars, rettype):
 									if let rettype = rettype {
 										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
 									}
-								case Node.Var(name, t, e, const):
+								case Var(name, t, e, const):
 									if let t = t {
 										types.set(node, toType(t, node))
 									}
@@ -336,9 +336,9 @@ class Typer {
 				// Fill expression bodies
 				for node in nodes {
 					switch (node) {
-						case Node.Import(_):
-						case Node.Class(_):
-						case Node.Enum(_):
+						case Import(_):
+						case Class(_):
+						case Enum(_):
 						case _:
 							parents.set(node, Node.Module(info.path, info.nodes)) // TODO module itself
 							fill(node)
@@ -958,6 +958,10 @@ class Typer {
 				return node
 			}
 
+			if let node = currentModule.exported.get(name) {
+				return node
+			}
+
 			if let node = project.globals.get(name) {
 				return node
 			}
@@ -1166,9 +1170,9 @@ class Typer {
 				case NodeType.ParametricType(name, params):
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
 					if (types.get(nodeType) == null) { switch (nodeType) {
-						case Node.Class(_):
+						case Class(_):
 							registerClassType(nodeType)
-						case Node.Enum(_):
+						case Enum(_):
 							registerEnumType(nodeType)
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
@@ -1190,11 +1194,11 @@ class Typer {
 							}
 							fail('Unsupported type `\(name)`', node)
 					}
-				case NodeType.Optional(t):
+				case Optional(t):
 					return Type.Nullable(toType(t, node))
-				case NodeType.Function(args, ret):
+				case Function(args, ret):
 					return Type.Function([for arg in args toType(arg, node)], toType(ret, node))
-				case NodeType.Object(names, el):
+				case Object(names, el):
 					let els = [for e in el toType(e, node)]
 					return Type.Struct(names, els)
 				case _:
@@ -1350,6 +1354,7 @@ class Typer {
 
 				case Node.Class(_):
 					fail('Defining classes within blocks not allowed', node)
+
 				case Node.Enum(_):
 					fail('Defining enums within blocks not allowed', node)
 				case Node.TypeAlias(_):
@@ -2722,4 +2727,4 @@ class Typer {
 					}
 			}
 		}
-	}
+}
