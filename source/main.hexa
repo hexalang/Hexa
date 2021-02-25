@@ -330,7 +330,8 @@ class Main {
 		}
 	}
 
-	static fun processModule(project: Project, path: String, global: Bool): Int {
+	/// Returns counted lines of code
+	static fun processModule(project: Project, path: String, global: Bool, relative: Module?, node: Node?): Int {
 		let index = project.moduleName.indexOf(path)
 		var lines = 0
 
@@ -373,7 +374,7 @@ class Main {
 				for e in parsed {
 					switch (e) {
 						case Node.Import(_, path):
-							processModule(project, path, false)
+							processModule(project, path, false, info, e)
 					}
 				}
 
@@ -388,14 +389,19 @@ class Main {
 			}
 		}
 
-		var msg = "Cannot find file `\(path)` in any of the roots\n"
+		var msg = "Cannot find file `\(path)` in any of the roots.\n"
 		if (path.endsWith('.hexa')) {
-			msg += "Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`\n"
+			msg += "Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`.\n"
 		}
 		for root in project.roots {
 			let file = Path.join(root, path + '.hexa')
 			msg += "Checked here: `\(file)`\n"
 		}
+
+		if let data = project.data.get(node) {
+			throw new CompilerErrors([new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName)])
+		}
+
 		throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
 	}
 
