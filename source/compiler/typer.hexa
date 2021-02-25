@@ -264,12 +264,27 @@ class Typer {
 
 							fun importAs(name: String, to: String) {
 								if let target = project.moduleInfo[index] {
+									if name == '*' {
+										info.imported.set(to, Node.ModuleExports(target))
+									} else
 									if let what = target.exported.get(name) {
 										checkOverrides(info, to, e)
 										info.imported.set(to, what)
 									} else {
 										let has = [for key in target.exported.keys() key].join(', ')
+										if has == '' {
+											has = 'module is empty'
+										}
 										fail('Module `\(path)` does not export `\(name)`\nAvailable exports: \(has)', e)
+									}
+								}
+							}
+
+							if els.length == 0 {
+								if let target = project.moduleInfo[index] {
+									//console.log(target.exported.keys())
+									for key in target.exported.keys() {
+										info.imported.set(key, target.exported.get(key))
 									}
 								}
 							}
@@ -289,6 +304,10 @@ class Typer {
 												lhs = name
 											case Upper(name):
 												lhs = name
+											case AllTheThings:
+												lhs = '*'
+											case _:
+												fail('This `import ??? as` kind not implemented yet or syntax is incorrect', e)
 										}
 										switch (right) {
 											case Lower(name):
@@ -297,6 +316,8 @@ class Typer {
 											case Upper(name):
 												// TODO only TitleCase
 												importAs(lhs, name)
+											case _:
+												fail('This `import \(lhs) as ???` kind not implemented yet or syntax is incorrect', e)
 										}
 									case _:
 										fail('This import kind not implemented yet', e)
