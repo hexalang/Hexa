@@ -343,7 +343,7 @@ class Main {
 			return lines
 		}
 
-		for root in project.roots {
+		fun tryInRoot(root) {
 			let file = Path.join(root, path + '.hexa')
 			if (Fs.existsSync(file)) {
 				try {
@@ -387,13 +387,30 @@ class Main {
 				throw e
 			}
 			}
+
+			return -1
+		}
+
+		var roots = project.roots
+
+		if let relative = relative, not path.startsWith('/') {
+			let root = Path.dirname(relative.file)
+			roots = [root]
+		}
+
+		for root in roots {
+			let lines = tryInRoot(root)
+			if lines > -1 {
+				return lines
+			}
 		}
 
 		var msg = "Cannot find file `\(path)` in any of the roots.\n"
 		if (path.endsWith('.hexa')) {
 			msg += "Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`.\n"
 		}
-		for root in project.roots {
+
+		for root in roots {
 			let file = Path.join(root, path + '.hexa')
 			msg += "Checked here: `\(file)`\n"
 		}
