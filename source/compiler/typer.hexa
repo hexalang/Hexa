@@ -396,11 +396,16 @@ class Typer {
 		// Generates `Did you mean xxx?`
 		// TODO use this for other errors
 		fun proposeSimilar(names: [String], subject: String, what: String): String {
-			let available = 'Available \(what) are: ' + names.join(', ')
 			if names.length == 0 {
 				return 'No \(what) available for access'
 			}
 
+			let ten = if names.length > 11 { // Yeah, 11, so it says "more whats" in plural
+				names.slice(0, 10).join(', ') + ' and ' + (names.length - 10) + ' more ' + what
+			} else {
+				names.join(', ')
+			}
+			let available = 'Available \(what) are: ' + ten
 			let subject = subject.toLowerCase()
 			let charSubj = subject.split('')
 			var bestValue = 0
@@ -1188,7 +1193,20 @@ class Typer {
 						case Type.Enum(type):
 							return types.get(nodeType)
 						case null:
-							fail('Cannot find type `\(name)`', node)
+							let available = []
+
+							for name in currentModule.imported.keys() {
+								available.push(name)
+							}
+
+							for name in currentModule.exported.keys() {
+								available.push(name)
+							}
+
+							fail(
+								'Cannot find type `\(name)`\n'
+								+ proposeSimilar(available.filter((named) => DataHelper.isTitleCase(named)), name, 'types'),
+							 node)
 						case _:
 							if (type == typeAny) {
 								return typeAny
