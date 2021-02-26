@@ -1548,6 +1548,7 @@
 		var expr = null
 		var name = null
 		var vars: [String] = []
+		var atts: [[Decorator]] = []
 		var types = []
 		var values = []
 		var pos = []
@@ -1560,6 +1561,12 @@
 		step(Token.POpen)
 		{
 			if (tok() != Token.PClose) { while (true) {
+				let decorators: [Decorator] = []
+
+				while (tok() == Token.At) {
+					decorators.push(parseDecorator())
+				}
+
 				var expr = null
 				var t = null
 				if (tok() == Token.Interval) {
@@ -1576,6 +1583,7 @@
 					expr = parseExpr()
 				}
 				vars.push(name)
+				atts.push(decorators)
 				types.push(t)
 				values.push(expr)
 				if (tok() == Token.Comma) {
@@ -1627,6 +1635,11 @@
 		for i in vars.length {
 			let n = Node.Var(vars[i], types[i], values[i], true, false)
 			project.data.set(n, new NodeData(pos[i].line, pos[i].column, lex.fileName))
+
+			if let decorators = atts[i] {
+				project.mapDecorators.set(n, decorators)
+			}
+
 			v.push(n)
 		}
 		switch (expr) {
@@ -1839,10 +1852,12 @@
 			}
 
 			result = sresult
+		// `[Type]`
 		case Token.BkOpen:
 			if (path.length != 0) {
 				fail("Token.BkOpen") // [Type]
 			}
+
 			i++
 			var res: NodeType? = null
 			switch (tok()) {
@@ -1874,10 +1889,12 @@
 					res = innerRes
 			}
 			result = res
+		// `{}`
 		case Token.BrOpen:
 			if (path.length != 0) {
 				fail("Token.BrOpen") // {}
 			}
+
 			i++
 			var sresult = if (tok() == Token.BrClose) { // Empty
 				NodeType.Object([], [])
@@ -1902,10 +1919,12 @@
 				sresult = NodeType.Function([sresult], parseType())
 			}
 			result = sresult
+		// `()`
 		case Token.POpen:
 			if (path.length != 0) {
 				fail("Token.POpen") // ()
 			}
+
 			i++
 			var args = []
 			while (tok() != Token.PClose) {
