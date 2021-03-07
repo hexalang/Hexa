@@ -6,12 +6,6 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 
 - Note: "lexer" also referred as "tokenizer"
 
-## Source code
-
-- [source/compiler/lexer.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/compiler/lexer.hexa)
-- [source/data/token.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/data/token.hexa)
-- [source/tests/testLexer.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/tests/testLexer.hexa)
-
 ## Tasks 0.1
 
 - [ ] Support full JSON token set

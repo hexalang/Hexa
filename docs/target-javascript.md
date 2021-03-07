@@ -4,12 +4,6 @@
 
 ...and [WebAssembly](https://en.wikipedia.org/wiki/WebAssembly) with asm.js in future
 
-## Source code
-
-- [source/targets/genJs.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/targets/genJs.hexa)
-- [library/js](https://github.com/hexalang/hexa/tree/kawaii/library/js)
-- [library/nodejs](https://github.com/hexalang/hexa/tree/kawaii/library/nodejs)
-
 ## Tasks
 
 - [ ] Generate toString(value) for enums at compile time (instead of  placing enum tag names at runtime)
