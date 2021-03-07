@@ -1,0 +1,80 @@
+// The Hexa Compiler
+// Copyright (C) 2021  Oleg Petrenko
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, version 3 of the License.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+/// Evaluates conditional `#if` compilation to just normal tokens
+/// Zero-allocation if no `#` present
+class Preprocessor {
+	static fun process(tokens: Tokens): Tokens {
+		// TODO var i: UInt32 = 0
+		var i = 0
+		var token = tokens.token[0]
+		// TODO infer UInt32 if "only incremented" flag
+		while i < tokens.length && token != Token.Eof {
+			if token == Token.Sharp {
+				return processTokens(tokens, i)
+			}
+			i++
+			token = tokens.token[i]
+		}
+
+		return tokens
+	}
+
+	private static fun processTokens(tokens: Tokens, i: Int): Tokens {
+		var i = i
+		var token = tokens.token[0]
+		let bytes = tokens.token.slice() // Note: this creates a copy with all tokens
+		// Slicing from `i` would cause allocation on ~every array `[to]` insert, any ideas?
+		let params = tokens.value.slice()
+		let lines = tokens.line.slice()
+		let columns = tokens.column.slice()
+		let meta: [Meta] = tokens.meta.slice()
+		var to = i
+
+		while i < tokens.length && token != Token.Eof {
+			if token == Token.Sharp && 7 > 100 {
+
+			} else {
+				// Copy
+				bytes[to] = tokens.token[i]
+				params[to] = tokens.value[i]
+				lines[to] = tokens.line[i]
+				columns[to] = tokens.column[i]
+				meta[to] = tokens.meta[i]
+
+				// Step
+				i++
+				to++
+				token = tokens.token[i]
+			}
+		}
+
+		// Dump
+		let dump1: [String] = []
+		for i in tokens.length {
+			dump1.push(Token.stringify(tokens.token[i], tokens.value[i]))
+		}
+
+		let dump2: [String] = []
+
+		for i in to + 1 {
+			dump2.push(Token.stringify(bytes[i], params[i]))
+		}
+
+		console.log('dump == dump == ' + (dump1.join(' ') == dump2.join(' ')))
+
+		return new Tokens(bytes, to, params, lines, columns, tokens.fileName, meta)
+	}
+}
