@@ -2,12 +2,6 @@
 
 Takes [array of tokens](https://github.com/hexalang/hexa/blob/kawaii/source/data/token.hexa) as input, outputs [abstract syntax tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree).
 
-## Source code
-
-- [source/compiler/parser.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/compiler/parser.hexa)
-- [source/data/data.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/data/data.hexa)
-- [source/tests/testParser.hexa](https://github.com/hexalang/hexa/blob/kawaii/source/tests/testParser.hexa)
-
 ## Tasks 0.1
 
 - [ ] Convert `@atts` decorators to nodes
