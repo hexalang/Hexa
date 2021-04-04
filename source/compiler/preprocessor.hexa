@@ -16,14 +16,14 @@
 /// Evaluates conditional `#if` compilation to just normal tokens
 /// Zero-allocation if no `#` present
 class Preprocessor {
-	static fun process(tokens: Tokens): Tokens {
+	static fun process(tokens: Tokens, project: Project): Tokens {
 		// TODO var i: UInt32 = 0
 		var i = 0
 		var token = tokens.token[0]
 		// TODO infer UInt32 if "only incremented" flag
 		while i < tokens.length && token != Token.Eof {
 			if token == Token.Sharp {
-				return processTokens(tokens, i)
+				return processTokens(tokens, 0, project)
 			}
 			i++
 			token = tokens.token[i]
@@ -32,49 +32,125 @@ class Preprocessor {
 		return tokens
 	}
 
-	private static fun processTokens(tokens: Tokens, i: Int): Tokens {
+	private static fun fail(lex: Tokens, i: Int, message: String) {
+		let line = lex.line[i]
+		let column = lex.column[i]
+		let filename = lex.fileName
+		throw new CompilerErrors([new CompilerError(Fail.ParserError, message, line, column, filename)])
+	}
+
+	private static fun processTokens(tokens: Tokens, i: Int, project: Project): Tokens {
 		var i = i
 		var token = tokens.token[0]
 		let bytes = tokens.token.slice() // Note: this creates a copy with all tokens
-		// Slicing from `i` would cause allocation on ~every array `[to]` insert, any ideas?
+		// TODO Slicing from `i` would cause allocation on ~every array `[to]` insert, any ideas?
+		// Maybe just allocate Array(len) + copy values upto i, so unused are null
 		let params = tokens.value.slice()
 		let lines = tokens.line.slice()
 		let columns = tokens.column.slice()
 		let meta: [Meta] = tokens.meta.slice()
 		var to = i
+		let states = [PreprocessorState.Consume]
+		var state = PreprocessorState.Consume
+
+		// TODO `#elseif`
+		// TODO more complex conditions `1 > b`, `not b`, `true`
+		fun evaluateCondition(): Bool {
+			if tokens.token[i] != Token.LLower {
+				fail(tokens, i, 'Incorrect `#if` syntax')
+			}
+			let defName = tokens.value[i]
+			let def = project.defines[defName]
+
+			if def == null {
+				fail(
+					tokens, i,
+					"`#if` looks for the `" + defName + "` parameter which is *not* defined in project file." +
+					' Add `"define": { "\(defName)": false }` to `hexa.json` or `--define \(defName)=false` to suppress this message.'
+				)
+			}
+
+			i++
+
+			if (def == true) {
+				return true
+			}
+
+			return false
+		}
 
 		while i < tokens.length && token != Token.Eof {
-			if token == Token.Sharp && 7 > 100 {
-
-			} else {
-				// Copy
-				bytes[to] = tokens.token[i]
-				params[to] = tokens.value[i]
-				lines[to] = tokens.line[i]
-				columns[to] = tokens.column[i]
-				meta[to] = tokens.meta[i]
-
-				// Step
+			if token == Token.Sharp {
 				i++
-				to++
 				token = tokens.token[i]
+				// `#if`
+				if token == Token.KIf {
+					i++ // if
+					if evaluateCondition() {
+						// TODO don't push current state, push previous state
+						// and just use `state` variable
+						states.push(PreprocessorState.ConsumeUntilElseOrEnd)
+					} else {
+						states.push(PreprocessorState.IgnoreUntilElseOrEnd)
+					}
+					state = states[states.length - 1]
+				// `#end`
+				} else if token == Token.LLower, tokens.value[i] == 'end' {
+					i++ // end
+					switch state {
+						case ConsumeUntilElseOrEnd:
+						case ConsumeUntilEnd:
+						case IgnoreUntilEnd:
+						case IgnoreUntilElseOrEnd:
+						case _:
+							fail(tokens, i - 1, 'Unexpected `#end`')
+					}
+					states.pop()
+					state = states[states.length - 1]
+				// `#else`
+				} else if token == Token.KElse {
+					i++ // else
+					switch state {
+						case ConsumeUntilElseOrEnd:
+							state = PreprocessorState.IgnoreUntilEnd
+						case IgnoreUntilElseOrEnd:
+							state = PreprocessorState.ConsumeUntilEnd
+						case _:
+							fail(tokens, i - 1, 'Unexpected `#else`')
+					}
+					states[states.length - 1] = state
+				} else {
+					fail(tokens, i, 'Incorrect `#` syntax')
+				}
+			} else {
+				switch state {
+					case Consume | ConsumeUntilElseOrEnd | ConsumeUntilEnd:
+						bytes[to] = tokens.token[i]
+						params[to] = tokens.value[i]
+						lines[to] = tokens.line[i]
+						columns[to] = tokens.column[i]
+						meta[to] = tokens.meta[i]
+
+						// Step
+						i++
+						to++
+					case _:
+						i++
+				}
 			}
+
+			token = tokens.token[i]
 		}
-
-		// Dump
-		let dump1: [String] = []
-		for i in tokens.length {
-			dump1.push(Token.stringify(tokens.token[i], tokens.value[i]))
-		}
-
-		let dump2: [String] = []
-
-		for i in to + 1 {
-			dump2.push(Token.stringify(bytes[i], params[i]))
-		}
-
-		console.log('dump == dump == ' + (dump1.join(' ') == dump2.join(' ')))
 
 		return new Tokens(bytes, to, params, lines, columns, tokens.fileName, meta)
 	}
+}
+
+// TODO private
+enum PreprocessorState : Int {
+	Consume
+	ConsumeUntilElseOrEnd
+	ConsumeUntilEnd
+	IgnoreUntilEnd
+	IgnoreUntilElseOrEnd
 }
