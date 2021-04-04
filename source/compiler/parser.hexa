@@ -291,13 +291,13 @@ class Parser {
 
 	// Current token
 	function tok() {
+		#if debug
 		if (i > lex.length) {
 			console.log("Parser is out of token space!")
 			console.log("This should NOT happen.")
 			console.log("Please, issue a developer (with a sample code).")
 			fail(lex.fileName + ": Parser internal error: out of token space")
 		}
-		var t = lex.token[i]
 		if (lasttok != i) {
 			lasttok = i
 			lasttokchecks = 1000
@@ -307,58 +307,8 @@ class Parser {
 				fail("Parser internal error: same token parsed too many times: " + '`\(print())`')
 			}
 		}
+		#end
 
-		// Nested #end
-		if t == Token.Sharp, lex.value[i + 1] == 'end' { if (endif > 0) {
-			i++ // #
-			i++ // end
-			endif--
-			//t = lex.token[i]
-			tok()
-		} else {
-			fail("Unexpected `#end`")
-		}}
-
-		// #if
-		if t == Token.Sharp, offset(1) == Token.KIf {
-			i++ // #
-			i++ // if
-			let defName = getgo(Token.LLower)
-			let def = project.defines[defName]
-			if def == null {
-				i-- // Cause `getgo`
-				fail(
-				"`#if` looks for the `" + defName + "` parameter which is *not* defined in project file." +
-				' Add `"define": { "\(defName)": false }` to `hexa.json` or `--define \(defName)=false` to suppress this message.')
-			}
-
-			if (def == true) {
-				endif++
-			}
-
-			if (def == false) {
-				var endifs = 1
-				while (i < lex.length) {
-					if offset(0) == Token.Sharp, offset(1) == Token.KIf {
-						i++ // #
-						i++ // if
-						endifs++
-						continue
-					}
-					if offset(0) == Token.Sharp, lex.value[i + 1] == 'end' {
-						i++ // #
-						i++ // end
-						endifs--
-						if (endifs == 0) {
-							break
-						}
-						continue
-					}
-					i++
-				}
-			}
-			tok()
-		}
 		return lex.token[i]
 	}
 
