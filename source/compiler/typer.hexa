@@ -1284,6 +1284,11 @@ class Typer {
 			return varTypes
 		}
 
+		/// `Bool` or convertible to `Bool`
+		fun booleanable(type: Type?): Bool {
+			return (type == typeBool) or (type == typeAny)
+		}
+
 		// Uses idea of stacks to track nested function behavior
 		private fun fillFunction(node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
 			pushScope()
@@ -1443,8 +1448,7 @@ class Typer {
 
 				// `a op b` like `a + b`
 				case Node.Binop(a, op, b):
-					fillExpression(a)
-					fillExpression(b)
+					fillExpression(node)
 
 					var parent: Node = parents.get(a)
 					// `a = b`
@@ -2236,12 +2240,28 @@ class Typer {
 
 				// `a op b` like `a + b`
 				case Node.Binop(a, op, b):
-					fill(a)
+					fillExpression(a)
 					fillExpression(b)
 
+					let typeA = types.get(a)
+					let typeB = types.get(b)
+
 					// Anything + String = String
-					if op == Token.OpAdd, types.get(a) == typeString {
-						types.set(node, types.get(a))
+					if op == Token.OpAdd, typeA == typeString {
+						types.set(node, typeString)
+					} else
+					if (
+						op == Token.OpBoolAnd or op == Token.OpBoolOr
+					) {
+						let token = op == Token.OpBoolAnd? 'and' : 'or'
+						if not booleanable(typeA) {
+							fail('Operator `a \(token) b` takes `a` of type `Bool` only, but got `\(Type.stringify(typeA))`', a)
+						}
+						if not booleanable(typeB) {
+							// TODO textual static analysis: typeB-a should be typeB-b
+							fail('Operator `a \(token) b` takes `b` of type `Bool` only, but got `\(Type.stringify(typeB))`', b)
+						}
+						types.set(node, typeBool)
 					} else
 					// Always provides boolean result
 					if (
@@ -2249,13 +2269,12 @@ class Typer {
 						op == Token.OpGt ||
 						op == Token.OpLte ||
 						op == Token.OpLt ||
-						op == Token.OpBoolAnd ||
-						op == Token.OpBoolOr ||
 						op == Token.OpEq ||
 						op == Token.OpNotEq
 					) {
 						types.set(node, typeBool)
 					} else {
+						// TODO
 						types.set(node, types.get(b) ?? types.get(a))
 					}
 
@@ -2266,7 +2285,7 @@ class Typer {
 					// Always provides boolean result
 					if op == Token.OpNot, !postfix {
 						let type = types.get(e)
-						if type != typeBool, type != typeAny, type != null {
+						if not booleanable(type) {
 							fail('Operator `!value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
 						}
 						types.set(node, typeBool)
