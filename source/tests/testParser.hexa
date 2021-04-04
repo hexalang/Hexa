@@ -258,81 +258,81 @@ class TestParser {
 			])
 
 			console.log("TestParser done \(Math.round((passed/overall)*100))% (\(passed)/\(overall))")
-		}
+	}
 
-		static var passed = 0
-		static var overall = 0
+	static var passed = 0
+	static var overall = 0
 
-		//
-		// Helpers
-		//
+	//
+	// Helpers
+	//
 
-		/// Parses `input` into AST and stringifies, checks by trimmed `test`
-		static fun shouldEqual(input: String, test: String) {
-			let test = TestParser.deepTrim(test)
-			shouldEqualWithoutTrim(input, test)
-		}
+	/// Parses `input` into AST and stringifies, checks by trimmed `test`
+	static fun shouldEqual(input: String, test: String) {
+		let test = TestParser.deepTrim(test)
+		shouldEqualWithoutTrim(input, test)
+	}
 
-		/// Same as `shouldEqual`, but does no trimming of `test`
-		static fun shouldEqualWithoutTrim(input: String, test: String) {
-			overall++
-			var lexe = Lexer.tokenize(Buffer.fromString(input), "TEST")
-			try {
+	/// Same as `shouldEqual`, but does no trimming of `test`
+	static fun shouldEqualWithoutTrim(input: String, test: String) {
+		overall++
+		var lexe = Lexer.tokenize(Buffer.fromString(input), "TEST")
+		try {
 			var parsed = Parser.toNode(Parser.parseNodes(lexe, new Project()))
 			var res = stringify(parsed)
 			if (test != res) {
 				throw 'TestParser test fail: `\(input)`\n!==: `\(test)`\nGot: `\(res)`\nParsed: `\(parsed)`'
 			}
-			} catch (e: Any) {
-				console.log(e.toString())
-				throw 'TestParser test fail: `\(input)` failed to parse'
-			}
+		} catch (e: Any) {
+			console.log(e.toString())
+			throw 'TestParser test fail: `\(input)` failed to parse'
+		}
+		passed++
+	}
+
+	/// Operates `shouldEqual` on all key-value pairs of `input => test`
+	static fun shouldAllEqual(map: [String : String]) {
+		for input in map.keys() {
+			var test = map.get(input)
+			shouldEqual(input, test)
+		}
+	}
+
+	/// Does `shouldEqual` without trimming `=> test` parts
+	static fun shouldAllEqualWithoutTrim(map: [String : String]) {
+		for input in map.keys() {
+			var test = map.get(input)
+			shouldEqualWithoutTrim(input, test)
+		}
+	}
+
+	static fun shouldError(input: String) {
+		overall++
+		try {
+			var lexe = Lexer.tokenize(Buffer.fromString(input), "TEST")
+			var parser = Parser.toNode(Parser.parseNodes(lexe, new Project()))
+		}
+		catch(e: Any) {
 			passed++
+			return
 		}
+		throw 'TestParser test fail: `\(input)` did not throw exception.'
+	}
 
-		/// Operates `shouldEqual` on all key-value pairs of `input => test`
-		static fun shouldAllEqual(map: [String : String]) {
-			for input in map.keys() {
-				var test = map.get(input)
-				shouldEqual(input, test)
-			}
+	static fun shouldAllError(input: [String]) {
+		for str in input {
+			shouldError(str)
 		}
+	}
 
-		/// Does `shouldEqual` without trimming `=> test` parts
-		static fun shouldAllEqualWithoutTrim(map: [String : String]) {
-			for input in map.keys() {
-				var test = map.get(input)
-				shouldEqualWithoutTrim(input, test)
-			}
-		}
+	/// Removes all internal and trailing whitespace and newlines
+	static fun deepTrim(s: String) {
+		return s.split('\n').join('').split('\r').join('').split('\t').join('').split(' ').join('')
+	}
 
-		static fun shouldError(input: String) {
-			overall++
-			try {
-				var lexe = Lexer.tokenize(Buffer.fromString(input), "TEST")
-				var parser = Parser.toNode(Parser.parseNodes(lexe, new Project()))
-			}
-			catch(e: Any) {
-				passed++
-				return
-			}
-			throw 'TestParser test fail: `\(input)` did not throw exception.'
-		}
-
-		static fun shouldAllError(input: [String]) {
-			for str in input {
-				shouldError(str)
-			}
-		}
-
-		/// Removes all internal and trailing whitespace and newlines
-		static fun deepTrim(s: String) {
-			return s.split('\n').join('').split('\r').join('').split('\t').join('').split(' ').join('')
-		}
-
-		/// Creates a testable consistent string representation of node
-		static fun stringify(node: Node): String {
-			switch (node) {
+	/// Creates a testable consistent string representation of node
+	static fun stringify(node: Node): String {
+		switch (node) {
 			case null: return '<!--null-->'
 
 			// Have no sub-nodes
@@ -418,30 +418,30 @@ class TestParser {
 			case Node.Array(el): return 'Array(' + stringifyNodeArray(el) + ')'
 			case Node.Unop(op, postfix, e): return 'Unop(' + Token.stringify(op) + ',' + postfix + ',' + stringify(e) + ')'
 			case _: throw '<!--' + node + '-->'
-			}
 		}
+	}
 
-		static fun stringifyArray(nodes: [Node]): String {
-			return [for node in nodes stringify(node)].join(',')
-		}
+	static fun stringifyArray(nodes: [Node]): String {
+		return [for node in nodes stringify(node)].join(',')
+	}
 
-		static fun stringifyNodeArray(arr: [Node]) {
-			return "[" + stringifyArray(arr) + "]"
-		}
+	static fun stringifyNodeArray(arr: [Node]) {
+		return "[" + stringifyArray(arr) + "]"
+	}
 
-		static fun stringifyNodeTypeArray(arr: [NodeType]) {
-			return "[" + [for e in arr stringifyType(e)].join(',') + "]"
-		}
+	static fun stringifyNodeTypeArray(arr: [NodeType]) {
+		return "[" + [for e in arr stringifyType(e)].join(',') + "]"
+	}
 
-		// Creates a testable consistent string representation of type
-		static fun stringifyType(node: NodeType): String {
-			switch (node) {
+	// Creates a testable consistent string representation of type
+	static fun stringifyType(node: NodeType): String {
+		switch (node) {
 			case NodeType.Type(s): return 'Type(\(s))'
 			case NodeType.ParametricType(name, params): return 'ParametricType(\(name),[' + [for p in params stringifyType(p)].join(',') + "])"
 			case NodeType.Function(args, rettype): return 'Function([' + [for e in args stringifyType(e)].join(',') + "]," + stringifyType(rettype) + ')'
 			case NodeType.Object(names, types): return 'Object([' + names.join(',') + "],[" + [for e in types stringifyType(e)].join(',') +"])"
 			case NodeType.Optional(type): return 'Optional(' + stringifyType(type) + ')'
 			case _: throw '<!--' + node + '-->'
-			}
 		}
+	}
 }
