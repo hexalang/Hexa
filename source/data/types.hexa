@@ -49,101 +49,101 @@ enum Type {
 		Function(args: [Type], returns: Type)
 		Struct(names: [String], types: [Type])
 
-		static fun stringify(type: Type): String {
-			switch (type) {
-				case Type.ClassInstance(type, generic):
-					if let gen = generic {
-						return DataHelper.nameOf(type.parent) + '<' + [for g in gen Type.stringify(g)].join(', ') + '>'
-					}
-					return DataHelper.nameOf(type.parent)
-				case Type.Class(type):
-					return DataHelper.nameOf(type.parent)
-				case Type.Function(args, returns):
-					return '(' + [for arg in args Type.stringify(arg)].join(', ') + ') => ' + Type.stringify(returns)
-				case Type.UnknownNullable(handle):
-					if let value = handle.value {
-						return Type.stringify(value) + '?'
-					}
-					return 'Unknown?'
-				case Type.Nullable(type):
-					return Type.stringify(type) + '?'
-				case Type.Enum(type):
-					return DataHelper.nameOf(type.parent)
-				case Type.EnumInstance(type, tag):
-					return DataHelper.nameOf(type.parent) + '.' + tag.toString()
-				case Type.Unknown(handle):
-					if let value = handle.value {
-						return Type.stringify(value)
-					}
-					return 'Unknown'
-				case _: return '~?' + type + '?~'
-			}
+	static fun stringify(type: Type): String {
+		switch (type) {
+			case Type.ClassInstance(type, generic):
+				if let gen = generic {
+					return DataHelper.nameOf(type.parent) + '<' + [for g in gen Type.stringify(g)].join(', ') + '>'
+				}
+				return DataHelper.nameOf(type.parent)
+			case Type.Class(type):
+				return DataHelper.nameOf(type.parent)
+			case Type.Function(args, returns):
+				return '(' + [for arg in args Type.stringify(arg)].join(', ') + ') => ' + Type.stringify(returns)
+			case Type.UnknownNullable(handle):
+				if let value = handle.value {
+					return Type.stringify(value) + '?'
+				}
+				return 'Unknown?'
+			case Type.Nullable(type):
+				return Type.stringify(type) + '?'
+			case Type.Enum(type):
+				return DataHelper.nameOf(type.parent)
+			case Type.EnumInstance(type, tag):
+				return DataHelper.nameOf(type.parent) + '.' + tag.toString()
+			case Type.Unknown(handle):
+				if let value = handle.value {
+					return Type.stringify(value)
+				}
+				return 'Unknown'
+			case _: return '~?' + type + '?~'
 		}
+	}
 }
 
 /// `class T {}`
 class ClassType {
-		new () {}
-		var name: String
-		/// Node of this class within syntax tree
-		var parent: Node
-		/// Non-null if in a module, not in a block
-		var owner: ModuleType? = null
-		let fieldNames: [String] = []
-		/// `@rename('rename')`
-		let fieldRenames: [String] = []
-		let fieldStatic: [Bool] = []
-		let fieldInitialized: [Bool] = [] // Debug typer race conditions
-		let protected: [Bool] = [] // `private`
-		let immutable: [Bool] = [] // `let` or `function`
-		var constructor = -1
-		var indexKeyType = null
-		var indexValueType = null
-		let fields: [String : ClassTypeField] = [:]
-		let genericParams: [String] = [] // GenericParameter
-		var useless: Bool = true // No reason to generate
+	new () {}
+	var name: String
+	/// Node of this class within syntax tree
+	var parent: Node
+	/// Non-null if in a module, not in a block
+	var owner: ModuleType? = null
+	let fieldNames: [String] = []
+	/// `@rename('rename')`
+	let fieldRenames: [String] = []
+	let fieldStatic: [Bool] = []
+	let fieldInitialized: [Bool] = [] // Debug typer race conditions
+	let protected: [Bool] = [] // `private`
+	let immutable: [Bool] = [] // `let` or `function`
+	var constructor = -1
+	var indexKeyType = null
+	var indexValueType = null
+	let fields: [String : ClassTypeField] = [:]
+	let genericParams: [String] = [] // GenericParameter
+	var useless: Bool = true // No reason to generate
 
-		// Non-generic `Type.ClassInstance`
-		let instanceCache = Type.ClassInstance(this, null)
-		fun instantiate(): Type {
-			return instanceCache
-		}
+	// Non-generic `Type.ClassInstance`
+	let instanceCache = Type.ClassInstance(this, null)
+	fun instantiate(): Type {
+		return instanceCache
+	}
 
-		// Generic `Type.ClassInstance`
-		let genericCache: [[Type]] = []
-		fun instantiateGeneric(params: [Type]): Type {
-			/* So, how it works:
-				genericCache is array of [type, param1, param2, ...]
-				i.e. [0] element is a resulting cached Type to be returned
-				[1...n] are parameters to compare
-				Just storage optimization, basically
-			*/
+	// Generic `Type.ClassInstance`
+	let genericCache: [[Type]] = []
+	fun instantiateGeneric(params: [Type]): Type {
+		/* So, how it works:
+			genericCache is array of [type, param1, param2, ...]
+			i.e. [0] element is a resulting cached Type to be returned
+			[1...n] are parameters to compare
+			Just storage optimization, basically
+		*/
 
-			for cached in genericCache {
-				if (cached.length != (params.length + 1)) {
-					continue
-				}
-				var found = true
-				for i in cached.length - 1 {
-					if (params[i] != cached[i + 1]) {
-						found = false
-						break
-					}
-				}
-				if (found) {
-					let result = cached[0]
-					return result
+		for cached in genericCache {
+			if (cached.length != (params.length + 1)) {
+				continue
+			}
+			var found = true
+			for i in cached.length - 1 {
+				if (params[i] != cached[i + 1]) {
+					found = false
+					break
 				}
 			}
-
-			let result = Type.ClassInstance(this, params)
-			let cache = [result]
-			for param in params {
-				cache.push(param)
+			if (found) {
+				let result = cached[0]
+				return result
 			}
-			genericCache.push(cache)
-			return result
 		}
+
+		let result = Type.ClassInstance(this, params)
+		let cache = [result]
+		for param in params {
+			cache.push(param)
+		}
+		genericCache.push(cache)
+		return result
+	}
 }
 
 /// `enum T {}`
