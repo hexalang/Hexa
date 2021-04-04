@@ -2503,7 +2503,6 @@ class Typer {
 						fail('Multiple switch values are not yet supported', expr)
 					}
 
-
 					fun unwrapUnknownAndNullable(type: Type?): Type? {
 						switch (type) {
 							case null: return null
@@ -2572,6 +2571,17 @@ class Typer {
 
 					var tags: [String] = []
 					var i = 0
+
+					// Avoid repeating tags `case Tag:` and values `case 123:`
+					fun tagCheck(currentTag: String, e: Node) {
+						if (tags.includes(currentTag)) {
+							fail('Tag `\(currentTag)` already matched', e)
+							// TODO .. at line
+						} else {
+							tags.push(currentTag)
+						}
+					}
+
 					while (i < cases.length) {
 						pushScope()
 						var e = conds[i]
@@ -2602,15 +2612,19 @@ class Typer {
 
 								// TODO error on complex enums
 								case Node.Null: {}
-								case Node.Bool(_):
+								case Node.Bool(val):
+									tagCheck('' + val, e)
 									if (etype != typeBool) {
 										fail('Cannot switch over boolean here', e)
 									}
-								case Node.Int(_):
+								// TODO MetaInt
+								case Node.Int(val):
+									tagCheck('' + val, e)
 									if (etype != typeInt) {
 										fail('Cannot switch over number here', e)
 									}
-								case Node.String(_):
+								case Node.String(val):
+									tagCheck(val, e)
 									if (etype != typeString) {
 										fail('Cannot switch over string here', e)
 									}
