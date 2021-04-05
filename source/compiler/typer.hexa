@@ -712,8 +712,8 @@ class Typer {
 		}
 
 		// `enum T {}`
-		fun registerEnumType(node: Node): Type {
 				switch (type) {
+		fun registerEnumType(node: Node): EnumType {
 			if let type = types.get(node) {
 					// Avoid typing if already typed
 					case Type.Enum(t): return t
@@ -829,7 +829,7 @@ class Typer {
 												// TODO other types
 											}
 											fillExpression(b)
-											type.fieldType[type.fieldNames.length - 1] = types.get(b)
+											type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, type.fieldNames.length - 1)
 									}
 								}
 
@@ -1118,6 +1118,16 @@ class Typer {
 					case Type.ClassInstance(t): return t
 					case Type.Class(t):
 						fail('Cannot take classes `class \(t.name)` as values', node)
+					// TODO case Type.Enum(t):
+					//	fail('Cannot take enums `enum \(t.name)` as values', node)
+				}
+				return null
+			}
+
+			fun instanceOfEnum(t: Type): EnumType? {
+				switch (unwrapNullable(t)) {
+					case Type.EnumInstance(t, _): return t
+					case Type.Enum(t): return t
 				}
 				return null
 			}
@@ -1142,12 +1152,24 @@ class Typer {
 
 			var toInstance = instanceOfClass(to)
 			var fromInstance = instanceOfClass(fromValue)
-			if (toInstance == null || fromInstance == null) {
+
+			var toEnumInstance = instanceOfEnum(to)
+			var fromEnumInstance = instanceOfEnum(fromValue)
+
+			if (
+				(toInstance == null and toEnumInstance == null)
+				||
+				(fromInstance == null and fromEnumInstance == null)
+			) {
 				return to ?? fromValue
 			}
 
 			if toInstance != fromInstance, unwrapNullable(to) != typeAny, unwrapNullable(fromValue) != typeAny {
 				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
+			}
+
+			if toEnumInstance != fromEnumInstance, unwrapNullable(to) != typeAny, unwrapNullable(fromValue) != typeAny {
+				// TODO fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
 			return to ?? fromValue
@@ -1777,7 +1799,31 @@ class Typer {
 
 							pushScope()
 							fillExpression(over)
-							types.set(el[0], types.get(over))
+							// TODO reuse code from for-as-statement
+							let overType: Type = types.get(over)
+							switch (overType) {
+								case Type.ClassInstance(type, generic):
+									// Extract Array<T>
+									// TODO check type == typeArray
+									if generic != null, generic.length == 1 {
+										types.set(el[0], generic[0])
+									} else if overType == typeInt {
+										types.set(el[0], typeInt)
+									} else {
+										fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
+									}
+
+								case Type.Nullable(_):
+									fail('Type of iterable should not be nullable', over)
+
+								case Type.UnknownNullable(_):
+									fail('Type of iterable should not be nullable', over)
+
+								case null:
+								case _:
+									fail('Type of iterable is neiter Int nor Array', over)
+							}
+
 							addScope(name, el[0])
 							let _allowBreakAndContinue = allowBreakAndContinue
 							allowBreakAndContinue = false
@@ -1901,7 +1947,7 @@ class Typer {
 										}
 									}
 								case _:
-									fail(type.parent, type.parent)
+									fail('type.parent not a class, internal error', type.parent)
 							}
 						case Type.Class(type): // Static fields
 							type.useless = false
@@ -1921,7 +1967,7 @@ class Typer {
 										}
 									}
 								case _:
-									fail(type.parent, type.parent)
+									fail('type.parent not a class, internal error', type.parent)
 							}
 						case Type.Enum(type):
 							let index = type.fieldNames.indexOf(n)
@@ -1944,7 +1990,7 @@ class Typer {
 										}
 									}}
 								case _:
-									fail(type.parent, type.parent)
+									fail('type.parent not an enum, internal error', type.parent)
 							}
 						case Type.Struct(names, els):
 							let index = names.indexOf(n)
