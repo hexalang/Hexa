@@ -59,36 +59,10 @@ class Main {
 	}
 
 	fun simplyCompileToJs(buffer: Buffer, path: String): String? {
-		let project = new Project()
-		let input: Package = {
-			files: []
-		} as! Package
-		// Load standard library
-		let js = processFile(__dirname + '/library/js/js.hexa', project)
-		let nodejs = processFile(__dirname + '/library/nodejs/nodejs.hexa', project)
-		let tokens = Lexer.tokenize(buffer, path)
-		let parser = Parser.parseNodes(tokens, project)
-		let collected = [js, nodejs, parser]
-		if (parser == null) {
-			return null
-		}
-		let files = collected
-		let typer = new Typer(project)
-		let normalizer = new Normalizer(project)
-		let generator = new GenJs()
-		normalizer.keywords = generator.reserved
-		normalizer.collected = files
-		normalizer.nativeEnums = generator.nativeEnums
-		normalizer.package = input
-		if let randomSeed = input.randomSeed {
-			normalizer.id = randomSeed
-		}
-		if let globalAccessor = generator.globalAccessor {
-			normalizer.globalAccessor = globalAccessor
-		}
-		normalizer.typer = typer
-		let normal = normalizer.normalize()
-		return generator.perform(normal)
+		process.argv[0] = __dirname + '/repl.json'
+		let resolved = Path.resolve(__dirname + '/repl.hexa')
+		fileContents.set(resolved, buffer)
+		return new Main().perform(true)
 	}
 
 	// Read-eval-print loop, starts if hexa called without arguments
@@ -101,7 +75,7 @@ class Main {
 		var linesAll: [String] = []
 		var linesLatest: [String] = []
 		while (true) {
-			var line = question('\x1b[32m' + "> " + '\x1b[0m')
+			var line = question('\x1b[32m' + "> " + '\x1b[0m').trim()
 			if (line == '.clear') {
 				linesAll = []
 				linesLatest = []
@@ -120,6 +94,7 @@ class Main {
 					let content = linesAll.join('\n') + '\n' + linesLatest.join('\n')
 					let compiled = simplyCompileToJs(Buffer.fromString(content), "REPL")
 					if (compiled == null) {
+						linesLatest.pop()
 						continue
 					}
 					if let compiled = compiled {
@@ -451,7 +426,7 @@ class Main {
 	}
 
 	/// Default actions
-	fun perform() {
+	fun perform(noWrite: Bool = false): String? {
 		// Debug information
 
 		/// Used to measure compiler performance and to show a success message
@@ -570,7 +545,7 @@ class Main {
 				}
 
 				console.log(quote('The project `\(pack.name)` has following targets: ' + targets.join(', ')))
-				return
+				return null
 			}
 			if (process.argv[0] == '--target') {
 				process.argv.shift()
@@ -579,13 +554,16 @@ class Main {
 			}
 			input = loadPackage(currentFile, targetName, project)
 			ignoreArguments(0)
-			if (targetName != 'default') {
-				console.log("[Building \(input.name) - \(targetName)]")
-			} else {
-				console.log("[Building \(input.name)]")
-			}
 
-			console.log("[Using 1 of \(require('os').cpus().length) CPU cores]")
+			if not noWrite {
+				if (targetName != 'default') {
+					console.log("[Building \(input.name) - \(targetName)]")
+				} else {
+					console.log("[Building \(input.name)]")
+				}
+
+				console.log("[Using 1 of \(require('os').cpus().length) CPU cores]")
+			}
 		}
 		// Search for project in the selected folder
 		else if Fs.existsSync(currentFile), Fs.lstatSync(currentFile).isDirectory() {
@@ -602,12 +580,12 @@ class Main {
 				console.error("" + e)
 			}
 			Process.exit(0)
-			return
+			return null
 		} else {
 			console.error('Unknown command: \(Process.argv[0])')
 			console.error(quote('Try `hexa help`'))
 			Process.exit(1)
-			return
+			return null
 		}
 
 		// Perform compilation
@@ -650,6 +628,9 @@ class Main {
 			typer.fillModules()
 		} catch (e: Any) {
 			console.log('\x1b[31m' + e.toString() + '\x1b[0m')
+			if noWrite {
+				return null
+			}
 			Process.exit(1)
 		}
 
@@ -727,6 +708,7 @@ class Main {
 		console.log("[Finished in \(delta) ms, \(lines) lines, \(lps) lines per second]")
 		Process.stdout.once('drain', fun () { Process.exit(0) })
 		Process.stdout.write('')
+		return null
 	}
 
 	fun typecheck(dir :String): CompilerErrors {
