@@ -16,14 +16,14 @@
 /// Asks a couple of questions and creates hexa.json
 fun init() {
 	if (Fs.existsSync("hexa.json")) {
-		let create = question("Hexa package 'hexa.json' already exists here. Create new? (no)")
-		if create.toLowerCase() != 'yes', create.toLowerCase() != 'y' {
+		let create = question("Hexa package 'hexa.json' already exists here. Create new? (no): ")
+		if create == '' or not isYes(create) {
 			Process.exit(1)
 		}
 	}
 
 	var currentDirTmp = process.cwd().split(Path.sep)
-	var packageFileName = currentDirTmp.splice(0, -1).join(Path.sep) + Path.sep + "hexa.json"
+	var packageFileName = process.cwd() + Path.sep + "hexa.json"
 	var currentDir = currentDirTmp[currentDirTmp.length - 1]
 	var name = question('Enter package name (\(currentDir)): ')
 	if (name == "") {
@@ -48,31 +48,43 @@ fun init() {
 		output: name,
 		options: []
 	}
-	let generatorstr = question("Enter generator type (JavaScript):\n1. JavaScript\n2. C\n3. Haxe\n")
-	if (generatorstr.toUpperCase() == "C" || generatorstr == "2") {
-		target.generator = "native"
-	} else if (generatorstr.toUpperCase() == "HAXE" || generatorstr == "3") {
-		target.generator = "haxe"
-	} else {
+
+	let generator = question("Enter target (Node.js/JavaScript):\n1. Node.js/JavaScript\n2. Web/JavaScript\n3. Raw/JavaScript").trim()
+
+	if generator == '2' {
+		// Web/JavaScript
+		target.options.push('browser')
 		target.output += '.js'
-		let option = question("Select standard library (no library):\n1. no library\n2. nodejs\n3. browser\n")
-		switch (option) {
-			case "2": target.options.push('nodejs')
-			case "3": target.options.push('browser')
-		}
+	} else if generator == '3' {
+		// Raw/JavaScript
+		target.output += '.js'
+	} else {
+		// Node.js/JavaScript
+		target.options.push('nodejs')
+		target.output += '.js'
 	}
 
-	while (!(main.endsWith(".hexa"))) {
+	while not main.endsWith(".hexa") {
 		Process.stdout.write("Wrong file name. Must end with '.hexa'.\n")
 		main = question("Enter main file (main.hexa): ")
 	}
 
-	let author = question("Enter package author name: ")
-	let license = question("Enter license: ")
+	let user = require("os").userInfo().username ?? process.env.USERNAME
+	var author = question("Enter package author name (\(user)): ")
+
+	if author == '' {
+		author = user
+	}
+
+	var license = question("Enter license (LGPL-3.0-only): ")
+
+	if license == '' {
+		license = 'LGPL-3.0-only'
+	}
 
 	let pack: Package = {
 		name: name, version: version, description: description,
-		author: author, license: license, targets: [ target ], files: [main]
+		author: author, license: license, targets: [ target ], entry: main.split('.')[0]
 	}
 
 	let extras = []
@@ -80,7 +92,8 @@ fun init() {
 	var addGit = false
 	if (Fs.existsSync('.git')) {
 		if (!Fs.existsSync('.gitignore') || !Fs.existsSync('.gitattributes')) {
-			if (['y','yes',''].includes(question('Create additional git files? (.gitignore, .gitattributes)').toLowerCase().trim())) {
+			let confirm = question('Create additional git files(.gitignore, .gitattributes)? (yes): ').toLowerCase().trim()
+			if isYes(confirm) {
 				if (!Fs.existsSync('.gitignore')) {
 					extras.push('.gitignore')
 				}
@@ -101,8 +114,8 @@ fun init() {
 	let packageStr = JSON.stringify(pack, null, "\t").split('\r\n').join('\n').split('\n').join('\r\n')
 	let extrasStr = extras.length > 0? '\nAnd \'' + extras.join('\', \'') + '\'' : ''
 
-	let answ = question('About to write to: \(packageFileName):\n\(packageStr)\(extrasStr)\nIs this ok? (yes)')
-	if answ != "", answ.toLowerCase() != 'yes', answ.toLowerCase() != 'y' {
+	let answ = question('About to write to: \(packageFileName):\n\(packageStr)\(extrasStr)\nIs this ok? (yes): ')
+	if not isYes(answ) {
 		console.log('Exiting without changes')
 		Process.exit(1)
 	}
@@ -111,7 +124,7 @@ fun init() {
 	Fs.writeFileSync("hexa.json", packageStr + '\r\n')
 
 	if addMain, !Fs.existsSync(main) {
-		Fs.writeFileSync(main, 'console.log("Thank you for choosing Hexa")')
+		Fs.writeFileSync(main, 'console.log("Thank you for choosing Hexa")\r\n')
 	}
 
 	if addGit, !Fs.existsSync('.gitattributes') {
@@ -146,4 +159,9 @@ fun init() {
 	}
 
 	Process.stdout.write("Hexa package initialized!")
+}
+
+// Detects `y`, `yes` and empty answer as `true`
+fun isYes(answer: String): Bool {
+	return ['y','yes',''].includes(answer.toLowerCase().trim())
 }
