@@ -208,7 +208,8 @@ class Normalizer {
 									throw 'staticSource is \(staticSource) for \(name)'
 							}
 					}
-					return NiceExpression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
+					let result = NiceExpression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
+					return result
 
 				// `expr.name`
 				let parent = typer.parents.get(expr)
@@ -380,7 +381,7 @@ class Normalizer {
 				for arg in args {
 					a.push(nodeToExpression(arg))
 				}
-				return NiceExpression.New(v, a)
+				return NiceExpression.New(v, a, typer.types.get(e))
 
 				case Node.Function(name, expr, vars, rettype, external):
 				let a = []
@@ -406,13 +407,13 @@ class Normalizer {
 					case Node.Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype)
 						if (expr != null) {
 							defaults.push(nodeToExpression(expr))
 						} else {
 							defaults.push(null)
 						}
 				}}
+				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e))
 
 				case Node.Block(el):
 				if (el.length == 0) {
@@ -469,7 +470,7 @@ class Normalizer {
 					let block = []
 					let result = unique('result')
 					let resultType = typer.types.get(e) // TODO refactor to use this var below
-					block.push(NiceStatement.Const(result, NiceExpression.Array([], []), typer.types.get(e)))
+					block.push(NiceStatement.Const(result, NiceExpression.Array([], typer.types.get(e)), typer.types.get(e)))
 					let value = unique('value')
 					let valueType = typer.types.get(el[0])
 					block.push(NiceStatement.Const(value, nodeToExpression(over), valueType))
@@ -515,7 +516,7 @@ class Normalizer {
 					els.push(nodeToExpression(e))
 					types.push(typer.types.get(e))
 				}
-				return NiceExpression.Array(els, types)
+				return NiceExpression.Array(els, typer.types.get(e))
 
 				// `nullable ?? otherwise`
 				case Node.Elvis(nullable, otherwise):
@@ -623,6 +624,7 @@ class Normalizer {
 				case Node.Module(_):
 				case Node.Import(_):
 				case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
+				case Node.TypeAlias(_):
 			}
 
 			return null
