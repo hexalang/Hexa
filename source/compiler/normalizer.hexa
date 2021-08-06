@@ -316,13 +316,15 @@ class Normalizer {
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
-				if (op == Token.OpAdd) { switch (ea) {
+				if op == Token.OpAdd { switch (ea) {
 					case NiceExpression.String(sa): switch (eb) {
 						// `"abc" + "dce" = "abcdce"`
 						case NiceExpression.String(sb): return NiceExpression.String(sa + sb)
 						// `"abc" + 123 = "abc123"`
 						case NiceExpression.Int(sb): return NiceExpression.String(sa + sb)
 						case NiceExpression.Float(sb): return NiceExpression.String(sa + sb)
+						case NiceExpression.True(_): return NiceExpression.String(sa + "true")
+						case NiceExpression.False(_): return NiceExpression.String(sa + "false")
 					}
 					case NiceExpression.Int(sa): switch (eb) {
 						// `1 + 1 = 2`
@@ -529,7 +531,18 @@ class Normalizer {
 					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Node.Unop(op, postfix, e):
-					return NiceExpression.Unop(op, postfix, nodeToExpression(e))
+					let expression = nodeToExpression(e)
+					switch op {
+						case OpNot:
+							switch expression {
+								// `not true = false`
+								case NiceExpression.True(_): return NiceExpression.False
+								// `not false = true`
+								case NiceExpression.False(_): return NiceExpression.True
+								//case False: return NiceExpression.True TODO bug!
+							}
+					}
+					return NiceExpression.Unop(op, postfix, expression)
 
 				case Node.This:
 					return NiceExpression.This(typer.types.get(e))
