@@ -6,6 +6,9 @@
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
 	var console_304 = $global.console
+	var EasE = class {
+		constructor(value_529) {};
+	}
 	function hasOwnProperty(object, name) { return object.hasOwnProperty(name) };
 	function btoa(text_494) { return Buffer.from(text_494, 'binary').toString('base64') };
 	function atob(base64) { return Buffer.from(base64, 'base64').toString('binary') };
@@ -68,6 +71,9 @@
 				};
 				{
 				};
+			};
+			{
+				const temp_532 = new EasE(123);
 			};
 		}
 	}
