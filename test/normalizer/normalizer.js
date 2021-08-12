@@ -133,8 +133,12 @@
 				console.log($Renamed.$renamed());
 				console.log($rename);
 				console.log($renamed());
-				const local = () => { return '123' };
-				console.log(local());
+				const $local = () => { return '123' };
+				console.log($local());
+			};
+			{
+				const x = 3;
+				const x_134 = 50 == 50;
 			};
 		}
 	}
