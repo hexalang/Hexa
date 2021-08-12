@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 /// Analyzes and transforms untyped syntax tree from parser into typed syntax tree, and sends into normalizer
+@final
 class Typer {
 		// Note that we use new instance for each build to avoid collisions with unit tests
 		// and to support parallel compilation in future
@@ -47,6 +48,7 @@ class Typer {
 						case Enum(_):
 						case Function(_):
 						case Class(_):
+						case TypeAlias(_):
 						// TODO type alias
 						case _:
 							named = false
@@ -54,7 +56,9 @@ class Typer {
 
 					if named {
 						let name = DataHelper.nameOf(e)
+						checkOverrides(info, name, e)
 						info.exported.set(name, e)
+						project.mapModules.set(e, info)
 					}
 				}
 			}
@@ -77,13 +81,14 @@ class Typer {
 								e)
 							}
 
-							let index = project.moduleName.indexOf(path)
-							if (index == -1) {
+							let index: Module? = project.mapModules.get(e)
+
+							if index == null {
 								fail('Cannot import ' + path, e)
 							}
 
 							fun importAs(name: String, to: String) {
-								if let target = project.moduleInfo[index] {
+								if let target = index {
 									if name == '*' {
 										info.imported.set(to, Node.ModuleExports(target))
 									} else
@@ -100,9 +105,9 @@ class Typer {
 								}
 							}
 
+							// TODO `let target = target.exported.keys() ?? throw 'unreachable'` special case for `??` nodes
 							if els.length == 0 {
-								if let target = project.moduleInfo[index] {
-									//console.log(target.exported.keys())
+								if let target = index {
 									for key in target.exported.keys() {
 										info.imported.set(key, target.exported.get(key))
 									}
@@ -158,6 +163,9 @@ class Typer {
 								case Enum(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
+								case TypeAlias(_):
+									parents.set(node, e)
+									fillModuleTypes(node)
 								case Function(name, expr, vars, rettype):
 									if let rettype = rettype {
 										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
@@ -174,6 +182,7 @@ class Typer {
 
 			for info in project.moduleInfo {
 				let nodes = info.nodes
+				let self = Node.Module(info.path, info.nodes)
 				pushScope()
 				currentModule = info
 
@@ -182,9 +191,10 @@ class Typer {
 					switch (node) {
 						case Import(_):
 						case Class(_):
+						case TypeAlias(_):
 						case Enum(_):
 						case _:
-							parents.set(node, Node.Module(info.path, info.nodes)) // TODO module itself
+							parents.set(node, self) // TODO module itself
 							fill(node)
 					}
 				}
@@ -263,7 +273,10 @@ class Typer {
 		}
 
 		fun registerClassType(node: Node, callback: Any): ClassType {
+			let mod = currentModule
+			currentModule = project.mapModules.get(node) ?? mod
 			let registered = registerClassTypeWrapped(node, callback)
+			currentModule = mod
 			return registered
 		}
 
@@ -279,10 +292,23 @@ class Typer {
 						return t
 				}
 			} else {
-				let type = new ClassType()
 				let typeName = DataHelper.nameOf(node)
+
+				let type = switch (typeName) {
+					case 'Int':
+						typeIntClass
+					case 'Array':
+						typeArray
+					case 'Any':
+						typeAnyClass
+					case _:
+						new ClassType()
+				}
+
 				let _thisType = thisType
 				let _thisNode = thisNode
+
+				// TODO not simply instantiate, must be filled with generic dummies
 				thisType = type.instantiate()
 				thisNode = node
 				type.parent = node
@@ -295,15 +321,23 @@ class Typer {
 					setup(type)
 				}
 
+				// TODO detect only in root module
+				// probably create them upfront and assign definition later?
 				switch (type.name) {
-					case 'Int': typeInt = type.instantiate()
+					case 'Int': //typeInt = type.instantiate()
 					case 'Bool': typeBool = type.instantiate()
 					case 'Float': typeFloat = type.instantiate()
 					case 'String': typeString = type.instantiate()
 					case 'Array': typeArray = type
 					case 'Map': typeMap = type
-					case 'Any': typeAny = type.instantiate()
+					case 'Any':
+						nodeAny = node
 					case 'Void': typeVoid = type.instantiate()
+
+					case 'UInt8': typeUInt8 = type.instantiate()
+					case 'UInt16': typeUInt16 = type.instantiate()
+					case 'UInt32': typeUInt32 = type.instantiate()
+					case 'UInt64': typeUInt64 = type.instantiate()
 				}
 
 				fun getRename(f: Node): String? {
@@ -743,6 +777,7 @@ class Typer {
 			failNonFatal(msg, node)
 			let errors = failures.slice()
 			failures = []
+			// TODO failures is `let` not `var`!
 			throw new CompilerErrors(errors)
 		}
 
@@ -768,7 +803,7 @@ class Typer {
 				if (el.length > 1) {
 					fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
 				}
-				return NodeType.ParametricType("Array", [nodeToNodeType(el[0])])
+				return NodeType.ParametricType("Array", [nodeToNodeType(el[0])], null)
 			case Node.NodeTypeValue(t):
 				return t
 			case Node.Object(names, el):
@@ -869,12 +904,15 @@ class Typer {
 		// Types
 		private let types: [String : Type] = [:]
 		private var typeString: Type? = null
-		private var typeInt: Type? = null
+		private var typeIntClass: ClassType = new ClassType()
+		private var typeInt: Type = typeIntClass.instantiate()
 		private var typeFloat: Type? = null
 		private var typeBool: Type? = null
-		private var typeArray: Type? = null // Type instantiators
+		private var typeArray: ClassType = new ClassType() // Type instantiators
 		private var typeMap: ClassType = null as! ClassType // Type instantiators
-		private var typeAny: Type? = null
+		private var typeAnyClass: ClassType = new ClassType()
+		private var typeAny: Type = typeAnyClass.instantiate()
+		private var nodeAny: Node? = null
 		private var typeVoid: Type? = null
 		private var namespaces: [String : Node] = [:]
 
@@ -1022,13 +1060,35 @@ class Typer {
 
 		fun toType(t: NodeType, node: Node): Type {
 			switch (t) {
-				case NodeType.Type(name):
-					if (types.get(nodeType) == null) { switch (nodeType) {
-					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
+				case NodeType.Type(name, path):
+					var nodeType: Node? = null
+
+					if let path = path {
+						switch currentModule.imported.get(path) as! Node {
+							case ModuleExports(handle):
+								nodeType = handle.exported.get(name)
+								if nodeType == null {
+									let file = handle.file
+									fail('Namespace `\(path)` does not export type `\(name)` (aliased module is `\(file)`)', node)
+								}
+							case _:
+								fail('Cannot find supposedly imported namespace `\(path)` of type `\(name)`', node)
+						}
+					} else {
+						nodeType = findType(name) ?? currentModule.exported.get(name) ?? currentModule.imported.get(name)
+					}
+
+					if (types.get(nodeType) == null) {
+						switch (nodeType) {
 						case Node.Class(_):
+							let mod = currentModule
 							registerClassType(nodeType)
+							currentModule = mod
+
 						case Node.Enum(_):
 							registerEnumType(nodeType)
+						case null:
+						case _:
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch (type) {
@@ -1060,11 +1120,13 @@ class Typer {
 							}
 							fail('Unsupported type `\(name)`', node)
 					}
-				case NodeType.ParametricType(name, params):
-					let nodeType: Node = findType(name) ?? currentModule.exported.get(name)
+				case NodeType.ParametricType(name, params, path):
+					let nodeType: Node = findType(name) ?? currentModule.exported.get(name) ?? currentModule.imported.get(name)
 					if (types.get(nodeType) == null) { switch (nodeType) {
 						case Class(_):
+							let mod = currentModule
 							registerClassType(nodeType)
+							currentModule = mod
 						case Enum(_):
 							registerEnumType(nodeType)
 					}}
@@ -1212,9 +1274,21 @@ class Typer {
 			popScope()
 
 			ret = functionReturnsAType // Inferred
-			if (ret == null) ret = typeVoid
-			if (ret != typeVoid, expr != null, functionActuallyReturns == false)
+			if (arrow) {
+				if arrow, ret == null, expr != null {
+					ret = types.get(expr)
+				} else {
+					unify(types.get(expr), ret, expr)
+				}
+			} else {
+			if (ret == null) {
+				ret = typeVoid
+			}
+			if ret != typeVoid, expr != null, functionActuallyReturns == false {
+				// To handle arrow
 				fail('Function expects result of `\(Type.stringify(ret))` but never does `return value`', node)
+			}
+			}
 
 			// Restore stack
 			insideFunction = _insideFunction
@@ -1230,16 +1304,21 @@ class Typer {
 				// `class T {}`
 				case Node.Class(t, extend, implement, f, external):
 					addScope(DataHelper.extractTypeName(t), node)
+					let mod = currentModule
 					registerClassType(node)
+					currentModule = mod
 
 				// `enum T {}`
 				case Node.Enum(t, f, valuesType):
 					addScope(DataHelper.extractTypeName(t), node)
+					let mod = currentModule
 					registerEnumType(node)
+					currentModule = mod
 
 				// `declare A = T`
 				case Node.TypeAlias(alias, value):
-					types.set(node, Type.Alias(null))
+					let type = new AliasType()
+					types.set(node, Type.Alias(type))
 					addScope(nameOfModuleItem(node), node)
 			}
 		}
@@ -1255,8 +1334,9 @@ class Typer {
 
 				case Node.Enum(_):
 					fail('Defining enums within blocks not allowed', node)
-				case Node.TypeAlias(_):
-					types.set(node, Type.Alias(null))
+
+				case Node.TypeAlias(_, t):
+					fail('Defining alias within blocks not allowed', node)
 					addScope(nameOfModuleItem(node), node)
 					// TODO
 					// fail('Defining types within blocks not allowed', node)
@@ -1348,6 +1428,8 @@ class Typer {
 								types.set(node, generic[0])
 							} else if overType == typeInt {
 								types.set(node, typeInt)
+							} else if ((overType == typeUInt32) || (overType == typeUInt64)) {
+								types.set(node, overType)
 							} else {
 								fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
 							}
@@ -1461,6 +1543,7 @@ class Typer {
 						popScope()
 					}
 
+					// TODO Hint Consider changing this code to `if let eelse = eelse`
 					if (eelse != null) {
 						fill(eelse)
 					}
@@ -1635,6 +1718,8 @@ class Typer {
 										types.set(el[0], generic[0])
 									} else if overType == typeInt {
 										types.set(el[0], typeInt)
+									} else if ((overType == typeUInt32) || (overType == typeUInt64)) {
+										types.set(el[0], overType)
 									} else {
 										fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
 									}
@@ -1761,7 +1846,10 @@ class Typer {
 							}
 							switch (type.parent) {
 								case Node.Class(t, extend, implement, fields, external):
+									let mod = currentModule
 									registerClassType(type.parent)
+									currentModule = mod
+
 									for field in fields {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
@@ -1907,7 +1995,9 @@ class Typer {
 							// Try eager on-demand type build
 							switch (subj) {
 								case Node.Class(_):
+									let mod = currentModule
 									registerClassType(subj)
+									currentModule = mod
 								case Node.Enum(_): registerEnumType(subj)
 							}
 
@@ -2054,6 +2144,7 @@ class Typer {
 					types.set(node, types.get(b))
 
 				// `e(elNames: el, ...)`
+				// TODO show called function/method position
 				case Node.Call(e, el, elNames):
 					// JavaScript evaluates arguments first
 					switch (e) {
@@ -2138,12 +2229,12 @@ class Typer {
 					} else
 					// Always provides boolean result
 					if (
-						op == Token.OpGte ||
-						op == Token.OpGt ||
-						op == Token.OpLte ||
-						op == Token.OpLt ||
-						op == Token.OpEq ||
-						op == Token.OpNotEq
+						(op == Token.OpGte) ||
+						(op == Token.OpGt) ||
+						(op == Token.OpLte) ||
+						(op == Token.OpLt) ||
+						(op == Token.OpEq) ||
+						(op == Token.OpNotEq)
 					) {
 						types.set(node, typeBool)
 					} else {
@@ -2187,7 +2278,7 @@ class Typer {
 							node)
 						case Node.Static(f): switch (f) {
 							case Node.Function(name, _):
-								fail('Cannot `\(Token.stringify(op))` a static function `\(name)`', node)
+								fail('Cannot `\(Token.stringify(op))` a `static fun \(name)`', node)
 							case Node.Var(name, _, _, const):
 								if (const) {
 									fail(
@@ -2242,9 +2333,9 @@ class Typer {
 							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
 							} else if ['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name) {
-								types.set(node, toType(NodeType.Type("Int"), node))
+								types.set(node, toType(NodeType.Type("Int", null), node))
 							} else if ['Any'].includes(type.name) {
-								types.set(node, toType(NodeType.Type("Any"), node))
+								types.set(node, toType(NodeType.Type("Any", null), node))
 							} else {
 								fail('value[i] generic is null or >1', e)
 							}
