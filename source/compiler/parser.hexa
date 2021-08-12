@@ -578,7 +578,6 @@ class Parser {
 				i++
 				eelse = parseExpr()
 			}
-			result = Node.TIf(econd, eif, eelse)
 			if (eif != null) {
 				switch (eif) {
 					case Node.Block(_):
@@ -600,6 +599,7 @@ class Parser {
 						i = temp
 				}
 			}
+			result = Node.If(econd, eif, eelse, false)
 		// while () {}
 		case Token.KWhile:
 			i++
@@ -697,7 +697,9 @@ class Parser {
 			fun fix(value: Node) {
 				switch (value) {
 					case Node.Binop(aa, op, bb):
-						return Node.Binop(fix(aa), op, bb)
+						let out = Node.Binop(fix(aa), op, bb)
+						project.data.set(out, project.data.get(value))
+						return out
 					case _: return Node.Unop(id, false, value)
 				}
 			}
@@ -1325,7 +1327,7 @@ class Parser {
 					var eif = parseExpr()
 					step(Token.Colon)
 					var eelse = parseExpr()
-					result = Node.TIf([result], eif, eelse)
+					result = Node.If([result], eif, eelse, true)
 				}
 			// a ?. b
 			case Token.OpChain: i++
@@ -1361,6 +1363,13 @@ class Parser {
 						let eb = Node.Binop(result, t, aa)
 						project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
 						result = Node.Binop(eb, op, bb)
+					} else {
+						result = Node.Binop(result, t, b)
+					}
+				// Ternary operator has the lowest precedence
+				case If(econd, eif, eelse, ternary):
+					if (ternary == true && t != Token.OpAssign) {
+						result = Node.If([Node.Binop(result, t, econd[0])], eif, eelse, true)
 					} else {
 						result = Node.Binop(result, t, b)
 					}
