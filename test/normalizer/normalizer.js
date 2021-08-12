@@ -5,16 +5,30 @@
 	"use strict"
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
-	var console_304 = $global.console
+	var console_46 = $global.console
 	var EasE = class {
-		constructor(value_529) {};
+		constructor(value_128) {};
 	}
+	var AutoKeep = class {
+		constructor() {};
+	}
+	var $Renamed = class {
+		constructor() { 
+			this.$renames = '123'
+		{
+		} };
+		$ren() { return '123' };
+	}
+	$Renamed.$rename = '123'
+	$Renamed.$renamed = () => { return '123' };
 	function hasOwnProperty(object, name) { return object.hasOwnProperty(name) };
-	function btoa(text_494) { return Buffer.from(text_494, 'binary').toString('base64') };
+	function btoa(text_112) { return Buffer.from(text_112, 'binary').toString('base64') };
 	function atob(base64) { return Buffer.from(base64, 'base64').toString('binary') };
+	function $renamed() { return '123' };
 	var value = 'hello'
 	var another = 'hello'
 	var boolean = true
+	var $rename = 123
 	{
 		{
 			console.log('Thank you for choosing Hexa');
@@ -35,26 +49,26 @@
 			};
 			{
 				const bool = true;
-				const bool_499 = true;
-				const bool_501 = false;
-				const bool_503 = false;
-				const bool_505 = true;
-				const bool_507 = true;
+				const bool_113 = true;
+				const bool_114 = false;
+				const bool_115 = false;
+				const bool_116 = true;
+				const bool_117 = true;
 				console.log('xtruey');
 				console.log('x' + true + 'y');
-				const bool_509 = true == true;
-				console.log('x' + bool_509);
-				const bool_511 = false;
-				const bool_513 = false;
+				const bool_118 = true == true;
+				console.log('x' + bool_118);
+				const bool_119 = false;
+				const bool_120 = false;
 				console.log('false == false');
-				const bool_515 = true;
-				const bool_517 = true;
+				const bool_121 = true;
+				const bool_122 = true;
 				console.log('true == true');
-				const bool_519 = false;
-				const bool_521 = false;
+				const bool_123 = false;
+				const bool_124 = false;
 				console.log('false == false');
-				const bool_523 = true;
-				const bool_525 = true;
+				const bool_125 = true;
+				const bool_126 = true;
 				console.log('true == true');
 				console.log('true == true');
 				console.log('true == true');
@@ -71,9 +85,54 @@
 				};
 				{
 				};
+				const bool_127 = () => { return false };
 			};
 			{
-				const temp_532 = new EasE(123);
+				const temp = new EasE();
+				const temp_129 = new EasE(123);
+			};
+			{
+				{
+					const temp_130 = 123;
+					switch (temp_130) {
+					default: 
+					console.log('hi')
+					};
+				};
+				{
+					const temp_131 = 123;
+					switch (temp_131) {
+					case 123: {
+						console.log('123')
+					} break;
+					
+					default: 
+					console.log('case _: is ok at any position')
+					};
+				};
+				{
+					const temp_132 = 123;
+					switch (temp_132) {
+					case 123: {
+						console.log('123')
+					} break;
+					
+					default: 
+					console.log('case _: is ok at any position')
+					};
+				};
+			};
+			{
+				const temp_133 = new AutoKeep();
+			};
+			{
+				const r = new $Renamed();
+				console.log(r.$renames);
+				console.log(r.$ren());
+				console.log($Renamed.$rename);
+				console.log($Renamed.$renamed());
+				console.log($rename);
+				console.log($renamed());
 			};
 		}
 	}
