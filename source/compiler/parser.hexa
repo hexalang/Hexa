@@ -326,6 +326,7 @@ class Parser {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
+		// TODO multiple non-fatal errors (like no {} in `if`)
 		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
 		throw new CompilerErrors(hints)
 	}
@@ -613,6 +614,9 @@ class Parser {
 			step(Token.KWhile)
 			var econd = parseExpr()
 			result = Node.While(econd, e, false)
+		// (e) just parenthesis
+		// (e) =>
+		// () =>
 		case Token.POpen:
 			next()
 			if (
@@ -650,7 +654,19 @@ class Parser {
 				}
 				result = Node.Arrow(parseExpr(), v, null)
 			} else {
+				// TODO move into reusable function
+				if (tok() == Token.Eof) {
+					i = startsAt
+					fail('The parenthesis `(` has got unclosed to the end of the file')
+				}
 				var expr = parseExpr()
+				// TODO add same checks for other {} () []
+				// ^ something like pushUbclosed('(') < saves i somewhere,
+				// and `step` uses this var if Eof
+				if (tok() == Token.Eof) {
+					i = startsAt
+					fail('The parenthesis `(` has got unclosed to the end of the file')
+				}
 				step(Token.PClose)
 				result = Node.Parenthesis(expr)
 			}
@@ -735,10 +751,10 @@ class Parser {
 			} else if (lex.token[i + 1] == Token.Question) {
 				var name = getgo(Token.LUpper)
 				i++
-				result = Node.NodeTypeValue(NodeType.Optional(NodeType.Type(name)))
+				result = Node.NodeTypeValue(NodeType.Optional(NodeType.Type(name, null)))
 			} else {
 				var name = getgo(Token.LUpper)
-				result = Node.NodeTypeValue(NodeType.Type(name))
+				result = Node.NodeTypeValue(NodeType.Type(name, null))
 			}
 		case Token.LLower:
 			var name = getgo(Token.LLower)
@@ -1777,19 +1793,62 @@ class Parser {
 	var parametricTypeNesting = 0
 	var parametricTypeNestingToken = Token.Eof
 	fun parseType(): NodeType {
-		var path = []
-		while (tok() == Token.LLower && offset(1) == Token.Dot) {
-			path.push(getgo(Token.LLower))
+		// Plain values
+
+		if (tok() == Token.LInt) {
+			return NodeType.Int(parseInt(getgo(Token.LInt)))
+		}
+
+		if (tok() == Token.LFloat) {
+			return NodeType.Float(parseFloat(getgo(Token.LFloat)))
+		}
+
+		if (tok() == Token.LString) {
+			return NodeType.String(getgo(Token.LString))
+		}
+
+		if (tok() == Token.LLower && offset(1) == Token.POpen) {
+			let name = getgo(Token.LLower)
 			i++
+			let argNames: [String] = []
+			let values: [NodeType] = []
+
+			while tok() != Token.PClose {
+				if tok() == Token.LLower {
+					argNames.push(getgo(Token.LLower))
+					step(Token.Colon)
+				} else {
+					argNames.push(null)
+				}
+
+				values.push(parseType())
+
+				if tok() == Token.PClose {
+					break
+				} else {
+					step(Token.Comma)
+				}
+			}
+
+			step(Token.PClose)
+			return NodeType.Call(name, argNames, values)
+		}
+
+		// Types
+
+		let path: String? = if (tok() == Token.LLower && offset(1) == Token.Dot) {
+			let result = getgo(Token.LLower)
+			i++
+			result
+		} else {
+			// TODO special typer case for if xx else null => T?
+			null
 		}
 
 		var result: NodeType? = null
 		switch (tok()) {
 		case Token.LUpper:
 			var name = getgo(Token.LUpper)
-			if (path.length != 0) {
-				name = path.join('.') + '.' + name
-			}
 			while (tok() == Token.Dot) {
 				i++
 				getgo(Token.LUpper)
@@ -1817,9 +1876,9 @@ class Parser {
 					fail("parametricTypeNesting < 0")
 				}
 
-				NodeType.ParametricType(name, params)
+				NodeType.ParametricType(name, params, path)
 			} else {
-				NodeType.Type(name)
+				NodeType.Type(name, path)
 			}
 
 			// A => B
@@ -1831,8 +1890,8 @@ class Parser {
 			result = sresult
 		// `[Type]`
 		case Token.BkOpen:
-			if (path.length != 0) {
-				fail("Token.BkOpen") // [Type]
+			if path != null {
+				fail("This path syntax is incorrect")
 			}
 
 			i++
@@ -1840,23 +1899,23 @@ class Parser {
 			switch (tok()) {
 				case Token.BkClose:
 					i++
-					res = NodeType.ParametricType("Array", [NodeType.Object([], [])])
+					res = NodeType.ParametricType("Array", [NodeType.Object([], [])], path)
 				case Token.Colon:
 					i++
 					if (tok() == Token.BkClose) {
 						i++
-						res = NodeType.ParametricType("Map", [NodeType.Object([], []), NodeType.Object([], [])])
+						res = NodeType.ParametricType("Map", [NodeType.Object([], []), NodeType.Object([], [])], path)
 					}
 					else {
-						res = NodeType.ParametricType("Map", [NodeType.Object([], []), parseType()])
+						res = NodeType.ParametricType("Map", [NodeType.Object([], []), parseType()], path)
 					}
 				case _:
 					var key = parseType()
 					var innerRes = if (tok() == Token.Colon) { // Map
 						i++
-						NodeType.ParametricType("Map", [key, parseType()])
+						NodeType.ParametricType("Map", [key, parseType()], path)
 					} else {
-						NodeType.ParametricType("Array", [key])
+						NodeType.ParametricType("Array", [key], path)
 					}
 					step(Token.BkClose)
 					if (tok() == Token.OpArrow) {
@@ -1868,8 +1927,8 @@ class Parser {
 			result = res
 		// `{}`
 		case Token.BrOpen:
-			if (path.length != 0) {
-				fail("Token.BrOpen") // {}
+			if path != null {
+				fail("This path syntax is incorrect")
 			}
 
 			i++
@@ -1898,8 +1957,8 @@ class Parser {
 			result = sresult
 		// `()`
 		case Token.POpen:
-			if (path.length != 0) {
-				fail("Token.POpen") // ()
+			if path != null {
+				fail("This path syntax is incorrect")
 			}
 
 			i++
