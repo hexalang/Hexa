@@ -757,6 +757,7 @@ class Parser {
 			i++ result = Node.Bool(true)
 		case Token.KFalse:
 			i++ result = Node.Bool(false)
+		// `this`
 		case Token.KThis:
 			i++ result = Node.This
 		case Token.KNull:
@@ -775,6 +776,7 @@ class Parser {
 			} else {
 				result = parsed[0]
 			}
+		// `try { } catch e : T { } catch e : T { }`
 		case Token.KTry:
 			i++
 			var expr = parseExpr()
@@ -1307,19 +1309,26 @@ class Parser {
 			// a ?? b
 			// a ?. b
 			case Token.Question: i++
+				// TODO Probably keep just Token.OpChain? or only this?
+				// This way it allows to parse `a? .xx()? .yy()` on separate lines
 				if (tok() == Token.Dot) {
+					// a ?. b
 					var name = getgo(Token.LLower)
 					result = Node.Dot(result, name)
 				} else if (tok() == Token.Question) {
+					// a ?? b
 					i++
 					result = Node.Elvis(result, parseExpr())
 				} else {
+					// a ? b : c
 					var eif = parseExpr()
 					step(Token.Colon)
 					var eelse = parseExpr()
 					result = Node.TIf([result], eif, eelse)
 				}
+			// a ?. b
 			case Token.OpChain: i++
+				// TODO
 				result = parseExpr()
 			// a += b
 			case _:
@@ -1509,7 +1518,7 @@ class Parser {
 		var atts: [[Decorator]] = []
 		var types = []
 		var values = []
-		var pos = []
+		var pos: [{ line: Int, column: Int }] = []
 		switch (tok()) {
 			case Token.LLower:
 				name = getgo(Token.LLower)
