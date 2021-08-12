@@ -199,10 +199,10 @@ class Typer {
 			}
 		}
 
-			var subj = null
 		fun find(name: String): Node? {
-				subj = scopes[scopes.length - i - 1].get(name)
+			var subj: Node? = null
 			for i in scopes.length {
+				subj = scopes[scopes.length - i - 1].get(name)
 				if (subj != null) {
 					break
 				}
@@ -262,10 +262,15 @@ class Typer {
 			return available
 		}
 
-		// `class T {}`
 		fun registerClassType(node: Node, callback: Any): ClassType {
-				switch (type) {
+			let registered = registerClassTypeWrapped(node, callback)
+			return registered
+		}
+
+		// `class T {}`
+		fun registerClassTypeWrapped(node: Node, callback: Any): ClassType {
 			if let type = types.get(node) {
+				switch (type as! Type) {
 					// Avoid typing if already typed
 					case Type.Class(t):
 						if let setup = callback {
@@ -533,9 +538,9 @@ class Typer {
 		}
 
 		// `enum T {}`
-				switch (type) {
 		fun registerEnumType(node: Node): EnumType {
 			if let type = types.get(node) {
+				switch (type as! Type) {
 					// Avoid typing if already typed
 					case Type.Enum(t): return t
 				}
@@ -826,7 +831,7 @@ class Typer {
 			}
 			var m = namespaces.get('')
 			var el: [Node] = null as! [Node]
-			switch (m) {
+			switch (m as! Node) {
 				case Node.Module(_, els): el = els
 				case _: return null // No root
 			}
@@ -1335,7 +1340,7 @@ class Typer {
 				case Node.For(name, over, by, range):
 					pushScope()
 					fillExpression(over)
-					let overType = types.get(over)
+					let overType: Type = types.get(over)
 					switch (overType) {
 						case Type.ClassInstance(type, generic):
 							// Extract Array<T>
@@ -1430,7 +1435,7 @@ class Typer {
 								pushScope()
 								fillExpression(expr)
 								popScope()
-								switch (types.get(expr)) {
+								switch (types.get(expr) as! Type) {
 									case Type.Nullable(t): types.set(e, t)
 									case Type.UnknownNullable(handle):
 										if let t = handle.value {
@@ -1533,7 +1538,7 @@ class Typer {
 		}
 
 		// Expressions return values
-		function fillExpression(node) {
+		fun fillExpression(node: Node) {
 			switch (node) {
 				// Just `name`
 				case Node.Ident(name):
@@ -1736,7 +1741,7 @@ class Typer {
 						case _:
 							fillExpression(e)
 					}
-					if (let etype = types.get(e)) { switch (etype) {
+					if let etype = types.get(e) as! Type? { switch (etype) {
 						case Type.ClassInstance(type): // Non-static fields
 							type.useless = false
 							if (etype == typeAny) {
@@ -1858,7 +1863,7 @@ class Typer {
 							fail('Cannot access `super` here', node)
 					}
 					fillExpression(e)
-					switch (types.get(e)) {
+					switch (types.get(e) as! Type) {
 						case Type.Class(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0) {
@@ -2064,7 +2069,7 @@ class Typer {
 						fillExpression(e)
 					}
 
-				 	switch (types.get(e)) {
+				 	switch (types.get(e) as! Type) {
 				 		case Type.Function(args, returns):
 				 			for i in el.length { if let arg = args[i] {
 				 				unify(arg, types.get(el[i]), el[i])
@@ -2213,7 +2218,7 @@ class Typer {
 
 					// For now, only Int & Any index supported
 					var indexableIsAny = false
-					switch (types.get(e)) {
+					switch (types.get(e) as! Type) {
 						case Type.ClassInstance(type, generic):
 							if (type.name == 'Any') {
 								indexableIsAny = true
@@ -2221,7 +2226,7 @@ class Typer {
 					}
 
 					if (!indexableIsAny) {
-					switch (types.get(i)) {
+					switch (types.get(i) as! Type) {
 						case Type.ClassInstance(type):
 							if type.name != 'Int', type.name != 'Any' {
 								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(types.get(i)) + '`', e)
@@ -2232,7 +2237,7 @@ class Typer {
 					}}
 
 					// For now, only Array[i] supported
-					switch (types.get(e)) {
+					switch (types.get(e) as! Type) {
 						case Type.ClassInstance(type, generic):
 							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
@@ -2381,7 +2386,7 @@ class Typer {
 			}
 		}
 
-		function fillSwitch(node, value: Bool) {
+		fun fillSwitch(node: Node, value: Bool) {
 			switch (node) {
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
 				case Node.Switch(exprs, conds, guards, cases):
@@ -2473,8 +2478,8 @@ class Typer {
 						pushScope()
 						var e = conds[i]
 						// Fill case condition `case pattern:`
-						var currentType = null
-						var currentTag = null
+						var currentType: EnumType? = null
+						var currentTag: String? = null
 						var currentTagBind = 0
 						var interval = false
 
