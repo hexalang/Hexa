@@ -125,8 +125,8 @@ class Main {
 		}
 	}
 
-	static fun processGlobals(project: Project, path: String) {
-		let index = project.moduleName.indexOf(path)
+	static fun processGlobals(project: Project, path: String, fullPath: String) {
+		let index = project.moduleName.indexOf(fullPath ?? path)
 
 		if let info = project.moduleInfo[index] {
 			let nodes = info.nodes
@@ -159,18 +159,10 @@ class Main {
 
 	/// Returns counted lines of code
 	static fun processModule(project: Project, path: String, global: Bool, relative: Module?, node: Node?): Int {
-		let index = project.moduleName.indexOf(path)
 		var lines = 0
 
-		// Do not parse again, but upload all globals
-		if (index > -1) {
-			if (global == true) {
-				processGlobals(project, path)
-			}
-			return lines
-		}
 
-		fun tryInRoot(root) {
+		fun tryInRoot(root: String, fullPath: String) {
 			let file = Path.join(root, path + '.hexa')
 			if (Fs.existsSync(file)) {
 				try {
@@ -191,22 +183,24 @@ class Main {
 				}
 
 				let parsed = Parser.parseNodes(tokens, project)
-				project.moduleName.push(path)
+				project.moduleName.push(fullPath)
 				let info = new Module()
 				info.nodes = parsed
 				info.file = file
-				info.path = path
+				info.path = fullPath
 				project.moduleInfo.push(info)
+				project.mapModules.set(node, info)
 
 				for e in parsed {
 					switch (e) {
 						case Node.Import(_, path):
+							// TODO lines
 							processModule(project, path, false, info, e)
 					}
 				}
 
 				if (global == true) {
-					processGlobals(project, path)
+					processGlobals(project, path, fullPath)
 				}
 
 				return lines
@@ -226,7 +220,26 @@ class Main {
 		}
 
 		for root in roots {
-			let lines = tryInRoot(root)
+			// Find project-relative path
+			let file = Path.join(root, path + '.hexa')
+			var fullPath = ''
+			if Fs.existsSync(file) {
+				fullPath = Path.relative(Path.dirname(project.json), file).slice(0,-5).split('\\').join('/')
+			}
+
+			// Do not parse again, but upload all globals
+			let index = project.moduleName.indexOf(fullPath)
+			if index > -1 {
+				if global == true {
+					processGlobals(project, path, fullPath)
+				}
+
+				project.mapModules.set(node, project.moduleInfo[index])
+				return lines
+			}
+
+			// Process
+			let lines = tryInRoot(root, fullPath)
 			if lines > -1 {
 				return lines
 			}
@@ -300,8 +313,13 @@ class Main {
 	}
 
 	fun readPackage(filename: String): Package {
-		let pack: Package = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8').split('\r\n').join('\n'))
-		return pack
+		try {
+			let pack: Package = JSON.parse(Fs.readFileSync(Path.resolve(filename)).toString('utf8').split('\r\n').join('\n'))
+			return pack
+		} catch e: Any {
+			let msg = 'Cannot open ' + filename
+			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, 'hexa.json')])
+		}
 	}
 
 	// Loads hexa.json
@@ -693,6 +711,10 @@ class Main {
 					console.log("[Generator finished in \(Date.now() - beginGenerator) ms]")
 				#end
 
+				if noWrite {
+					return outs
+				}
+
 				Fs.writeFileSync(target, outs)
 			} else {
 				console.log("Generator for `\(generatorName)` is not registered.")
@@ -711,11 +733,14 @@ class Main {
 		return null
 	}
 
+	var typecheckProject: Project = new Project()
+
 	fun typecheck(dir: String): CompilerErrors {
 		// Spawn project
 		try {
 
 		let project = new Project()
+		typecheckProject = project
 		let defines: Any = {}
 		project.defines = defines
 		let input = loadPackage(dir + Path.sep + "hexa.json", targetName, project)
