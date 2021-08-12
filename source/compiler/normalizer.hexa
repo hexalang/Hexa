@@ -16,6 +16,7 @@
 /// Generates simplified view of syntax tree for easier later generation.
 /// Transforms typed abstract syntax tree to a simpler representation called "nice nodes", suitable for code generation.
 /// Also does some basic optimizations.
+@final
 class Normalizer {
 		var project: Project
 		let niceProject = new NiceProject()
@@ -171,6 +172,7 @@ class Normalizer {
 				case Node.Ident(name):
 					var source: Node? = typer.parents.get(e)
 					// Constant propagation
+					// TODO inline map to TNode.inline, also TNode.neverReassigned
 					if let value = inline.get(source) {
 						return value
 					}
@@ -179,13 +181,15 @@ class Normalizer {
 						case null:
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
 						case Node.Var(name, _, _):
+							let staticSource = typer.parents.get(source)
 							if let map = typer.parents.get(source) { switch (map as! Node) {
 								case Node.Module(_):
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
 									let type = typer.types.get(typer.parents.get(source))
-									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
+									// TODO .This(type)
+									return NiceExpression.Dot(NiceExpression.This(type), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
 							}}
 						case Node.Function(name, _):
 							if let map = typer.parents.get(source) { switch (map as! Node) {
@@ -196,6 +200,7 @@ class Normalizer {
 									}
 									return result
 								case _:
+									// TODO .This(type)
 									let type = typer.types.get(typer.parents.get(source))
 									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
 							}
@@ -219,12 +224,14 @@ class Normalizer {
 					return result
 
 				// `expr.name`
-				switch (expr) {
+				// TODO constant propagation
 				case Node.Dot(expr, name):
 				let parent: Node? = typer.parents.get(expr)
+				/*switch (expr) {
 					case Node.This:
 						return NiceExpression.Dot(NiceExpression.This(typer.types.get(expr)), getClassDotField(typer.types.get(expr).parent, name) ?? name, typer.types.get(e))
 				}
+				}*/
 				switch (parent) {
 					case Node.Enum(t, fields, valuesType):
 						if !nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
@@ -241,8 +248,15 @@ class Normalizer {
 						if let rename = renamed {
 							return NiceExpression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
 						}
-				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 				}}
+				let value = nodeToExpression(expr)
+
+				if (name == 'length') { switch (value) {
+					case NiceExpression.String(s):
+						return NiceExpression.Int(s.length)
+				}}
+
+				return NiceExpression.Dot(value, name, typer.types.get(e))
 
 				case Node.DotUpper(expr, name):
 				let parent: Node? = typer.parents.get(expr)
@@ -265,9 +279,19 @@ class Normalizer {
 				if (args.length == 1) { switch (expr) {
 					case Node.Dot(expr, name): if (name == 'charCodeAt') { switch (expr) {
 						case Node.String(s): if (s.indexOf('\\') == -1) { switch (args[0]) {
-								let i = parseInt(v)
-								if (i < s.length, i > -1) return NiceExpression.Int(s.charCodeAt(i))
 							case Node.Int(v):
+								let i = v
+								if i < s.length, i > -1 {
+									let value = s.charCodeAt(i) // Returns NaN in js
+									//if (value > -1) NiceExpression.Int('' + value) // TODO generate enum creation statement to var= or jscrashes
+									let result = if value > -1 {
+										NiceExpression.Int('' + value)
+									} else {
+										NiceExpression.Int('' + 0)
+									}
+									niceProject.expressionType.set(result, typer.typeInt)
+									return result
+								}
 						}}
 					}}
 				}}
