@@ -283,7 +283,7 @@ class Typer {
 		// `class T {}`
 		fun registerClassTypeWrapped(node: Node, callback: Any): ClassType {
 			if let type = types.get(node) {
-				switch (type as! Type) {
+				switch type as! Type {
 					// Avoid typing if already typed
 					case Type.Class(t):
 						if let setup = callback {
@@ -323,7 +323,7 @@ class Typer {
 
 				// TODO detect only in root module
 				// probably create them upfront and assign definition later?
-				switch (type.name) {
+				switch type.name {
 					case 'Int': //typeInt = type.instantiate()
 					case 'Bool': typeBool = type.instantiate()
 					case 'Float': typeFloat = type.instantiate()
@@ -346,7 +346,7 @@ class Typer {
 						if (native.values.length != 1) {
 							throw '@rename takes one string argument'
 						}
-						if (native != null) { switch (native.values[0]) {
+						if (native != null) { switch native.values[0] {
 							case Node.String(s): return s
 							case _: throw '@rename takes string as argument'
 						}}
@@ -574,7 +574,7 @@ class Typer {
 		// `enum T {}`
 		fun registerEnumType(node: Node): EnumType {
 			if let type = types.get(node) {
-				switch (type as! Type) {
+				switch type as! Type {
 					// Avoid typing if already typed
 					case Type.Enum(t): return t
 				}
@@ -866,7 +866,7 @@ class Typer {
 			}
 			var m = namespaces.get('')
 			var el: [Node] = null as! [Node]
-			switch (m as! Node) {
+			switch m as! Node {
 				case Node.Module(_, els): el = els
 				case _: return null // No root
 			}
@@ -970,7 +970,7 @@ class Typer {
 			}
 
 			fun instanceOfClass(t: Type): ClassType? {
-				switch (Type.unwrapNullable(t)) {
+				switch Type.unwrapNullable(t) {
 					case Type.ClassInstance(t): return t
 					case Type.Class(t):
 						fail('Cannot take classes `class \(t.name)` as values', node)
@@ -981,7 +981,7 @@ class Typer {
 			}
 
 			fun instanceOfEnum(t: Type): EnumType? {
-				switch (Type.unwrapNullable(t)) {
+				switch Type.unwrapNullable(t) {
 					case Type.EnumInstance(t, _): return t
 					case Type.Enum(t): return t
 				}
@@ -1509,7 +1509,7 @@ class Typer {
 								pushScope()
 								fillExpression(expr)
 								popScope()
-								switch (types.get(expr) as! Type) {
+								switch types.get(expr) as! Type {
 									case Type.Nullable(t): types.set(e, t)
 									case Type.UnknownNullable(handle):
 										if let t = handle.value {
@@ -1530,13 +1530,13 @@ class Typer {
 						}
 					}
 					fill(eif)
-					while (depth > 0) {
+					while depth > 0 {
 						depth--
 						popScope()
 					}
 
 					// TODO Hint Consider changing this code to `if let eelse = eelse`
-					if (eelse != null) {
+					if eelse != null {
 						fill(eelse)
 					}
 
@@ -1689,7 +1689,7 @@ class Typer {
 				// `[a,b,c]`
 				case Node.Array(el):
 					// `[for(name in over ... range) by]`
-					switch (el[0]) {
+					switch el[0] {
 						case Node.For(name, over, by, range):
 							if (el.length > 1) {
 								fail('Cannot use loop `for` within array of more than one element `[for(), ...]`', el[1])
@@ -1836,7 +1836,7 @@ class Typer {
 							if (type.fieldStatic[index] == true) {
 								fail('Class `\(named)` field `.\(n)` is static', node)
 							}
-							switch (type.parent) {
+							switch type.parent {
 								case Node.Class(t, extend, implement, fields, external):
 									let mod = currentModule
 									registerClassType(type.parent)
@@ -1864,7 +1864,7 @@ class Typer {
 							if (type.fieldStatic[index] != true) {
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
 							}
-							switch (type.parent) {
+							switch type.parent {
 								case Node.Class(t, extend, implement, fields, external):
 									for field in fields {
 										if (DataHelper.nameOf(field) == n) {
@@ -1883,7 +1883,7 @@ class Typer {
 							if (type.fieldStatic[index] != true) {
 								fail('Enum field `.\(n)` is not static', node)
 							}
-							switch (type.parent) {
+							switch type.parent {
 								case Node.Enum(t, fields, valuesType):
 									for field in fields { switch field {
 										case Node.Call(_):
@@ -1943,7 +1943,7 @@ class Typer {
 							fail('Cannot access `super` here', node)
 					}
 					fillExpression(e)
-					switch (types.get(e) as! Type) {
+					switch types.get(e) as! Type {
 						case Type.Class(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0) {
@@ -2006,7 +2006,7 @@ class Typer {
 						fail('Cannot use this type as a value', node)
 				}
 
-				// `new T {names:values} ()`
+				// `new T {names: values} ()`
 				case Node.New(path, t, el, names, values):
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
@@ -2064,15 +2064,15 @@ class Typer {
 					if (econd.length > 1) {
 						fail('More than one condition is not yet supported', econd[1])
 					}
-					switch (econd[0]) {
+					switch econd[0] {
 						case Node.Var(_):
 							fail('Variable bindings in ternary conditions are not yet supported', econd[0])
 					}
-					if (eelse == null) {
+					if eelse == null {
 						fail('Expression `if` should have an `else` clause', eif)
 					}
 					fillExpression(econd[0])
-					if (ternary == false) {
+					if ternary == false {
 						switch eif {
 							case Node.Block(_):
 							case _:
@@ -2090,7 +2090,7 @@ class Typer {
 
 				// Simple nodes
 				case Node.Null:
-					types.set(node, Type.UnknownNullable({value:null}))
+					types.set(node, Type.UnknownNullable({value: null}))
 
 				case Node.String(_):
 					types.set(node, typeString)
@@ -2152,7 +2152,7 @@ class Typer {
 						fillExpression(e)
 					}
 
-				 	switch (types.get(e) as! Type) {
+				 	switch types.get(e) as! Type {
 				 		case Type.Function(args, returns):
 				 			for i in el.length { if let arg = args[i] {
 				 				unify(arg, types.get(el[i]), el[i])
@@ -2301,7 +2301,7 @@ class Typer {
 
 					// For now, only Int & Any index supported
 					var indexableIsAny = false
-					switch (types.get(e) as! Type) {
+					switch types.get(e) as! Type {
 						case Type.ClassInstance(type, generic):
 							if (type.name == 'Any') {
 								indexableIsAny = true
@@ -2309,7 +2309,7 @@ class Typer {
 					}
 
 					if (!indexableIsAny) {
-					switch (types.get(i) as! Type) {
+					switch types.get(i) as! Type {
 						case Type.ClassInstance(type):
 							if type.name != 'Int', type.name != 'Any' {
 								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(types.get(i)) + '`', e)
@@ -2320,7 +2320,7 @@ class Typer {
 					}}
 
 					// For now, only Array[i] supported
-					switch (types.get(e) as! Type) {
+					switch types.get(e) as! Type {
 						case Type.ClassInstance(type, generic):
 							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
@@ -2549,7 +2549,7 @@ class Typer {
 
 					// Avoid repeating tags `case Tag:` and values `case 123:`
 					fun tagCheck(currentTag: String, e: Node) {
-						if (tags.includes(currentTag)) {
+						if tags.includes(currentTag) {
 							fail('Tag `\(currentTag)` already matched', e)
 							// TODO .. at line
 						} else {
@@ -2557,7 +2557,7 @@ class Typer {
 						}
 					}
 
-					while (i < cases.length) {
+					while i < cases.length {
 						pushScope()
 						var e = conds[i]
 						// Fill case condition `case pattern:`
@@ -2570,7 +2570,7 @@ class Typer {
 							switch e {
 								case Node.DotUpper(ex, name):
 									fillExpression(e)
-									switch (types.get(ex) as! Type) {
+									switch types.get(ex) as! Type {
 										case Type.Enum(type):
 											currentType = type
 											currentTag = name
@@ -2627,7 +2627,7 @@ class Typer {
 										let binds = enumType.tagBindVarsNames[i],
 										binds.length == 0
 									{
-										switch (args[0]) {
+										switch args[0] {
 											case Node.Interval(_):
 												// Okay
 											case _:

@@ -106,18 +106,18 @@ class Lexer {
 			}
 
 			// Ignore #!shebang until end of line
-			if len > 2, get_8(0) == "#".charCodeAt(0), get_8(1) == "!".charCodeAt(0) { while (position < len && get_8(position) != 10) {
+			if len > 2, get_8(0) == "#".charCodeAt(0), get_8(1) == "!".charCodeAt(0) { while position < len && get_8(position) != 10 {
 				position++
 			}}
 
 			// Lexer main loop
-			while (position < len) {
+			while position < len {
 				// Variable
 				var _8 = 0 // Current byte value
 
 				// Whitespace
 				/*var _8 = get_8(position)
-				while ((_8 <= 32) && (position < len)) {
+				while (_8 <= 32) && (position < len) {
 					if (_8 == "\n".charCodeAt(0)) {
 						new_line()
 						//position++
@@ -135,17 +135,17 @@ class Lexer {
 					//position++
 				} while (_8 <= 32 && (++position < len))
 
-				if (!not_eof()) { break }
+				if not not_eof() { break }
 
 				// Current two-byte value
 				var _16 = (len - position) > 1 ? _8 | (get_8(position + 1) << 8) : _8
 
 				// Comments
-				if (_8 == "/".charCodeAt(0)) {
+				if _8 == "/".charCodeAt(0) {
 					// // Comment
 					if (_16 == 0x2f2f) {
 						var pos = position + 2
-						while (get_8(position) != /*"\n".charCodeAt(0)*/10 && not_eof()) {
+						while get_8(position) != /*"\n".charCodeAt(0)*/10 && not_eof() {
 							position++
 						}
 						continue
@@ -154,13 +154,13 @@ class Lexer {
 					if (_16 == 10799 && get_8(position + 2) == "*".charCodeAt(0)) {
 						position += 3
 						p = position
-						while (not_eof()) {
+						while not_eof() {
 							var _32 = (len - position) > 3 ? bytes.readUInt32LE(position) : get_8(position)
 							if ((_32 & 0xFF) == /*"\n".charCodeAt(0)*/10) {new_line()}
 							else if ((_32 & 0xFFFFFF) == 3090986) {break}
 							position++
 						}
-						if (!not_eof()) {
+						if not not_eof() {
 							throw fail("Unclosed doc-comment")
 						}
 						addn(Token.LDoc, bytes.toString('utf8', p, position))
@@ -168,11 +168,11 @@ class Lexer {
 						continue
 					}
 					// /* Comment */
-					if (_16 == 10799) {
+					if _16 == 10799 {
 						var pos = position + 2
 						p = 0 // Nesting level
 						position += 2
-						while (not_eof()) {
+						while not_eof() {
 							_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
 							if ((_16 & 0xFF) == /*"\n".charCodeAt(0)*/10) { new_line() }
 							else if (_16 == 12074 && p > 0) { p-- }
@@ -191,7 +191,7 @@ class Lexer {
 					let titlechar = _8
 					p = position + 1
 					_8 = get_8(p)
-					while (p < len && isident[_8] != 0) {
+					while p < len && isident[_8] != 0 {
 						_8 = get_8(++p)
 					}
 					s = bytes.toString('ascii', position, p)
@@ -214,7 +214,7 @@ class Lexer {
 				if (_8 == 96) {
 					position++
 					let pos = position
-					while (not_eof()) {
+					while not_eof() {
 						if get_8(position) == 96, get_8(position + 1) == 96 {
 							position++
 							position++
@@ -283,11 +283,11 @@ class Lexer {
 
 					// We don't do string \() interpolation here,
 					// coz pretty printer
-					while (get_8(position) != p && not_eof()) {
-						if (get_8(position) == /*"\n".charCodeAt(0)*/10) {
+					while get_8(position) != p && not_eof() {
+						if get_8(position) == /*"\n".charCodeAt(0)*/10 {
 							new_line()
 						}
-						if (get_8(position) == '\\'.charCodeAt(0)) {
+						if get_8(position) == '\\'.charCodeAt(0) {
 							position += 2
 							continue
 						}
@@ -296,7 +296,7 @@ class Lexer {
 					}
 					var result = bytes.toString('utf8', pos, position)
 					// Convert `\r\n` to `\n`
-					if (result.indexOf('\r\n') != -1) {
+					if result.indexOf('\r\n') != -1 {
 						result = result.split('\r\n').join('\n')
 					}
 					addn(Token.LString, result)
@@ -305,35 +305,35 @@ class Lexer {
 				}
 
 				// Int Hex 0x123ABC
-				if (_16 == 30768) {
+				if _16 == 30768 {
 					p = position
 					p += 2
 					_8 = get_8(position)
 
-					while (
+					while
 						(_8 >= 65 && _8 <= 70) // A...F
 						||
 						(_8 >= 48 && _8 <= 57) // 0...9
 						||
 						(_8 >= 97 && _8 <= 102) // a...f
-					) {
+					{
 						_8 = get_8(++p)
 					}
 
-					if (p - position == 2) {
+					if p - position == 2 {
 						throw fail("Integer `0x` not allowed!")
 					}
 
 					var m = Meta.Default
 					var offset = 0
 
-					if (get_8(p) == "n".charCodeAt(0)) {
+					if get_8(p) == "n".charCodeAt(0) {
 						m = Meta.BigInt
 						offset = 1
-					} else if (get_8(p) == "i".charCodeAt(0)) {
+					} else if get_8(p) == "i".charCodeAt(0) {
 						// TODO yeah this should be shorter
 						let header = bytes.readUInt16LE(p + 1)
-						if (get_8(p + 1) == "8".charCodeAt(0)) {
+						if get_8(p + 1) == "8".charCodeAt(0) {
 							m = Meta.Int8
 							offset = 2
 						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
@@ -374,9 +374,9 @@ class Lexer {
 					p = position
 					_8 = get_8(p)
 					var found: Token = Token.LInt
-					while (
+					while
 						_8 >= 48 && _8 <= 57 // 0...9
-					) {
+					{
 						_8 = get_8(++p)
 					}
 
@@ -384,25 +384,25 @@ class Lexer {
 					// point
 					if (_8 == ".".charCodeAt(0) && get_8(p + 1) != ".".charCodeAt(0)) {
 						_8 = get_8(++p)
-						while (
+						while
 							_8 >= 48 && _8 <= 57 // 0...9
-						) {
+						{
 							_8 = get_8(++p)
 						}
 						found = Token.LFloat
 					}
 
 					// exponent
-					if (_8 == "e".charCodeAt(0) || _8 == "E".charCodeAt(0)) {
+					if _8 == "e".charCodeAt(0) || _8 == "E".charCodeAt(0) {
 						_8 = get_8(++p)
 
-						if (_8 == "+".charCodeAt(0) || _8 == "-".charCodeAt(0)) {
+						if _8 == "+".charCodeAt(0) || _8 == "-".charCodeAt(0) {
 							_8 = get_8(++p)
 						}
 
-						while (
+						while
 							_8 >= 48 && _8 <= 57 // 0...9
-						) {
+						{
 							_8 = get_8(++p)
 						}
 						found = Token.LFloat
@@ -412,10 +412,10 @@ class Lexer {
 					var offset = 0
 
 					// TODO reuse code
-					if (get_8(p) == "n".charCodeAt(0)) {
+					if get_8(p) == "n".charCodeAt(0) {
 						m = Meta.BigInt
 						offset = 1
-					} else if (get_8(p) == "i".charCodeAt(0)) {
+					} else if get_8(p) == "i".charCodeAt(0) {
 						// TODO yeah this should be shorter
 						let header = bytes.readUInt16LE(p + 1)
 						if (get_8(p + 1) == "8".charCodeAt(0)) {
