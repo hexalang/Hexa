@@ -49,7 +49,7 @@ class Normalizer {
 							renameClassFields(fields)
 						case Node.Var(name, t, expr, const, external):
 							let atts = project.mapDecorators.get(e)
-							if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+							if let native = getDec(atts, 'rename') { switch native.values[0] {
 								case Node.String(s): uniqueNative(s, e)
 								case _: throw '@rename takes string as argument'
 							}} else {
@@ -182,7 +182,7 @@ class Normalizer {
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
 						case Node.Var(name, _, _):
 							let staticSource = typer.parents.get(source)
-							if let map = typer.parents.get(source) { switch (map as! Node) {
+							if let map = typer.parents.get(source) { switch map as! Node {
 								case Node.Module(_):
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
@@ -192,7 +192,7 @@ class Normalizer {
 									return NiceExpression.Dot(NiceExpression.This(type), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
 							}}
 						case Node.Function(name, _):
-							if let map = typer.parents.get(source) { switch (map as! Node) {
+							if let map = typer.parents.get(source) { switch map as! Node {
 								case Node.Module(_):
 									let result = NiceExpression.Ident(globalAccessor + (parentNames.get(source) ?? name), null)
 									if let name = getNative(source) {
@@ -242,7 +242,7 @@ class Normalizer {
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				if let type = typer.types.get(expr) {
-					switch (type as! Type) {
+					switch type as! Type {
 					case Type.ClassInstance(type):
 						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
 						if let rename = renamed {
@@ -276,9 +276,9 @@ class Normalizer {
 				case Node.Call(expr, args, argNames):
 
 				// Optimize `'String'.charCodeAt(0)`
-				if (args.length == 1) { switch expr {
-					case Node.Dot(expr, name): if (name == 'charCodeAt') { switch expr {
-						case Node.String(s): if (s.indexOf('\\') == -1) { switch (args[0]) {
+				if args.length == 1 { switch expr {
+					case Node.Dot(expr, name): if name == 'charCodeAt' { switch expr {
+						case Node.String(s): if s.indexOf('\\') == -1 { switch args[0] {
 							case Node.Int(v):
 								let i = v
 								if i < s.length, i > -1 {
@@ -300,7 +300,7 @@ class Normalizer {
 				var kind = CallKind.Function
 				switch expr {
 					case Node.Dot(expr, _):
-						switch (typer.types.get(expr) as! Type) {
+						switch typer.types.get(expr) as! Type {
 							case Type.ClassInstance(_): kind = CallKind.VirtualMethod
 							case Type.Class(_): kind = CallKind.Static
 						}
@@ -324,12 +324,12 @@ class Normalizer {
 				}}
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
-				if let infix = getDec(atts, 'infix') { switch (infix.values[0]) {
+				if let infix = getDec(atts, 'infix') { switch infix.values[0] {
 					case Node.String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
 					case _: throw '@infix takes string as argument'
 				}}
 
-				if let operator = getDec(atts, 'operator') { switch (operator.values[0]) {
+				if let operator = getDec(atts, 'operator') { switch operator.values[0] {
 					case Node.String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
 					case _: throw '@operator takes string as argument'
 				}}
@@ -429,7 +429,7 @@ class Normalizer {
 							defaults.push(null)
 						}
 				}}
-				return NiceExpression.Function(name!=null?unique(name, e):null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
+				return NiceExpression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
 
 				case Node.Arrow(expr, vars, rettype):
 				let a = []
@@ -456,7 +456,7 @@ class Normalizer {
 				}
 				let block = []
 				var i = 0
-				while (i < el.length - 1) {
+				while i < el.length - 1 {
 					if let s = nodeToStatement(el[i]) {
 						block.push(s)
 					}
@@ -497,7 +497,7 @@ class Normalizer {
 				return NiceExpression.Parenthesis(value)
 
 				case Node.Array(el):
-				if (el.length == 1) { switch (el[0]) {
+				if (el.length == 1) { switch el[0] {
 					case Node.For(name, over, by, range):
 					let block = []
 					let result = unique('result')
@@ -603,14 +603,14 @@ class Normalizer {
 					binds = true
 				}}
 
-				if (!binds && econd.length == 1) {
+				if !binds && econd.length == 1 {
 					return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 				}
 
-				if (!binds) {
+				if not binds {
 					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
-					while (i < econd.length) {
+					while i < econd.length {
 						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
@@ -680,13 +680,13 @@ class Normalizer {
 				var els: [NiceStatement] = [] // TODO break after: break, continue, return, throw
 				for e in el {
 					let statement = nodeToStatement(e)
-					if (statement != null) { // Optimized away
+					if statement != null { // Optimized away
 						els.push(statement)
 					}
 				}
 
 				// Unwrap `{{{{block}}}}`
-				if (els.length == 1) { switch (els[0]) {
+				if els.length == 1 { switch els[0] {
 					case NiceStatement.Block(_):
 						return els[0]
 				}}
@@ -826,7 +826,7 @@ class Normalizer {
 				renameClassFields(fields)
 				let type = new NiceClass()
 
-				switch (typer.types.get(e) as! Type) {
+				switch typer.types.get(e) as! Type {
 					case Type.Class(the): type.useless = the.useless
 				}
 
@@ -849,12 +849,12 @@ class Normalizer {
 
 				let atts = project.mapDecorators.get(e)
 
-				if let require = getDec(atts, 'require') { switch (require.values[0]) {
+				if let require = getDec(atts, 'require') { switch require.values[0] {
 					case Node.String(s): type.jsRequire = s
 					case _: throw '@require takes string as argument'
 				}}
 
-				if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+				if let native = getDec(atts, 'rename') { switch native.values[0] {
 					case Node.String(s):
 						type.jsNative = s
 						type.name = unique(s, e)
@@ -954,7 +954,7 @@ class Normalizer {
 						return NiceStatement.SuperConstructor(a)
 					// Call kind
 					case Node.Dot(expr, _):
-						switch (typer.types.get(expr) as! Type) {
+						switch typer.types.get(expr) as! Type {
 							case Type.ClassInstance(_): kind = CallKind.VirtualMethod
 							case Type.Class(_): kind = CallKind.Static
 						}
@@ -967,7 +967,7 @@ class Normalizer {
 				}
 
 				var expects = []
-				switch (typer.types.get(e) as! Type) {
+				switch typer.types.get(e) as! Type {
 					case Type.Function(args, _): expects = args
 				}
 
@@ -999,7 +999,7 @@ class Normalizer {
 
 				// TODO wrap getting `native` into function, also validate it takes only 1 argument
 				let atts = project.mapDecorators.get(e)
-				if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+				if let native = getDec(atts, 'rename') { switch native.values[0] {
 						case Node.String(s): if (parentNames.get(e) == null) {
 							uniqueNative(s, e)
 						}
@@ -1053,7 +1053,7 @@ class Normalizer {
 					case _: // Iterate over non-constant Int:
 
 					var iteratorOverInt = false
-					switch (typer.types.get(over) as! Type) {
+					switch typer.types.get(over) as! Type {
 						case Type.ClassInstance(type, generic):
 							if generic == null || generic.length == 0, type.name == 'Int' {
 								iteratorOverInt = true
@@ -1091,7 +1091,7 @@ class Normalizer {
 						let it = over
 						let finish = range
 
-						while (it < finish) {
+						while it < finish {
 							i = it
 							it++
 							by
@@ -1143,11 +1143,11 @@ class Normalizer {
 					return NiceStatement.If(nodeToExpression(econd[0]), nodeToStatement(eif), nodeToStatement(eelse))
 				}
 
-				// if(cond, cond, cond...)
-				if (!binds) {
+				// if cond, cond, cond...
+				if not binds {
 					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
-					while (i < econd.length) {
+					while i < econd.length {
 						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
@@ -1163,7 +1163,7 @@ class Normalizer {
 				var nullable = false
 				var last = ''
 				let lastType = typer.types.get(econd[0])
- 				switch (econd[0]) {
+ 				switch econd[0] {
 					case Node.Var(name, t, expr, const):
 					last = unique(name, econd[0])
 					nullable = true
@@ -1173,7 +1173,7 @@ class Normalizer {
 					block.push(NiceStatement.Const(last, nodeToExpression(econd[0]), typer.types.get(econd[0])))
 				}
 
-				while (current < econd.length - 1) { switch (econd[current + 1]) {
+				while current < econd.length - 1 { switch econd[current + 1] {
 					case Node.Var(vname, t, expr, const):
 					let name = unique(vname, econd[current + 1])
 					block.push(NiceStatement.Var(name, NiceExpression.Null, typer.types.get(expr)))
@@ -1496,7 +1496,7 @@ class Normalizer {
 			switch enumNode {
 				case Node.Enum(t, fields, valuesType):
 				var typed: EnumType = null as! EnumType
-				switch (typer.types.get(enumNode) as! Type) {
+				switch typer.types.get(enumNode) as! Type {
 					case Type.Enum(type): typed = type
 				}
 
@@ -1551,7 +1551,7 @@ class Normalizer {
 
 		fun getNative(e: Node): String? {
 			let atts = project.mapDecorators.get(e)
-			if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+			if let native = getDec(atts, 'rename') { switch native.values[0] {
 					case Node.String(s):
 						return s
 					case _: throw '@rename takes string as argument'
@@ -1593,15 +1593,15 @@ class Normalizer {
 		// Returns same name and calls addToScope if name is free
 		fun unique(name: String, node: Node = null): String {
 			var uname = name
-			while (
+			while
 				hasInScope(uname) ||
 				(keywords.indexOf(uname) != -1) ||
 				(globals.indexOf(uname) != -1)
-			) {
+			{
 				uname = (name + '_') + (++id)
 			}
 			addToScope(uname)
-			if (node != null) {
+			if node != null {
 				parentNames.set(node, uname)
 			}
 			return uname
@@ -1623,7 +1623,7 @@ class Normalizer {
 				case Node.Var(name, t, expr, const):
 					let atts = project.mapDecorators.get(f)
 
-					if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+					if let native = getDec(atts, 'rename') { switch native.values[0] {
 						case Node.String(s): if (parentNames.get(f) == null) {
 							unique(s, f)
 						}
@@ -1633,19 +1633,19 @@ class Normalizer {
 						unique(name, f)
 					}
 				case Node.Function(name, expr, vars, rettype):
-					if (name == 'new') {
+					if name == 'new' {
 						parentNames.set(f, 'new')
 					} else {
 						let atts = project.mapDecorators.get(f)
 
-						if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+						if let native = getDec(atts, 'rename') { switch native.values[0] {
 							case Node.String(s): if (parentNames.get(f) == null) {
 								unique(s, f)
 							}
 							case _: throw '@rename takes string as argument'
 						}} else
 
-						if (parentNames.get(f) == null) {
+						if parentNames.get(f) == null {
 							unique(name, f)
 						}
 					}
@@ -1653,7 +1653,7 @@ class Normalizer {
 					case Node.Var(name, t, expr, const):
 						let atts = project.mapDecorators.get(f)
 
-						if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+						if let native = getDec(atts, 'rename') { switch native.values[0] {
 							case Node.String(s): if (parentNames.get(field) == null) {
 								unique(s, field)
 							}
@@ -1666,7 +1666,7 @@ class Normalizer {
 					case Node.Function(name, expr, vars, rettype):
 						let atts = project.mapDecorators.get(f)
 
-						if let native = getDec(atts, 'rename') { switch (native.values[0]) {
+						if let native = getDec(atts, 'rename') { switch native.values[0] {
 							case Node.String(s): if (parentNames.get(field) == null) {
 								unique(s, field)
 							}

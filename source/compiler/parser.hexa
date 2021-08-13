@@ -44,16 +44,16 @@ class Parser {
 			this.project = project
 
 			nodes = []
-			while (i < lex.length && tok() != Token.Eof) {
+			while i < lex.length && tok() != Token.Eof {
 				nodes.push(parseExpr())
 			}
 		}
 
 		fun parseFields() {
 		var fields = []
-		while (tok() != Token.BrClose) {
+		while tok() != Token.BrClose {
 			var atts: Array<Decorator> = []
-			while (tok() == Token.At) {
+			while tok() == Token.At {
 				atts.push(parseDecorator())
 			}
 
@@ -67,7 +67,7 @@ class Parser {
 				i++
 			}
 
-			switch (tok()) {
+			switch tok() {
 			case Token.KPrivate:
 				// TODO
 				i++
@@ -105,7 +105,7 @@ class Parser {
 				var types = []
 				var values = []
 				step(Token.POpen)
-				if (tok() != Token.PClose) { while (true) {
+				if (tok() != Token.PClose) { while true {
 					vars.push(getgo(Token.LLower))
 					var expr = null
 					var t = null
@@ -128,7 +128,7 @@ class Parser {
 				step(Token.PClose)
 				// TODO Decorators parsing breaks this
 				var tmp = i
-				while (tok() == Token.At) {
+				while tok() == Token.At {
 					parseDecorator()
 				}
 
@@ -387,7 +387,7 @@ class Parser {
 	var classExternal = false
 	fun parseExpr(): Node {
 		var atts: Array<Decorator> = []
-		while (tok() == Token.At) {
+		while tok() == Token.At {
 			atts.push(parseDecorator())
 		}
 		var node = tok()
@@ -405,7 +405,7 @@ class Parser {
 		// declare fun
 		case Token.KDeclare:
 			i++
-			switch (tok()) {
+			switch tok() {
 				case Token.KFun:
 					result = parseFunction(false, external: true)
 				case Token.KVar | Token.KLet:
@@ -427,7 +427,7 @@ class Parser {
 /*
 			i++
 			var e = null
-			switch (tok()) {
+			switch tok() {
 				case Token.KFunction | Token.KFun:
 				e = parseFunction(false)
 				case Token.LUpper:
@@ -497,7 +497,7 @@ class Parser {
 			// Having name is ok here, coz we search by name in scopes
 			result = Node.TDeclare(name, e)
 */
-			//switch (tok()) {
+			//switch tok() {
 			//	case LUpper:
 			//		var name = getgo(LUpper)
 			//		step(OpAssign)
@@ -532,7 +532,7 @@ class Parser {
 			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
 				var names: [String] = []
 				var el: [Node] = []
-				while (true) {
+				while true {
 					names.push(getgo(Token.LLower))
 					step(Token.Colon)
 
@@ -554,7 +554,7 @@ class Parser {
 				result = Node.Object(names, el)
 			} else { // Block { expr expr expr }
 				var el = []
-				while (tok() != Token.BrClose) {
+				while tok() != Token.BrClose {
 					el.push(parseExpr())
 				}
 				step(Token.BrClose)
@@ -565,7 +565,7 @@ class Parser {
 		case Token.KIf:
 			i++
 			var econd = [parseExpr()]
-			while (tok() == Token.Comma) {
+			while tok() == Token.Comma {
 				next()
 				econd.push(parseExpr())
 			}
@@ -602,13 +602,13 @@ class Parser {
 				}
 			}
 			result = Node.If(econd, eif, eelse, false)
-		// while () {}
+		// while e {}
 		case Token.KWhile:
 			i++
 			var econd = parseExpr()
 			var e = parseExpr()
 			result = Node.While(econd, e, true)
-		// do {} while ()
+		// do {} while e
 		case Token.KDo:
 			i++
 			var e = parseExpr()
@@ -634,7 +634,7 @@ class Parser {
 				var vars: [String] = []
 				var types = []
 				var values = []
-				while (tok() != Token.PClose) {
+				while tok() != Token.PClose {
 					vars.push(getgo(Token.LLower))
 					if (tok() == Token.Colon) {
 						i++
@@ -676,7 +676,7 @@ class Parser {
 		// return
 		case Token.KReturn:
 			i++
-			switch (tok()) {
+			switch tok() {
 				case Token.BrClose: result = Node.Return(null)
 				case Token.KVar: result = Node.Return(null)
 				case Token.KLet: result = Node.Return(null)
@@ -807,7 +807,7 @@ class Parser {
 			var t = []
 			var v = []
 			var catches = []
-			while (tok() == Token.KCatch) {
+			while tok() == Token.KCatch {
 				step(Token.KCatch)
 				// TODO
 				if (tok() == Token.POpen) {
@@ -838,9 +838,9 @@ class Parser {
 
 			var el: [ImportNode] = []
 
-			while (true) {
+			while true {
 				// TODO pos
-				if (tok() == Token.LLower) {
+				if tok() == Token.LLower {
 					el.push(ImportNode.Lower(getgo(Token.LLower)))
 				} else if (tok() == Token.LUpper) {
 					el.push(ImportNode.Upper(getgo(Token.LUpper)))
@@ -892,8 +892,8 @@ class Parser {
 			}
 			step(Token.BrOpen)
 			var names = []
-			while (tok() != Token.BrClose) {
-				while (tok() == Token.At) {
+			while tok() != Token.BrClose {
+				while tok() == Token.At {
 					atts.push(parseDecorator())
 				}
 				atts = []
@@ -916,7 +916,7 @@ class Parser {
 			var values = []
 			var isMap = false
 
-			if (tok() != Token.BkClose) { while (true) {
+			if tok() != Token.BkClose { while true {
 				if (tok() == Token.Colon) { // [:]
 					isMap = true
 					next()
@@ -955,7 +955,7 @@ class Parser {
 				if (tok() == Token.BrClose) { // Empty {}
 					step(Token.BrClose)
 				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
-					while (tok() != Token.BrClose) {
+					while tok() != Token.BrClose {
 						names.push(getgo(Token.LLower))
 						step(Token.Colon)
 						values.push(parseExpr())
@@ -969,8 +969,8 @@ class Parser {
 			step(Token.POpen)
 			var args = []
 			var argNames: [String] = []
-			if (tok() != Token.PClose) { while (true) {
-				switch (tok()) {
+			if (tok() != Token.PClose) { while true {
+				switch tok() {
 					case Token.PClose:
 						fail("Unexpected `)`, remove trailing `,` comma")
 					case Token.LUpper:
@@ -1002,7 +1002,7 @@ class Parser {
 		case Token.KSwitch:
 			i++
 			var exprs = [parseExpr()]
-			while (tok() == Token.Comma) {
+			while tok() == Token.Comma {
 				i++
 				exprs.push(parseExpr())
 			}
@@ -1012,7 +1012,7 @@ class Parser {
 			var conds = []
 			var guards = []
 
-			while (tok() != Token.BrClose) {
+			while tok() != Token.BrClose {
 				step(Token.KCase)
 				if (tok() == Token.Underscore) {
 					conds.push(Node.Underscore)
@@ -1030,7 +1030,7 @@ class Parser {
 
 				step(Token.Colon)
 				var exs = []
-				while (tok()!=Token.KCase && tok()!=Token.BrClose) {
+				while tok()!=Token.KCase && tok()!=Token.BrClose {
 					exs.push(parseExpr())
 				}
 				cases.push(Node.Block(exs))
@@ -1048,11 +1048,11 @@ class Parser {
 
 				// Approximately detect `for (let/var field of/in fields)`
 				{
-					if (print() == 'of' || print() == 'in') {
+					if print() == 'of' || print() == 'in' {
 						i++
 						var values = print()
 						i++
-						while (tok() != Token.PClose && tok() != Token.Eof) {
+						while tok() != Token.PClose && tok() != Token.Eof {
 							if (tok() == Token.OpSub || tok() == Token.OpAdd) {
 								values += ' ' + print() + ' '
 							} else {
@@ -1077,7 +1077,7 @@ class Parser {
 					i++
 				} else { // TODO always consume values, and compare iwht '0'
 					// `Blah.blah().blah - 1 + 1`
-					while (
+					while
 						tok() == Token.LLower ||
 						tok() == Token.LUpper ||
 						tok() == Token.POpen ||
@@ -1087,7 +1087,7 @@ class Parser {
 						tok() == Token.LInt ||
 						tok() == Token.OpMult ||
 						tok() == Token.Dot
-					) {
+					{
 						// `a-1` -> `a - 1`
 						if (tok() == Token.OpSub || tok() == Token.OpAdd) {
 							specialCase += ' ' + print() + ' '
@@ -1124,7 +1124,7 @@ class Parser {
 				i++
 
 				// `Blah.blah().blah - 1 + 1`
-				while (
+				while
 					tok() == Token.LLower ||
 					tok() == Token.LUpper ||
 					tok() == Token.POpen || // TODO align || in formatter
@@ -1134,7 +1134,7 @@ class Parser {
 					tok() == Token.LInt ||
 					tok() == Token.OpMult ||
 					tok() == Token.Dot
-				) {
+				{
 					// `a-1` -> `a - 1`
 					if (tok() == Token.OpSub || tok() == Token.OpAdd) {
 						values += ' ' + print() + ' '
@@ -1229,9 +1229,9 @@ class Parser {
 		// POSTFIX STEP
 		//--------------
 		var done = i >= lex.length
-		while (!done) {
+		while not done {
 			project.data.set(result, new NodeData(lex.line[i], lex.column[i], lex.fileName))
-			switch (tok()) {
+			switch tok() {
 			case Token.Eof: done = true
 			case Token.BkOpen:
 				i++
@@ -1247,7 +1247,7 @@ class Parser {
 				result = Node.Index(result, index)
 			case Token.KIs:
 				i++
-				switch (tok()) {
+				switch tok() {
 					case Token.LUpper:
 						result = Node.Is(result, parseType())
 					case _:
@@ -1268,8 +1268,8 @@ class Parser {
 				var args: [Node] = []
 				var argNames: [String] = []
 				i++
-				if (tok() != Token.PClose) { while (true) {
-					switch (tok()) {
+				if tok() != Token.PClose { while true {
+					switch tok() {
 						case Token.PClose:
 							fail("Unexpected `)`, remove trailing `,` comma")
 						case Token.LUpper:
@@ -1318,7 +1318,7 @@ class Parser {
 			// a.b
 			// a.B
 			case Token.Dot: i++
-				switch (tok()) {
+				switch tok() {
 					case Token.LUpper:
 						result = Node.DotUpper(result, getgo(Token.LUpper))
 					case _:
@@ -1443,7 +1443,7 @@ class Parser {
 		fun parseSingleBinding(): Node {
 			var path = []
 			// Path let path.path.path.
-			while (tok() == Token.LLower && offset(1) == Token.Dot) {
+			while tok() == Token.LLower && offset(1) == Token.Dot {
 				path.push(getgo(Token.LLower))
 				i++
 			}
@@ -1465,7 +1465,7 @@ class Parser {
 					else {
 						bind.push(Node.Var(getgo(Token.LLower), null, null, const, false))
 					}
-				} while (tok() == Token.Comma)
+				} while tok() == Token.Comma
 				step(Token.PClose)
 			}
 
@@ -1483,11 +1483,11 @@ class Parser {
 		var const = tok() == Token.KLet
 		i++
 		var vars: [Node] = []
-		switch (tok()) {
+		switch tok() {
 			// var a
 			case Token.LLower:
 				// TODO Refactor
-				while (true) {
+				while true {
 
 					var varname = getgo(Token.LLower)
 					if (varname.endsWith("___")) {
@@ -1514,13 +1514,13 @@ class Parser {
 					var left = Node.Ident(getgo(Token.LUpper))
 					var res = left
 					// var Left.B.C.D...
-					while (tok() == Token.Dot) {
+					while tok() == Token.Dot {
 						res = Node.Dot(res, getgo(Token.LUpper))
 					}
-					switch (tok()) {
+					switch tok() {
 						case Token.POpen:
 							var args: [String] = []
-							while (tok() != Token.PClose) {
+							while tok() != Token.PClose {
 								args.push(getgo(Token.LLower))
 							}
 							step(Token.OpAssign)
@@ -1547,7 +1547,7 @@ class Parser {
 		var types = []
 		var values = []
 		var pos: [{ line: Int, column: Int }] = []
-		switch (tok()) {
+		switch tok() {
 			case Token.LLower:
 				name = getgo(Token.LLower)
 			case Token.LUpper: fail("Function names can't start with uppercase `\(print())` -> `\(print().toLowerCase())`")
@@ -1555,10 +1555,10 @@ class Parser {
 		}
 		step(Token.POpen)
 		{
-			if (tok() != Token.PClose) { while (true) {
+			if tok() != Token.PClose { while true {
 				let decorators: [Decorator] = []
 
-				while (tok() == Token.At) {
+				while tok() == Token.At {
 					decorators.push(parseDecorator())
 				}
 
@@ -1595,7 +1595,7 @@ class Parser {
 			rettype = parseType()
 		}
 
-		if parseBody { switch (tok()) {
+		if parseBody { switch tok() {
 			case Token.KNew: if (lex.token[i + 1] == Token.POpen) {} else {
 				expr = parseExpr()
 			}
@@ -1607,7 +1607,7 @@ class Parser {
 			case Token.KLet: {}
 			case Token.At: {
 				var tmp = i
-				while (tok() == Token.At) {
+				while tok() == Token.At {
 					parseDecorator()
 				}
 
@@ -1663,7 +1663,7 @@ class Parser {
 		} else {null as! NodeType}
 
 		var impl = []
-		while (tok() == Token.KImplements) {
+		while tok() == Token.KImplements {
 			i++
 			impl.push(parseType())
 		}
@@ -1679,7 +1679,7 @@ class Parser {
 	fun hasInterpolation(str: String): Bool {
 		var chars = str.split("")
 		var i = 0
-		while (i < chars.length) {
+		while i < chars.length {
 			if (chars[i] == "\\") {
 				if (i+1 < chars.length) {
 					if (chars[i+1] == "\\") {
@@ -1777,11 +1777,11 @@ class Parser {
 		i++
 		var name = getgo(Token.LLower)
 		var values = []
-		if (tok() == Token.POpen) {
+		if tok() == Token.POpen {
 			i++
-			if (tok() != Token.PClose) { while (true) {
+			if tok() != Token.PClose { while true {
 				values.push(parseExpr())
-				if (tok() == Token.Comma) {
+				if tok() == Token.Comma {
 					i++
 				} else {
 					break
@@ -1848,23 +1848,23 @@ class Parser {
 		}
 
 		var result: NodeType? = null
-		switch (tok()) {
+		switch tok() {
 		case Token.LUpper:
 			var name = getgo(Token.LUpper)
-			while (tok() == Token.Dot) {
+			while tok() == Token.Dot {
 				i++
 				getgo(Token.LUpper)
 			}
-			var sresult = if (tok() == Token.OpLt) {
+			var sresult = if tok() == Token.OpLt {
 				i++
 				parametricTypeNesting++
 				var params: [NodeType] = [parseType()]
-				while (tok() == Token.Comma) {
+				while tok() == Token.Comma {
 					i++
 					params.push(parseType())
 				}
 
-				if (parametricTypeNestingToken == Token.Eof) {
+				if parametricTypeNestingToken == Token.Eof {
 					parametricTypeNestingToken = tok()
 				}
 
@@ -1898,7 +1898,7 @@ class Parser {
 
 			i++
 			var res: NodeType? = null
-			switch (tok()) {
+			switch tok() {
 				case Token.BkClose:
 					i++
 					res = NodeType.ParametricType("Array", [NodeType.Object([], [])], path)
@@ -1939,7 +1939,7 @@ class Parser {
 			} else {
 				var names: [String] = []
 				var types: [NodeType] = []
-				while (tok() != Token.BrClose) {
+				while tok() != Token.BrClose {
 					names.push(getgo(Token.LLower))
 					if (tok() == Token.Colon) {
 						i++
@@ -1965,13 +1965,13 @@ class Parser {
 
 			i++
 			var args = []
-			while (tok() != Token.PClose) {
-				if (tok() == Token.LLower) {
+			while tok() != Token.PClose {
+				if tok() == Token.LLower {
 					step(Token.LLower)
 					step(Token.Colon)
 				}
 				args.push(parseType())
-				if (tok() == Token.Comma) {
+				if tok() == Token.Comma {
 					i++
 				}
 			}
@@ -1983,7 +1983,7 @@ class Parser {
 		// var.Invar
 		case Token.LLower:
 			var res: NodeType? = null
-			switch (offset(1)) {
+			switch offset(1) {
 				case Token.Colon: {
 					var argName = getgo(tok())
 					step(Token.Colon)
@@ -2004,13 +2004,13 @@ class Parser {
 			fail("Expected type, parsed `" + Token.stringify(tok()) + "`")
 		}
 
-		if (tok() == Token.Question) {
+		if tok() == Token.Question {
 			result = NodeType.Optional(result)
 		}
-		while (tok() == Token.Question) {
+		while tok() == Token.Question {
 			i++
 		}
-		if (tok() == Token.OpArrow) {
+		if tok() == Token.OpArrow {
 			i++
 			result = NodeType.Function([result], parseType())
 		}
