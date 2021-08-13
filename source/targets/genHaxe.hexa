@@ -42,7 +42,7 @@ class GenHaxe {
 				// TODO auto-fill empty values in normalizer
 				out += '\n\tvar ' + e.names[v] + ' = ' + printExpression(e.values[v] ?? NiceExpression.Int(v)) + ';'
 			}
-			for (v in e.staticVars) switch (v) {
+			for (v in e.staticVars) switch v {
 				case NiceStatement.Var(name, expr, type):
 					out += '\n\t' + e.name + '.' + name
 					if (expr != null) out += ' = ' + printExpression(expr)
@@ -50,7 +50,7 @@ class GenHaxe {
 					out += '\n\t' + e.name + '.' + name
 					out += ' = ' + printExpression(expr)
 			}
-			for (v in e.staticMethods) switch (v) {
+			for (v in e.staticMethods) switch v {
 				// TODO
 				//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				//	out += '\n\tpublic static function ' + name
@@ -94,7 +94,7 @@ class GenHaxe {
 			if (let implement = c.implement) out += ' implements ' + implement
 			if (let params = c.implementParams) out += '<' + params.join(', ') + '>'
 			out += ' {'
-			for (v in c.vars) switch (v) {
+			for (v in c.vars) switch v {
 				case NiceStatement.Var(name, expr, type):
 				out += '\n\tpublic var ' + name + printType(type)
 				if (expr != null) out += ' = ' + printExpression(expr)
@@ -103,8 +103,8 @@ class GenHaxe {
 				out += '\n\tpublic var ' + name + printType(type) + ' = ' + printExpression(expr) + ';'
 			}
 
-			// TODO hint `switch (v) {}` switch does nothing
-			for (v in c.methods) switch (v) {
+			// TODO hint `switch v {}` switch does nothing
+			for (v in c.methods) switch v {
 				// TODO
 				//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				//if (name == null || name == 'new') out += '\n\tpublic function new'
@@ -114,7 +114,7 @@ class GenHaxe {
 				//out += ' ' + printBlock(expr) + ';'
 			}
 
-			for (v in c.staticVars) switch (v) {
+			for (v in c.staticVars) switch v {
 				case NiceStatement.Var(name, expr, type):
 					out += '\n\tpublic static var ' + name + printType(type)
 					if (expr != null) out += ' = ' + printExpression(expr)
@@ -124,7 +124,7 @@ class GenHaxe {
 					out += ' = ' + printExpression(expr) + ';'
 			}
 
-			for (v in c.staticMethods) switch (v) {
+			for (v in c.staticMethods) switch v {
 				// TODO
 				//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 				//	out += '\n\tpublic static function ' + name
@@ -137,7 +137,7 @@ class GenHaxe {
 
 		let globals: [String] = []
 
-		for (g in project.globalFuncs) switch (g) {
+		for (g in project.globalFuncs) switch g {
 			// TODO
 			//case NiceStatement.Function(name, expr, args, defaults, types, returns):
 			//	globals.push('\n\tpublic static function ' + name)
@@ -145,7 +145,7 @@ class GenHaxe {
 			//	globals.push(' ' + printBlock(expr) + ';')
 		}
 
-		for (g in project.globalVars) switch (g) {
+		for (g in project.globalVars) switch g {
 			case NiceStatement.Var(name, expr, type):
 				globals.push('\n\tpublic static var ' + name + printType(type))
 				if (expr != null)
@@ -184,7 +184,7 @@ class GenHaxe {
 
 	// Surrounds with { brackets } single statement
 	fun printBlock(s: NiceStatement): String {
-		switch (s) {
+		switch s {
 			case NiceStatement.Block(el):
 			if (el.length == 1) return '{ ' + printStatement(el[0]) + '; }'
 			if (el.length == 0) return '{}'
@@ -194,7 +194,7 @@ class GenHaxe {
 	}
 
 	fun printStatement(s: NiceStatement) {
-		switch (s) {
+		switch s {
 			case NiceStatement.Statements(els):
 				var r = ''
 				for (s in els) if (s != null) r += '\n' + tabs + printStatement(s) + ';'
@@ -206,7 +206,7 @@ class GenHaxe {
 				pushTab()
 				var r = '{'
 
-				for (e in el) switch (e) {
+				for (e in el) switch e {
 					case null:
 					case NiceStatement.Statements(els):
 						for (s in els) if (s != null) r += '\n' + tabs + printStatement(s) + ';'
@@ -261,7 +261,7 @@ class GenHaxe {
 					r += ': ' + printStatement(statements[i]) + ';\n' + tabs
 				}
 
-				for (i in cases.length) for (cc in cases[i]) switch (cc) {
+				for (i in cases.length) for (cc in cases[i]) switch cc {
 					case NiceExpression.Underscore(_): hasDefault = true
 				}
 
@@ -300,7 +300,7 @@ class GenHaxe {
 		if (t == null) return ''
 		if (t == null) return prefix + 'Dynamic'
 
-		switch (t) {
+		switch t {
 			case NodeType.ParametricType(name, params):
 				if (name == 'Buffer') return prefix + name
 				return prefix + name + '<' + [for (param in (params ?? [])) stringType(param, false)].join(', ') + '>'
@@ -323,7 +323,7 @@ class GenHaxe {
 	}
 
 	fun printNodeAsType(t: Node, prefix: String) {
-		switch (t) {
+		switch t {
 			case Node.Ident(name): return prefix + name
 			case Node.Array(el): return prefix + 'Array<' + printNodeAsType(el[0], '') + '>'
 
@@ -333,7 +333,7 @@ class GenHaxe {
 	}
 
 	fun printExpression(e: NiceExpression) {
-		switch (e) {
+		switch e {
 			case NiceExpression.Null: return 'null'
 			case NiceExpression.This: return 'this'
 			case NiceExpression.Ident(name): return name
@@ -414,7 +414,7 @@ class GenHaxe {
 				+ ']'
 			case NiceExpression.Assignop(a, op, value):
 				return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-			case NiceExpression.NativeOperator(kind, args, s): switch (kind) {
+			case NiceExpression.NativeOperator(kind, args, s): switch kind {
 				case NativeOperatorKind.Infix: return '((' + printExpression(args[0]) + ') ' + s + ' (' + printExpression(args[1]) + '))'
 				case NativeOperatorKind.Function: return s + printCallArguments(args)
 				case NativeOperatorKind.Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
