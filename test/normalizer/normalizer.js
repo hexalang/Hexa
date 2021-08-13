@@ -5,6 +5,9 @@
 	"use strict"
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
+	var NiceExpression = {
+	}
+	Object.defineProperty(NiceExpression, "Other", { get: () => { return [0] }})
 	var console_46 = $global.console
 	var EasE = class {
 		constructor(value_128) {};
@@ -139,6 +142,25 @@
 			{
 				const x = 3;
 				const x_134 = 50 == 50;
+			};
+			{
+				const expression = /*Other*/[0];
+				{
+					const temp_135 = expression;
+					switch (temp_135&&temp_135[0]) {
+					case 0: {
+						console.log('Other')
+					} break;
+					};
+				};
+				{
+					const temp_136 = (expression);
+					switch (temp_136&&temp_136[0]) {
+					case 0: {
+						console.log('Other')
+					} break;
+					};
+				};
 			};
 		}
 	}
