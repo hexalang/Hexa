@@ -461,8 +461,8 @@ class Parser {
 
 			switch extracted {
 				case Node.Binop(a, op, b):
-					if(op != Token.OpAssign) fail('declare =')
-					switch(a) {
+					if (op != Token.OpAssign) fail('declare =')
+					switch a {
 						case Node.NodeTypeValue(t):
 							switch t {
 								case NodeType.Type(n): name = n
@@ -478,13 +478,13 @@ class Parser {
 				}
 
 				case Node.Var(n, t, e, _):
-					if(t == null) fail('Variable `\(n)` in `declare` should have a type')
-					if(e != null) fail('Variable `\(n)` in `declare` should *not* have a value')
+					if (t == null) fail('Variable `\(n)` in `declare` should have a type')
+					if (e != null) fail('Variable `\(n)` in `declare` should *not* have a value')
 					name = n
 
 				case Node.Function(n, e, _, _):
-					if(n == null) fail('Function in `declare` should have a name')
-					if(e != null) fail('Functions in `declare` should *not* have a body')
+					if (n == null) fail('Function in `declare` should have a name')
+					if (e != null) fail('Functions in `declare` should *not* have a body')
 					name = n
 				// TODO binop assign
 				// Types-to-types `T = T` or idents-to-idents `name = name` should be assigned
@@ -606,12 +606,30 @@ class Parser {
 		case Token.KWhile:
 			i++
 			var econd = parseExpr()
+			var eAt = i
 			var e = parseExpr()
+			switch e {
+				case Node.Block(_):
+				case _:
+					let temp = i
+					i = eAt
+					failHint('`while` body must be a `{` block `}`')
+					i = temp
+			}
 			result = Node.While(econd, e, true)
 		// do {} while e
 		case Token.KDo:
 			i++
+			var eAt = i
 			var e = parseExpr()
+			switch e {
+				case Node.Block(_):
+				case _:
+					let temp = i
+					i = eAt
+					failHint('`do` body must be a `{` block `}`')
+					i = temp
+			}
 			step(Token.KWhile)
 			var econd = parseExpr()
 			result = Node.While(econd, e, false)
@@ -802,28 +820,39 @@ class Parser {
 		// `try { } catch e : T { } catch e : T { }`
 		case Token.KTry:
 			i++
-			var expr = parseExpr()
+			let exprAt = i
+			let expr = parseExpr()
+			switch expr {
+				case Node.Block(_):
+				case _:
+					let temp = i
+					i = exprAt
+					failHint('`try` body must be a `{` block `}`')
+					i = temp
+			}
 			var vars = []
 			var t = []
 			var v = []
 			var catches = []
 			while tok() == Token.KCatch {
 				step(Token.KCatch)
-				// TODO
-				if (tok() == Token.POpen) {
-					step(Token.POpen)
-				}
 				let name = getgo(Token.LLower)
 				vars.push(name)
 				step(Token.Colon)
 				let type = parseType()
 				t.push(type)
 				v.push(Node.Var(name, type, null, true, false))
-				// TODO
-				if (tok() == Token.PClose) {
-					step(Token.PClose)
+				let exprAt = i
+				let expr = parseExpr()
+				switch expr {
+					case Node.Block(_):
+					case _:
+						let temp = i
+						i = exprAt
+						failHint('`catch` body must be a `{` block `}`')
+						i = temp
 				}
-				catches.push(parseExpr())
+				catches.push(expr)
 			}
 			result = Node.Try(expr, t, v, catches)
 
@@ -1060,7 +1089,7 @@ class Parser {
 							}
 							i++
 						}
-						fail("This loop should be replaced to `for (\(name) in \(values))`")
+						fail("This loop should be replaced to `for \(name) in \(values)`")
 					}
 				}
 
@@ -1181,15 +1210,15 @@ class Parser {
 				}
 
 				if classic, specialCase == '' {
-					// `for (let i = 0; i < count; i++)` -> `for (i in count)`
-					fail("This loop should be replaced to `for (\(name) in \(values))`")
+					// `for (let i = 0; i < count; i++)` -> `for i in count`
+					fail("This loop should be replaced to `for \(name) in \(values)`")
 				}
 
 				if classic {
-					fail("This loop should be replaced to `for (\(name) in \(specialCase) ... \(values))`")
+					fail("This loop should be replaced to `for \(name) in \(specialCase) ... \(values)`")
 				}
 
-				fail("Hexa has only `for (\(name) in values)` syntax")
+				fail("Hexa has only `for \(name) in values` syntax")
 			}
 			var name = getgo(Token.LLower)
 			step(Token.KIn)
@@ -1697,7 +1726,7 @@ class Parser {
 	fun parseInterpolations(str: String): Node {
 		fun interpolate(s: String): String {
 			var out = ['"']
-			if(s.length < 2) {
+			if s.length < 2 {
 				return s
 			}
 			var i = 0
@@ -1707,13 +1736,13 @@ class Parser {
 				i++
 				fun pushParen(): Void {
 					i++
-					while(i < s.length) {
+					while i < s.length {
 						out.push(s.charAt(i))
-						if (s.charAt(i) == '(') {
+						if s.charAt(i) == '(' {
 							pushParen()
 							continue
 						}
-						if (s.charAt(i) == ')') {
+						if s.charAt(i) == ')' {
 							i++
 							return
 						}
@@ -1722,7 +1751,7 @@ class Parser {
 					// TODO wrap into error
 					throw 'String interpolation error: unclosed inner parenthesis'
 				}
-				while(i < s.length) {
+				while i < s.length {
 					out.push(s.charAt(i))
 					if (s.charAt(i) == '(') {
 						pushParen()
@@ -1738,8 +1767,8 @@ class Parser {
 				throw 'String interpolation error: unclosed parenthesis'
 			}
 			var result = ['"']
-			while(i < s.length) {
-				if (s.charAt(i) == '\\' && s.charAt(i+1) == '(') {
+			while i < s.length {
+				if s.charAt(i) == '\\' && s.charAt(i+1) == '(' {
 					result.push('" + ')
 					out.push('" + (')
 					var ii = i + 1
@@ -1768,7 +1797,7 @@ class Parser {
 				case _: return parsed
 			}
 		}
-		catch(e: Any) {
+		catch e: Any {
 			fail("Parse interpolation error: " + e)
 		}
 	}
