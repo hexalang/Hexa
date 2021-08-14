@@ -29,12 +29,6 @@ class TestParser {
 				'\n\n'		 : '<!--null-->',
 				'\r\r\n\r\n\r\t' : '<!--null-->',
 
-				"0x1"		 : 'TInt(0x1)',
-				"0x0"		 : 'TInt(0x0)',
-				"0xF"		 : 'TInt(0xF)',
-				"0xFA"		 : 'TInt(0xFA)',
-				"0xFABCDEF" : 'TInt(0xFABCDEF)',
-				"0.0"		 : 'TFloat(0.0)',
 				'{}' : 'Block([])',
 				'{{}}' : 'Block([Block([])])',
 				'{ 0 0 0 }' : 'Block([Int(0),Int(0),Int(0)])',
@@ -43,29 +37,19 @@ class TestParser {
 				' 0 '		 : 'Int(0)',
 				'123'		 : 'Int(123)',
 				'12'		 : 'Int(12)',
+				"0x1"		 : 'Int(1)',
+				"0x0"		 : 'Int(0)',
+				"0xF"		 : 'Int(15)',
+				"0xFA"		 : 'Int(250)',
+				"0xFABCDEF" : 'Int(262917615)',
 
+				"0.0"		 : 'Float(0)',
 				"0.123" 	 : 'Float(0.123)',
 
 				"'s'"		 : 'String(s)',
 				"\"s\"" 	 : 'String(s)'
 			])
 
-			shouldAllEqual([
-				'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
-					'Block([
-					Int(1),
-					Int(2),
-					Int(3),
-					Binop(
-					Call(Ident(trace),[String(Hello!),String(World!)]),
-					+,
-					TBinop(TInt(5),*,TBinop(TInt(6),/,TInt(3))))])',
-
-				'enum Test { Demo } hello World':
-					'Block([Enum(Type(Test),[NodeTypeValue(Type(Demo))]),
-					Ident(hello),
-					NodeTypeValue(Type(World))])'
-			])
 
 			// Operators
 			shouldAllEqual([
@@ -76,19 +60,10 @@ class TestParser {
 
 			// String interpolation
 			shouldAllEqual([
-				'"\\\\(v)"': "TString(\\\\(v))",
-				'"\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))',
-				'"\\(((v)))"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TParenthesis(TParenthesis(TIdent(v)))),+,TString())))',
-				'"\\( v )"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))',
-				'"\\(V)\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(NodeTypeValue(Type(V))),+,TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))',
-				'"\\(V)\\(v)s\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(NodeTypeValue(Type(V))),+,TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TBinop(TString(s),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))))',
-				'"\\(V)s\\(v)s\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(NodeTypeValue(Type(V))),+,TBinop(TString(s),+,TBinop(TParenthesis(TIdent(v)),+,TBinop(TString(s),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))))'
+				'"\\\\(v)"': "String(\\\\(v))"//,
 			])
 
 			shouldAllEqualWithoutTrim([
-				'"\\( v )"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(TIdent(v)),+,TString())))',
-				'"\\(V)\r\n\\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(NodeTypeValue(Type(V))),+,TBinop(TString(\n),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))',
-				'"\\(V) \\(v) \\(v)"': 'TParenthesis(TBinop(TString(),+,TBinop(TParenthesis(NodeTypeValue(Type(V))),+,TBinop(TString( ),+,TBinop(TParenthesis(TIdent(v)),+,TBinop(TString( ),+,TBinop(TParenthesis(TIdent(v)),+,TString())))))))'
 			])
 
 			// Modularity
