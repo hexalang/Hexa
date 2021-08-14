@@ -243,7 +243,7 @@ class Normalizer {
 				}
 				if let type = typer.types.get(expr) {
 					switch type as! Type {
-					case Type.ClassInstance(type):
+					case ClassInstance(type):
 						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
 						if let rename = renamed {
 							return NiceExpression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
@@ -301,8 +301,8 @@ class Normalizer {
 				switch expr {
 					case Node.Dot(expr, _):
 						switch typer.types.get(expr) as! Type {
-							case Type.ClassInstance(_): kind = CallKind.VirtualMethod
-							case Type.Class(_): kind = CallKind.Static
+							case ClassInstance(_): kind = CallKind.VirtualMethod
+							case Class(_): kind = CallKind.Static
 						}
 				}
 
@@ -623,9 +623,9 @@ class Normalizer {
 				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
 
 				case Node.As(e, kind, t): switch kind {
-					case Token.Question:
+					case Question:
 						console.log('`as?` is not yet supported by normalizer, only `as!`')
-					case Token.OpNot:
+					case OpNot:
 						return NiceExpression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
 					case _:
 						console.log('`as` is not yet supported by normalizer, only `as!`')
@@ -827,7 +827,7 @@ class Normalizer {
 				let type = new NiceClass()
 
 				switch typer.types.get(e) as! Type {
-					case Type.Class(the): type.useless = the.useless
+					case Class(the): type.useless = the.useless
 				}
 
 				type.external = external
@@ -955,8 +955,8 @@ class Normalizer {
 					// Call kind
 					case Node.Dot(expr, _):
 						switch typer.types.get(expr) as! Type {
-							case Type.ClassInstance(_): kind = CallKind.VirtualMethod
-							case Type.Class(_): kind = CallKind.Static
+							case ClassInstance(_): kind = CallKind.VirtualMethod
+							case Class(_): kind = CallKind.Static
 						}
 				}
 
@@ -968,7 +968,7 @@ class Normalizer {
 
 				var expects = []
 				switch typer.types.get(e) as! Type {
-					case Type.Function(args, _): expects = args
+					case Function(args, _): expects = args
 				}
 
 				switch v {
@@ -1054,7 +1054,7 @@ class Normalizer {
 
 					var iteratorOverInt = false
 					switch typer.types.get(over) as! Type {
-						case Type.ClassInstance(type, generic):
+						case ClassInstance(type, generic):
 							if generic == null || generic.length == 0, type.name == 'Int' {
 								iteratorOverInt = true
 							}
@@ -1252,7 +1252,7 @@ class Normalizer {
 
 				case Node.Binop(a, op, b):
 				switch op {
-					case Token.OpAssign:
+					case OpAssign:
 					return NiceStatement.Assign(nodeToExpression(a), nodeToExpression(b), null)
 					case _:
 					let sa = nodeToStatement(a)
@@ -1274,8 +1274,8 @@ class Normalizer {
 
 				case Node.Unop(op, postfix, e):
 					switch op {
-						case Token.OpIncrement: return NiceStatement.Increment(nodeToExpression(e))
-						case Token.OpDecrement: return NiceStatement.Decrement(nodeToExpression(e))
+						case OpIncrement: return NiceStatement.Increment(nodeToExpression(e))
+						case OpDecrement: return NiceStatement.Decrement(nodeToExpression(e))
 						case _: // Optimize away
 					}
 				case Node.Parenthesis(inner):
@@ -1313,7 +1313,7 @@ class Normalizer {
 							case Node.Dot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
 							case Node.DotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
 							case Node.Binop(a, op, b): switch op {
-							case Token.OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b), null)
+							case OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b), null)
 								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
 							}
 							case Node.Call(e, args, argNames): switch e {
@@ -1348,10 +1348,10 @@ class Normalizer {
 				// `case Nullable(Enum(type) or EnumInstance(type)) or Enum(type) or EnumInstance(type):`
 				// `case Nullable(type) or type: switch type { case Enum(type) or EnumInstance(type):`
 				switch Type.unwrapNullable(typer.types.get(exprs[0])) {
-					case Type.Enum(type):
+					case Enum(type):
 						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
 						enumType = type
-					case Type.EnumInstance(type):
+					case EnumInstance(type):
 						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
 						enumType = type
 				}
@@ -1420,7 +1420,7 @@ class Normalizer {
 							cx.push(getTag(typer.parents.get(expr), name))
 						case Node.Binop(a, op, b):
 						switch op {
-							case Token.OpOr:
+							case OpOr:
 							addTag(a)
 							addTag(b)
 							case _: console.error('(internal warning) Unknown case binop kind:', e, typer.parents.get(e))
@@ -1497,7 +1497,7 @@ class Normalizer {
 				case Node.Enum(t, fields, valuesType):
 				var typed: EnumType = null as! EnumType
 				switch typer.types.get(enumNode) as! Type {
-					case Type.Enum(type): typed = type
+					case Enum(type): typed = type
 				}
 
 				var i = 0
