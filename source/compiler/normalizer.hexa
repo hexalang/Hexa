@@ -43,19 +43,19 @@ class Normalizer {
 
 			// Rename upfront to avoid race condition
 			for file in project.moduleInfo { for e in file.nodes { switch e {
-						case Node.Class(t, ext, impl, fields, external):
+						case Class(t, ext, impl, fields, external):
 							renameClassFields(fields)
-						case Node.Enum(t, fields, valuesType):
+						case Enum(t, fields, valuesType):
 							renameClassFields(fields)
-						case Node.Var(name, t, expr, const, external):
+						case Var(name, t, expr, const, external):
 							let atts = project.mapDecorators.get(e)
 							if let native = getDec(atts, 'rename') { switch native.values[0] {
-								case Node.String(s): uniqueNative(s, e)
+								case String(s): uniqueNative(s, e)
 								case _: throw '@rename takes string as argument'
 							}} else {
 								unique(name, e)
 							}
-						case Node.Function(name, expr, vars, rettype, external):
+						case Function(name, expr, vars, rettype, external):
 							if (parentNames.get(e) == null) {
 								if let name = getNative(e) {
 									uniqueNative(name, e)
@@ -72,17 +72,17 @@ class Normalizer {
 				pushScope()
 				for e in file.nodes {
 					switch e {
-								case Node.Function(_):
+								case Function(_):
 									if let s = nodeToStatement(e) { // Non-declare ones
 										niceProject.globalFuncs.push(s)
 									}
-								case Node.Var(_):
+								case Var(_):
 									if let s = nodeToStatement(e) { // Non-declare ones
 										niceProject.globalVars.push(s)
 									}
-								case Node.Enum(_):
+								case Enum(_):
 									fillStatement(e, 'path')
-								case Node.Class(_):
+								case Class(_):
 									fillStatement(e, 'path')
 						case _:
 							let statement = fillStatement(e, null)
@@ -147,29 +147,29 @@ class Normalizer {
 
 			switch e {
 				// Transformation not required
-				case Node.String(v):
+				case String(v):
 					return NiceExpression.String(v)
-				case Node.Int(v):
+				case Int(v):
 					return NiceExpression.Int(v)
-				case Node.MetaInt(v, meta):
+				case MetaInt(v, meta):
 					return NiceExpression.MetaInt(v, meta, typer.types.get(e))
-				case Node.Float(v):
+				case Float(v):
 					return NiceExpression.Float(v)
-				case Node.Bool(v):
+				case Bool(v):
 					if v {
 						return NiceExpression.True
 					}
 					return NiceExpression.False
-				case Node.Null:
+				case Null:
 					return NiceExpression.Null
 
-				case Node.NodeTypeValue(t): switch t {
+				case NodeTypeValue(t): switch t {
 					case NodeType.Type(name):
 						return NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? name, null)
 				}
 
 				// Transform
-				case Node.Ident(name):
+				case Ident(name):
 					var source: Node? = typer.parents.get(e)
 					// Constant propagation
 					// TODO inline map to TNode.inline, also TNode.neverReassigned
@@ -180,10 +180,10 @@ class Normalizer {
 					switch source {
 						case null:
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
-						case Node.Var(name, _, _):
+						case Var(name, _, _):
 							let staticSource = typer.parents.get(source)
 							if let map = typer.parents.get(source) { switch map as! Node {
-								case Node.Module(_):
+								case Module(_):
 									let name = parentNames.get(source) ?? name
 									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
@@ -191,9 +191,9 @@ class Normalizer {
 									// TODO .This(type)
 									return NiceExpression.Dot(NiceExpression.This(type), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
 							}}
-						case Node.Function(name, _):
+						case Function(name, _):
 							if let map = typer.parents.get(source) { switch map as! Node {
-								case Node.Module(_):
+								case Module(_):
 									let result = NiceExpression.Ident(globalAccessor + (parentNames.get(source) ?? name), null)
 									if let name = getNative(source) {
 										niceProject.native.set(result, true)
@@ -206,12 +206,12 @@ class Normalizer {
 							}
 							}
 
-						case Node.Static(f):
+						case Static(f):
 							let staticSource: Node? = typer.parents.get(source)
 							switch staticSource {
-								case Node.Class(t, _):
+								case Class(t, _):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
-								case Node.Enum(t,_):
+								case Enum(t,_):
 									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 								case _:
 									throw 'staticSource is \(staticSource) for \(name)'
@@ -225,20 +225,20 @@ class Normalizer {
 
 				// `expr.name`
 				// TODO constant propagation
-				case Node.Dot(expr, name):
+				case Dot(expr, name):
 				let parent: Node? = typer.parents.get(expr)
 				/*switch expr {
-					case Node.This:
 						return NiceExpression.Dot(NiceExpression.This(typer.types.get(expr)), getClassDotField(typer.types.get(expr).parent, name) ?? name, typer.types.get(e))
 				}
+					case This:
 				}*/
 				switch parent {
-					case Node.Enum(t, fields, valuesType):
+					case Enum(t, fields, valuesType):
 						if !nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
 							return tag
 						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
-					case Node.Class(_):
+					case Class(_):
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				if let type = typer.types.get(expr) {
@@ -258,10 +258,10 @@ class Normalizer {
 
 				return NiceExpression.Dot(value, name, typer.types.get(e))
 
-				case Node.DotUpper(expr, name):
+				case DotUpper(expr, name):
 				let parent: Node? = typer.parents.get(expr)
 				switch parent {
-					case Node.Enum(t, fields, valuesType):
+					case Enum(t, fields, valuesType):
 						if !nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
 							return tag
 						}
@@ -269,17 +269,17 @@ class Normalizer {
 							return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, [])
 						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
-					case Node.Class(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+					case Class(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 
-				case Node.Call(expr, args, argNames):
+				case Call(expr, args, argNames):
 
 				// Optimize `'String'.charCodeAt(0)`
 				if args.length == 1 { switch expr {
-					case Node.Dot(expr, name): if name == 'charCodeAt' { switch expr {
-						case Node.String(s): if s.indexOf('\\') == -1 { switch args[0] {
-							case Node.Int(v):
+					case Dot(expr, name): if name == 'charCodeAt' { switch expr {
+						case String(s): if s.indexOf('\\') == -1 { switch args[0] {
+							case Int(v):
 								let i = v
 								if i < s.length, i > -1 {
 									let value = s.charCodeAt(i) // Returns NaN in js
@@ -299,7 +299,7 @@ class Normalizer {
 				// Call kind
 				var kind = CallKind.Function
 				switch expr {
-					case Node.Dot(expr, _):
+					case Dot(expr, _):
 						switch typer.types.get(expr) as! Type {
 							case ClassInstance(_): kind = CallKind.VirtualMethod
 							case Class(_): kind = CallKind.Static
@@ -313,10 +313,10 @@ class Normalizer {
 
 				// Enum constructor
 				if (!nativeEnums) { switch expr {
-					case Node.DotUpper(expr, name):
+					case DotUpper(expr, name):
 						let parent: Node? = typer.parents.get(expr)
 						switch parent {
-							case Node.Enum(t, fields, valuesType):
+							case Enum(t, fields, valuesType):
 								if let tag = getTag(parent, name) {
 									return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, a)
 								}
@@ -325,12 +325,12 @@ class Normalizer {
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
 				if let infix = getDec(atts, 'infix') { switch infix.values[0] {
-					case Node.String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
+					case String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
 					case _: throw '@infix takes string as argument'
 				}}
 
 				if let operator = getDec(atts, 'operator') { switch operator.values[0] {
-					case Node.String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
+					case String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
 					case _: throw '@operator takes string as argument'
 				}}
 
@@ -344,7 +344,7 @@ class Normalizer {
 
 				return NiceExpression.Call(v, a, typer.types.get(e), kind)
 
-				case Node.Binop(a, op, b):
+				case Binop(a, op, b):
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
@@ -407,7 +407,7 @@ class Normalizer {
 
 				return NiceExpression.Binop(ea, op, eb, typer.types.get(e))
 
-				case Node.New(path, t, args, fields, el):
+				case New(path, t, args, fields, el):
 				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for arg in args {
@@ -415,12 +415,12 @@ class Normalizer {
 				}
 				return NiceExpression.New(v, a, typer.types.get(e))
 
-				case Node.Function(name, expr, vars, rettype, external):
+				case Function(name, expr, vars, rettype, external):
 				let a = []
 				let defaults = []
 				let types = []
 				for arg in vars { switch arg {
-					case Node.Var(name, t, expr, const):
+					case Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
 						if (expr != null) {
@@ -431,12 +431,12 @@ class Normalizer {
 				}}
 				return NiceExpression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
 
-				case Node.Arrow(expr, vars, rettype):
+				case Arrow(expr, vars, rettype):
 				let a = []
 				let defaults = []
 				let types = []
 				for arg in vars { switch arg {
-					case Node.Var(name, t, expr, const):
+					case Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
 						if (expr != null) {
@@ -447,7 +447,7 @@ class Normalizer {
 				}}
 				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e))
 
-				case Node.Block(el):
+				case Block(el):
 				if (el.length == 0) {
 					return NiceExpression.Object([], [], [])
 				}
@@ -466,7 +466,7 @@ class Normalizer {
 				block.push(NiceStatement.Return(nodeToExpression(result)))
 				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], null)), [], typer.types.get(result), CallKind.Function)
 
-				case Node.Object(names, el):
+				case Object(names, el):
 				let els = []
 				let types = []
 				for e in el {
@@ -475,10 +475,10 @@ class Normalizer {
 				}
 				return NiceExpression.Object(names, els, types)
 
-				case Node.Parenthesis(inner):
+				case Parenthesis(inner):
 				fun unwrapNestedParens(inner: Node) {
 					switch inner {
-						case Node.Parenthesis(i): return unwrapNestedParens(i)
+						case Parenthesis(i): return unwrapNestedParens(i)
 						case _: return inner
 					}
 				}
@@ -496,9 +496,9 @@ class Normalizer {
 
 				return NiceExpression.Parenthesis(value)
 
-				case Node.Array(el):
+				case Array(el):
 				if (el.length == 1) { switch el[0] {
-					case Node.For(name, over, by, range):
+					case For(name, over, by, range):
 					let block = []
 					let result = unique('result')
 					let resultType = typer.types.get(e) // TODO refactor to use this var below
@@ -510,7 +510,7 @@ class Normalizer {
 					let push = NiceStatement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
 					fun fillLoop() {
 						switch over {
-							case Node.Int(s):
+							case Int(s):
 							let i = name
 							block.push(NiceStatement.Const(i, NiceExpression.Int(-1), typer.typeInt))
 							block.push(NiceStatement.While(
@@ -551,7 +551,7 @@ class Normalizer {
 				return NiceExpression.Array(els, typer.types.get(e))
 
 				// `nullable ?? otherwise`
-				case Node.Elvis(nullable, otherwise):
+				case Elvis(nullable, otherwise):
 					let result = unique('result')
 					let resultType = null // TODO
 					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block([
@@ -563,7 +563,7 @@ class Normalizer {
 					)
 					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
-				case Node.Unop(op, postfix, e):
+				case Unop(op, postfix, e):
 					let expression = nodeToExpression(e)
 					switch op {
 						case OpNot:
@@ -571,16 +571,15 @@ class Normalizer {
 								// `not true = false`
 								case True: return NiceExpression.False
 								// `not false = true`
-								//case False: return NiceExpression.True TODO bug!
 								case False: return NiceExpression.True
 							}
 					}
 					return NiceExpression.Unop(op, postfix, expression)
 
-				case Node.This:
+				case This:
 					return NiceExpression.This(typer.types.get(e))
 
-				case Node.Map(keys, values):
+				case Map(keys, values):
 				let k = []
 				let v = []
 				for key in keys {
@@ -592,14 +591,14 @@ class Normalizer {
 				// TODO probably just transfer the Map<> type itself
 				return NiceExpression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]))
 
-				case Node.AssignOp(a, op, b):
+				case AssignOp(a, op, b):
 				return NiceExpression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
-				case Node.If(econd, eif, eelse):
+				case If(econd, eif, eelse):
 				// Check if it contains if-let bindings
 				var binds = false
 				for cond in econd { switch cond {
-					case Node.Var(_):
+					case Var(_):
 					binds = true
 				}}
 
@@ -619,10 +618,10 @@ class Normalizer {
 
 				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 
-				case Node.Index(expr, index):
+				case Index(expr, index):
 				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
 
-				case Node.As(e, kind, t): switch kind {
+				case As(e, kind, t): switch kind {
 					case Question:
 						console.log('`as?` is not yet supported by normalizer, only `as!`')
 					case OpNot:
@@ -631,11 +630,11 @@ class Normalizer {
 						console.log('`as` is not yet supported by normalizer, only `as!`')
 				}
 
-				case Node.Is(e, t):
+				case Is(e, t):
 					return NiceExpression.Is(nodeToExpression(e), typer.types.get(t))
 
 				// Wraps switch into function and adds `return` on every case
-				case Node.Switch(exprs, conds, guards, cases):
+				case Switch(exprs, conds, guards, cases):
 				    let block = []
 				    let caseRet = []
 				    var funcType = typer.typeVoid
@@ -653,10 +652,10 @@ class Normalizer {
 						CallKind.Function
 					)
 
-				case Node.Module(_):
-				case Node.Import(_):
+				case Module(_):
+				case Import(_):
 				case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
-				case Node.TypeAlias(_):
+				case TypeAlias(_):
 			}
 
 			return null
@@ -676,7 +675,7 @@ class Normalizer {
 			}
 
 			switch e {
-				case Node.Block(el):
+				case Block(el):
 				var els: [NiceStatement] = [] // TODO break after: break, continue, return, throw
 				for e in el {
 					let statement = nodeToStatement(e)
@@ -694,7 +693,7 @@ class Normalizer {
 				return NiceStatement.Block(els)
 
 				// Types
-				case Node.Enum(t, fields, valuesType):
+				case Enum(t, fields, valuesType):
 				renameClassFields(fields)
 				let isComplexEnum = valuesType == null
 				if isComplexEnum {
@@ -706,16 +705,16 @@ class Normalizer {
 					let constructorsTypes = []
 					let types = []
 					for f in fields { switch f {
-						case Node.NodeTypeValue(t): switch t {
+						case NodeTypeValue(t): switch t {
 							case NodeType.Type(name):
 							names.push(name)
 							constructors.push(null)
 							constructorsTypes.push(null)
 							types.push(null)
 						}
-						case Node.Call(e, args, argNames):
+						case Call(e, args, argNames):
 							switch e {
-								case Node.NodeTypeValue(t): switch t {
+								case NodeTypeValue(t): switch t {
 									case NodeType.Type(name): names.push(name)
 								}
 							}
@@ -724,9 +723,9 @@ class Normalizer {
 							constructorsTypes.push([for arg in args typer.toType(Typer.nodeToNodeType(arg), arg)])
 							types.push([for arg in args unique(arg as! String)])
 							// TODO as! String
-						case Node.Static(field):
+						case Static(field):
 							switch field {
-							case Node.Var(name, t, expr, const):
+							case Var(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								if const {
 									let value = nodeToExpression(expr)
@@ -735,13 +734,13 @@ class Normalizer {
 								} else {
 									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-							case Node.Function(name, expr, vars, rettype, external):
+							case Function(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
 								let types = []
 								for arg in vars { switch arg {
-									case Node.Var(name, t, expr, const):
+									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
 										if (expr != null) {
@@ -768,7 +767,7 @@ class Normalizer {
 					let values = []
 					for f in fields { switch f {
 						// `ValueName = b`
-						case Node.Binop(a, op, b): // op == OpAssign
+						case Binop(a, op, b): // op == OpAssign
 							switch a {
 								case Node.NodeTypeValue(t): switch t {
 									case NodeType.Type(name):
@@ -776,18 +775,18 @@ class Normalizer {
 								}
 							}
 							switch b {
-								case Node.String(s): values.push(NiceExpression.String(s))
-								case Node.Int(s): values.push(NiceExpression.Int(s))
+								case String(s): values.push(NiceExpression.String(s))
+								case Int(s): values.push(NiceExpression.Int(s))
 								case _: console.error("(internal warning) Unknown node field value kind:", b)
 							}
 						// Just `ValueName`
-						case Node.NodeTypeValue(t): switch t {
+						case NodeTypeValue(t): switch t {
 							case NodeType.Type(name):
 								names.push(name)
 						}
-						case Node.Static(field):
+						case Static(field):
 							switch field {
-							case Node.Var(name, t, expr, const):
+							case Var(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								if const {
 									let value = nodeToExpression(expr)
@@ -796,13 +795,13 @@ class Normalizer {
 								} else {
 									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-							case Node.Function(name, expr, vars, rettype, external):
+							case Function(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
 								let types = []
 								for arg in vars { switch arg {
-									case Node.Var(name, t, expr, const):
+									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
 										if (expr != null) {
@@ -822,7 +821,7 @@ class Normalizer {
 					return null //type
 				}
 
-				case Node.Class(t, ext, impl, fields, external):
+				case Class(t, ext, impl, fields, external):
 				renameClassFields(fields)
 				let type = new NiceClass()
 
@@ -850,12 +849,12 @@ class Normalizer {
 				let atts = project.mapDecorators.get(e)
 
 				if let require = getDec(atts, 'require') { switch require.values[0] {
-					case Node.String(s): type.jsRequire = s
+					case String(s): type.jsRequire = s
 					case _: throw '@require takes string as argument'
 				}}
 
 				if let native = getDec(atts, 'rename') { switch native.values[0] {
-					case Node.String(s):
+					case String(s):
 						type.jsNative = s
 						type.name = unique(s, e)
 					case _: throw '@rename takes string as argument'
@@ -865,7 +864,7 @@ class Normalizer {
 				globals.push(type.name)
 
 				for f in fields { switch f {
-					case Node.Var(name, t, expr, const):
+					case Var(name, t, expr, const):
 						let uname = parentNames.get(f) ?? unique(name, f)
 						if const {
 							let value = nodeToExpression(expr)
@@ -874,9 +873,9 @@ class Normalizer {
 						} else {
 							type.vars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 						}
-					case Node.Property(field, _, _):
+					case Property(field, _, _):
 						switch field {
-							case Node.Var(name, t, expr, const):
+							case Var(name, t, expr, const):
 								let uname = parentNames.get(f) ?? unique(name, f)
 								if const {
 									type.vars.push(NiceStatement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
@@ -885,13 +884,13 @@ class Normalizer {
 								}
 								type.property.push(uname)
 						}
-					case Node.Function(name, expr, vars, rettype, external):
+					case Function(name, expr, vars, rettype, external):
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
 						let a = []
 						let defaults = []
 						let types = []
 						for arg in vars { switch arg {
-							case Node.Var(name, t, expr, const):
+							case Var(name, t, expr, const):
 								a.push(unique(name, arg))
 								types.push(t)
 								if (expr != null) {
@@ -901,9 +900,9 @@ class Normalizer {
 								}
 						}}
 						type.methods.push(NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f)))
-					case Node.Static(field):
+					case Static(field):
 						switch field {
-							case Node.Var(name, t, expr, const):
+							case Var(name, t, expr, const):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								if const {
 									let value = nodeToExpression(expr)
@@ -912,13 +911,13 @@ class Normalizer {
 								} else {
 									type.staticVars.push(NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-							case Node.Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
 								let a = []
 								let defaults = []
 								let types = []
 								for arg in vars { switch arg {
-									case Node.Var(name, t, expr, const):
+									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
 										if (expr != null) {
@@ -935,25 +934,25 @@ class Normalizer {
 				niceProject.classes.push(type)
 				return null //type
 
-				case Node.TypeAlias(_):
+				case TypeAlias(_):
 
 				// Expressions
-				case Node.New(path, t, args, fields, values, _):
+				case New(path, t, args, fields, values, _):
 				return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 
-				case Node.Call(e, args, argNames):
+				case Call(e, args, argNames):
 
 				var kind = CallKind.Function
 				switch e {
 					// `super()` in `new(){}`
-					case Node.Super(_):
+					case Super:
 						let a = []
 						for arg in args {
 							a.push(nodeToExpression(arg))
 						}
 						return NiceStatement.SuperConstructor(a)
 					// Call kind
-					case Node.Dot(expr, _):
+					case Dot(expr, _):
 						switch typer.types.get(expr) as! Type {
 							case ClassInstance(_): kind = CallKind.VirtualMethod
 							case Class(_): kind = CallKind.Static
@@ -979,7 +978,7 @@ class Normalizer {
 
 				return NiceStatement.Call(v, a, expects, kind)
 
-				case Node.Var(name, t, expr, const, external):
+				case Var(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
 				if external {
 					return null
@@ -994,13 +993,13 @@ class Normalizer {
 				}
 				return NiceStatement.Var(uname, nodeToExpression(expr), typer.types.get(e))
 
-				case Node.Function(name, expr, vars, rettype, external):
+				case Function(name, expr, vars, rettype, external):
 				var uname: String? = null
 
 				// TODO wrap getting `native` into function, also validate it takes only 1 argument
 				let atts = project.mapDecorators.get(e)
 				if let native = getDec(atts, 'rename') { switch native.values[0] {
-						case Node.String(s): if (parentNames.get(e) == null) {
+						case String(s): if (parentNames.get(e) == null) {
 							uniqueNative(s, e)
 						}
 						uname = parentNames.get(e)
@@ -1017,7 +1016,7 @@ class Normalizer {
 				let defaults = []
 				var types = []
 				for arg in vars { switch arg {
-					case Node.Var(name, t, expr, const):
+					case Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
 						if (expr != null) {
@@ -1031,9 +1030,9 @@ class Normalizer {
 				}
 				return NiceStatement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e))
 
-				case Node.For(name, over, by, range):
+				case For(name, over, by, range):
 				if (range == null) { switch over {
-					case Node.Int(s):
+					case Int(s):
 					let i = unique(name, e)
 					// This allows to call `continue` within loop body,
 					// otherwise infinite loop happens
@@ -1118,23 +1117,23 @@ class Normalizer {
 				}
 				return NiceStatement.For(name, nodeToExpression(over), nodeToStatement(by))
 
-				case Node.Return(e):
+				case Return(e):
 				if (e == null) {
 					return NiceStatement.Return(null)
 				}
 				return NiceStatement.Return(nodeToExpression(e))
 
 				// TODO this.name
-				case Node.Dot(expr, name):
+				case Dot(expr, name):
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
-				case Node.DotUpper(expr, name):
+				case DotUpper(expr, name):
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 
-				case Node.If(econd, eif, eelse):
+				case If(econd, eif, eelse):
 				// Check if it contains if-let bindings
 				var binds = false
 				for cond in econd { switch cond {
-					case Node.Var(_):
+					case Var(_):
 					binds = true
 				}}
 
@@ -1164,7 +1163,7 @@ class Normalizer {
 				var last = ''
 				let lastType = typer.types.get(econd[0])
  				switch econd[0] {
-					case Node.Var(name, t, expr, const):
+					case Var(name, t, expr, const):
 					last = unique(name, econd[0])
 					nullable = true
 					block.push(NiceStatement.Const(last, nodeToExpression(expr), typer.types.get(econd[0])))
@@ -1174,7 +1173,7 @@ class Normalizer {
 				}
 
 				while current < econd.length - 1 { switch econd[current + 1] {
-					case Node.Var(vname, t, expr, const):
+					case Var(vname, t, expr, const):
 					let name = unique(vname, econd[current + 1])
 					block.push(NiceStatement.Var(name, NiceExpression.Null, typer.types.get(expr)))
 					block.push(NiceStatement.If(
@@ -1228,7 +1227,7 @@ class Normalizer {
 
 				return NiceStatement.Block(block)
 
-				case Node.Try(expr, t, v, catches):
+				case Try(expr, t, v, catches):
 				var temp = unique('temp') // Used for `catch (temp)` in JS
 				var tt = []
 				var vv = []
@@ -1244,13 +1243,13 @@ class Normalizer {
 				}
 				return NiceStatement.Try(nodeToStatement(expr), tt, vv, cc, temp)
 
-				case Node.Throw(value):
+				case Throw(value):
 				return NiceStatement.Throw(nodeToExpression(value))
 
-				case Node.AssignOp(a, op, b):
+				case AssignOp(a, op, b):
 				return NiceStatement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
-				case Node.Binop(a, op, b):
+				case Binop(a, op, b):
 				switch op {
 					case OpAssign:
 					return NiceStatement.Assign(nodeToExpression(a), nodeToExpression(b), null)
@@ -1266,28 +1265,28 @@ class Normalizer {
 					return NiceStatement.Statements([sa, sb])
 				}
 
-				case Node.Continue: return NiceStatement.Continue
-				case Node.Break: return NiceStatement.Break
+				case Continue: return NiceStatement.Continue
+				case Break: return NiceStatement.Break
 
-				case Node.While(econd, e, pre):
+				case While(econd, e, pre):
 				return NiceStatement.While(nodeToExpression(econd), nodeToStatement(e), pre)
 
-				case Node.Unop(op, postfix, e):
+				case Unop(op, postfix, e):
 					switch op {
 						case OpIncrement: return NiceStatement.Increment(nodeToExpression(e))
 						case OpDecrement: return NiceStatement.Decrement(nodeToExpression(e))
 						case _: // Optimize away
 					}
-				case Node.Parenthesis(inner):
+				case Parenthesis(inner):
 				fun unwrapNestedParens(inner: Node) {
 					switch inner {
-						case Node.Parenthesis(i): return unwrapNestedParens(i)
+						case Parenthesis(i): return unwrapNestedParens(i)
 						case _: return inner
 					}
 				}
 				return nodeToStatement(unwrapNestedParens(inner))
 
-				case Node.Switch(exprs, conds, guards, cases):
+				case Switch(exprs, conds, guards, cases):
 				if (exprs.length > 1) {
 					console.error('Multiple switch values not yet supported:', e, project.data.get(e))
 				}
@@ -1300,28 +1299,28 @@ class Normalizer {
 					for i in cases.length {
 
 						fun toCase(co: Node) { switch co {
-							case Node.Null(_): return NiceExpression.Null
-							case Node.Underscore(_): return NiceExpression.Underscore
-							case Node.String(v): return NiceExpression.String(v)
-							case Node.Int(v): return NiceExpression.Int(v)
-							case Node.Float(v): return NiceExpression.Float(v)
-							case Node.Bool(v):
+							case Null: return NiceExpression.Null
+							case Underscore: return NiceExpression.Underscore
+							case String(v): return NiceExpression.String(v)
+							case Int(v): return NiceExpression.Int(v)
+							case Float(v): return NiceExpression.Float(v)
+							case Bool(v):
 								if v {
 									return NiceExpression.True
 								}
 								return NiceExpression.False
-							case Node.Dot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
-							case Node.DotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
-							case Node.Binop(a, op, b): switch op {
+							case Dot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
+							case DotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
+							case Binop(a, op, b): switch op {
 							case OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b), null)
 								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
 							}
-							case Node.Call(e, args, argNames): switch e {
-								case Node.DotUpper(expr, name):
+							case Call(e, args, argNames): switch e {
+								case DotUpper(expr, name):
 									let a = []
 									for arg in args.length { switch args[arg] {
-										case Node.Ident(name): a.push(NiceExpression.Ident(unique(name, args[arg]), null))
-										case Node.Underscore: a.push(NiceExpression.Underscore)
+										case Ident(name): a.push(NiceExpression.Ident(unique(name, args[arg]), null))
+										case Underscore: a.push(NiceExpression.Underscore)
 										case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
 									}}
 									return NiceExpression.Call(nodeToExpression(e), a, null, CallKind.Function)
@@ -1368,24 +1367,24 @@ class Normalizer {
 					binds.push(binders)
 
 					fun addTag(co: Node) { switch co {
-						case Node.Null(_): cx.push(NiceExpression.Null)
-						case Node.Underscore(_):
-						case Node.String(v): cx.push(NiceExpression.String(v))
-						case Node.Int(v): cx.push(NiceExpression.Int(v))
-						case Node.Float(v): cx.push(NiceExpression.Float(v))
-						case Node.Bool(v):
+						case Null: cx.push(NiceExpression.Null)
+						case Underscore:
+						case String(v): cx.push(NiceExpression.String(v))
+						case Int(v): cx.push(NiceExpression.Int(v))
+						case Float(v): cx.push(NiceExpression.Float(v))
+						case Bool(v):
 							if v {
 								cx.push(NiceExpression.True)
 							} else {
 								cx.push(NiceExpression.False)
 							}
-						case Node.Call(e, args, argNames):
+						case Call(e, args, argNames):
 							switch e {
-								case Node.DotUpper(expr, name):
+								case DotUpper(expr, name):
 								let parent = typer.parents.get(expr)
 								let tag = getTag(parent, name)
 								cx.push(tag)
-								case Node.NodeTypeValue(t):
+								case NodeTypeValue(t):
 									switch t {
 										case NodeType.Type(name):
 											if let enumType = enumType {
@@ -1401,7 +1400,7 @@ class Normalizer {
 							}
 							promoted = true
 							for arg in args.length { switch args[arg] {
-								case Node.Ident(name):
+								case Ident(name):
 									binders.push(
 										NiceStatement.Const(
 											unique(name, args[arg]),
@@ -1412,20 +1411,20 @@ class Normalizer {
 											typer.types.get(args[arg])
 										)
 									)
-								case Node.Underscore: {}
-								case Node.Interval: {}
+								case Underscore: {}
+								case Interval: {}
 								case _: console.log('(internal warning) Unknown case extract value kind:', arg)
 							}}
-						case Node.DotUpper(expr, name):
+						case DotUpper(expr, name):
 							cx.push(getTag(typer.parents.get(expr), name))
-						case Node.Binop(a, op, b):
+						case Binop(a, op, b):
 						switch op {
 							case OpOr:
 							addTag(a)
 							addTag(b)
 							case _: console.error('(internal warning) Unknown case binop kind:', e, typer.parents.get(e))
 						}
-						case Node.NodeTypeValue(t):
+						case NodeTypeValue(t):
 							switch t {
 								case NodeType.Type(name):
 									if let enumType = enumType {
@@ -1458,33 +1457,33 @@ class Normalizer {
 
 
 				// Optimize away
-				case Node.Index(v, index):
+				case Index(v, index):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', project.data.get(e)))
 					// No need to compute constant index
 					switch index {
-						case Node.String(_): return nodeToStatement(v)
-						case Node.Int(_): return nodeToStatement(v)
-						case Node.Bool(_): return nodeToStatement(v)
-						case Node.Float(_): return nodeToStatement(v)
+						case String(_): return nodeToStatement(v)
+						case Int(_): return nodeToStatement(v)
+						case Bool(_): return nodeToStatement(v)
+						case Float(_): return nodeToStatement(v)
 					}
 				return NiceStatement.Statements([nodeToStatement(v), nodeToStatement(index)])
 
 				// Optimize away
-				case Node.Ident(name):
+				case Ident(name):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', project.data.get(e)))
-				case Node.Arrow(_):
+				case Arrow(_):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', project.data.get(e)))
-				case Node.String(v):
+				case String(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', project.data.get(e)))
-				case Node.Bool(v):
+				case Bool(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', project.data.get(e)))
-				case Node.Int(v):
+				case Int(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', project.data.get(e)))
-				case Node.Float(v):
+				case Float(v):
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
-				case Node.Null:
+				case Null:
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
-				case Node.Module(_):
+				case Module(_):
 				case _:
 					return NiceStatement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 			}
@@ -1494,7 +1493,7 @@ class Normalizer {
 
 		fun getTag(enumNode: Node, name: String): NiceExpression? {
 			switch enumNode {
-				case Node.Enum(t, fields, valuesType):
+				case Enum(t, fields, valuesType):
 				var typed: EnumType = null as! EnumType
 				switch typer.types.get(enumNode) as! Type {
 					case Enum(type): typed = type
@@ -1503,7 +1502,7 @@ class Normalizer {
 				var i = 0
 				for f in fields {
 					switch f {
-						case Node.NodeTypeValue(t): switch t {
+						case NodeTypeValue(t): switch t {
 							case NodeType.Type(n):
 								if (n == name) {
 									if (typed.fieldsTypeSimple == typer.typeString) {
@@ -1514,23 +1513,23 @@ class Normalizer {
 									return NiceExpression.Int(i)
 								}
 						}
-						case Node.Call(e, _): switch e {
-							case Node.NodeTypeValue(t): switch t {
+						case Call(e, _): switch e {
+							case NodeTypeValue(t): switch t {
 								case NodeType.Type(n):
 									if (n == name) {
 										return NiceExpression.Int(i)
 									}
 							}
 						}
-						case Node.Binop(a, op, b): switch a {
-							case Node.NodeTypeValue(t): switch t {
+						case Binop(a, op, b): switch a {
+							case NodeTypeValue(t): switch t {
 								case NodeType.Type(n):
 									if (n == name) {
 										return nodeToExpression(b)
 									}
 							}
 						}
-						case Node.Static(_): return null // Not a tag
+						case Static(_): return null // Not a tag
 						case _:
 							console.error('(internal warning) Unknown enum tag kind:', f)
 					}
@@ -1552,7 +1551,7 @@ class Normalizer {
 		fun getNative(e: Node): String? {
 			let atts = project.mapDecorators.get(e)
 			if let native = getDec(atts, 'rename') { switch native.values[0] {
-					case Node.String(s):
+					case String(s):
 						return s
 					case _: throw '@rename takes string as argument'
 			}}
@@ -1620,11 +1619,11 @@ class Normalizer {
 		fun renameClassFields(fields: [Node]) {
 			pushScope()
 			for f in fields { switch f {
-				case Node.Var(name, t, expr, const):
+				case Var(name, t, expr, const):
 					let atts = project.mapDecorators.get(f)
 
 					if let native = getDec(atts, 'rename') { switch native.values[0] {
-						case Node.String(s): if (parentNames.get(f) == null) {
+						case String(s): if (parentNames.get(f) == null) {
 							unique(s, f)
 						}
 						case _: throw '@rename takes string as argument'
@@ -1632,14 +1631,14 @@ class Normalizer {
 					if (parentNames.get(f) == null) {
 						unique(name, f)
 					}
-				case Node.Function(name, expr, vars, rettype):
+				case Function(name, expr, vars, rettype):
 					if name == 'new' {
 						parentNames.set(f, 'new')
 					} else {
 						let atts = project.mapDecorators.get(f)
 
 						if let native = getDec(atts, 'rename') { switch native.values[0] {
-							case Node.String(s): if (parentNames.get(f) == null) {
+							case String(s): if (parentNames.get(f) == null) {
 								unique(s, f)
 							}
 							case _: throw '@rename takes string as argument'
@@ -1649,12 +1648,12 @@ class Normalizer {
 							unique(name, f)
 						}
 					}
-				case Node.Static(field): switch field {
-					case Node.Var(name, t, expr, const):
+				case Static(field): switch field {
+					case Var(name, t, expr, const):
 						let atts = project.mapDecorators.get(f)
 
 						if let native = getDec(atts, 'rename') { switch native.values[0] {
-							case Node.String(s): if (parentNames.get(field) == null) {
+							case String(s): if (parentNames.get(field) == null) {
 								unique(s, field)
 							}
 							case _: throw '@rename takes string as argument'
@@ -1663,11 +1662,11 @@ class Normalizer {
 						if (parentNames.get(field) == null) {
 							unique(name, field)
 						}
-					case Node.Function(name, expr, vars, rettype):
+					case Function(name, expr, vars, rettype):
 						let atts = project.mapDecorators.get(f)
 
 						if let native = getDec(atts, 'rename') { switch native.values[0] {
-							case Node.String(s): if (parentNames.get(field) == null) {
+							case String(s): if (parentNames.get(field) == null) {
 								unique(s, field)
 							}
 							case _: throw '@rename takes string as argument'
@@ -1684,18 +1683,18 @@ class Normalizer {
 		// Used for `something.name`
 		fun getClassDotField(expr: Node, name: String): String? {
 			switch expr {
-				case Node.Class(t, ext, impl, fields, external): for f in fields { switch f {
-					case Node.Static(sf):
+				case Class(t, ext, impl, fields, external): for f in fields { switch f {
+					case Static(sf):
 					if (DataHelper.nameOf(sf) == name) {
 						return parentNames.get(sf) ?? name
 					}
-					case Node.Var(n, _):
+					case Var(n, _):
 					if (n == name) {
 						return parentNames.get(f) ?? name
 					}
 				}}
-				case Node.Enum(t, fields, valuesType): for f in fields { switch f {
-					case Node.Static(sf):
+				case Enum(t, fields, valuesType): for f in fields { switch f {
+					case Static(sf):
 					if (DataHelper.nameOf(sf) == name) {
 						return parentNames.get(sf) ?? name
 					}

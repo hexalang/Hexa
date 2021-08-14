@@ -148,7 +148,7 @@ class Parser {
 				}
 				switch expr {
 					case null:
-					case Node.Block(_):
+					case Block(_):
 					case _:
 						i--
 						fail('Constructor `new` should have a `{ block }` as a body')
@@ -194,7 +194,7 @@ class Parser {
 				var n = null
 				var onlyGet = false
 				switch field {
-					case Node.Var(name, type, expr, const):
+					case Var(name, type, expr, const):
 						if (expr != null) {
 							fail('Property should not have a `= value`')
 						}
@@ -444,7 +444,7 @@ class Parser {
 					e = parseExpr()
 
 					switch e {
-						case Node.Class(t, ext, impl, fields, _): e = Node.Class(t, ext, impl, fields, true)
+						case Class(t, ext, impl, fields, _): e = Node.Class(t, ext, impl, fields, true)
 						case _:
 					}
 			}
@@ -452,44 +452,44 @@ class Parser {
 			var name: String? = null
 			var extracted = null
 			switch e {
-				case Node.Private(el):
+				case Private(el):
 				extracted = el
-				case Node.Static(el):
+				case Static(el):
 				extracted = el
 				case _: extracted = e
 			}
 
 			switch extracted {
-				case Node.Binop(a, op, b):
+				case Binop(a, op, b):
 					if (op != Token.OpAssign) fail('declare =')
 					switch a {
-						case Node.NodeTypeValue(t):
+						case NodeTypeValue(t):
 							switch t {
 								case NodeType.Type(n): name = n
 								case NodeType.ParametricType(n, _): name = n
 							}
-						case Node.Ident(n): name = n
+						case Ident(n): name = n
 					}
 
-				case Node.Class(t, _):
+				case Class(t, _):
 				switch t {
 					case NodeType.Type(n): name = n
 					case NodeType.ParametricType(n, _): name = n
 				}
 
-				case Node.Var(n, t, e, _):
+				case Var(n, t, e, _):
 					if (t == null) fail('Variable `\(n)` in `declare` should have a type')
 					if (e != null) fail('Variable `\(n)` in `declare` should *not* have a value')
 					name = n
 
-				case Node.Function(n, e, _, _):
+				case Function(n, e, _, _):
 					if (n == null) fail('Function in `declare` should have a name')
 					if (e != null) fail('Functions in `declare` should *not* have a body')
 					name = n
 				// TODO binop assign
 				// Types-to-types `T = T` or idents-to-idents `name = name` should be assigned
 				// TODO require type for var and func args / retT?
-				case Node.Vars(_):
+				case Vars(_):
 					fail('Place only one variable into `declare`')
 				case _:
 					fail('Incorrect `declare` syntax! Use `declare let name: T` or `declare fun name(): T`')
@@ -582,7 +582,7 @@ class Parser {
 			}
 			if (eif != null) {
 				switch eif {
-					case Node.Block(_):
+					case Block(_):
 					case _:
 						let temp = i
 						i = eifAt
@@ -592,8 +592,8 @@ class Parser {
 			}
 			if (eelse != null) {
 				switch eelse {
-					case Node.Block(_):
-					case Node.If(_):
+					case Block(_):
+					case If(_):
 					case _:
 						let temp = i
 						i = eelseAt
@@ -609,7 +609,7 @@ class Parser {
 			var eAt = i
 			var e = parseExpr()
 			switch e {
-				case Node.Block(_):
+				case Block(_):
 				case _:
 					let temp = i
 					i = eAt
@@ -623,7 +623,7 @@ class Parser {
 			var eAt = i
 			var e = parseExpr()
 			switch e {
-				case Node.Block(_):
+				case Block(_):
 				case _:
 					let temp = i
 					i = eAt
@@ -732,7 +732,7 @@ class Parser {
 			// All unops have larger priority than binops
 			fun fix(value: Node) {
 				switch value {
-					case Node.Binop(aa, op, bb):
+					case Binop(aa, op, bb):
 						let out = Node.Binop(fix(aa), op, bb)
 						project.data.set(out, project.data.get(value))
 						return out
@@ -823,7 +823,7 @@ class Parser {
 			let exprAt = i
 			let expr = parseExpr()
 			switch expr {
-				case Node.Block(_):
+				case Block(_):
 				case _:
 					let temp = i
 					i = exprAt
@@ -845,7 +845,7 @@ class Parser {
 				let exprAt = i
 				let expr = parseExpr()
 				switch expr {
-					case Node.Block(_):
+					case Block(_):
 					case _:
 						let temp = i
 						i = exprAt
@@ -1333,14 +1333,14 @@ class Parser {
 			// i++
 			case OpIncrement:
 				switch result {
-					case Node.Unop(_): return result
+					case Unop(_): return result
 				}
 				i++ result = Node.Unop(Token.OpIncrement, true, result)
 
 			// i--
 			case OpDecrement:
 				switch result {
-					case Node.Unop(_): return result
+					case Unop(_): return result
 				}
 				i++ result = Node.Unop(Token.OpDecrement, true, result)
 
@@ -1668,7 +1668,7 @@ class Parser {
 		}
 		switch expr {
 			case null:
-			case Node.Block(_):
+			case Block(_):
 			case _:
 				let named = name ?? 'fun'
 				// TODO proper error position
@@ -1791,7 +1791,7 @@ class Parser {
 		try {
 			var parsed = toNode(parseNodes(tokens, project))
 			switch parsed {
-				case Node.Block(_):
+				case Block(_):
 					// TODO wrap into error
 					throw "Parse interpolation error: got a block"
 				case _: return parsed
