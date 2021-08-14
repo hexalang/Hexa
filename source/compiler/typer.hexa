@@ -285,7 +285,7 @@ class Typer {
 			if let type = types.get(node) {
 				switch type as! Type {
 					// Avoid typing if already typed
-					case Type.Class(t):
+					case Class(t):
 						if let setup = callback {
 							setup(t)
 						}
@@ -576,7 +576,7 @@ class Typer {
 			if let type = types.get(node) {
 				switch type as! Type {
 					// Avoid typing if already typed
-					case Type.Enum(t): return t
+					case Enum(t): return t
 				}
 			} else {
 				let type = new EnumType()
@@ -963,18 +963,18 @@ class Typer {
 			// Nullability
 			fun isNullable(t: Type): Bool {
 				switch t {
-					case Type.UnknownNullable(_): return true
-					case Type.Nullable(_): return true
+					case UnknownNullable(_): return true
+					case Nullable(_): return true
 				}
 				return false
 			}
 
 			fun instanceOfClass(t: Type): ClassType? {
 				switch Type.unwrapNullable(t) {
-					case Type.ClassInstance(t): return t
-					case Type.Class(t):
+					case ClassInstance(t): return t
+					case Class(t):
 						fail('Cannot take classes `class \(t.name)` as values', node)
-					// TODO case Type.Enum(t):
+					// TODO case Enum(t):
 					//	fail('Cannot take enums `enum \(t.name)` as values', node)
 				}
 				return null
@@ -982,19 +982,19 @@ class Typer {
 
 			fun instanceOfEnum(t: Type): EnumType? {
 				switch Type.unwrapNullable(t) {
-					case Type.EnumInstance(t, _): return t
-					case Type.Enum(t): return t
+					case EnumInstance(t, _): return t
+					case Enum(t): return t
 				}
 				return null
 			}
 
 			// Fill unknown nullable
 			switch to {
-				case Type.UnknownNullable(handle):
+				case UnknownNullable(handle):
 					if (handle.value == null) {
 						handle.value = switch fromValue {
-							case Type.UnknownNullable(handle): handle.value
-							case Type.Nullable(t): t
+							case UnknownNullable(handle): handle.value
+							case Nullable(t): t
 							case _: fromValue
 						}
 					}
@@ -1084,12 +1084,12 @@ class Typer {
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch type {
-						case Type.Class(type):
+						case Class(type):
 							if (type.genericParams.length > 0) {
 								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
 							}
 							return type.instantiate()
-						case Type.Enum(type):
+						case Enum(type):
 							return types.get(nodeType)
 						case null:
 							let available = []
@@ -1124,7 +1124,7 @@ class Typer {
 					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch type {
-						case Type.Class(type):
+						case Class(type):
 							if (type.genericParams.length == 0) {
 								fail('The type `\(type.name)` requires zero generic parameters', node)
 							}
@@ -1414,7 +1414,7 @@ class Typer {
 					fillExpression(over)
 					let overType: Type = types.get(over)
 					switch overType {
-						case Type.ClassInstance(type, generic):
+						case ClassInstance(type, generic):
 							// Extract Array<T>
 							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
@@ -1426,10 +1426,10 @@ class Typer {
 								fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
 							}
 
-						case Type.Nullable(_):
+						case Nullable(_):
 							fail('Type of iterable should not be nullable', over)
 
-						case Type.UnknownNullable(_):
+						case UnknownNullable(_):
 							fail('Type of iterable should not be nullable', over)
 
 						case null:
@@ -1510,8 +1510,8 @@ class Typer {
 								fillExpression(expr)
 								popScope()
 								switch types.get(expr) as! Type {
-									case Type.Nullable(t): types.set(e, t)
-									case Type.UnknownNullable(handle):
+									case Nullable(t): types.set(e, t)
+									case UnknownNullable(handle):
 										if let t = handle.value {
 											types.set(e, t)
 										} else {
@@ -1562,9 +1562,9 @@ class Typer {
 					for i in ca.length {
 						let type = toType(t[i], ca[i])
 						switch type {
-							case Type.Struct(_):
+							case Struct(_):
 								fail('Catch type must be a specific class, not `{}`', ca[i])
-							case Type.Function(_):
+							case Function(_):
 								fail('Catch type must be a specific class, not function', ca[i])
 						}
 						types.set(t[i], type)
@@ -1703,7 +1703,7 @@ class Typer {
 							// TODO reuse code from for-as-statement
 							let overType: Type = types.get(over)
 							switch overType {
-								case Type.ClassInstance(type, generic):
+								case ClassInstance(type, generic):
 									// Extract Array<T>
 									// TODO check type == typeArray
 									if generic != null, generic.length == 1 {
@@ -1716,10 +1716,10 @@ class Typer {
 										fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
 									}
 
-								case Type.Nullable(_):
+								case Nullable(_):
 									fail('Type of iterable should not be nullable', over)
 
-								case Type.UnknownNullable(_):
+								case UnknownNullable(_):
 									fail('Type of iterable should not be nullable', over)
 
 								case null:
@@ -1819,7 +1819,7 @@ class Typer {
 							fillExpression(e)
 					}
 					if let etype = types.get(e) as! Type? { switch etype {
-						case Type.ClassInstance(type): // Non-static fields
+						case ClassInstance(type): // Non-static fields
 							type.useless = false
 							if (etype == typeAny) {
 								types.set(node, typeAny)
@@ -1855,7 +1855,7 @@ class Typer {
 								case _:
 									fail('type.parent not a class, internal error', type.parent)
 							}
-						case Type.Class(type): // Static fields
+						case Class(type): // Static fields
 							type.useless = false
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0) {
@@ -1875,7 +1875,7 @@ class Typer {
 								case _:
 									fail('type.parent not a class, internal error', type.parent)
 							}
-						case Type.Enum(type):
+						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0) {
 								fail('Enum `\(type.name)` has no field `.\(n)`', node)
@@ -1898,7 +1898,7 @@ class Typer {
 								case _:
 									fail('type.parent not an enum, internal error', type.parent)
 							}
-						case Type.Struct(names, els):
+						case Struct(names, els):
 							let index = names.indexOf(n)
 							if (index < 0) {
 								var object = ''
@@ -1915,13 +1915,13 @@ class Typer {
 								}
 							}
 							types.set(node, els[index])
-						case Type.UnknownNullable(handle):
+						case UnknownNullable(handle):
 							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if let`', node)
 							types.set(node, typeAny) // TODO unwrap proper type
-						case Type.Nullable(type):
+						case Nullable(type):
 							failNonFatal('Cannot access `.\(n)` of nullable type `\(Type.stringify(etype))`, try to unwrap it with `if let`', node)
 							types.set(node, typeAny) // TODO unwrap proper type
-						case Type.Unknown(handle):
+						case Unknown(handle):
 							if let type = handle.value {
 								// TODO
 							} else {
@@ -1944,7 +1944,7 @@ class Typer {
 					}
 					fillExpression(e)
 					switch types.get(e) as! Type {
-						case Type.Class(type):
+						case Class(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0) {
 								fail('Class has no field `.\(n)`', node)
@@ -1952,7 +1952,7 @@ class Typer {
 							if (type.fieldStatic[index] != true) {
 								fail('Class field `.\(n)` is not static', node)
 							}
-						case Type.Enum(type):
+						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if (index < 0) {
 								fail('Enum has no value constructor `.\(n)`\n' + proposeSimilar(type.fieldNames.filter((element, index) => type.fieldEnumConstructor[index]), n, 'constructors'), node)
@@ -2015,7 +2015,7 @@ class Typer {
 						fillExpression(e)
 					}
 					switch type {
-						case Type.ClassInstance(type):
+						case ClassInstance(type):
 							if (type.constructor == -1) {
 								fail('Cannot construct class without `new () {}` constructor', node)
 							}
@@ -2153,7 +2153,7 @@ class Typer {
 					}
 
 				 	switch types.get(e) as! Type {
-				 		case Type.Function(args, returns):
+				 		case Function(args, returns):
 				 			for i in el.length { if let arg = args[i] {
 				 				unify(arg, types.get(el[i]), el[i])
 				 			}}
@@ -2166,7 +2166,7 @@ class Typer {
 				 			// TODO default args expressions+typing to use in normalization
 				 			// TODO is const exprs >= 3 then require second names
 				 			// "This function call is hard to read.\Replace this code: ... with this one: ..."
-				 		case Type.EnumConstructor(type, tag):
+				 		case EnumConstructor(type, tag):
 				 			let name = type.fieldNames[tag]
 
 				 			if (el.length < type.tagBindVars[tag].length) {
@@ -2302,7 +2302,7 @@ class Typer {
 					// For now, only Int & Any index supported
 					var indexableIsAny = false
 					switch types.get(e) as! Type {
-						case Type.ClassInstance(type, generic):
+						case ClassInstance(type, generic):
 							if (type.name == 'Any') {
 								indexableIsAny = true
 							}
@@ -2310,7 +2310,7 @@ class Typer {
 
 					if (!indexableIsAny) {
 					switch types.get(i) as! Type {
-						case Type.ClassInstance(type):
+						case ClassInstance(type):
 							if type.name != 'Int', type.name != 'Any' {
 								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(types.get(i)) + '`', e)
 							}
@@ -2321,7 +2321,7 @@ class Typer {
 
 					// For now, only Array[i] supported
 					switch types.get(e) as! Type {
-						case Type.ClassInstance(type, generic):
+						case ClassInstance(type, generic):
 							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
 							} else if ['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name) {
@@ -2481,9 +2481,9 @@ class Typer {
 					fun unwrapUnknownAndNullable(type: Type?): Type? {
 						switch type {
 							case null: return null
-							case Type.Nullable(type): return unwrapUnknownAndNullable(type)
-							case Type.Unknown(type): return unwrapUnknownAndNullable(type.value)
-							case Type.UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
+							case Nullable(type): return unwrapUnknownAndNullable(type)
+							case Unknown(type): return unwrapUnknownAndNullable(type.value)
+							case UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
 						}
 
 						return type
@@ -2510,9 +2510,9 @@ class Typer {
 						fail('Due to imprecise nature of `Float` type, switching over it is not allowed', exprs[0])
 					} else {
 						switch etype {
-							case Type.Enum(type):
+							case Enum(type):
 								enumType = type
-							case Type.EnumInstance(type, _):
+							case EnumInstance(type, _):
 								enumType = type
 							case _:
 								fail('Cannot switch over `\(Type.stringify(etype))` type', exprs[0])
@@ -2571,7 +2571,7 @@ class Typer {
 								case Node.DotUpper(ex, name):
 									fillExpression(e)
 									switch types.get(ex) as! Type {
-										case Type.Enum(type):
+										case Enum(type):
 											currentType = type
 											currentTag = name
 											if (tags.includes(currentTag)) {
