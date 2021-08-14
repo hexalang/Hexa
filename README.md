@@ -46,9 +46,11 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 ## Download
 
-#### Stable
+- [`isekai`](https://github.com/hexalang/hexa/tree/isekai) is the development branch and accepts pull requests
+- [`kawaii`](https://github.com/hexalang/hexa/tree/kawaii) is the non-development branch, it is merged from `isekai` and does *not* accept pull requests
+	- To build the latest stable, clone `kawaii`: `git clone --branch kawaii --recursive --depth 100 https://github.com/hexalang/hexa.git`
 
-`Coming Soon` — no releases actually available, yet
+#### Stable
 
 - [Try Hexa online without installation](https://hexalang.github.io/try/)
 - [**Latest stable release**](https://github.com/hexalang/hexa/releases/latest)
