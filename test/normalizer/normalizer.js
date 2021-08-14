@@ -5,6 +5,7 @@
 	"use strict"
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
+	const selfVersion="1.0.0";
 	var NiceExpression = {
 	}
 	Object.defineProperty(NiceExpression, "Other", { get: () => { return [0] }})
