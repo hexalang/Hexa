@@ -357,7 +357,7 @@ class Typer {
 				switch node {
 					case Class(t, extend, implement, f, external):
 						switch t {
-							case NodeType.ParametricType(name, params):
+							case ParametricType(name, params):
 								type.genericParams.push(DataHelper.extractTypeName(params[0]))
 								let names = type.genericParams
 								for i in 1 ... params.length {
@@ -608,7 +608,7 @@ class Typer {
 						switch field {
 							// `enum E { A }`
 							case NodeTypeValue(t): switch t {
-								case NodeType.Type(name):
+								case Type(name):
 									if (type.fieldNames.includes(name)) {
 										throw fail('Field `\(name)` already exists', node)
 									}
@@ -629,7 +629,7 @@ class Typer {
 								}
 								switch e {
 									case NodeTypeValue(t): switch t {
-										case NodeType.Type(name):
+										case Type(name):
 											if (type.fieldNames.includes(name)) {
 												throw fail('Field `\(name)` already exists', node)
 											}
@@ -672,7 +672,7 @@ class Typer {
 								}
 								switch a {
 									case NodeTypeValue(t): switch t {
-										case NodeType.Type(name):
+										case Type(name):
 											if (type.fieldNames.includes(name)) {
 												fail('Field `\(name)` already exists', node)
 											}
@@ -825,21 +825,21 @@ class Typer {
 					}
 				case Private(node): switch node {
 					case Class(t, _): switch t {
-						case NodeType.Type(name): return name
-						case NodeType.ParametricType(name): return name
+						case Type(name): return name
+						case ParametricType(name): return name
 					}
 				}
 				case Class(t, _): switch t {
-					case NodeType.Type(name): return name
-					case NodeType.ParametricType(name): return name
+					case Type(name): return name
+					case ParametricType(name): return name
 				}
 				case Enum(t, _): switch t {
-					case NodeType.Type(name): return name
-					case NodeType.ParametricType(name): return name
+					case Type(name): return name
+					case ParametricType(name): return name
 				}
 				case TypeAlias(t, _): switch t {
-					case NodeType.Type(name): return name
-					case NodeType.ParametricType(name): return name
+					case Type(name): return name
+					case ParametricType(name): return name
 				}
 				case _: fail('Improper module item format, wrap expressions as `{ expressions }`', node)
 			}
@@ -1052,7 +1052,7 @@ class Typer {
 
 		fun toType(t: NodeType, node: Node): Type {
 			switch t {
-				case NodeType.Type(name, path):
+				case Type(name, path):
 					var nodeType: Node? = null
 
 					if let path = path {
@@ -1112,7 +1112,7 @@ class Typer {
 							}
 							fail('Unsupported type `\(name)`', node)
 					}
-				case NodeType.ParametricType(name, params, path):
+				case ParametricType(name, params, path):
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name) ?? currentModule.imported.get(name)
 					if (types.get(nodeType) == null) { switch nodeType {
 						case Class(_):
@@ -1972,7 +1972,7 @@ class Typer {
 
 				// `T` or `T<G>`
 				case NodeTypeValue(t): switch t {
-					case NodeType.Type(name):
+					case Type(name):
 						let subj = find(name)
 						if (subj == null) {
 							fail('Cannot find type with name `\(name)`', node)
@@ -2000,7 +2000,7 @@ class Typer {
 								fail('Cannot find type for `\(name)` even after late build' + never, node)
 							}
 						}
-					case NodeType.ParametricType(name, _):
+					case ParametricType(name, _):
 						fail('Cannot use generic type `\(name)` as a value', node)
 					case _:
 						fail('Cannot use this type as a value', node)
@@ -2103,19 +2103,19 @@ class Typer {
 
 				case MetaInt(_, meta):
 					switch meta {
-						case Meta.BigInt: types.set(node, typeBigInt)
+						case BigInt: types.set(node, typeBigInt)
 
-						case Meta.Int32: types.set(node, typeInt32)
-						case Meta.Int64: types.set(node, typeInt64)
-						case Meta.Int16: types.set(node, typeInt16)
-						case Meta.Int8: types.set(node, typeInt8)
+						case Int32: types.set(node, typeInt32)
+						case Int64: types.set(node, typeInt64)
+						case Int16: types.set(node, typeInt16)
+						case Int8: types.set(node, typeInt8)
 
-						case Meta.UInt32: types.set(node, typeUInt32)
-						case Meta.UInt64: types.set(node, typeUInt64)
-						case Meta.UInt16: types.set(node, typeUInt16)
-						case Meta.UInt8: types.set(node, typeUInt8)
+						case UInt32: types.set(node, typeUInt32)
+						case UInt64: types.set(node, typeUInt64)
+						case UInt16: types.set(node, typeUInt16)
+						case UInt8: types.set(node, typeUInt8)
 
-						case Meta.Float32: types.set(node, typeFloat32)
+						case Float32: types.set(node, typeFloat32)
 
 						case _: fail('Unhandled meta type of number', node)
 					}
@@ -2575,6 +2575,10 @@ class Typer {
 										case Enum(type):
 											currentType = type
 											currentTag = name
+
+											// This syntax is not supported anymore
+											fail('Use `case \(currentTag)` instead of `case \(type.name).\(currentTag)`', e)
+
 											if (tags.includes(currentTag)) {
 												fail('Tag `\(currentTag)` already matched', e)
 												// TODO .. at line
@@ -2669,7 +2673,7 @@ class Typer {
 								case NodeTypeValue(t):
 									shortHandSyntax = true
 									switch t {
-										case NodeType.Type(name):
+										case Type(name):
 											if let enumType = enumType {
 												if let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true {
 													currentType = enumType
