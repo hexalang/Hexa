@@ -88,7 +88,7 @@ class Normalizer {
 							let statement = fillStatement(e, null)
 							switch statement {
 								case null:
-								case NiceStatement.Block(el):
+								case Block(el):
 								if (el.length > 0) { // Don't output empty blocks
 									initial.push(statement)
 								}
@@ -252,7 +252,7 @@ class Normalizer {
 				let value = nodeToExpression(expr)
 
 				if (name == 'length') { switch value {
-					case NiceExpression.String(s):
+					case String(s):
 						return NiceExpression.Int(s.length)
 				}}
 
@@ -337,8 +337,8 @@ class Normalizer {
 				let v = nodeToExpression(expr)
 
 				switch v {
-					case NiceExpression.Dot(expr, _): switch expr {
-						case NiceExpression.This(_): kind = CallKind.VirtualMethod
+					case Dot(expr, _): switch expr {
+						case This(_): kind = CallKind.VirtualMethod
 					}
 				}
 
@@ -349,59 +349,59 @@ class Normalizer {
 				let eb = nodeToExpression(b)
 
 				if op == Token.OpAdd { switch ea {
-					case NiceExpression.String(sa): switch eb {
+					case String(sa): switch eb {
 						// `"abc" + "dce" = "abcdce"`
-						case NiceExpression.String(sb): return NiceExpression.String(sa + sb)
+						case String(sb): return NiceExpression.String(sa + sb)
 						// `"abc" + 123 = "abc123"`
-						case NiceExpression.Int(sb): return NiceExpression.String(sa + sb)
-						case NiceExpression.Float(sb): return NiceExpression.String(sa + sb)
-						case NiceExpression.True(_): return NiceExpression.String(sa + "true")
-						case NiceExpression.False(_): return NiceExpression.String(sa + "false")
+						case Int(sb): return NiceExpression.String(sa + sb)
+						case Float(sb): return NiceExpression.String(sa + sb)
+						case True: return NiceExpression.String(sa + "true")
+						case False: return NiceExpression.String(sa + "false")
 					}
-					case NiceExpression.Int(sa): switch eb {
+					case Int(sa): switch eb {
 						// `1 + 1 = 2`
-						case NiceExpression.Int(sb): return NiceExpression.Int(sa + sb)
-						case NiceExpression.Float(sb): return NiceExpression.Float(sa + sb)
+						case Int(sb): return NiceExpression.Int(sa + sb)
+						case Float(sb): return NiceExpression.Float(sa + sb)
 						// `123 + "123" = "123123"`
-						case NiceExpression.String(sb): return NiceExpression.String(sa + sb)
+						case String(sb): return NiceExpression.String(sa + sb)
 					}
-					case NiceExpression.Float(sa): switch eb {
-						case NiceExpression.Int(sb): return NiceExpression.Float(sa + sb)
-						case NiceExpression.Float(sb): return NiceExpression.Float(sa + sb)
-						case NiceExpression.String(sb): return NiceExpression.String(sa + sb)
+					case Float(sa): switch eb {
+						case Int(sb): return NiceExpression.Float(sa + sb)
+						case Float(sb): return NiceExpression.Float(sa + sb)
+						case String(sb): return NiceExpression.String(sa + sb)
 					}
 				}}
 
 				// TODO use nested pattern matching here
 				// `case ea, op, eb:`
 				if (op == Token.OpBoolOr) { switch ea {
-					case NiceExpression.True(_):  switch eb {
+					case True:  switch eb {
 						// `true || false = true`
-						case NiceExpression.False(_): return NiceExpression.True
+						case False: return NiceExpression.True
 						// `true || true = true`
-						case NiceExpression.True(_): return NiceExpression.True
+						case True: return NiceExpression.True
 					}
-					case NiceExpression.False(_):  switch eb {
+					case False:  switch eb {
 						// `false || false = false`
-						case NiceExpression.False(_): return NiceExpression.False
+						case False: return NiceExpression.False
 						// `false || true = true`
-						case NiceExpression.True(_): return NiceExpression.True
+						case True: return NiceExpression.True
 					}
 				}}
 
 				if (op == Token.OpBoolAnd) {
 					switch ea {
-					case NiceExpression.True(_):  switch eb {
+					case True:  switch eb {
 						// `true && false = false`
-						case NiceExpression.False(_): return NiceExpression.False
+						case False: return NiceExpression.False
 						// `true && true = true`
-						case NiceExpression.True(_): return NiceExpression.True
+						case True: return NiceExpression.True
 					}
-					case NiceExpression.False(_):  switch eb {
+					case False:  switch eb {
 						// `false && false = false`
-						case NiceExpression.False(_): return NiceExpression.False
+						case False: return NiceExpression.False
 						// `false && true = false`
-						case NiceExpression.True(_): return NiceExpression.False
+						case True: return NiceExpression.False
 					}
 				}}
 
@@ -486,12 +486,12 @@ class Normalizer {
 
 				// Don't keep () for single (expr)
 				switch value {
-					case NiceExpression.Int(_): return value
-					case NiceExpression.String(_): return value
-					case NiceExpression.Float(_): return value
-					case NiceExpression.True(_): return value
-					case NiceExpression.False(_): return value
-					case NiceExpression.Null(_): return value
+					case Int(_): return value
+					case String(_): return value
+					case Float(_): return value
+					case True: return value
+					case False: return value
+					case Null: return value
 				}
 
 				return NiceExpression.Parenthesis(value)
@@ -569,10 +569,10 @@ class Normalizer {
 						case OpNot:
 							switch expression {
 								// `not true = false`
-								case NiceExpression.True(_): return NiceExpression.False
+								case True: return NiceExpression.False
 								// `not false = true`
-								case NiceExpression.False(_): return NiceExpression.True
 								//case False: return NiceExpression.True TODO bug!
+								case False: return NiceExpression.True
 							}
 					}
 					return NiceExpression.Unop(op, postfix, expression)
@@ -687,7 +687,7 @@ class Normalizer {
 
 				// Unwrap `{{{{block}}}}`
 				if els.length == 1 { switch els[0] {
-					case NiceStatement.Block(_):
+					case Block(_):
 						return els[0]
 				}}
 
@@ -972,8 +972,8 @@ class Normalizer {
 				}
 
 				switch v {
-					case NiceExpression.Dot(expr, _): switch expr {
-						case NiceExpression.This(_): kind = CallKind.VirtualMethod
+					case Dot(expr, _): switch expr {
+						case This(_): kind = CallKind.VirtualMethod
 					}
 				}
 
@@ -1706,7 +1706,7 @@ class Normalizer {
 
 		// Converts `{ { { ... } } }` into just `...`
 		fun unwrapNestingBlocks(block: NiceStatement) { switch block {
-			case NiceStatement.Block(el):
+			case Block(el):
 				if (el.length == 1) {
 					return unwrapNestingBlocks(el[0])
 				}
@@ -1718,12 +1718,12 @@ class Normalizer {
 		// Saves if value viable for constant propagation
 		fun saveInlineIfViable(e: Node, value: NiceExpression) {
 			switch value {
-				case NiceExpression.Int(_): inline.set(e, value)
-				case NiceExpression.String(_): inline.set(e, value)
-				case NiceExpression.Float(_): inline.set(e, value)
-				case NiceExpression.True(_): inline.set(e, value)
-				case NiceExpression.False(_): inline.set(e, value)
-				case NiceExpression.Null(_): inline.set(e, value)
+				case Int(_): inline.set(e, value)
+				case String(_): inline.set(e, value)
+				case Float(_): inline.set(e, value)
+				case True: inline.set(e, value)
+				case False: inline.set(e, value)
+				case Null: inline.set(e, value)
 			}
 		}
 }
