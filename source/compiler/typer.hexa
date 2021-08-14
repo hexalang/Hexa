@@ -347,7 +347,7 @@ class Typer {
 							throw '@rename takes one string argument'
 						}
 						if (native != null) { switch native.values[0] {
-							case Node.String(s): return s
+							case String(s): return s
 							case _: throw '@rename takes string as argument'
 						}}
 					}
@@ -355,7 +355,7 @@ class Typer {
 				}
 
 				switch node {
-					case Node.Class(t, extend, implement, f, external):
+					case Class(t, extend, implement, f, external):
 						switch t {
 							case NodeType.ParametricType(name, params):
 								type.genericParams.push(DataHelper.extractTypeName(params[0]))
@@ -384,7 +384,7 @@ class Typer {
 						// Fill scopes
 						for field in f {
 							switch field {
-								case Node.Function(name, _):
+								case Function(name, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', field)
 									}
@@ -395,7 +395,7 @@ class Typer {
 										type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
 									}
 									addScope(name, field)
-								case Node.Var(name, t, e, _):
+								case Var(name, t, e, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', field)
 									}
@@ -403,24 +403,24 @@ class Typer {
 									type.fieldInitialized[type.fieldNames.length - 1] = false
 									type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
 									addScope(name, field)
-								case Node.Property(field, _, _):
+								case Property(field, _, _):
 									switch field {
-										case Node.Var(name, _):
+										case Var(name, _):
 											if (type.fieldNames.includes(name)) {
 												fail('Field `\(name)` already exists', field)
 											}
 											type.fieldNames.push(name)
 											addScope(name, field)
 									}
-								case Node.Static(f): switch f {
-									case Node.Function(name, _):
+								case Static(f): switch f {
+									case Function(name, _):
 										if (type.fieldNames.includes(name)) {
 											fail('Field `\(name)` already exists', field)
 										}
 										type.fieldNames.push(name)
 										type.fieldStatic[type.fieldNames.length - 1] = true
 										addScope(name, field)
-									case Node.Var(name, _):
+									case Var(name, _):
 										if (type.fieldNames.includes(name)) {
 											fail('Field `\(name)` already exists', field)
 										}
@@ -437,23 +437,23 @@ class Typer {
 						// Fill fields with non-ambiguous types
 						for field in f { switch field {
 							// `var\let a: known T`
-							case Node.Var(name, t, e, const):
+							case Var(name, t, e, const):
 								if let t = t {
 									types.set(field, toType(t, field))
 								}
 							// `function a(args with known types or no args): known ret type`
-							case Node.Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype):
 								if let rettype = rettype {
 									types.set(field, Type.Function(varTypes(vars), toType(rettype, field)))
 								}
 
-							case Node.Static(f): switch f {
-								case Node.Function(name, expr, vars, rettype):
+							case Static(f): switch f {
+								case Function(name, expr, vars, rettype):
 									if let rettype = rettype {
 										types.set(f, Type.Function(varTypes(vars), toType(rettype, f)))
 										types.set(field, types.get(f))
 									}
-								case Node.Var(name, t, e, const):
+								case Var(name, t, e, const):
 									if let t = t {
 										types.set(f, toType(t, f))
 										types.set(field, types.get(f))
@@ -464,7 +464,7 @@ class Typer {
 						// Fill expressions
 						for field in f { switch field {
 							// Instance method
-							case Node.Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype):
 								if (name == 'new') {
 									type.constructor = type.fieldNames.length - 1
 								}
@@ -489,7 +489,7 @@ class Typer {
 								allowSuper = _allowSuper
 
 							// Field of `var` or `let`
-							case Node.Var(name, t, e, const):
+							case Var(name, t, e, const):
 								if external, e != null {
 									fail('External class field `var \(name)` cannot have `= value`', field)
 								}
@@ -506,9 +506,9 @@ class Typer {
 								}
 
 							// The thing with getters and setters
-							case Node.Property(f, _, _):
+							case Property(f, _, _):
 									switch f {
-										case Node.Var(name, t, e, const):
+										case Var(name, t, e, const):
 											if external, e != null {
 												fail('External class field `var \(name)` cannot have expression', field)
 											}
@@ -527,8 +527,8 @@ class Typer {
 								}
 
 							// `static f`
-							case Node.Static(f): switch f {
-								case Node.Function(name, expr, vars, rettype):
+							case Static(f): switch f {
+								case Function(name, expr, vars, rettype):
 									if external, expr != null {
 										fail('External class field `static fun \(name)` cannot have a body', field)
 									}
@@ -545,7 +545,7 @@ class Typer {
 										fail('Function get no type: class ' + DataHelper.nameOf(node) + ' static ' + name, f)
 									}
 									types.set(field, types.get(f))
-								case Node.Var(name, t, e, const):
+								case Var(name, t, e, const):
 									if external, e != null {
 										fail('External class field `static var \(name)` cannot have expression', field)
 									}
@@ -585,7 +585,7 @@ class Typer {
 				types.set(node, Type.Enum(type))
 
 				switch node {
-					case Node.Enum(t, f, valuesType, extend):
+					case Enum(t, f, valuesType, extend):
 					pushScope()
 					if let valuesType = valuesType {
 						type.fieldsTypeSimple = toType(valuesType, node)
@@ -607,7 +607,7 @@ class Typer {
 					for field in f {
 						switch field {
 							// `enum E { A }`
-							case Node.NodeTypeValue(t): switch t {
+							case NodeTypeValue(t): switch t {
 								case NodeType.Type(name):
 									if (type.fieldNames.includes(name)) {
 										throw fail('Field `\(name)` already exists', node)
@@ -623,12 +623,12 @@ class Typer {
 							}
 
 							// `enum E { A(b: C) }`
-							case Node.Call(e, args, argNames):
+							case Call(e, args, argNames):
 								if (valuesType != null) {
 									throw fail('Cannot use `Value(args)` format for simple enum', node)
 								}
 								switch e {
-									case Node.NodeTypeValue(t): switch t {
+									case NodeTypeValue(t): switch t {
 										case NodeType.Type(name):
 											if (type.fieldNames.includes(name)) {
 												throw fail('Field `\(name)` already exists', node)
@@ -663,7 +663,7 @@ class Typer {
 								}
 
 							// `enum E { A = b }`
-							case Node.Binop(a, op, b):
+							case Binop(a, op, b):
 								if (op != Token.OpAssign) {
 									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
 								}
@@ -671,7 +671,7 @@ class Typer {
 									fail('Cannot use `Value = value` format for complex enum', node)
 								}
 								switch a {
-									case Node.NodeTypeValue(t): switch t {
+									case NodeTypeValue(t): switch t {
 										case NodeType.Type(name):
 											if (type.fieldNames.includes(name)) {
 												fail('Field `\(name)` already exists', node)
@@ -679,10 +679,10 @@ class Typer {
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 											switch b {
-												case Node.Int(_): if (type.fieldsTypeSimple != typeInt) {
+												case Int(_): if (type.fieldsTypeSimple != typeInt) {
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
-												case Node.String(_): if (type.fieldsTypeSimple != typeString) {
+												case String(_): if (type.fieldsTypeSimple != typeString) {
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
 												// TODO non-constant values
@@ -694,19 +694,19 @@ class Typer {
 								}
 
 							// `enum E { a }`
-							case Node.Ident(name):
+							case Ident(name):
 								fail('Cannot use lowercase `\(name)` format for enum values', node)
 
 							// `enum E { static ... }`
-							case Node.Static(f): switch f {
-								case Node.Function(name, _):
+							case Static(f): switch f {
+								case Function(name, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', node)
 									}
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
 									addScope(name, field)
-								case Node.Var(name, _):
+								case Var(name, _):
 									if (type.fieldNames.includes(name)) {
 										fail('Field `\(name)` already exists', node)
 									}
@@ -724,11 +724,11 @@ class Typer {
 
 					// Fill expressions
 					for field in f { switch field {
-						case Node.Function(name, expr, vars, rettype):
+						case Function(name, expr, vars, rettype):
 							fillFunction(field, expr, vars, rettype)
-						case Node.Var(name, _):
-						case Node.Static(f): switch f {
-							case Node.Function(name, expr, vars, rettype):
+						case Var(name, _):
+						case Static(f): switch f {
+							case Function(name, expr, vars, rettype):
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = false
 
@@ -747,16 +747,16 @@ class Typer {
 									fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' static ' + name, f)
 								}
 								types.set(field, types.get(f))
-							case Node.Var(name, t, e, const):
+							case Var(name, t, e, const):
 								if (e != null) {
 									fillExpression(e)
 								}
 								mixVarTypes(t, e, f)
 								types.set(field, types.get(f))
 						}
-						case Node.NodeTypeValue(_): // Ok
-						case Node.Call(_): // Ok
-						case Node.Binop(_): // TODO validate them
+						case NodeTypeValue(_): // Ok
+						case Call(_): // Ok
+						case Binop(_): // TODO validate them
 						case _:
 							fail('Unknown enum field format', field)
 					}}
@@ -799,14 +799,14 @@ class Typer {
 		}
 
 		static fun nodeToNodeType(node: Node): NodeType { switch node {
-			case Node.Array(el):
+			case Array(el):
 				if (el.length > 1) {
 					fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
 				}
 				return NodeType.ParametricType("Array", [nodeToNodeType(el[0])], null)
-			case Node.NodeTypeValue(t):
+			case NodeTypeValue(t):
 				return t
-			case Node.Object(names, el):
+			case Object(names, el):
 				let types = [for e in el nodeToNodeType(e)]
 				return NodeType.Object(names, types)
 			case _:
@@ -816,28 +816,28 @@ class Typer {
 		// Takes only nodes valid for `module { node }`
 		fun nameOfModuleItem(node: Node): String {
 			switch node {
-				case Node.Var(name, _): return name
-				case Node.Function(name, _):
+				case Var(name, _): return name
+				case Function(name, _):
 					if let named = name {
 						return named
 					} else {
 						throw 'Module function should have a name'
 					}
-				case Node.Private(node): switch node {
-					case Node.Class(t, _): switch t {
+				case Private(node): switch node {
+					case Class(t, _): switch t {
 						case NodeType.Type(name): return name
 						case NodeType.ParametricType(name): return name
 					}
 				}
-				case Node.Class(t, _): switch t {
+				case Class(t, _): switch t {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
-				case Node.Enum(t, _): switch t {
+				case Enum(t, _): switch t {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
-				case Node.TypeAlias(t, _): switch t {
+				case TypeAlias(t, _): switch t {
 					case NodeType.Type(name): return name
 					case NodeType.ParametricType(name): return name
 				}
@@ -867,7 +867,7 @@ class Typer {
 			var m = namespaces.get('')
 			var el: [Node] = null as! [Node]
 			switch m as! Node {
-				case Node.Module(_, els): el = els
+				case Module(_, els): el = els
 				case _: return null // No root
 			}
 			for e in el {
@@ -1072,12 +1072,12 @@ class Typer {
 
 					if (types.get(nodeType) == null) {
 						switch nodeType {
-						case Node.Class(_):
+						case Class(_):
 							let mod = currentModule
 							registerClassType(nodeType)
 							currentModule = mod
 
-						case Node.Enum(_):
+						case Enum(_):
 							registerEnumType(nodeType)
 						case null:
 						case _:
@@ -1174,7 +1174,7 @@ class Typer {
 
 			for v in vars {
 				switch v {
-					case Node.Var(_, t):
+					case Var(_, t):
 						if let t = t {
 							varTypes.push(toType(t, v))
 						} else {
@@ -1205,7 +1205,7 @@ class Typer {
 			for i in vars.length {
 				let v = vars[i]
 				switch v {
-					case Node.Var(vname, t, e, const):
+					case Var(vname, t, e, const):
 						if t != null, toType(t, v) == typeVoid {
 							fail('Argument cannot be of type `Void`', v)
 						}
@@ -1294,21 +1294,21 @@ class Typer {
 		private fun fillModuleTypes(node: Node): Void {
 			switch node {
 				// `class T {}`
-				case Node.Class(t, extend, implement, f, external):
+				case Class(t, extend, implement, f, external):
 					addScope(DataHelper.extractTypeName(t), node)
 					let mod = currentModule
 					registerClassType(node)
 					currentModule = mod
 
 				// `enum T {}`
-				case Node.Enum(t, f, valuesType):
+				case Enum(t, f, valuesType):
 					addScope(DataHelper.extractTypeName(t), node)
 					let mod = currentModule
 					registerEnumType(node)
 					currentModule = mod
 
 				// `declare A = T`
-				case Node.TypeAlias(alias, value):
+				case TypeAlias(alias, value):
 					let type = new AliasType()
 					types.set(node, Type.Alias(type))
 					addScope(nameOfModuleItem(node), node)
@@ -1321,13 +1321,13 @@ class Typer {
 
 				// Types
 
-				case Node.Class(_):
+				case Class(_):
 					fail('Defining classes within blocks not allowed', node)
 
-				case Node.Enum(_):
+				case Enum(_):
 					fail('Defining enums within blocks not allowed', node)
 
-				case Node.TypeAlias(_, t):
+				case TypeAlias(_, t):
 					fail('Defining alias within blocks not allowed', node)
 					addScope(nameOfModuleItem(node), node)
 					// TODO
@@ -1338,7 +1338,7 @@ class Typer {
 				// `var a = e, b: T, c`
 
 				// `{...}`
-				case Node.Block(el):
+				case Block(el):
 					pushScope()
 					for e in el {
 						fill(e)
@@ -1346,7 +1346,7 @@ class Typer {
 					popScope()
 
 				// `var name: t = e`
-				case Node.Var(name, t, e, const, external):
+				case Var(name, t, e, const, external):
 					if e == null, const, !external {
 						fail('Constant should have a value `let \(name) = value`', node)
 					}
@@ -1367,14 +1367,14 @@ class Typer {
 					addScope(name, node)
 
 				// `a op b` like `a + b`
-				case Node.Binop(a, op, b):
+				case Binop(a, op, b):
 					fillExpression(node)
 
 					var parent: Node = parents.get(a)
 					// `a = b`
 					if (op == Token.OpAssign) { switch parent {
 						case null:
-						case Node.Var(name, _, _, const):
+						case Var(name, _, _, const):
 							if const {
 								fail(
 									'Cannot reassign a constant `let \(name)`, redefine it as `var \(name)` to allow reassignment\n'
@@ -1382,34 +1382,34 @@ class Typer {
 								node)
 							}
 							types.set(node, unify(types.get(a), types.get(b), b))
-						case Node.Ident(name):
+						case Ident(name):
 							fail('Cannot reassign case parameter `\(name)`', node)
-						case Node.Function(name, _):
+						case Function(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
-						case Node.Class(_):
+						case Class(_):
 							fail('Cannot reassign class', node)
-						case Node.Enum(_):
+						case Enum(_):
 							fail('Cannot reassign enum', node)
-						case Node.For(name, _):
+						case For(name, _):
 							fail(
 								'Cannot reassign iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
 							node)
-						case Node.Static(_):
-						case Node.Super(_):
+						case Static(_):
+						case Super:
 							fail('Cannot reassign `super`', node)
 						case _:
 							fail('`=` not implemented for: ' + parent, node)
 					}}
 
 				// `break`
-				case Node.Break:
+				case Break:
 					if (!allowBreakAndContinue) {
 						fail('Cannot use `break` outside of loop', node)
 					}
 
 				// `for name in over ... range { by }`
-				case Node.For(name, over, by, range):
+				case For(name, over, by, range):
 					pushScope()
 					fillExpression(over)
 					let overType: Type = types.get(over)
@@ -1451,7 +1451,7 @@ class Typer {
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
 					switch by {
-						case Node.Block(_):
+						case Block(_):
 						case _:
 							fail('Loop body must be a `{` block `}`', by)
 					}
@@ -1461,7 +1461,7 @@ class Typer {
 
 				// `function name(vars): rettype {expr}`
 				// `vars` are `Var(name, t, ...)` where `function(name: t)`
-				case Node.Function(name, expr, vars, rettype, external):
+				case Function(name, expr, vars, rettype, external):
 					if !external, expr == null {
 						fail('Non-external function `\(name)` should have a body', node)
 					}
@@ -1490,11 +1490,11 @@ class Typer {
 				// `if (econd) eif else eelse`
 				// `if (econd) eif`
 				// Also `if (let bind = value, econd..., econd...)`
-				case Node.If(econd, eif, eelse):
+				case If(econd, eif, eelse):
 					var depth = 0
 					for e in econd {
 						switch e {
-							case Node.Var(name, t, expr, const):
+							case Var(name, t, expr, const):
 								if (!const) {
 									fail('Only if-let bindings supported, not if-var', node)
 								}
@@ -1541,17 +1541,17 @@ class Typer {
 					}
 
 				// `switch exprs { case conds if (guards): { cases } }`
-				case Node.Switch(exprs, conds, guards, cases):
+				case Switch(exprs, conds, guards, cases):
 					fillSwitch(node, false)
 
 				// `try { } catch e: T { }`
-				case Node.Try(e, t, v, ca):
+				case Try(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
 					// Reset stack
 					insideTry = true
 					switch e {
-						case Node.Block(_):
+						case Block(_):
 						case _:
 							fail('Try body must be a `{ block }`', e)
 					}
@@ -1571,7 +1571,7 @@ class Typer {
 						pushScope()
 						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
 						switch ca[i] {
-							case Node.Block(_):
+							case Block(_):
 							case _:
 								fail('Catch body must be a `{ block }`', ca[i])
 						}
@@ -1581,14 +1581,14 @@ class Typer {
 
 				// `while (econd) e` if pre == true
 				// `do e while (econd)` if pre == false
-				case Node.While(econd, e, pre):
+				case While(econd, e, pre):
 					if (pre == true) {
 						fillExpression(econd)
 					}
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
 					switch e {
-						case Node.Block(_):
+						case Block(_):
 						case _:
 							fail('`while` statements must be wrapped with a `{` block `}`', e)
 					}
@@ -1600,7 +1600,7 @@ class Typer {
 					types.set(node, typeVoid)
 
 				// `continue`
-				case Node.Continue:
+				case Continue:
 					types.set(node, typeVoid)
 					if (!allowBreakAndContinue) {
 						fail('Cannot use `continue` outside of loop', node)
@@ -1616,7 +1616,7 @@ class Typer {
 		fun fillExpression(node: Node) {
 			switch node {
 				// Just `name`
-				case Node.Ident(name):
+				case Ident(name):
 					var subj = null
 					for i in scopes.length {
 						subj = scopes[scopes.length - i - 1].get(name)
@@ -1643,7 +1643,7 @@ class Typer {
 					}
 
 				// `(args)=>{expr}`
-				case Node.Arrow(expr, vars, rettype):
+				case Arrow(expr, vars, rettype):
 					fillFunction(node, expr, vars, rettype, arrow: true)
 					if false {
 					pushScope()
@@ -1660,7 +1660,7 @@ class Typer {
 				}
 
 				// `function name(vars): rettype {expr}`
-				case Node.Function(name, expr, vars, rettype, external):
+				case Function(name, expr, vars, rettype, external):
 					if external {
 						fail('External function `declare fun \(name)` cannot be taken as a value', node)
 					}
@@ -1687,10 +1687,10 @@ class Typer {
 				}
 
 				// `[a,b,c]`
-				case Node.Array(el):
+				case Array(el):
 					// `[for name in over ... range by]`
 					switch el[0] {
-						case Node.For(name, over, by, range):
+						case For(name, over, by, range):
 							if (el.length > 1) {
 								fail('Cannot use loop `for` within array of more than one element `[for, ...]`', el[1])
 							}
@@ -1749,7 +1749,7 @@ class Typer {
 					}
 
 				// `[k:v, k:v]`
-				case Node.Map(keys, values):
+				case Map(keys, values):
 					if (keys.length == 0) {
 						types.set(node, typeMap.instantiateGeneric([
 							Type.Unknown({value: null}),
@@ -1768,7 +1768,7 @@ class Typer {
 				// `e as  t`
 				// `e as! t`
 				// `e as? t`
-				case Node.As(e, kind, t):
+				case As(e, kind, t):
 					let type = toType(t, node)
 					if (type == typeVoid) {
 						fail('Conversion `as Void` makes no sense', e)
@@ -1781,7 +1781,7 @@ class Typer {
 					types.set(node, type)
 
 				// `e is t`
-				case Node.Is(e, t):
+				case Is(e, t):
 					let type = toType(t, node)
 					if (type == typeAny) {
 						fail('Comparing `is Any` makes no sense, always true', e)
@@ -1794,7 +1794,7 @@ class Typer {
 					types.set(node, typeBool)
 
 				// `{...}`
-				case Node.Block(el):
+				case Block(el):
 					if (el.length == 0) {
 						types.set(node, Type.Struct([], []))
 					} else {
@@ -1809,9 +1809,9 @@ class Typer {
 					}
 
 				// `e.n`
-				case Node.Dot(e, n):
+				case Dot(e, n):
 					switch e {
-						case Node.Super(_):
+						case Super:
 							if (!allowSuper) {
 								fail('Cannot access `super` here', node)
 							}
@@ -1837,7 +1837,7 @@ class Typer {
 								fail('Class `\(named)` field `.\(n)` is static', node)
 							}
 							switch type.parent {
-								case Node.Class(t, extend, implement, fields, external):
+								case Class(t, extend, implement, fields, external):
 									let mod = currentModule
 									registerClassType(type.parent)
 									currentModule = mod
@@ -1865,7 +1865,7 @@ class Typer {
 								fail('Class `\(nameOfModuleItem(type.parent))` field `.\(n)` is not static', node)
 							}
 							switch type.parent {
-								case Node.Class(t, extend, implement, fields, external):
+								case Class(t, extend, implement, fields, external):
 									for field in fields {
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
@@ -1884,11 +1884,11 @@ class Typer {
 								fail('Enum field `.\(n)` is not static', node)
 							}
 							switch type.parent {
-								case Node.Enum(t, fields, valuesType):
+								case Enum(t, fields, valuesType):
 									for field in fields { switch field {
-										case Node.Call(_):
-										case Node.NodeTypeValue(_):
-										case Node.Binop(_):
+										case Call(_):
+										case NodeTypeValue(_):
+										case Binop(_):
 										case _:
 										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
@@ -1903,7 +1903,7 @@ class Typer {
 							if (index < 0) {
 								var object = ''
 								switch e {
-									case Node.Ident(name): object = ' `\(name)`' // Note a space after '
+									case Ident(name): object = ' `\(name)`' // Note a space after '
 									case _: {}
 								}
 
@@ -1937,9 +1937,9 @@ class Typer {
 					}
 
 				// `e.N`
-				case Node.DotUpper(e, n):
+				case DotUpper(e, n):
 					switch e {
-						case Node.Super(_):
+						case Super:
 							fail('Cannot access `super` here', node)
 					}
 					fillExpression(e)
@@ -1971,7 +1971,7 @@ class Typer {
 					}// else fail('Got node without type `\(e)`' + never, node)
 
 				// `T` or `T<G>`
-				case Node.NodeTypeValue(t): switch t {
+				case NodeTypeValue(t): switch t {
 					case NodeType.Type(name):
 						let subj = find(name)
 						if (subj == null) {
@@ -1986,11 +1986,11 @@ class Typer {
 						} else {
 							// Try eager on-demand type build
 							switch subj {
-								case Node.Class(_):
+								case Class(_):
 									let mod = currentModule
 									registerClassType(subj)
 									currentModule = mod
-								case Node.Enum(_): registerEnumType(subj)
+								case Enum(_): registerEnumType(subj)
 							}
 
 							if let type = types.get(subj) {
@@ -2007,7 +2007,7 @@ class Typer {
 				}
 
 				// `new T {names: values} ()`
-				case Node.New(path, t, el, names, values):
+				case New(path, t, el, names, values):
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
 					parents.set(node, subj)
@@ -2027,7 +2027,7 @@ class Typer {
 					types.set(node, type)
 
 				// `{names:el, ...}`
-				case Node.Object(names, el):
+				case Object(names, el):
 					for name in names.length {
 						if (names.indexOf(names[name]) != name) {
 							fail('Field `\(names[name])` already exists', node)
@@ -2042,7 +2042,7 @@ class Typer {
 					types.set(node, Type.Struct(names, els))
 
 				// `try { ... value } catch e: T { ... value }`
-				case Node.Try(e, t, v, ca):
+				case Try(e, t, v, ca):
 					// Save stack
 					let _insideTry = insideTry
 					// Reset stack
@@ -2060,12 +2060,12 @@ class Typer {
 					types.set(node, types.get(e))
 
 				// `if (econd) eif else eelse`
-				case Node.If(econd, eif, eelse, ternary):
+				case If(econd, eif, eelse, ternary):
 					if (econd.length > 1) {
 						fail('More than one condition is not yet supported', econd[1])
 					}
 					switch econd[0] {
-						case Node.Var(_):
+						case Var(_):
 							fail('Variable bindings in ternary conditions are not yet supported', econd[0])
 					}
 					if eelse == null {
@@ -2074,12 +2074,12 @@ class Typer {
 					fillExpression(econd[0])
 					if ternary == false {
 						switch eif {
-							case Node.Block(_):
+							case Block(_):
 							case _:
 								fail('Ternary `if` should have a `{ block }` as a body', eif)
 						}
 						switch eelse {
-							case Node.Block(_):
+							case Block(_):
 							case _:
 								fail('Ternary `else` should have a `{ block }` as a body', eelse)
 						}
@@ -2089,19 +2089,19 @@ class Typer {
 					types.set(node, unify(types.get(eif), types.get(eelse), eelse))
 
 				// Simple nodes
-				case Node.Null:
+				case Null:
 					types.set(node, Type.UnknownNullable({value: null}))
 
-				case Node.String(_):
+				case String(_):
 					types.set(node, typeString)
 
-				case Node.Bool(_):
+				case Bool(_):
 					types.set(node, typeBool)
 
-				case Node.Int(_):
+				case Int(_):
 					types.set(node, typeInt)
 
-				case Node.MetaInt(_, meta):
+				case MetaInt(_, meta):
 					switch meta {
 						case Meta.BigInt: types.set(node, typeBigInt)
 
@@ -2120,16 +2120,16 @@ class Typer {
 						case _: fail('Unhandled meta type of number', node)
 					}
 
-				case Node.Float(_):
+				case Float(_):
 					types.set(node, typeFloat)
 
 				// `(e)`
-				case Node.Parenthesis(e):
+				case Parenthesis(e):
 					fillExpression(e)
 					types.set(node, types.get(e))
 
 				// `a ?? b`
-				case Node.Elvis(a, b):
+				case Elvis(a, b):
 					fillExpression(a)
 					fillExpression(b)
 					unify(types.get(a), types.get(b), b)
@@ -2137,10 +2137,10 @@ class Typer {
 
 				// `e(elNames: el, ...)`
 				// TODO show called function/method position
-				case Node.Call(e, el, elNames):
+				case Call(e, el, elNames):
 					// JavaScript evaluates arguments first
 					switch e {
-						case Node.Super(_):
+						case Super:
 							if (!allowSuper) {
 								fail('Cannot access `super` here', node)
 							}
@@ -2195,7 +2195,7 @@ class Typer {
 				 	}
 
 				// `a op b` like `a + b`
-				case Node.Binop(a, op, b):
+				case Binop(a, op, b):
 					fillExpression(a)
 					fillExpression(b)
 
@@ -2235,7 +2235,7 @@ class Typer {
 					}
 
 				// `op e` or `e op`
-				case Node.Unop(op, postfix, e):
+				case Unop(op, postfix, e):
 					fillExpression(e)
 
 					// Always provides boolean result
@@ -2254,24 +2254,24 @@ class Typer {
 					if (!mutates) { return }
 					var parent: Node = parents.get(e)
 					switch parent {
-						case Node.Var(name, _, _, const):
+						case Var(name, _, _, const):
 							if const {
 								fail(
 									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
 									+ positionOf(parent) + '`let \(name)` is defined here',
 								node)
 							}
-						case Node.Function(name, _):
+						case Function(name, _):
 							fail('Cannot `\(Token.stringify(op))` a function `\(name)`', node)
-						case Node.For(name, _):
+						case For(name, _):
 							fail(
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
 							node)
-						case Node.Static(f): switch f {
-							case Node.Function(name, _):
+						case Static(f): switch f {
+							case Function(name, _):
 								fail('Cannot `\(Token.stringify(op))` a `static fun \(name)`', node)
-							case Node.Var(name, _, _, const):
+							case Var(name, _, _, const):
 								if const {
 									fail(
 									'Cannot change a constant `static let \(name)`, redefine it as `static var \(name)` to allow value changes\n'
@@ -2281,7 +2281,7 @@ class Typer {
 						}
 						case _:
 							switch e {
-								case Node.Index(_):
+								case Index(_):
 									// Ok
 									// Sets NaN to `[n]` in JavaScript if `[n] == null` and returns NaN
 									// TODO maybe require `a[i] == a[i] ?? n + 1` instead?
@@ -2295,7 +2295,7 @@ class Typer {
 
 
 				// `e[i]`
-				case Node.Index(e, i):
+				case Index(e, i):
 					fillExpression(e)
 					fillExpression(i)
 
@@ -2336,7 +2336,7 @@ class Typer {
 					}
 
 				// `a op= b`
-				case Node.AssignOp(a, op, b):
+				case AssignOp(a, op, b):
 					// `===`
 					if (op == Token.OpEq) {
 						fail('`===` not supported, use `strictEqual`', node)
@@ -2349,16 +2349,16 @@ class Typer {
 					fillExpression(a)
 					var parent: Node = parents.get(a)
 					switch parent {
-						case Node.Var(name, _, _, const):
+						case Var(name, _, _, const):
 							if const {
 								fail(
 									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
 									+ positionOf(parent) + '`let \(name)` is defined here',
 								node)
 							}
-						case Node.Function(name, _):
+						case Function(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
-						case Node.For(name, _):
+						case For(name, _):
 							fail(
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
@@ -2369,7 +2369,7 @@ class Typer {
 					types.set(node, unify(types.get(a), types.get(b), b))
 
 				// `throw e`
-				case Node.Throw(e):
+				case Throw(e):
 					if (!insideFunction && !insideTry) {
 						fail('Cannot throw outside of `function` or `try`', node)
 					}
@@ -2382,7 +2382,7 @@ class Typer {
 					fillExpression(e)
 
 				// `this`
-				case Node.This:
+				case This:
 					if (!insideClassMethod) {
 						fail('Cannot access `this` outside of class method', node)
 					}
@@ -2393,16 +2393,16 @@ class Typer {
 					parents.set(node, thisNode)
 
 				// `super`
-				case Node.Super(_):
+				case Super:
 					fail('Cannot use `super` as value', node)
 
 				// `return e`
-				case Node.Return(e):
+				case Return(e):
 					switch e {
-						case Node.Var(name, _, _, const):
+						case Var(name, _, _, const):
 							let prefix = const? 'let' : 'var'
 							fail('This `return` tries to return a variable `\(prefix) \(name)`. Try to wrap it into braces like this `{ return } \(prefix) \(name)`', node)
-						case Node.Return(_):
+						case Return(_):
 							fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
 					}
 					if (!insideFunction) {
@@ -2430,35 +2430,35 @@ class Typer {
 					}
 
 				// Errors
-				case Node.Underscore:
+				case Underscore:
 					fail('Cannot use underscore `_` outside of case pattern', node)
-				case Node.Static(_):
+				case Static(_):
 					fail('Cannot use `static` here: only applicable to class fields', node)
-				case Node.Private(_):
+				case Private(_):
 					fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
-				case Node.Module(_):
+				case Module(_):
 
 				// Not expressions
-				case Node.Break:
+				case Break:
 					fail('Cannot use `break` as a value', node)
-				case Node.Continue:
+				case Continue:
 					fail('Cannot use `continue` as a value', node)
-				case Node.Class(_):
+				case Class(_):
 					fail('Cannot use `class` as a value', node)
-				case Node.Enum(_):
+				case Enum(_):
 					fail('Cannot use `enum` as a value', node)
-				case Node.TypeAlias(_):
+				case TypeAlias(_):
 					fail('Cannot use `declare` as a value', node)
-				case Node.Import(_):
+				case Import(_):
 					fail('Cannot use `import` as a value', node)
-				case Node.Var(name, _, _, const):
+				case Var(name, _, _, const):
 					let prefix = const? 'let' : 'var'
 					fail('Cannot use `\(prefix) \(name)` as a value', node)
-				case Node.Switch(_):
+				case Switch(_):
 					fillSwitch(node, true)
-				case Node.While(_):
+				case While(_):
 					fail('Cannot use `while` as a value', node)
-				case Node.For(_):
+				case For(_):
 					fail('Cannot use `for` as a value. To build array from loop, surround with `[for]` brackets.', node)
 
 				// Fails
@@ -2472,7 +2472,7 @@ class Typer {
 		fun fillSwitch(node: Node, value: Bool) {
 			switch node {
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
-				case Node.Switch(exprs, conds, guards, cases):
+				case Switch(exprs, conds, guards, cases):
 					for e in exprs { pushScope() fillExpression(e) popScope() }
 					if let expr = exprs[1] {
 						fail('Multiple switch values are not yet supported', expr)
@@ -2568,7 +2568,8 @@ class Typer {
 
 						fun follow(e: Node) {
 							switch e {
-								case Node.DotUpper(ex, name):
+								// `case E.T:`
+								case DotUpper(ex, name):
 									fillExpression(e)
 									switch types.get(ex) as! Type {
 										case Enum(type):
@@ -2581,29 +2582,29 @@ class Typer {
 												tags.push(currentTag)
 											}
 									}
-								case Node.Parenthesis(e): {fill(e)}
+								case Parenthesis(e): {fill(e)}
 								// `case _:` default case
-								case Node.Underscore: {}
+								case Underscore: {}
 
 								// TODO error on complex enums
-								case Node.Null: {}
-								case Node.Bool(val):
+								case Null: {}
+								case Bool(val):
 									tagCheck('' + val, e)
 									if (etype != typeBool) {
 										fail('Cannot switch over boolean here', e)
 									}
 								// TODO MetaInt
-								case Node.Int(val):
+								case Int(val):
 									tagCheck('' + val, e)
 									if (etype != typeInt) {
 										fail('Cannot switch over number here', e)
 									}
-								case Node.String(val):
+								case String(val):
 									tagCheck(val, e)
 									if (etype != typeString) {
 										fail('Cannot switch over string here', e)
 									}
-								case Node.Call(ex, args, argNames): {
+								case Call(ex, args, argNames): {
 									// TODO rethink nested pattern mechanics
 									// TODO don't follow nested patterns for now
 									follow(ex)
@@ -2628,7 +2629,7 @@ class Typer {
 										binds.length == 0
 									{
 										switch args[0] {
-											case Node.Interval(_):
+											case Interval:
 												// Okay
 											case _:
 												fail('The `\(currentTag)` has no `()` bindings, use `\(currentTag)(...)` syntax to ignore all future bindings added', e)
@@ -2641,12 +2642,12 @@ class Typer {
 										}
 
 										switch ee {
-										case Node.Interval(_):
+										case Interval:
 											interval = true
-										case Node.Ident(name):
+										case Ident(name):
 											follow(ee)
 											currentTagBind++
-										case Node.Underscore:
+										case Underscore:
 											if
 												let enumType = enumType,
 												shortHandSyntax == true,
@@ -2665,7 +2666,7 @@ class Typer {
 								}
 
 								// case TagName:
-								case Node.NodeTypeValue(t):
+								case NodeTypeValue(t):
 									shortHandSyntax = true
 									switch t {
 										case NodeType.Type(name):
@@ -2689,7 +2690,7 @@ class Typer {
 											fail('This case pattern is not supported', e)
 									}
 
-								case Node.Ident(name): // Bind (var)
+								case Ident(name): // Bind (var)
 								{
 									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
 									else {
@@ -2720,14 +2721,14 @@ class Typer {
 										}
 									}
 								}
-								case Node.Binop(a, op, b):
+								case Binop(a, op, b):
 									if (op == Token.OpOr) {
 										follow(a)
 										follow(b)
 									} else {
 										fail('This case pattern is not supported', e)
 									}
-								case Node.If(econd, _, _):
+								case If(econd, _, _):
 									pushScope()
 									fill(econd[0])
 									popScope()
