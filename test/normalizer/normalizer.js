@@ -47,9 +47,7 @@
 			console.log('xhelloy');
 			{
 				const nested = 'hi';
-				{
-					console.log('xhiy');
-				};
+				console.log('xhiy');
 			};
 			{
 				const bool = true;
@@ -76,42 +74,18 @@
 				console.log('true == true');
 				console.log('true == true');
 				console.log('true == true');
-				{
-				};
-				{
-				};
-				{
-				};
 				const t = true;
 				const f = false;
-				{
-				};
-				{
-				};
-				{
-				};
-				{
-					console.log('keep');
-				};
-				{
-					console.log('keep');
-				};
-				{
-					console.log('keep');
-				};
+				console.log('keep');
+				console.log('keep');
+				console.log('keep');
 			};
 			{
 				let i = 0;
 				i++;
-				{
-					i++;
-				};
+				i++;
 				i--;
-				{
-					i--;
-				};
-				{
-				};
+				i--;
 				const bool_128 = () => { return false };
 			};
 			{
