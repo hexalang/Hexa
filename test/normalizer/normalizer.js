@@ -11,7 +11,7 @@
 	Object.defineProperty(NiceExpression, "Other", { get: () => { return [0] }})
 	var console_46 = $global.console
 	var EasE = class {
-		constructor(value_128) {};
+		constructor(value_129) {};
 	}
 	var AutoKeep = class {
 		constructor() {};
@@ -26,7 +26,7 @@
 	$Renamed.$rename = '123'
 	$Renamed.$renamed = () => { return '123' };
 	function hasOwnProperty(object, name) { return object.hasOwnProperty(name) };
-	function btoa(text_112) { return Buffer.from(text_112, 'binary').toString('base64') };
+	function btoa(text_113) { return Buffer.from(text_113, 'binary').toString('base64') };
 	function atob(base64) { return Buffer.from(base64, 'base64').toString('binary') };
 	function $renamed() { return '123' };
 	var value = 'hello'
@@ -53,29 +53,52 @@
 			};
 			{
 				const bool = true;
-				const bool_113 = true;
-				const bool_114 = false;
+				const bool_114 = true;
 				const bool_115 = false;
-				const bool_116 = true;
+				const bool_116 = false;
 				const bool_117 = true;
+				const bool_118 = true;
 				console.log('xtruey');
 				console.log('x' + true + 'y');
-				const bool_118 = true == true;
-				console.log('x' + bool_118);
-				const bool_119 = false;
+				const bool_119 = true == true;
+				console.log('x' + bool_119);
 				const bool_120 = false;
+				const bool_121 = false;
 				console.log('false == false');
-				const bool_121 = true;
 				const bool_122 = true;
+				const bool_123 = true;
 				console.log('true == true');
-				const bool_123 = false;
 				const bool_124 = false;
+				const bool_125 = false;
 				console.log('false == false');
-				const bool_125 = true;
 				const bool_126 = true;
+				const bool_127 = true;
 				console.log('true == true');
 				console.log('true == true');
 				console.log('true == true');
+				{
+				};
+				{
+				};
+				{
+				};
+				const t = true;
+				const f = false;
+				{
+				};
+				{
+				};
+				{
+				};
+				{
+					console.log('keep');
+				};
+				{
+					console.log('keep');
+				};
+				{
+					console.log('keep');
+				};
 			};
 			{
 				let i = 0;
@@ -89,29 +112,18 @@
 				};
 				{
 				};
-				const bool_127 = () => { return false };
+				const bool_128 = () => { return false };
 			};
 			{
 				const temp = new EasE();
-				const temp_129 = new EasE(123);
+				const temp_130 = new EasE(123);
 			};
 			{
 				{
-					const temp_130 = 123;
-					switch (temp_130) {
-					default: 
-					console.log('hi')
-					};
-				};
-				{
 					const temp_131 = 123;
 					switch (temp_131) {
-					case 123: {
-						console.log('123')
-					} break;
-					
 					default: 
-					console.log('case _: is ok at any position')
+					console.log('hi')
 					};
 				};
 				{
@@ -125,9 +137,20 @@
 					console.log('case _: is ok at any position')
 					};
 				};
+				{
+					const temp_133 = 123;
+					switch (temp_133) {
+					case 123: {
+						console.log('123')
+					} break;
+					
+					default: 
+					console.log('case _: is ok at any position')
+					};
+				};
 			};
 			{
-				const temp_133 = new AutoKeep();
+				const temp_134 = new AutoKeep();
 			};
 			{
 				const r = new $Renamed();
@@ -142,21 +165,21 @@
 			};
 			{
 				const x = 3;
-				const x_134 = 50 == 50;
+				const x_135 = 50 == 50;
 			};
 			{
 				const expression = /*Other*/[0];
 				{
-					const temp_135 = expression;
-					switch (temp_135&&temp_135[0]) {
+					const temp_136 = expression;
+					switch (temp_136&&temp_136[0]) {
 					case 0: {
 						console.log('Other')
 					} break;
 					};
 				};
 				{
-					const temp_136 = (expression);
-					switch (temp_136&&temp_136[0]) {
+					const temp_137 = (expression);
+					switch (temp_137&&temp_137[0]) {
 					case 0: {
 						console.log('Other')
 					} break;
