@@ -6,7 +6,6 @@
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
 	const selfVersion="1.0.0";
-	function $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };
 	var NiceExpression = {
 	}
 	Object.defineProperty(NiceExpression, "Other", { get: () => { return [0] }})
@@ -101,7 +100,7 @@
 					
 					throw temp_128;
 				};
-				for (const i of $toIterator([1, 2, 3])) {
+				for (const i of [1, 2, 3]) {
 					{
 						console.log('keep');
 						break;
