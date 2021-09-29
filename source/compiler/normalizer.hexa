@@ -676,13 +676,21 @@ class Normalizer {
 
 			switch e {
 				case Block(el):
-				var els: [NiceStatement] = [] // TODO break after: break, continue, return, throw
+				var els: [NiceStatement] = []
+				// Ignore after: break, continue, return, throw...
+				var ignore = false
 				for e in el {
 					let statement = nodeToStatement(e)
+
+					if ignore {
+						continue
+					}
+
 					switch statement {
 						// `null` statement optimized away
 						case null:
 						// Empty block `{}` optimized away too
+						// case If: // TODO error `If` requires `(_)` binds
 						case Block(sub):
 							switch sub.length {
 								// TODO `case []` and `case [one]` patterns
@@ -690,7 +698,24 @@ class Normalizer {
 								case 1: els.push(sub[0])
 								case _: els.push(statement)
 							}
+
 						// TODO case other:
+						case Break:
+							els.push(statement)
+							ignore = true
+
+						case Continue:
+							els.push(statement)
+							ignore = true
+
+						case Return(_):
+							els.push(statement)
+							ignore = true
+
+						case Throw(_):
+							els.push(statement)
+							ignore = true
+
 						case _:
 							els.push(statement)
 					}
