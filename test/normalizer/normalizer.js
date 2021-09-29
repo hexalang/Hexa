@@ -6,12 +6,13 @@
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
 	const selfVersion="1.0.0";
+	function $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };
 	var NiceExpression = {
 	}
 	Object.defineProperty(NiceExpression, "Other", { get: () => { return [0] }})
 	var console_46 = $global.console
 	var EasE = class {
-		constructor(value_129) {};
+		constructor(value_130) {};
 	}
 	var AutoKeep = class {
 		constructor() {};
@@ -81,28 +82,61 @@
 				console.log('keep');
 			};
 			{
+				try {} catch (temp) {
+					if (true) { 
+					const e = temp
+					{
+					} } else
+					
+					throw temp;
+				};
+				try {
+					console.log('keep');
+					throw 123;
+				} catch (temp_128) {
+					if (true) { 
+					const e = temp_128
+					{
+					} } else
+					
+					throw temp_128;
+				};
+				for (const i of $toIterator([1, 2, 3])) {
+					{
+						console.log('keep');
+						break;
+					};
+					console.log('keep');
+					continue;
+				};
+				const test = () => {
+					console.log('keep');
+					return 123;
+				};
+			};
+			{
 				let i = 0;
 				i++;
 				i++;
 				i--;
 				i--;
-				const bool_128 = () => { return false };
+				const bool_129 = () => { return false };
 			};
 			{
-				const temp = new EasE();
-				const temp_130 = new EasE(123);
+				const temp_131 = new EasE();
+				const temp_132 = new EasE(123);
 			};
 			{
 				{
-					const temp_131 = 123;
-					switch (temp_131) {
+					const temp_133 = 123;
+					switch (temp_133) {
 					default: 
 					console.log('hi')
 					};
 				};
 				{
-					const temp_132 = 123;
-					switch (temp_132) {
+					const temp_134 = 123;
+					switch (temp_134) {
 					case 123: {
 						console.log('123')
 					} break;
@@ -112,8 +146,8 @@
 					};
 				};
 				{
-					const temp_133 = 123;
-					switch (temp_133) {
+					const temp_135 = 123;
+					switch (temp_135) {
 					case 123: {
 						console.log('123')
 					} break;
@@ -124,7 +158,7 @@
 				};
 			};
 			{
-				const temp_134 = new AutoKeep();
+				const temp_136 = new AutoKeep();
 			};
 			{
 				const r = new $Renamed();
@@ -139,21 +173,21 @@
 			};
 			{
 				const x = 3;
-				const x_135 = 50 == 50;
+				const x_137 = 50 == 50;
 			};
 			{
 				const expression = /*Other*/[0];
 				{
-					const temp_136 = expression;
-					switch (temp_136&&temp_136[0]) {
+					const temp_138 = expression;
+					switch (temp_138&&temp_138[0]) {
 					case 0: {
 						console.log('Other')
 					} break;
 					};
 				};
 				{
-					const temp_137 = (expression);
-					switch (temp_137&&temp_137[0]) {
+					const temp_139 = (expression);
+					switch (temp_139&&temp_139[0]) {
 					case 0: {
 						console.log('Other')
 					} break;
