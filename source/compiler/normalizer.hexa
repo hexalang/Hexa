@@ -476,13 +476,7 @@ class Normalizer {
 				return NiceExpression.Object(names, els, types)
 
 				case Parenthesis(inner):
-				fun unwrapNestedParens(inner: Node) {
-					switch inner {
-						case Parenthesis(i): return unwrapNestedParens(i)
-						case _: return inner
-					}
-				}
-				let value = nodeToExpression(unwrapNestedParens(inner))
+				let value = nodeToExpression(unwrapParens(inner))
 
 				// Don't keep () for single (expr)
 				switch value {
@@ -1176,7 +1170,7 @@ class Normalizer {
 
 				// Just plain `if`
 				if not binds, econd.length == 1 {
-					let value = nodeToExpression(econd[0])
+					let value = nodeToExpression(unwrapParens(econd[0]))
 					// Always evaluate all expressions TODO really required?
 					let ei = nodeToStatement(eif)
 					let ee = nodeToStatement(eelse)
@@ -1326,13 +1320,7 @@ class Normalizer {
 						case _: // Optimize away
 					}
 				case Parenthesis(inner):
-				fun unwrapNestedParens(inner: Node) {
-					switch inner {
-						case Parenthesis(i): return unwrapNestedParens(i)
-						case _: return inner
-					}
-				}
-				return nodeToStatement(unwrapNestedParens(inner))
+					return nodeToStatement(unwrapParens(inner))
 
 				case Switch(exprs, conds, guards, cases):
 				if (exprs.length > 1) {
@@ -1771,6 +1759,14 @@ class Normalizer {
 				case True: inline.set(e, value)
 				case False: inline.set(e, value)
 				case Null: inline.set(e, value)
+			}
+		}
+
+		// TODO move this to Node as method
+		fun unwrapParens(inner: Node) {
+			switch inner {
+				case Parenthesis(i): return unwrapParens(i)
+				case _: return inner
 			}
 		}
 }
