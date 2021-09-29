@@ -79,6 +79,9 @@
 				console.log('keep');
 				console.log('keep');
 				console.log('keep');
+				if (Math.random() > 0) { Math.random() };
+				if (Math.random() > 0) { Math.random() };
+				if (Math.random() > 0) { Math.random() };
 			};
 			{
 				try {} catch (temp) {
