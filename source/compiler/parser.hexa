@@ -17,10 +17,10 @@
 @final
 class Parser {
 	static fun toNode(nodes: [Node]): Node? {
-			if (nodes.length == 0) {
+			if nodes.length == 0 {
 				return null
 			}
-			if (nodes.length > 1) {
+			if nodes.length > 1 {
 				return Node.Block(nodes)
 			}
 			return nodes[0]
@@ -29,7 +29,7 @@ class Parser {
 		static fun parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
 			let parser = new Parser(lexe, project, lint)
 
-			if (parser.hints.length > 0) {
+			if parser.hints.length > 0 {
 				throw new CompilerErrors(parser.hints)
 			}
 
@@ -62,7 +62,7 @@ class Parser {
 			let pos = new NodeData(pos.line, pos.column, lex.fileName)
 
 			var _static = false
-			if (tok() == Token.KStatic) {
+			if tok() == Token.KStatic {
 				_static = true
 				i++
 			}
@@ -105,21 +105,21 @@ class Parser {
 				var types = []
 				var values = []
 				step(Token.POpen)
-				if (tok() != Token.PClose) { while true {
+				if tok() != Token.PClose { while true {
 					vars.push(getgo(Token.LLower))
 					var expr = null
 					var t = null
-					if (tok() == Token.Colon) {
+					if tok() == Token.Colon {
 						i++
 						t = parseType()
 					}
-					if (tok() == Token.OpAssign) {
+					if tok() == Token.OpAssign {
 						i++
 						expr = parseExpr()
 					}
 					types.push(t)
 					values.push(expr)
-					if (tok() == Token.Comma) {
+					if tok() == Token.Comma {
 						i++
 					} else {
 						break
@@ -173,8 +173,8 @@ class Parser {
 				}
 
 				// JavaScript's `method()` to `function method()`
-				if (tok() == Token.POpen) {
-					if (name == 'constructor') {
+				if tok() == Token.POpen {
+					if name == 'constructor' {
 						fail('Use `new()` syntax instead of `constructor()`')
 					}
 					if _static {
@@ -984,9 +984,9 @@ class Parser {
 			var t = parseType()
 			var names: [String] = []
 			var values: [Node] = []
-			if (tok() == Token.BrOpen) { // {}
+			if tok() == Token.BrOpen { // {}
 				i++
-				if (tok() == Token.BrClose) { // Empty {}
+				if tok() == Token.BrClose { // Empty {}
 					step(Token.BrClose)
 				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
 					while tok() != Token.BrClose {
@@ -1003,19 +1003,19 @@ class Parser {
 			step(Token.POpen)
 			var args = []
 			var argNames: [String] = []
-			if (tok() != Token.PClose) { while true {
+			if tok() != Token.PClose { while true {
 				switch tok() {
 					case PClose:
 						fail("Unexpected `)`, remove trailing `,` comma")
 					case LUpper:
 						argNames.push(null)
 						args.push(parseExpr())
-						if (tok() == Token.Colon) {
+						if tok() == Token.Colon {
 							step(Token.Colon)
 							parseType()
 						}
 					case _:
-						if (lex.token[i + 1] == Token.Colon) {
+						if lex.token[i + 1] == Token.Colon {
 							argNames.push(getgo(Token.LLower))
 							step(Token.Colon)
 						}
@@ -1024,7 +1024,7 @@ class Parser {
 						}
 						args.push(parseExpr())
 				}
-				if (tok() == Token.Comma) {
+				if tok() == Token.Comma {
 					i++
 				} else {
 					break
@@ -1048,14 +1048,14 @@ class Parser {
 
 			while tok() != Token.BrClose {
 				step(Token.KCase)
-				if (tok() == Token.Underscore) {
+				if tok() == Token.Underscore {
 					conds.push(Node.Underscore)
 					i++
 				} else {
 					conds.push(parseExpr())
 				}
 
-				if (tok() == Token.KIf) {
+				if tok() == Token.KIf {
 					i++
 					guards.push(parseExpr())
 				} else {
@@ -1064,6 +1064,7 @@ class Parser {
 
 				step(Token.Colon)
 				var exs = []
+				// TODO, instead of &&
 				while tok()!=Token.KCase && tok()!=Token.BrClose {
 					exs.push(parseExpr())
 				}
@@ -1076,18 +1077,18 @@ class Parser {
 		case KFor:
 			i++
 
-			if (tok() == Token.KLet || tok() == Token.KVar) {
+			if tok() == Token.KLet or tok() == Token.KVar {
 				i++
 				var name = getgo(Token.LLower)
 
 				// Approximately detect `for (let/var field of/in fields)`
 				{
-					if print() == 'of' || print() == 'in' {
+					if print() == 'of' or print() == 'in' {
 						i++
 						var values = print()
 						i++
-						while tok() != Token.PClose && tok() != Token.Eof {
-							if (tok() == Token.OpSub || tok() == Token.OpAdd) {
+						while tok() != Token.PClose and tok() != Token.Eof {
+							if tok() == Token.OpSub or tok() == Token.OpAdd {
 								values += ' ' + print() + ' '
 							} else {
 								values += print()
@@ -1123,7 +1124,7 @@ class Parser {
 						tok() == Token.Dot
 					{
 						// `a-1` -> `a - 1`
-						if (tok() == Token.OpSub || tok() == Token.OpAdd) {
+						if tok() == Token.OpSub or tok() == Token.OpAdd {
 							specialCase += ' ' + print() + ' '
 						} else {
 							specialCase += print()
@@ -1132,7 +1133,7 @@ class Parser {
 					}
 				}
 
-				if (tok() == Token.Semicolon) {
+				if tok() == Token.Semicolon {
 					i++
 				} else {
 					classic = false
@@ -1145,9 +1146,9 @@ class Parser {
 				}
 
 				var lesserOrEqual = false
-				if (tok() == Token.OpLt) {
+				if tok() == Token.OpLt {
 					i++
-				} else if (tok() == Token.OpLte) {
+				} else if tok() == Token.OpLte {
 					i++
 					lesserOrEqual = true
 				} else {
@@ -1182,7 +1183,7 @@ class Parser {
 					values += ' + 1'
 				}
 
-				if (tok() == Token.Semicolon) {
+				if tok() == Token.Semicolon {
 					i++
 				} else {
 					classic = false
@@ -1230,7 +1231,7 @@ class Parser {
 			var values = parseExpr()
 			//let range = if (tok() == Token.Interval) { TODO not works!
 			var range = null
-			if (tok() == Token.Interval) {
+			if tok() == Token.Interval {
 				i++
 				range = parseExpr()
 			}
@@ -1247,14 +1248,14 @@ class Parser {
 		case _: unexpected()
 		}
 
-		if (result == null) {
+		if result == null {
 			Process.stdout.write('\n')
 			fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
 		}
 
 		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
-		if (atts.length > 0) {
+		if atts.length > 0 {
 			project.mapDecorators.set(result, atts)
 			atts = []
 		}
@@ -1270,7 +1271,7 @@ class Parser {
 			case BkOpen:
 				i++
 				var index = parseExpr()
-				if (tok() == Token.Comma) {
+				if tok() == Token.Comma {
 					fail(
 						"Expected `]` instead of `,` comma. Hexa supports only one `[index]` value.\n" +
 						"Note, you are indexing this expression: `\(Node.stringify(result))[\(Node.stringify(index))]`\n" +
