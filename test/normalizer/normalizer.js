@@ -7,18 +7,18 @@
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
 	const selfVersion="1.0.0";
 	var Expose = {
-		DDD: (i_143)=>[4,i_143],
+		DDD: (i_143)=>[3,i_143],
 	}
-	Object.defineProperty(Expose, "AAA", { get: () => { return [1] }})
-	Object.defineProperty(Expose, "BBB", { get: () => { return [2] }})
-	Object.defineProperty(Expose, "CCC", { get: () => { return [3] }})
+	Object.defineProperty(Expose, "AAA", { get: () => { return [0] }})
+	Object.defineProperty(Expose, "BBB", { get: () => { return [1] }})
+	Object.defineProperty(Expose, "CCC", { get: () => { return [2] }})
 	var NoExpose = {
 	}
 	var NiceExpression = {
 	}
 	var console_46 = $global.console
 	var EasE = class {
-		constructor(value_130) {};
+		constructor(value_135) {};
 	}
 	var AutoKeep = class {
 		constructor() {};
@@ -65,8 +65,8 @@
 				const bool_118 = true;
 				console.log('xtruey');
 				console.log('x' + true + 'y');
-				const bool_119 = true == true;
-				console.log('x' + bool_119);
+				const bool_119 = true;
+				console.log('xtrue');
 				const bool_120 = false;
 				const bool_121 = false;
 				console.log('false == false');
@@ -81,6 +81,12 @@
 				console.log('true == true');
 				console.log('true == true');
 				console.log('true == true');
+				const preValue = false;
+				const preValue_128 = true;
+				const preValue_129 = true;
+				const preValue_130 = false;
+				const preValue_131 = true;
+				const preValue_132 = false;
 				const t = true;
 				const f = false;
 				console.log('keep');
@@ -102,13 +108,13 @@
 				try {
 					console.log('keep');
 					throw 123;
-				} catch (temp_128) {
+				} catch (temp_133) {
 					if (true) { 
-					const e = temp_128
+					const e = temp_133
 					{
 					} } else
 					
-					throw temp_128;
+					throw temp_133;
 				};
 				for (const i of [1, 2, 3]) {
 					{
@@ -129,23 +135,23 @@
 				i++;
 				i--;
 				i--;
-				const bool_129 = () => { return false };
+				const bool_134 = () => { return false };
 			};
 			{
-				const temp_131 = new EasE();
-				const temp_132 = new EasE(123);
+				const temp_136 = new EasE();
+				const temp_137 = new EasE(123);
 			};
 			{
 				{
-					const temp_133 = 123;
-					switch (temp_133) {
+					const temp_138 = 123;
+					switch (temp_138) {
 					default: 
 					console.log('hi')
 					};
 				};
 				{
-					const temp_134 = 123;
-					switch (temp_134) {
+					const temp_139 = 123;
+					switch (temp_139) {
 					case 123: {
 						console.log('123')
 					} break;
@@ -155,8 +161,8 @@
 					};
 				};
 				{
-					const temp_135 = 123;
-					switch (temp_135) {
+					const temp_140 = 123;
+					switch (temp_140) {
 					case 123: {
 						console.log('123')
 					} break;
@@ -167,7 +173,7 @@
 				};
 			};
 			{
-				const temp_136 = new AutoKeep();
+				const temp_141 = new AutoKeep();
 			};
 			{
 				const r = new $Renamed();
@@ -182,21 +188,21 @@
 			};
 			{
 				const x = 3;
-				const x_137 = 50 == 50;
+				const x_142 = true;
 			};
 			{
 				const expression = /*Other*/[0];
 				{
-					const temp_138 = expression;
-					switch (temp_138&&temp_138[0]) {
+					const temp_145 = expression;
+					switch (temp_145&&temp_145[0]) {
 					case 0: {
 						console.log('Other')
 					} break;
 					};
 				};
 				{
-					const temp_139 = (expression);
-					switch (temp_139&&temp_139[0]) {
+					const temp_146 = (expression);
+					switch (temp_146&&temp_146[0]) {
 					case 0: {
 						console.log('Other')
 					} break;
