@@ -123,7 +123,7 @@ class Normalizer {
 					return 0
 				}
 
-			    return 1
+				return 1
 			})
 
 			return niceProject
@@ -234,7 +234,7 @@ class Normalizer {
 				}*/
 				switch parent {
 					case Enum(t, fields, valuesType):
-						if !nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
+						if not nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
 							return tag
 						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
@@ -262,10 +262,10 @@ class Normalizer {
 				let parent: Node? = typer.parents.get(expr)
 				switch parent {
 					case Enum(t, fields, valuesType):
-						if !nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
+						if not nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
 							return tag
 						}
-						if !nativeEnums, valuesType == null, let tag = getTag(parent, name) {
+						if not nativeEnums, valuesType == null, let tag = getTag(parent, name) {
 							return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, [])
 						}
 						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
@@ -348,6 +348,7 @@ class Normalizer {
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
+				// TODO refactor `if op` to `switch op`
 				if op == Token.OpAdd { switch ea {
 					case String(sa): switch eb {
 						// `"abc" + "dce" = "abcdce"`
@@ -374,14 +375,14 @@ class Normalizer {
 
 				// TODO use nested pattern matching here
 				// `case ea, op, eb:`
-				if (op == Token.OpBoolOr) { switch ea {
-					case True:  switch eb {
+				if op == Token.OpBoolOr { switch ea {
+					case True: switch eb {
 						// `true || false = true`
 						case False: return NiceExpression.True
 						// `true || true = true`
 						case True: return NiceExpression.True
 					}
-					case False:  switch eb {
+					case False: switch eb {
 						// `false || false = false`
 						case False: return NiceExpression.False
 						// `false || true = true`
@@ -389,15 +390,15 @@ class Normalizer {
 					}
 				}}
 
-				if (op == Token.OpBoolAnd) {
+				if op == Token.OpBoolAnd {
 					switch ea {
-					case True:  switch eb {
+					case True: switch eb {
 						// `true && false = false`
 						case False: return NiceExpression.False
 						// `true && true = true`
 						case True: return NiceExpression.True
 					}
-					case False:  switch eb {
+					case False: switch eb {
 						// `false && false = false`
 						case False: return NiceExpression.False
 						// `false && true = false`
@@ -423,7 +424,7 @@ class Normalizer {
 					case Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-						if (expr != null) {
+						if expr != null {
 							defaults.push(nodeToExpression(expr))
 						} else {
 							defaults.push(null)
@@ -439,7 +440,7 @@ class Normalizer {
 					case Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-						if (expr != null) {
+						if expr != null {
 							defaults.push(nodeToExpression(expr))
 						} else {
 							defaults.push(null)
@@ -448,10 +449,10 @@ class Normalizer {
 				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e))
 
 				case Block(el):
-				if (el.length == 0) {
+				if el.length == 0 {
 					return NiceExpression.Object([], [], [])
 				}
-				if (el.length == 1) {
+				if el.length == 1 {
 					return nodeToExpression(el[0])
 				}
 				let block = []
@@ -491,7 +492,7 @@ class Normalizer {
 				return NiceExpression.Parenthesis(value)
 
 				case Array(el):
-				if (el.length == 1) { switch el[0] {
+				if el.length == 1 { switch el[0] {
 					case For(name, over, by, range):
 					let block = []
 					let result = unique('result')
@@ -596,7 +597,7 @@ class Normalizer {
 					binds = true
 				}}
 
-				if !binds && econd.length == 1 {
+				if not binds, econd.length == 1 {
 					return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 				}
 
@@ -629,16 +630,16 @@ class Normalizer {
 
 				// Wraps switch into function and adds `return` on every case
 				case Switch(exprs, conds, guards, cases):
-				    let block = []
-				    let caseRet = []
-				    var funcType = typer.typeVoid
-				    var resultType = typer.typeVoid
-				    for c in cases {
-				    	resultType = typer.types.get(c)
-				    	funcType = Type.Function([], resultType)
-				    	caseRet.push(Node.Return(c))
-				    }
-				    block.push(nodeToStatement(Node.Switch(exprs, conds, guards, caseRet)))
+					let block = []
+					let caseRet = []
+					var funcType = typer.typeVoid
+					var resultType = typer.typeVoid
+					for c in cases {
+						resultType = typer.types.get(c)
+						funcType = Type.Function([], resultType)
+						caseRet.push(Node.Return(c))
+					}
+					block.push(nodeToStatement(Node.Switch(exprs, conds, guards, caseRet)))
 					return NiceExpression.Call(
 						NiceExpression.Parenthesis(NiceExpression.Function(null, NiceStatement.Block(block), [], [], funcType)),
 						[],
@@ -657,14 +658,14 @@ class Normalizer {
 
 		fun nodeToStatement(e: Node): NiceStatement? {
 			let result = nodeToStatementWithoutPosition(e)
-			if (result != null) {
+			if result != null {
 				niceProject.statementPosition.set(result, project.data.get(e))
 			}
 			return result
 		}
 
 		fun nodeToStatementWithoutPosition(e: Node): NiceStatement? {
-			if (e == null) {
+			if e == null {
 				return null
 			}
 
@@ -728,8 +729,21 @@ class Normalizer {
 				renameClassFields(fields)
 				let isComplexEnum = valuesType == null
 				if isComplexEnum {
+					// TODO require here new NiceComplexEnum {} fields init
 					let type = new NiceComplexEnum()
 					type.name = unique(DataHelper.extractTypeName(t), e)
+					let atts = project.mapDecorators.get(e)
+					type.expose = false
+					// TODO move to function `getExposeDecorator(e)`
+					if let expose = getDec(atts, 'expose') {
+						if expose.values.length != 0 {
+							// TODO move this check to typer
+							// TODO normalizer should never throw
+							throw '@expose takes zero arguments'
+						}
+
+						type.expose = true
+					}
 					globals.push(type.name)
 					let names = []
 					let constructors = []
