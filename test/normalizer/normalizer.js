@@ -6,9 +6,16 @@
 	const $global = typeof(window) === "undefined"? global : window
 	if (typeof($global.require) === "undefined") { $global.require = () => {} };
 	const selfVersion="1.0.0";
+	var Expose = {
+		DDD: (i_143)=>[4,i_143],
+	}
+	Object.defineProperty(Expose, "AAA", { get: () => { return [1] }})
+	Object.defineProperty(Expose, "BBB", { get: () => { return [2] }})
+	Object.defineProperty(Expose, "CCC", { get: () => { return [3] }})
+	var NoExpose = {
+	}
 	var NiceExpression = {
 	}
-	Object.defineProperty(NiceExpression, "Other", { get: () => { return [0] }})
 	var console_46 = $global.console
 	var EasE = class {
 		constructor(value_130) {};
