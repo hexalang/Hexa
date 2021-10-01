@@ -274,7 +274,7 @@
 				}}
 
 				for v in c.staticMethods { switch v {
-					case NiceStatement.Function(name, expr, args, defaults, funcType):
+					case Function(name, expr, args, defaults, funcType):
 						types.push('\n\tstatic ')
 						types.push(printFunctionReturnType(funcType))
 						types.push(' ' + name + '_')
@@ -523,7 +523,7 @@
 				declarationsOfFullTypes.push(t.join(''))
 
 				for v in c.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 						out += '\n ' + stringifyType(type) + ' ' + renamed + '_' + name
 						//t.push('\n ' + c.name + '.' + name)
 						// TODO to main()
@@ -552,13 +552,13 @@
 
 		// Surrounds with { brackets } single statement
 		// TODO rename to printAsBlock
-		fun printBlock(s: NiceStatement): String {
+		fun printBlock(s: Statement): String {
 			switch s {
-				case NiceStatement.Block(el):
+				case Block(el):
 					return printStatement(s)
 				//if (el.length == 1) return '{ ' + printStatement(el[0]) + '; }'
 				if (el.length == 1) { switch (el[0]) {
-					case NiceStatement.Block(_): return printBlock(el[0])
+					case Block(_): return printBlock(el[0])
 					case _: return '{ ' + printStatement(el[0]) + '; }'
 				}}
 
@@ -567,7 +567,7 @@
 				}
 				return printStatement(s)
 				case _: //return '{ ' + printStatement(s) + '; }'
-					return printStatement(NiceStatement.Block([s]))
+					return printStatement(Statement.Block([s]))
 			}
 		}
 
@@ -575,9 +575,9 @@
 		var metaBlock: [String] = []
 		var tempId = 0
 
-		fun printStatement(s: NiceStatement) {
+		fun printStatement(s: Statement) {
 			switch s {
-				case NiceStatement.Statements(els):
+				case Statements(els):
 					var r = ''
 					for s in els {
 						if (s != null) {
@@ -586,15 +586,15 @@
 					}
 					return r
 
-				case NiceStatement.Break: return 'break'
-				case NiceStatement.Continue: return 'continue'
-				case NiceStatement.Block(el):
+				case Break: return 'break'
+				case Continue: return 'continue'
+				case Block(el):
 					if (el.length == 0) {
 						return '{}'
 					}
 					pushTab()
 
-					fun printMetaBlock(e: NiceStatement) {
+					fun printMetaBlock(e: Statement) {
 						let meta = metaBlock
 						metaBlock = []
 
@@ -613,7 +613,7 @@
 
 					for e in el { switch e {
 						case null:
-						case NiceStatement.Statements(els):
+						case Statements(els):
 							for s in els {
 								if (s != null) {
 									r += '\n' + tabs + printMetaBlock(s) + ';'
@@ -626,11 +626,11 @@
 					popTab()
 					return r + '\n' + tabs + '}'
 				case NiceStatement.New(e, args): return '' + printExpression(e) + '::new_' + printCallArguments(args)
-				case NiceStatement.Const(name, expr, type):
+				case Const(name, expr, type):
 					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
-				case NiceStatement.Var(name, expr, type):
+				case Var(name, expr, type):
 					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
-				case NiceStatement.Function(name, expr, args, defaults, funcType):
+				case Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
 
@@ -658,18 +658,18 @@
 					+ printBlock(expr)
 					currentReturnType = _currentReturnType
 					return result
-				case NiceStatement.Return(e):
+				case Return(e):
 					if (e == null) {
 						return 'return'
 					}
 					return 'return ' + printTypeConverter(printExpression(e), getType(e), currentReturnType)
-				case NiceStatement.If(econd, eif, eelse):
+				case If(econd, eif, eelse):
 					var r = 'if (' + printExpression(econd) + ') ' + printBlock(eif)
 					if (eelse != null) {
 						r += ' else ' + printStatement(eelse)
 					}
 					return r
-				case NiceStatement.Call(e, args, expects, kind):
+				case Call(e, args, expects, kind):
 					if (args.length == 0) {
 						return printExpression(e) + '()'
 					}
@@ -693,7 +693,7 @@
 						// TODO error on (_,_) if simple enum case CallKind.VirtualMethod(_, _): return '*.virtual'
 						case CallKind.VirtualMethod:
 						switch e {
-							case NiceExpression.Dot(expr, name, result):
+							case Dot(expr, name, result):
 								let temp = tempId++
 
 								metaBlock.push(stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr))
@@ -703,7 +703,7 @@
 						}
 					}
 					return printExpression(e) + printCallArguments(args, expects)
-				case NiceStatement.Try(expr, t, v, catches):
+				case Try(expr, t, v, catches):
 					pushTab()
 					var r = '_try {\n' + tabs
 					r += printStatement(expr)
@@ -713,11 +713,11 @@
 					r += printStatement(catches[0])
 					popTab()
 					return r + ';\n' + tabs + '}'
-				case NiceStatement.Assign(a, v):
+				case Assign(a, v):
 					switch a {
-						case NiceExpression.Dot(expr, name):
+						case Dot(expr, name):
 							switch expr {
-								case NiceExpression.Ident(id):
+								case Ident(id):
 									// Static
 									if (id.charAt(0) == id.charAt(0).toUpperCase()) {
 										return id + '_::' + name + '_' + ' = ' + printExpression(v)
@@ -731,20 +731,20 @@
 							}
 					}
 					return printExpression(a) + ' = ' + printExpression(v)
-				case NiceStatement.Throw(e):
+				case Throw(e):
 					return '_throw(' + printExpression(e) + ')'
-				case NiceStatement.For(name, over, by):
+				case For(name, over, by):
 					return 'for (Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
-				case NiceStatement.Increment(e): return printExpression(e) + '++'
-				case NiceStatement.Decrement(e): return printExpression(e) + '--'
-				case NiceStatement.While(econd, e, pre):
+				case Increment(e): return printExpression(e) + '++'
+				case Decrement(e): return printExpression(e) + '--'
+				case While(econd, e, pre):
 					if pre {
 						return 'while (' + printExpression(econd) + ') ' + printStatement(e)
 					}
 					return 'do {' + printStatement(e) /*block*/ + '} while (' + printExpression(econd) + ')'
-				case NiceStatement.Assignop(a, op, value):
+				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-				case NiceStatement.Switch(expr, cases, statements):
+				case Switch(expr, cases, statements):
 					// Convert to if-else cause C++ is not fun
 					var r = '{ auto switch_ = ' + printExpression(expr) + ';'
 
@@ -757,7 +757,7 @@
 						r += '\n' + tabs + 'if (('
 						let conds = []
 						for cc in cases[i] { switch cc {
-							case NiceExpression.Null(_):
+							case Null(_):
 								conds.push('switch_ == -1')
 							case _:
 								conds.push('switch_ == ' + printExpression(cc))
@@ -829,7 +829,7 @@
 			}
 		}
 
-		fun printCallArguments(args: [NiceExpression], expects: [Type]?) {
+		fun printCallArguments(args: [Expression], expects: [Type]?) {
 			if let exp = expects {
 				return '(' + [for (i in args.length)
 					printTypeConverter(printExpression(args[i]), getType(args[i]), exp[i])
@@ -855,7 +855,7 @@
 		}
 
 		fun printFunctionReturnType(funcType: Type) { switch funcType {
-			case Type.Function(args, returns): return stringifyType(returns)
+			case Function(args, returns): return stringifyType(returns)
 			case _: return 'void'
 		}}
 
@@ -897,7 +897,7 @@
 			}
 
 			switch funcType {
-				case Type.Function(types, _):
+				case Function(types, _):
 					let results: [String] = []
 					if let thisArgument = thisArgument {
 						results.push(thisArgument)
@@ -906,8 +906,8 @@
 					for a in args.length {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if defaults { switch types[a] {
-							case Type.Nullable(_): result += ' = ((Any_ *)0)'
-							case Type.UnknownNullable(_): result += ' = ((Any_ *)0)'
+							case Nullable(_): result += ' = ((Any_ *)0)'
+							case UnknownNullable(_): result += ' = ((Any_ *)0)'
 						}}
 						results.push(result)
 					}
@@ -916,8 +916,8 @@
 					return '(' + [for a in args.length {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if defaults { switch types[a] {
-							case Type.Nullable(_): result += ' = ((Any_ *)0)'
-							case Type.UnknownNullable(_): result += ' = ((Any_ *)0)'
+							case Nullable(_): result += ' = ((Any_ *)0)'
+							case UnknownNullable(_): result += ' = ((Any_ *)0)'
 						}}
 						result
 					}].join(', ') + ')'
@@ -961,7 +961,7 @@
 
 		fun stringifyType(t: Type) {
 			switch t {
-				case Type.Nullable(t):
+				case Nullable(t):
 					let name = stringifyType(t)
 					if (name == 'int32_t') {
 						return 'Null$Int32'
@@ -972,8 +972,8 @@
 					}
 
 					return name
-				case Type.UnknownNullable(handle): return stringifyType(handle.value)
-				case Type.ClassInstance(type):
+				case UnknownNullable(handle): return stringifyType(handle.value)
+				case ClassInstance(type):
 					if (type.name == 'Int') {
 						return 'int32_t'
 					}
@@ -1000,16 +1000,16 @@
 					}
 
 					return /*'/ *ClassInstance* /' +*/ type.name + '_*'
-				case Type.Class(type): return '/*Class*/ ' + type.name + '_*'
-				case Type.Enum(type):
+				case Class(type): return '/*Class*/ ' + type.name + '_*'
+				case Enum(type):
 					if let sub = type.fieldsTypeSimple {
 						return stringifyType(sub)
 					}
 
 					return '' + type.name + '_*'
-				case Type.EnumInstance(type): return '' + type.name + '_*'
-				case Type.Struct(_): return 'Any_*/*Struct*/'
-				case Type.Function(args, returns):
+				case EnumInstance(type): return '' + type.name + '_*'
+				case Struct(_): return 'Any_*/*Struct*/'
+				case Function(args, returns):
 					let temp = tempId++
 					typedefFunctions.push('typedef ')
 					typedefFunctions.push(stringifyType(returns))
@@ -1028,11 +1028,8 @@
 			}
 		}
 
-		fun getType(e: NiceExpression): Type {
+		fun getType(e: Expression): Type {
 			switch e {
-			case NiceExpression.Int(_): return project.typer.typeInt
-			case NiceExpression.Float(_): return project.typer.typeFloat
-			case NiceExpression.String(_): return project.typer.typeString
 			case NiceExpression.True(_): return project.typer.typeBool
 			case NiceExpression.False(_): return project.typer.typeBool
 			case NiceExpression.Ident(_, type): return type
@@ -1043,41 +1040,44 @@
 			case NiceExpression.Dot(_, _, type): return type
 			case NiceExpression.This(type): return type
 			case NiceExpression.Null(_): return Type.UnknownNullable({value: null})
-			case NiceExpression.UnsafeBitCast(_, to): return to
+			case Int(_): return project.typer.typeInt
+			case Float(_): return project.typer.typeFloat
+			case String(_): return project.typer.typeString
+			case UnsafeBitCast(_, to): return to
 			case _:
 			return project.typer.typeAny
 			}
 		}
 
-		fun isPrimitive(e: NiceExpression): Bool {
+		fun isPrimitive(e: Expression): Bool {
 			switch e {
-			case NiceExpression.Int(_): return true
-			case NiceExpression.Float(_): return true
 			case NiceExpression.String(_): return true
-			case NiceExpression.True(_): return true
-			case NiceExpression.False(_): return true
 			case NiceExpression.Ident(_, type): return true
 			case NiceExpression.This(type): return true
 			case NiceExpression.Null(_): return true
+			case Int(_): return true
+			case Float(_): return true
+			case True(_): return true
+			case False(_): return true
 			case _: return false
 		}}
 
-		function registerString(string: String): Int {
+		fun registerString(string: String): Int {
 			declarationsOfStrings.push(string)
 			return declarationsOfStrings.length - 1
 		}
 
 		var customThis: String? = null
-		fun printExpression(e: NiceExpression) {
+		fun printExpression(e: Expression) {
 			switch e {
-				case NiceExpression.This: return customThis ?? 'this'
-				case NiceExpression.Ident(name):
+				case This: return customThis ?? 'this'
+				case Ident(name):
 					if (project.native.get(e) == true) {
 						return name
 					}
 
 					return '' + name + '_'
-				case NiceExpression.Null:
+				case Null:
 					// TODO infer actual type of null in typer,
 					// to print type conversion `((T*)0)`
 					return '((Unknown_ *)0)'
@@ -1088,7 +1088,7 @@
 					}
 
 					return '(double)' + v
-				case NiceExpression.String(string):
+				case String(string):
 					if let id = declarationsOfStringsMap.get(string) {
 						return 'Strings_[\(id)]'
 						+ `/*has:` + string.split('*').join('#') + `*/`
@@ -1152,7 +1152,7 @@
 					case _:
 						return printExpression(expr) + '->' + name + '_'
 				}
-				case NiceExpression.Call(e, args, type, kind):
+				case Call(e, args, type, kind):
 					// Avoid undefined behavior
 					let arguments: [String] = []
 					for i in args.length {
@@ -1176,7 +1176,7 @@
 						case CallKind.VirtualMethod:
 							return printExpression(e) + '(' + arguments.join(', ') + ')'
 						switch e {
-							case NiceExpression.Dot(expr, name, result):
+							case Dot(expr, name, result):
 							let temp = tempId++
 							let temp1 = tempId++
 							let mb = metaBlock
@@ -1194,7 +1194,7 @@
 						}
 					}
 					return printExpression(e) + printCallArguments(args)
-				case NiceExpression.Function(name, expr, args, defaults, funcType):
+				case Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
 					let result = '[&]' + printFunctionArguments(args, funcType, true)
@@ -1208,12 +1208,12 @@
 						return 'Array_::new_(0)'
 					}
 					return 'Array_from(' + [for a in el printExpression(a)].join(', ') + ')'
-				case NiceExpression.Unop(op, postfix, e):
+				case Unop(op, postfix, e):
 					if postfix {
 						return printExpression(e) + Token.stringify(op)
 					}
 					return Token.stringify(op) + printExpression(e)
-				case NiceExpression.Elvis(nullable, othewise):
+				case Elvis(nullable, othewise):
 					return '((' + printExpression(nullable) + ')||(' + printExpression(othewise) + '))'
 				case NiceExpression.Parenthesis(e): return '(' + printExpression(e) + ')'
 				case NiceExpression.Binop(a, op, b):
