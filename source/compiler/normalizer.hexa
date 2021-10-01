@@ -29,7 +29,7 @@ class Normalizer {
 		var package: Package
 
 		// Pre-computed value of say `let x = 123` thus `inline[x] == 123`
-		let inline: [Node : NiceExpression] = [:]
+		let inline: [Node : Expression] = [:]
 
 		new (project: Project) {
 			this.project = project
@@ -129,7 +129,7 @@ class Normalizer {
 			return niceProject
 		}
 
-		fun nodeToExpression(e: Node): NiceExpression? {
+		fun nodeToExpression(e: Node): Expression? {
 			let result = nodeToExpressionWithoutPosition(e)
 			if (result != null) {
 				niceProject.expressionPosition.set(result, project.data.get(e))
@@ -140,7 +140,7 @@ class Normalizer {
 			return result
 		}
 
-		fun nodeToExpressionWithoutPosition(e: Node): NiceExpression? {
+		fun nodeToExpressionWithoutPosition(e: Node): Expression? {
 			if (e == null) {
 				return null
 			}
@@ -148,24 +148,24 @@ class Normalizer {
 			switch e {
 				// Transformation not required
 				case String(v):
-					return NiceExpression.String(v)
+					return Expression.String(v)
 				case Int(v):
-					return NiceExpression.Int(v)
+					return Expression.Int(v)
 				case MetaInt(v, meta):
-					return NiceExpression.MetaInt(v, meta, typer.types.get(e))
+					return Expression.MetaInt(v, meta, typer.types.get(e))
 				case Float(v):
-					return NiceExpression.Float(v)
+					return Expression.Float(v)
 				case Bool(v):
 					if v {
-						return NiceExpression.True
+						return Expression.True
 					}
-					return NiceExpression.False
+					return Expression.False
 				case Null:
-					return NiceExpression.Null
+					return Expression.Null
 
 				case NodeTypeValue(t): switch t {
 					case Type(name):
-						return NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? name, null)
+						return Expression.Ident(parentNames.get(typer.parents.get(e)) ?? name, null)
 				}
 
 				// Transform
@@ -185,16 +185,16 @@ class Normalizer {
 							if let map = typer.parents.get(source) { switch map as! Node {
 								case Module(_):
 									let name = parentNames.get(source) ?? name
-									return NiceExpression.Ident(globalAccessor + name, typer.types.get(source))
+									return Expression.Ident(globalAccessor + name, typer.types.get(source))
 								case _:
 									let type = typer.types.get(typer.parents.get(source))
 									// TODO .This(type)
-									return NiceExpression.Dot(NiceExpression.This(type), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
+									return Expression.Dot(Expression.This(type), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
 							}}
 						case Function(name, _):
 							if let map = typer.parents.get(source) { switch map as! Node {
 								case Module(_):
-									let result = NiceExpression.Ident(globalAccessor + (parentNames.get(source) ?? name), null)
+									let result = Expression.Ident(globalAccessor + (parentNames.get(source) ?? name), null)
 									if let name = getNative(source) {
 										niceProject.native.set(result, true)
 									}
@@ -202,7 +202,7 @@ class Normalizer {
 								case _:
 									// TODO .This(type)
 									let type = typer.types.get(typer.parents.get(source))
-									return NiceExpression.Dot(NiceExpression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
+									return Expression.Dot(Expression.This(type), parentNames.get(source) ?? name, typer.types.get(e))
 							}
 							}
 
@@ -210,14 +210,14 @@ class Normalizer {
 							let staticSource: Node? = typer.parents.get(source)
 							switch staticSource {
 								case Class(t, _):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
+									return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 								case Enum(t,_):
-									return NiceExpression.Dot(NiceExpression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
+									return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 								case _:
 									throw 'staticSource is \(staticSource) for \(name)'
 							}
 					}
-					let result = NiceExpression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
+					let result = Expression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
 					if getDec(project.mapDecorators.get(source), 'rename') != null {
 						niceProject.native.set(result, true)
 					}
@@ -237,26 +237,26 @@ class Normalizer {
 						if not nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
 							return tag
 						}
-						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+						return Expression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 					case Class(_):
-						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+						return Expression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
 				if let type = typer.types.get(expr) {
 					switch type as! Type {
 					case ClassInstance(type):
 						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
 						if let rename = renamed {
-							return NiceExpression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
+							return Expression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
 						}
 				}}
 				let value = nodeToExpression(expr)
 
 				if (name == 'length') { switch value {
 					case String(s):
-						return NiceExpression.Int(s.length)
+						return Expression.Int(s.length)
 				}}
 
-				return NiceExpression.Dot(value, name, typer.types.get(e))
+				return Expression.Dot(value, name, typer.types.get(e))
 
 				case DotUpper(expr, name):
 				let parent: Node? = typer.parents.get(expr)
@@ -266,12 +266,12 @@ class Normalizer {
 							return tag
 						}
 						if not nativeEnums, valuesType == null, let tag = getTag(parent, name) {
-							return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, [])
+							return Expression.Enum(DataHelper.extractTypeName(t), name, tag, [])
 						}
-						return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
-					case Class(_): return NiceExpression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+						return Expression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
+					case Class(_): return Expression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
-				return NiceExpression.Dot(nodeToExpression(expr), name, typer.types.get(e))
+				return Expression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 
 				case Call(expr, args, argNames):
 
@@ -283,11 +283,11 @@ class Normalizer {
 								let i = v
 								if i < s.length, i > -1 {
 									let value = s.charCodeAt(i) // Returns NaN in js
-									//if (value > -1) NiceExpression.Int('' + value) // TODO generate enum creation statement to var= or jscrashes
+									//if (value > -1) Expression.Int('' + value) // TODO generate enum creation statement to var= or jscrashes
 									let result = if value > -1 {
-										NiceExpression.Int('' + value)
+										Expression.Int('' + value)
 									} else {
-										NiceExpression.Int('' + 0)
+										Expression.Int('' + 0)
 									}
 									niceProject.expressionType.set(result, typer.typeInt)
 									return result
@@ -318,19 +318,19 @@ class Normalizer {
 						switch parent {
 							case Enum(t, fields, valuesType):
 								if let tag = getTag(parent, name) {
-									return NiceExpression.Enum(DataHelper.extractTypeName(t), name, tag, a)
+									return Expression.Enum(DataHelper.extractTypeName(t), name, tag, a)
 								}
 						}
 				}}
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
 				if let infix = getDec(atts, 'infix') { switch infix.values[0] {
-					case String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Infix, a, s)
+					case String(s): return Expression.NativeOperator(NativeOperatorKind.Infix, a, s)
 					case _: throw '@infix takes string as argument'
 				}}
 
 				if let operator = getDec(atts, 'operator') { switch operator.values[0] {
-					case String(s): return NiceExpression.NativeOperator(NativeOperatorKind.Function, a, s)
+					case String(s): return Expression.NativeOperator(NativeOperatorKind.Function, a, s)
 					case _: throw '@operator takes string as argument'
 				}}
 
@@ -342,7 +342,7 @@ class Normalizer {
 					}
 				}
 
-				return NiceExpression.Call(v, a, typer.types.get(e), kind)
+				return Expression.Call(v, a, typer.types.get(e), kind)
 
 				case Binop(a, op, b):
 				let ea = nodeToExpression(a)
@@ -352,24 +352,24 @@ class Normalizer {
 				if op == Token.OpAdd { switch ea {
 					case String(sa): switch eb {
 						// `"abc" + "dce" = "abcdce"`
-						case String(sb): return NiceExpression.String(sa + sb)
+						case String(sb): return Expression.String(sa + sb)
 						// `"abc" + 123 = "abc123"`
-						case Int(sb): return NiceExpression.String(sa + sb)
-						case Float(sb): return NiceExpression.String(sa + sb)
-						case True: return NiceExpression.String(sa + "true")
-						case False: return NiceExpression.String(sa + "false")
+						case Int(sb): return Expression.String(sa + sb)
+						case Float(sb): return Expression.String(sa + sb)
+						case True: return Expression.String(sa + "true")
+						case False: return Expression.String(sa + "false")
 					}
 					case Int(sa): switch eb {
 						// `1 + 1 = 2`
-						case Int(sb): return NiceExpression.Int(sa + sb)
-						case Float(sb): return NiceExpression.Float(sa + sb)
+						case Int(sb): return Expression.Int(sa + sb)
+						case Float(sb): return Expression.Float(sa + sb)
 						// `123 + "123" = "123123"`
-						case String(sb): return NiceExpression.String(sa + sb)
+						case String(sb): return Expression.String(sa + sb)
 					}
 					case Float(sa): switch eb {
-						case Int(sb): return NiceExpression.Float(sa + sb)
-						case Float(sb): return NiceExpression.Float(sa + sb)
-						case String(sb): return NiceExpression.String(sa + sb)
+						case Int(sb): return Expression.Float(sa + sb)
+						case Float(sb): return Expression.Float(sa + sb)
+						case String(sb): return Expression.String(sa + sb)
 					}
 				}}
 
@@ -378,15 +378,15 @@ class Normalizer {
 				if op == Token.OpBoolOr { switch ea {
 					case True: switch eb {
 						// `true || false = true`
-						case False: return NiceExpression.True
+						case False: return Expression.True
 						// `true || true = true`
-						case True: return NiceExpression.True
+						case True: return Expression.True
 					}
 					case False: switch eb {
 						// `false || false = false`
-						case False: return NiceExpression.False
+						case False: return Expression.False
 						// `false || true = true`
-						case True: return NiceExpression.True
+						case True: return Expression.True
 					}
 				}}
 
@@ -394,15 +394,15 @@ class Normalizer {
 					switch ea {
 					case True: switch eb {
 						// `true && false = false`
-						case False: return NiceExpression.False
+						case False: return Expression.False
 						// `true && true = true`
-						case True: return NiceExpression.True
+						case True: return Expression.True
 					}
 					case False: switch eb {
 						// `false && false = false`
-						case False: return NiceExpression.False
+						case False: return Expression.False
 						// `false && true = false`
-						case True: return NiceExpression.False
+						case True: return Expression.False
 					}
 				}}
 
@@ -410,29 +410,29 @@ class Normalizer {
 					switch ea {
 					case True: switch eb {
 						// `true == false = false`
-						case False: return NiceExpression.False
+						case False: return Expression.False
 						// `true == true = true`
-						case True: return NiceExpression.True
+						case True: return Expression.True
 					}
 					case False: switch eb {
 						// `false == false = true`
-						case False: return NiceExpression.True
+						case False: return Expression.True
 						// `false == true = false`
-						case True: return NiceExpression.False
+						case True: return Expression.False
 					}
 					case String(sa): switch eb {
 						case String(sb):
 							if sa == sb {
-								return NiceExpression.True
+								return Expression.True
 							}
-							return NiceExpression.False
+							return Expression.False
 					}
 					case Int(sa): switch eb {
 						case Int(sb):
 							if sa == sb {
-								return NiceExpression.True
+								return Expression.True
 							}
-							return NiceExpression.False
+							return Expression.False
 					}
 				}}
 
@@ -440,41 +440,41 @@ class Normalizer {
 					switch ea {
 					case True: switch eb {
 						// `true != false = true`
-						case False: return NiceExpression.True
+						case False: return Expression.True
 						// `true != true = false`
-						case True: return NiceExpression.False
+						case True: return Expression.False
 					}
 					case False: switch eb {
 						// `false != false = false`
-						case False: return NiceExpression.False
+						case False: return Expression.False
 						// `false != true = true`
-						case True: return NiceExpression.True
+						case True: return Expression.True
 					}
 					case String(sa): switch eb {
 						case String(sb):
 							if sa != sb {
-								return NiceExpression.True
+								return Expression.True
 							}
-							return NiceExpression.False
+							return Expression.False
 					}
 					case Int(sa): switch eb {
 						case Int(sb):
 							if sa != sb {
-								return NiceExpression.True
+								return Expression.True
 							}
-							return NiceExpression.False
+							return Expression.False
 					}
 				}}
 
-				return NiceExpression.Binop(ea, op, eb, typer.types.get(e))
+				return Expression.Binop(ea, op, eb, typer.types.get(e))
 
 				case New(path, t, args, fields, el):
-				let v = NiceExpression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
+				let v = Expression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for arg in args {
 					a.push(nodeToExpression(arg))
 				}
-				return NiceExpression.New(v, a, typer.types.get(e))
+				return Expression.New(v, a, typer.types.get(e))
 
 				case Function(name, expr, vars, rettype, external):
 				let a = []
@@ -490,7 +490,7 @@ class Normalizer {
 							defaults.push(null)
 						}
 				}}
-				return NiceExpression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
+				return Expression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
 
 				case Arrow(expr, vars, rettype):
 				let a = []
@@ -506,11 +506,11 @@ class Normalizer {
 							defaults.push(null)
 						}
 				}}
-				return NiceExpression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e))
+				return Expression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e))
 
 				case Block(el):
 				if el.length == 0 {
-					return NiceExpression.Object([], [], [])
+					return Expression.Object([], [], [])
 				}
 				if el.length == 1 {
 					return nodeToExpression(el[0])
@@ -525,7 +525,7 @@ class Normalizer {
 				}
 				let result = el[el.length - 1]
 				block.push(Statement.Return(nodeToExpression(result)))
-				return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, Statement.Block(block), [], [], null)), [], typer.types.get(result), CallKind.Function)
+				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], null)), [], typer.types.get(result), CallKind.Function)
 
 				case Object(names, el):
 				let els = []
@@ -534,7 +534,7 @@ class Normalizer {
 					els.push(nodeToExpression(e))
 					types.push(typer.types.get(e))
 				}
-				return NiceExpression.Object(names, els, types)
+				return Expression.Object(names, els, types)
 
 				case Parenthesis(inner):
 				let value = nodeToExpression(unwrapParens(inner))
@@ -549,7 +549,7 @@ class Normalizer {
 					case Null: return value
 				}
 
-				return NiceExpression.Parenthesis(value)
+				return Expression.Parenthesis(value)
 
 				case Array(el):
 				if el.length == 1 { switch el[0] {
@@ -557,39 +557,39 @@ class Normalizer {
 					let block = []
 					let result = unique('result')
 					let resultType = typer.types.get(e) // TODO refactor to use this var below
-					block.push(Statement.Const(result, NiceExpression.Array([], typer.types.get(e)), typer.types.get(e)))
+					block.push(Statement.Const(result, Expression.Array([], typer.types.get(e)), typer.types.get(e)))
 					let value = unique('value')
 					let valueType = typer.types.get(el[0])
 					block.push(Statement.Const(value, nodeToExpression(over), valueType))
 
-					let push = Statement.Call(NiceExpression.Dot(NiceExpression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
+					let push = Statement.Call(Expression.Dot(Expression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
 					fun fillLoop() {
 						switch over {
 							case Int(s):
 							let i = name
-							block.push(Statement.Const(i, NiceExpression.Int(-1), typer.typeInt))
+							block.push(Statement.Const(i, Expression.Int(-1), typer.typeInt))
 							block.push(Statement.While(
-								NiceExpression.Binop(
-									NiceExpression.Parenthesis(NiceExpression.Binop(NiceExpression.Ident(i, typer.typeInt), Token.OpAdd, NiceExpression.Int(1), typer.typeInt)),
+								Expression.Binop(
+									Expression.Parenthesis(Expression.Binop(Expression.Ident(i, typer.typeInt), Token.OpAdd, Expression.Int(1), typer.typeInt)),
 									Token.OpLt,
-									NiceExpression.Ident(value, valueType),
+									Expression.Ident(value, valueType),
 									typer.typeBool),
 								Statement.Block([
-									Statement.Increment(NiceExpression.Ident(i, typer.typeInt)),
+									Statement.Increment(Expression.Ident(i, typer.typeInt)),
 									push
 								]),
 								true))
 							return
 						}
 
-						block.push(Statement.For(name, NiceExpression.Ident(value, valueType), push))
+						block.push(Statement.For(name, Expression.Ident(value, valueType), push))
 					}
 
 					fillLoop()
-					block.push(Statement.Return(NiceExpression.Ident(result, resultType)))
-					return NiceExpression.Call(
-						NiceExpression.Parenthesis(
-							NiceExpression.Function(null, Statement.Block(block), [], [], Type.Function([], typer.types.get(e)))
+					block.push(Statement.Return(Expression.Ident(result, resultType)))
+					return Expression.Call(
+						Expression.Parenthesis(
+							Expression.Function(null, Statement.Block(block), [], [], Type.Function([], typer.types.get(e)))
 						)
 						, [],
 						typer.types.get(e),
@@ -603,20 +603,20 @@ class Normalizer {
 					els.push(nodeToExpression(e))
 					types.push(typer.types.get(e))
 				}
-				return NiceExpression.Array(els, typer.types.get(e))
+				return Expression.Array(els, typer.types.get(e))
 
 				// `nullable ?? otherwise`
 				case Elvis(nullable, otherwise):
 					let result = unique('result')
 					let resultType = null // TODO
-					return NiceExpression.Call(NiceExpression.Parenthesis(NiceExpression.Function(null, Statement.Block([
+					return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block([
 						Statement.Const(result, nodeToExpression(nullable), resultType),
-						Statement.If(NiceExpression.Binop(NiceExpression.Ident(result, resultType), Token.OpNotEq, NiceExpression.Null, typer.typeBool), Statement.Return(NiceExpression.Ident(result, resultType)), null),
+						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.OpNotEq, Expression.Null, typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
 						Statement.Return(nodeToExpression(otherwise))
 						]), [], [], Type.Function([], typer.types.get(otherwise)))), [], typer.types.get(otherwise),
 						CallKind.Function
 					)
-					return NiceExpression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
+					return Expression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Unop(op, postfix, e):
 					let expression = nodeToExpression(e)
@@ -624,15 +624,15 @@ class Normalizer {
 						case OpNot:
 							switch expression {
 								// `not true = false`
-								case True: return NiceExpression.False
+								case True: return Expression.False
 								// `not false = true`
-								case False: return NiceExpression.True
+								case False: return Expression.True
 							}
 					}
-					return NiceExpression.Unop(op, postfix, expression)
+					return Expression.Unop(op, postfix, expression)
 
 				case This:
-					return NiceExpression.This(typer.types.get(e))
+					return Expression.This(typer.types.get(e))
 
 				case Map(keys, values):
 				let k = []
@@ -644,10 +644,10 @@ class Normalizer {
 					v.push(nodeToExpression(value))
 				}
 				// TODO probably just transfer the Map<> type itself
-				return NiceExpression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]))
+				return Expression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]))
 
 				case AssignOp(a, op, b):
-				return NiceExpression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+				return Expression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
 				case If(econd, eif, eelse):
 				// Check if it contains if-let bindings
@@ -658,35 +658,35 @@ class Normalizer {
 				}}
 
 				if not binds, econd.length == 1 {
-					return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+					return Expression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 				}
 
 				if not binds {
-					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
+					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
 					while i < econd.length {
-						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
+						parens = Expression.Binop(parens, Token.OpBoolAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
-					return NiceExpression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
+					return Expression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
 				}
 
-				return NiceExpression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+				return Expression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
 
 				case Index(expr, index):
-				return NiceExpression.Index(nodeToExpression(expr), nodeToExpression(index))
+				return Expression.Index(nodeToExpression(expr), nodeToExpression(index))
 
 				case As(e, kind, t): switch kind {
 					case Question:
 						console.log('`as?` is not yet supported by normalizer, only `as!`')
 					case OpNot:
-						return NiceExpression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
+						return Expression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
 					case _:
 						console.log('`as` is not yet supported by normalizer, only `as!`')
 				}
 
 				case Is(e, t):
-					return NiceExpression.Is(nodeToExpression(e), typer.types.get(t))
+					return Expression.Is(nodeToExpression(e), typer.types.get(t))
 
 				// Wraps switch into function and adds `return` on every case
 				case Switch(exprs, conds, guards, cases):
@@ -700,8 +700,8 @@ class Normalizer {
 						caseRet.push(Node.Return(c))
 					}
 					block.push(nodeToStatement(Node.Switch(exprs, conds, guards, caseRet)))
-					return NiceExpression.Call(
-						NiceExpression.Parenthesis(NiceExpression.Function(null, Statement.Block(block), [], [], funcType)),
+					return Expression.Call(
+						Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], funcType)),
 						[],
 						resultType,
 						CallKind.Function
@@ -880,8 +880,8 @@ class Normalizer {
 								}
 							}
 							switch b {
-								case String(s): values.push(NiceExpression.String(s))
-								case Int(s): values.push(NiceExpression.Int(s))
+								case String(s): values.push(Expression.String(s))
+								case Int(s): values.push(Expression.Int(s))
 								case _: console.error("(internal warning) Unknown node field value kind:", b)
 							}
 						// Just `ValueName`
@@ -1143,13 +1143,13 @@ class Normalizer {
 					// otherwise infinite loop happens
 					let it = unique('it')
 					return Statement.Block([
-						Statement.Var(i, NiceExpression.Int(0), typer.typeInt),
-						Statement.Var(it, NiceExpression.Int(0), typer.typeInt),
+						Statement.Var(i, Expression.Int(0), typer.typeInt),
+						Statement.Var(it, Expression.Int(0), typer.typeInt),
 						Statement.While(
-							NiceExpression.Binop(NiceExpression.Ident(it, typer.typeInt), Token.OpLt, NiceExpression.Int(s), typer.typeBool),
+							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.OpLt, Expression.Int(s), typer.typeBool),
 							Statement.Block([
-								Statement.Assign(NiceExpression.Ident(i, typer.typeInt), NiceExpression.Ident(it, typer.typeInt), null),
-								Statement.Increment(NiceExpression.Ident(it, typer.typeInt)),
+								Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+								Statement.Increment(Expression.Ident(it, typer.typeInt)),
 								nodeToStatement(by)
 							]),
 							true)
@@ -1170,19 +1170,19 @@ class Normalizer {
 						let finish = unique('at')
 
 						return Statement.Block([
-							Statement.Var(i, NiceExpression.Int(0), typer.typeInt),
-							Statement.Var(it, NiceExpression.Int(0), typer.typeInt),
+							Statement.Var(i, Expression.Int(0), typer.typeInt),
+							Statement.Var(it, Expression.Int(0), typer.typeInt),
 							Statement.Var(finish, nodeToExpression(over), typer.types.get(over)),
 							Statement.While(
-								NiceExpression.Binop(
-									NiceExpression.Ident(it, typer.typeInt),
+								Expression.Binop(
+									Expression.Ident(it, typer.typeInt),
 									Token.OpLt,
-									NiceExpression.Ident(finish, typer.types.get(over)),
+									Expression.Ident(finish, typer.types.get(over)),
 									typer.typeBool
 								),
 								Statement.Block([
-									Statement.Assign(NiceExpression.Ident(i, typer.typeInt), NiceExpression.Ident(it, typer.typeInt), null),
-									Statement.Increment(NiceExpression.Ident(it, typer.typeInt)),
+									Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+									Statement.Increment(Expression.Ident(it, typer.typeInt)),
 									nodeToStatement(by)
 								]),
 								true)
@@ -1207,14 +1207,14 @@ class Normalizer {
 					let finish = unique('at')
 
 					return Statement.Block([
-						Statement.Var(i, NiceExpression.Int(0), typer.typeInt),
+						Statement.Var(i, Expression.Int(0), typer.typeInt),
 						Statement.Var(it, nodeToExpression(over), typer.typeInt),
 						Statement.Var(finish, nodeToExpression(range), typer.typeInt),
 						Statement.While(
-							NiceExpression.Binop(NiceExpression.Ident(it, typer.typeInt), Token.OpLt, NiceExpression.Ident(finish, typer.typeInt), typer.typeBool),
+							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.OpLt, Expression.Ident(finish, typer.typeInt), typer.typeBool),
 							Statement.Block([
-								Statement.Assign(NiceExpression.Ident(i, typer.typeInt), NiceExpression.Ident(it, typer.typeInt), null),
-								Statement.Increment(NiceExpression.Ident(it, typer.typeInt)),
+								Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+								Statement.Increment(Expression.Ident(it, typer.typeInt)),
 								nodeToStatement(by)
 							]),
 							true)
@@ -1260,10 +1260,10 @@ class Normalizer {
 
 				// if cond, cond, cond...
 				if not binds {
-					var parens = NiceExpression.Parenthesis(nodeToExpression(econd[0]))
+					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
 					while i < econd.length {
-						parens = NiceExpression.Binop(parens, Token.OpBoolAnd, NiceExpression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
+						parens = Expression.Binop(parens, Token.OpBoolAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
 					return Statement.If(parens, nodeToStatement(eif), nodeToStatement(eelse))
@@ -1274,7 +1274,7 @@ class Normalizer {
 				var current = 0
 				// Builds kind of state machine here
 				let step = unique('step')
-				block.push(Statement.Var(step, NiceExpression.Int(0), typer.typeInt))
+				block.push(Statement.Var(step, Expression.Int(0), typer.typeInt))
 				var nullable = false
 				var last = ''
 				let lastType = typer.types.get(econd[0])
@@ -1291,17 +1291,17 @@ class Normalizer {
 				while current < econd.length - 1 { switch econd[current + 1] {
 					case Var(vname, t, expr, const):
 					let name = unique(vname, econd[current + 1])
-					block.push(Statement.Var(name, NiceExpression.Null, typer.types.get(expr)))
+					block.push(Statement.Var(name, Expression.Null, typer.types.get(expr)))
 					block.push(Statement.If(
-						NiceExpression.Binop(
-							NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(current + 0), typer.typeBool),
+						Expression.Binop(
+							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(current + 0), typer.typeBool),
 							Token.OpBoolAnd,
-							NiceExpression.Binop(NiceExpression.Ident(last, lastType), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null : Expression.False, typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
-							Statement.Assign(NiceExpression.Ident(name, typer.types.get(expr)), nodeToExpression(expr), null),
-							Statement.Assign(NiceExpression.Ident(step, typer.typeInt), NiceExpression.Int(current + 1), null)
+							Statement.Assign(Expression.Ident(name, typer.types.get(expr)), nodeToExpression(expr), null),
+							Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(current + 1), null)
 						]), null))
 					current++
 					last = name
@@ -1309,17 +1309,17 @@ class Normalizer {
 					case _:
 					let next = unique('temp')
 					let nextType = typer.types.get(econd[0])
-					block.push(Statement.Var(next, NiceExpression.Null, nextType))
+					block.push(Statement.Var(next, Expression.Null, nextType))
 					block.push(Statement.If(
-						NiceExpression.Binop(
-							NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(current + 0), typer.typeBool),
+						Expression.Binop(
+							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(current + 0), typer.typeBool),
 							Token.OpBoolAnd,
-							NiceExpression.Binop(NiceExpression.Ident(last, lastType), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null : Expression.False, typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
-							Statement.Assign(NiceExpression.Ident(next, nextType), nodeToExpression(econd[current + 1]), null),
-							Statement.Assign(NiceExpression.Ident(step, typer.typeInt), NiceExpression.Int(current + 1), null)
+							Statement.Assign(Expression.Ident(next, nextType), nodeToExpression(econd[current + 1]), null),
+							Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(current + 1), null)
 						]), null))
 					current++
 					last = next
@@ -1328,17 +1328,17 @@ class Normalizer {
 
 				// Last step
 				block.push(Statement.If(
-					NiceExpression.Binop(
-						NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(econd.length - 1), typer.typeBool),
+					Expression.Binop(
+						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(econd.length - 1), typer.typeBool),
 						Token.OpBoolAnd,
-						NiceExpression.Binop(NiceExpression.Ident(last, lastType), Token.OpNotEq, nullable? NiceExpression.Null : NiceExpression.False, typer.typeBool),
+						Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null : Expression.False, typer.typeBool),
 						typer.typeBool
 					),
-					Statement.Assign(NiceExpression.Ident(step, typer.typeInt), NiceExpression.Int(econd.length), null), null))
+					Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(econd.length), null), null))
 
 				// if (step == steps)
 				block.push(Statement.If(
-					NiceExpression.Binop(NiceExpression.Ident(step, typer.typeInt), Token.OpEq, NiceExpression.Int(econd.length), typer.typeBool),
+					Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(econd.length), typer.typeBool),
 					nodeToStatement(eif), nodeToStatement(eelse)))
 
 				return Statement.Block(block)
@@ -1409,31 +1409,31 @@ class Normalizer {
 					for i in cases.length {
 
 						fun toCase(co: Node) { switch co {
-							case Null: return NiceExpression.Null
-							case Underscore: return NiceExpression.Underscore
-							case String(v): return NiceExpression.String(v)
-							case Int(v): return NiceExpression.Int(v)
-							case Float(v): return NiceExpression.Float(v)
+							case Null: return Expression.Null
+							case Underscore: return Expression.Underscore
+							case String(v): return Expression.String(v)
+							case Int(v): return Expression.Int(v)
+							case Float(v): return Expression.Float(v)
 							case Bool(v):
 								if v {
-									return NiceExpression.True
+									return Expression.True
 								}
-								return NiceExpression.False
-							case Dot(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
-							case DotUpper(expr, name): return NiceExpression.Dot(nodeToExpression(expr), name, null)
+								return Expression.False
+							case Dot(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
+							case DotUpper(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
 							case Binop(a, op, b): switch op {
-							case OpOr: return NiceExpression.Binop(toCase(a), Token.OpOr, toCase(b), null)
+							case OpOr: return Expression.Binop(toCase(a), Token.OpOr, toCase(b), null)
 								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
 							}
 							case Call(e, args, argNames): switch e {
 								case DotUpper(expr, name):
 									let a = []
 									for arg in args.length { switch args[arg] {
-										case Ident(name): a.push(NiceExpression.Ident(unique(name, args[arg]), null))
-										case Underscore: a.push(NiceExpression.Underscore)
+										case Ident(name): a.push(Expression.Ident(unique(name, args[arg]), null))
+										case Underscore: a.push(Expression.Underscore)
 										case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
 									}}
-									return NiceExpression.Call(nodeToExpression(e), a, null, CallKind.Function)
+									return Expression.Call(nodeToExpression(e), a, null, CallKind.Function)
 								case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
 							}
 							case _:
@@ -1448,7 +1448,7 @@ class Normalizer {
 
 				let temp = unique('temp')
 				let value = nodeToExpression(exprs[0])
-				var index = NiceExpression.Ident(temp, null)
+				var index = Expression.Ident(temp, null)
 				var promoted = false
 				var enumType: EnumType? = null
 
@@ -1458,15 +1458,15 @@ class Normalizer {
 				// `case Nullable(type) or type: switch type { case Enum(type) or EnumInstance(type):`
 				switch Type.unwrapNullable(typer.types.get(exprs[0])) {
 					case Enum(type):
-						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
+						if (type.fieldsTypeSimple == null) { index = Expression.EnumTag(index) promoted = true }
 						enumType = type
 					case EnumInstance(type):
-						if (type.fieldsTypeSimple == null) { index = NiceExpression.EnumTag(index) promoted = true }
+						if (type.fieldsTypeSimple == null) { index = Expression.EnumTag(index) promoted = true }
 						enumType = type
 				}
 
 				var i = 0
-				let guardians: [NiceExpression] = []
+				let guardians: [Expression] = []
 				let binds: [[Statement]] = []
 
 				for ec in cases {
@@ -1477,16 +1477,16 @@ class Normalizer {
 					binds.push(binders)
 
 					fun addTag(co: Node) { switch co {
-						case Null: cx.push(NiceExpression.Null)
+						case Null: cx.push(Expression.Null)
 						case Underscore:
-						case String(v): cx.push(NiceExpression.String(v))
-						case Int(v): cx.push(NiceExpression.Int(v))
-						case Float(v): cx.push(NiceExpression.Float(v))
+						case String(v): cx.push(Expression.String(v))
+						case Int(v): cx.push(Expression.Int(v))
+						case Float(v): cx.push(Expression.Float(v))
 						case Bool(v):
 							if v {
-								cx.push(NiceExpression.True)
+								cx.push(Expression.True)
 							} else {
-								cx.push(NiceExpression.False)
+								cx.push(Expression.False)
 							}
 						case Call(e, args, argNames):
 							switch e {
@@ -1506,7 +1506,7 @@ class Normalizer {
 							}
 							// Promote to complex enum
 							if not promoted {
-								index = NiceExpression.EnumTag(index)
+								index = Expression.EnumTag(index)
 							}
 							promoted = true
 							for arg in args.length { switch args[arg] {
@@ -1514,8 +1514,8 @@ class Normalizer {
 									binders.push(
 										Statement.Const(
 											unique(name, args[arg]),
-											NiceExpression.EnumParameter(
-												NiceExpression.Ident(temp, typer.types.get(args[arg])),
+											Expression.EnumParameter(
+												Expression.Ident(temp, typer.types.get(args[arg])),
 												arg
 											),
 											typer.types.get(args[arg])
@@ -1601,7 +1601,7 @@ class Normalizer {
 			return null
 		}
 
-		fun getTag(enumNode: Node, name: String): NiceExpression? {
+		fun getTag(enumNode: Node, name: String): Expression? {
 			switch enumNode {
 				case Enum(t, fields, valuesType):
 				var typed: EnumType = null as! EnumType
@@ -1616,18 +1616,18 @@ class Normalizer {
 							case Type(n):
 								if (n == name) {
 									if (typed.fieldsTypeSimple == typer.typeString) {
-										return NiceExpression.String(n)
+										return Expression.String(n)
 									}
 								}
 								if (n == name) {
-									return NiceExpression.Int(i)
+									return Expression.Int(i)
 								}
 						}
 						case Call(e, _): switch e {
 							case NodeTypeValue(t): switch t {
 								case Type(n):
 									if (n == name) {
-										return NiceExpression.Int(i)
+										return Expression.Int(i)
 									}
 							}
 						}
@@ -1825,7 +1825,7 @@ class Normalizer {
 		}}
 
 		// Saves if value viable for constant propagation
-		fun saveInlineIfViable(e: Node, value: NiceExpression) {
+		fun saveInlineIfViable(e: Node, value: Expression) {
 			switch value {
 				case Int(_): inline.set(e, value)
 				case String(_): inline.set(e, value)
