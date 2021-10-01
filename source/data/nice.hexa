@@ -17,29 +17,29 @@
 enum Statement {
 	Statements(el: [Statement]) // Multiple statements *not* wrapped into a block
 	Block(el: [Statement])
-	Call(e: NiceExpression, args: [NiceExpression], expects: [Type], kind: CallKind)
-	Var(name: String, expr: NiceExpression, type: Type)
-	Const(name: String, expr: NiceExpression, type: Type)
-	Function(name: String, expr: Statement, args: [String], defaults: [NiceExpression], funcType: Type)
-	Return(e: NiceExpression) // TODO Null?
-	If(econd: NiceExpression, eif: Statement, eelse: Statement) // TODO Null?
-	Try(expr: NiceExpression, t: [Type], v: [String], catches: [Statement], temp: String)
-	Throw(value: NiceExpression)
-	Assign(name: NiceExpression, value: NiceExpression, to: Type)
-	Assignop(name: NiceExpression, op: Token, value: NiceExpression)
-	For(name: String, over: NiceExpression, by: Statement)
-	While(econd: NiceExpression, e: Statement, pre: Bool)
-	Increment(e: NiceExpression)
-	Decrement(e: NiceExpression)
-	Switch(expr: NiceExpression, cases: [[NiceExpression]], statements: [Statement], guards: [NiceExpression], binds: [[Statement]])
+	Call(e: Expression, args: [Expression], expects: [Type], kind: CallKind)
+	Var(name: String, expr: Expression, type: Type)
+	Const(name: String, expr: Expression, type: Type)
+	Function(name: String, expr: Statement, args: [String], defaults: [Expression], funcType: Type)
+	Return(e: Expression) // TODO Null?
+	If(econd: Expression, eif: Statement, eelse: Statement) // TODO Null?
+	Try(expr: Expression, t: [Type], v: [String], catches: [Statement], temp: String)
+	Throw(value: Expression)
+	Assign(name: Expression, value: Expression, to: Type)
+	Assignop(name: Expression, op: Token, value: Expression)
+	For(name: String, over: Expression, by: Statement)
+	While(econd: Expression, e: Statement, pre: Bool)
+	Increment(e: Expression)
+	Decrement(e: Expression)
+	Switch(expr: Expression, cases: [[Expression]], statements: [Statement], guards: [Expression], binds: [[Statement]])
 	Continue
 	Break
-	SuperConstructor(args: [NiceExpression])
+	SuperConstructor(args: [Expression])
 	// TODO seems like types *here* `EnumValue(e: THISTYPE)` not checked
 }
 
 // Returns a value
-enum NiceExpression {
+enum Expression {
 		String(s: String)
 		Int(v: Int)
 		MetaInt(v: BigInt, meta: Meta, type: Type)
@@ -49,35 +49,35 @@ enum NiceExpression {
 		Ident(s: String, type: Type)
 		Null
 		This(me: Type)
-		Dot(expr: NiceExpression, name: String, result: Type)
-		Call(e: NiceExpression, args: [NiceExpression], result: Type, kind: CallKind)
-		New(e: NiceExpression, args: [NiceExpression], result: Type)
-		Binop(a: NiceExpression, op: Token, b: NiceExpression, result: Type)
-		Function(name: String, expr: Statement, args: [String], defaults: [NiceExpression], funcType: Type)
-		Arrow(expr: NiceExpression, args: [String], defaults: [NiceExpression], types: [NodeType], returns: NodeType, funcType: Type)
-		Parenthesis(inner: NiceExpression)
-		Object(names: [String], el: [NiceExpression], types: [NodeType])
-		Array(values: [NiceExpression], arrayType: Type)
-		Map(keys: [NiceExpression], values: [NiceExpression], keyType: NodeType, valueType: NodeType)
-		Unop(op: Token, postfix: Bool, e: NiceExpression)
+		Dot(expr: Expression, name: String, result: Type)
+		Call(e: Expression, args: [Expression], result: Type, kind: CallKind)
+		New(e: Expression, args: [Expression], result: Type)
+		Binop(a: Expression, op: Token, b: Expression, result: Type)
+		Function(name: String, expr: Statement, args: [String], defaults: [Expression], funcType: Type)
+		Arrow(expr: Expression, args: [String], defaults: [Expression], types: [NodeType], returns: NodeType, funcType: Type)
+		Parenthesis(inner: Expression)
+		Object(names: [String], el: [Expression], types: [NodeType])
+		Array(values: [Expression], arrayType: Type)
+		Map(keys: [Expression], values: [Expression], keyType: NodeType, valueType: NodeType)
+		Unop(op: Token, postfix: Bool, e: Expression)
 		Elvis(nullable: Node, othewise: Node)
-		If(econd: NiceExpression, eif: NiceExpression, eelse: NiceExpression) // TODO Null?
-		Index(expr: NiceExpression, index: NiceExpression)
-		UnsafeBitCast(expr: NiceExpression, to: Type)
-		Is(expr: NiceExpression, of: Type)
+		If(econd: Expression, eif: Expression, eelse: Expression) // TODO Null?
+		Index(expr: Expression, index: Expression)
+		UnsafeBitCast(expr: Expression, to: Type)
+		Is(expr: Expression, of: Type)
 
 		/// name op= value
-		Assignop(name: NiceExpression, op: Token, value: NiceExpression)
-		NativeOperator(kind: NativeOperatorKind, args: [NiceExpression], name: String)
+		Assignop(name: Expression, op: Token, value: Expression)
+		NativeOperator(kind: NativeOperatorKind, args: [Expression], name: String)
 
 		/// `switch expr.tag` extracts tag for `case tag` patterns
-		EnumTag(expr: NiceExpression)
+		EnumTag(expr: Expression)
 
 		/// Type.TagName(args)
-		Enum(type: String, tagName: String, tag: NiceExpression, args: [NiceExpression])
+		Enum(type: String, tagName: String, tag: Expression, args: [Expression])
 
 		/// `case E.N(parameter1, parameter2):` does `parameterN` extraction
-		EnumParameter(expr: NiceExpression, index: Int)
+		EnumParameter(expr: Expression, index: Int)
 
 		/// `_` used in case patterns (when native enums enabled)
 		Underscore
@@ -107,10 +107,10 @@ class NiceProject {
 	let init: [Statement] = []
 	var package: Package
 	var typer: Typer
-	let expressionType: [NiceExpression : Type] = [:]
-	let expressionPosition: [NiceExpression : NodeData] = [:]
+	let expressionType: [Expression : Type] = [:]
+	let expressionPosition: [Expression : NodeData] = [:]
 	let statementPosition: [Statement : NodeData] = [:]
-	let native: [NiceExpression : Bool] = [:]
+	let native: [Expression : Bool] = [:]
 
 	new () {}
 }
@@ -142,7 +142,7 @@ class NiceSimpleEnum {
 	var name: String
 	var external: Bool
 	var names: [String]
-	var values: [NiceExpression]
+	var values: [Expression]
 	var staticMethods: [Statement] = []
 	var staticVars: [Statement] = []
 }
