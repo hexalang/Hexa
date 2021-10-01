@@ -71,10 +71,10 @@
 				types.push('struct ' + e.name + '_ {')
 
 				for v in e.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
 						out.push('\(stringifyType(type)) ' + e.name + '_$' + name + '_;\n')
-					case NiceStatement.Const(name, expr, type):
 						out.push('\(stringifyType(type)) ' + e.name + '_$' + name + '_;\n')
+					case Var(name, expr, type):
+					case Const(name, expr, type):
 				}}
 
 				types.push('\n};\n')
@@ -181,7 +181,7 @@
 				}}
 
 				for v in c.methods { switch v {
-					case NiceStatement.Function(name, expr, args, defaults, funcType):
+					case Function(name, expr, args, defaults, funcType):
 						if (name == null || name == 'new') {
 							types.push('\n\t' + c.name + '_() {};') // For placement new
 
@@ -202,11 +202,11 @@
 							// Init fields
 							customThis = 'this'
 							for v in c.vars { switch v {
-								case NiceStatement.Var(name, expr, type):
+								case Var(name, expr, type):
 									if (expr != null) {
 										out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
 									}
-								case NiceStatement.Const(name, expr, type):
+								case Const(name, expr, type):
 									out.push('\tthis->' + name + '_ = ' + printExpression(expr) + ';\n')
 							}}
 							pushTab()
@@ -265,10 +265,10 @@
 				}}
 
 				for v in c.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 						types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
 						out.push('\(stringifyType(type)) ' + c.name + '_::' + name + '_;\n')
-					case NiceStatement.Const(name, expr, type):
+					case Const(name, expr, type):
 						types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
 						out.push('\(stringifyType(type)) ' + c.name + '_::' + name + '_;\n')
 				}}
@@ -285,7 +285,7 @@
 				types.push('\n};\n')
 
 				for v in c.staticMethods { switch v {
-					case NiceStatement.Function(name, expr, args, defaults, funcType):
+					case Function(name, expr, args, defaults, funcType):
 						out.push(printFunctionReturnType(funcType))
 						out.push(' ' + c.name + '_::' + name + '_')
 						out.push(printFunctionArguments(args, funcType))
@@ -298,7 +298,7 @@
 			}
 
 			for g in project.globalFuncs { switch g {
-				case NiceStatement.Function(name, expr, args, defaults, funcType):
+				case Function(name, expr, args, defaults, funcType):
 					types.push(printFunctionReturnType(funcType))
 					types.push(' ' + name + '_')
 					types.push(printFunctionArguments(args, funcType))
@@ -321,11 +321,11 @@
 
 			for e in project.enumsSimple {
 				for v in e.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 						if (expr != null) {
 							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
-					case NiceStatement.Const(name, expr, type):
+					case Const(name, expr, type):
 						if (expr != null) {
 							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
@@ -334,11 +334,11 @@
 
 			for e in project.enumsComplex {
 				for v in e.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 						if (expr != null) {
 							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
-					case NiceStatement.Const(name, expr, type):
+					case Const(name, expr, type):
 						if (expr != null) {
 							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
@@ -347,11 +347,11 @@
 
 			for e in project.classes {
 				for v in e.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 						if (expr != null) {
 							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
-					case NiceStatement.Const(name, expr, type):
+					case Const(name, expr, type):
 						if (expr != null) {
 							out.push('\t' + e.name + '_::' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
@@ -359,13 +359,13 @@
 			}
 
 			for g in project.globalVars { switch g {
-				case NiceStatement.Var(name, expr, type):
+				case Var(name, expr, type):
 					types.push(stringifyType(type))
 					types.push(' ' + name + '_;\n')
 					if (expr != null) {
 						out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
 					}
-				case NiceStatement.Const(name, expr, type):
+				case Const(name, expr, type):
 					types.push(stringifyType(type))
 					types.push(' ' + name + '_;\n')
 					if (expr != null) {
@@ -425,13 +425,13 @@
 				declarationsOfOpaqueTypes.push('typedef uint16_t _x' + e.name)
 				// TODO typedef, renamed
 				for v in e.staticVars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 						out += '\n' + stringifyType(type) + ' _x' + e.name + '_' + name
 						if (expr != null) {
 							out += ' = ' + printExpression(expr) + ';' //!to constructor
 						}
 						// += ;
-					case NiceStatement.Const(name, expr, type):
+					case Const(name, expr, type):
 						out += '\n' + stringifyType(type) + ' _x' + e.name + '_' + name
 						out += ' = ' + printExpression(expr) + ';'
 				}}
@@ -461,16 +461,16 @@
 				declarationsOfOpaqueTypes.push('typedef struct \(renamed)* \(renamed)')
 				t.push('\n _xclass _xclass;') // Reference counting and metatable
 				for v in c.vars { switch v {
-					case NiceStatement.Var(name, expr, type):
+					case Var(name, expr, type):
 					t.push('\n ' + stringifyType(type) + ' _x' + name + ';')
 					//if (expr != null) out += ' = ' + printExpression(expr)
 					//t.push(';')
-					case NiceStatement.Const(name, expr, type):
+					case Const(name, expr, type):
 					//t.push('\n ' + printType(type) + ' = ' + printExpression(expr) + ';')
 					t.push('\n ' + stringifyType(type) + ' _x' + name + ';')
 				}}
 				for v in c.methods { switch v {
-					case NiceStatement.Function(name, expr, args, defaults): // Class method
+					case Function(name, expr, args, defaults): // Class method
 					let types = null
 					let returns = null
 					var declaration = printType(returns) + ' '
@@ -506,11 +506,11 @@
 						out += '\n \(renamed) _xthis = (\(renamed))HEXA_NEW(sizeof(\(renamed)));'
 						// Init fields
 						for v in c.vars { switch v {
-							case NiceStatement.Var(name, expr, type):
+							case Var(name, expr, type):
 							if (expr != null) {
 								out += '\n _xthis->_x' + name + ' = ' + printExpression(expr) + ';'
 							}
-							case NiceStatement.Const(name, expr, type):
+							case Const(name, expr, type):
 							out += '\n _xthis->_x' + name + ' = ' + printExpression(expr) + ';'
 						}}
 						out += '\n '
