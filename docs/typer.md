@@ -1,6 +1,5 @@
 # Typer
 
-
 ## Tasks 0.1
 
 - [ ] Evaluate syntax transformers upfront

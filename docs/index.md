@@ -1,4 +1,4 @@
-### The Hexa Compiler
+# The Hexa Compiler
 
 Description of compiler internals with corresponding tasks (TODOs).
 
