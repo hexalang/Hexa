@@ -79,18 +79,6 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - [Why Hexa?](https://hexalang.github.io/book/Profit.html)
 - [Contribute your compilation target](https://hexalang.github.io/book/Targets.html)
 
-## Enjoy
-
-While compiler is in dev, here's some cool music to listen :headphones:
-
-- [Cyberpunk 2077 Radio Mix](https://www.youtube.com/watch?v=Q9yn1DpZkHQ)
-- [Home Cooked](https://www.youtube.com/watch?v=EyLlOio4bUU)
-- [Drip](https://www.youtube.com/watch?v=Bm-q0v0ZYf4)
-- [Stay Here Tonight](https://soundcloud.com/just-portals/stay-here-tonight)
-- [Standing Over Here](https://soundcloud.com/just-portals/standing-over-herexx)
-- [Paranoid](https://soundcloud.com/pistutm/dansette-junior-paranoid-official-video)
-- [Gifted](https://soundcloud.com/josecfmarques/n-a-s-a-feat-kanye-west)
-
 ## Build
 
 You need to download latest long-term [Node.js LTS](https://nodejs.org/).
