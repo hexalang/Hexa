@@ -1,4 +1,4 @@
-# html-raytracer
+# HTML Raytracer
 
 ![Screenshot](screenshot.jpg?raw=true)
 

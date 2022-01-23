@@ -10,7 +10,7 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 
 - [ ] Support full JSON token set
   - [ ] Write tests
-- [ ] Read regular expressions ` ~/.../i`
+- [ ] Read regular expressions `~/.../i`
 - [ ] Parse all integer representations
   - [ ] `123`
   - [ ] `1_000_000`
@@ -25,6 +25,6 @@ Lexer ignores [UTF-8 BOM](https://en.wikipedia.org/wiki/Byte_order_mark) header 
 ## Tasks 0.2
 
 - [ ] Validate integer representations
-    - [ ] Disallow trailing `_` underscore (rfc) example: `123_`, `123__`
+  - [ ] Disallow trailing `_` underscore (rfc) example: `123_`, `123__`
 - [ ] Validate float representations
-    - [ ] Disallow trailing `_` underscore (rfc) example: `123._`, `123.0__`, etc
+  - [ ] Disallow trailing `_` underscore (rfc) example: `123._`, `123.0__`, etc

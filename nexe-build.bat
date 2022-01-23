@@ -1,4 +1,4 @@
-nexe hexa-node.js --target win32-x86-9.8.0 --ico icon.ico --name hexa -o hexa
+nexe hexa-node.js --target windows-x64-14.15.3 --ico icon.ico --name hexa -o hexa
 set ResourceHacker="ResourceHacker.exe"
 @echo off
 if exist %ResourceHacker% (

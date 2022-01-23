@@ -1,4 +1,8 @@
+<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD041 -->
 <img align="left" width="96px" height="96px" src="https://hexalang.github.io/favicon/favicon-96x96.png" />
+<!-- markdownlint-enable MD041 -->
+<!-- markdownlint-enable MD033 -->
 
 # Hexa
 
@@ -41,19 +45,18 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 > **WIP — Work in progress, coming soon**
 
-
 ## Download
 
 - [`kawaii`](https://github.com/hexalang/hexa/tree/kawaii) is the development branch and accepts pull requests
 - [`artifacts`](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts) are built from each kawaii commit *and* pull requests
 
-#### Stable
+### Stable
 
 - [Try Hexa online without installation](https://hexalang.github.io/try/)
 - [**Latest stable release**](https://github.com/hexalang/hexa/releases/latest)
 - [All releases](https://github.com/hexalang/hexa/releases)
 
-#### Unstable
+### Unstable
 
 - [Latest build from git](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts)
 - [Build from source](https://github.com/hexalang/hexa#build)
@@ -75,18 +78,6 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
 - [Why Hexa?](https://hexalang.github.io/book/Profit.html)
 - [Contribute your compilation target](https://hexalang.github.io/book/Targets.html)
-
-## Enjoy!
-
-While compiler is in dev, here's some cool music to listen :headphones:
-
-* [Cyberpunk 2077 Radio Mix](https://www.youtube.com/watch?v=Q9yn1DpZkHQ)
-* [Home Cooked](https://www.youtube.com/watch?v=EyLlOio4bUU)
-* [Drip](https://www.youtube.com/watch?v=Bm-q0v0ZYf4)
-* [Stay Here Tonight](https://soundcloud.com/just-portals/stay-here-tonight)
-* [Standing Over Here](https://soundcloud.com/just-portals/standing-over-herexx)
-* [Paranoid](https://soundcloud.com/pistutm/dansette-junior-paranoid-official-video)
-* [Gifted](https://soundcloud.com/josecfmarques/n-a-s-a-feat-kanye-west)
 
 ## Build
 
