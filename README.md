@@ -8,21 +8,19 @@
 
 `Her name is [geksa]`
 
-[![Join the Gitter chat](https://badges.gitter.im/hexalang/hexalang.svg)](https://gitter.im/hexalang?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg?logo=telegram)](https://t.me/hexalang)
+[![Telegram feed](https://img.shields.io/badge/news-on%20telegram-blue.svg?logo=telegram)](https://t.me/s/hexalang_news)
 [![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg?logo=GitHub)](https://t.me/hexalang_github)
-[![Twitter](https://img.shields.io/badge/twitter-@hexalang-blue.svg?logo=Twitter)](https://twitter.com/hexalang)
 [![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/blog/)
 [![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
 [![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/kawaii?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/kawaii)
-[![Website](https://img.shields.io/badge/home-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
+[![Website](https://img.shields.io/badge/web-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
 Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps
 
 [![Try Hexa online without installation](preview.png?raw=true)](https://hexalang.github.io/try/)
 
 [![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg?logo=Arch-Linux)](https://aur.archlinux.org/packages/hexa-git)
-[![DOCs and TODOs](https://img.shields.io/badge/compiler-docs%20and%20TODOs-yellow.svg)](https://hexalang.github.io/hexa/)
 [![Donate](https://img.shields.io/badge/donate-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
 [![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
 [![Discord](https://img.shields.io/badge/Discord-join-758EDC.svg?logo=discord)](https://discord.gg/SsAWf9M)
@@ -49,9 +47,8 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 ## Download
 
-- [`isekai`](https://github.com/hexalang/hexa/tree/isekai) is the development branch and accepts pull requests
-- [`kawaii`](https://github.com/hexalang/hexa/tree/kawaii) is the non-development branch, it is merged from `isekai` and does *not* accept pull requests
-  - To build the latest stable, clone `kawaii`: `git clone --branch kawaii --recursive --depth 100 https://github.com/hexalang/hexa.git`
+- [`kawaii`](https://github.com/hexalang/hexa/tree/kawaii) is the development branch and accepts pull requests
+- [`artifacts`](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts) are built from each kawaii commit *and* pull requests
 
 ### Stable
 
