@@ -31,6 +31,7 @@ enum ServerCommandKind : String {
 	AutocheckProject
 
 	// IntelliSense
+	CompletionItemProvider
 	DocumentSymbolProvider
 
 	// Deprecated commands here
@@ -41,6 +42,40 @@ declare class ServerCommand {
 	let kind: ServerCommandKind
 	// TODO `@as("p")`
 	let payload: Any
+}
+
+enum CompletionItemKind : Int {
+	Text
+	Method
+	Function
+	Constructor
+	Field
+	Variable
+	Class
+	Interface
+	Module
+	Property
+	Unit
+	Value
+	Enum
+	Keyword
+	Snippet
+	Color
+	Reference
+	File
+	Folder
+	EnumMember
+	Constant
+	Struct
+	Event
+	Operator
+	TypeParameter
+	User
+	Issue
+}
+
+enum CompletionItemTag : Int {
+    Deprecated = 1
 }
 
 enum SymbolKind : Int {
@@ -336,6 +371,103 @@ class Server {
 									let fsPath: String = command.payload
 
 									response.push(findProjectFile(fsPath))
+
+								case CompletionItemProvider:
+									let fsPath: String = Path.resolve(command.payload.fsPath)
+									let project = findProjectFile(fsPath)
+
+									if project.found == true {
+										// TODO try-catch `typecheck`
+										try {
+										let main = new Main()
+										let e: CompilerErrors = main.typecheck(project.dir)
+										let completes = []
+
+										let errors: [CompilerError] = e.errors
+
+										var typecheckProject: Project = main.typecheckProject
+
+										for mod in typecheckProject.moduleInfo {
+
+											if mod.file != fsPath {
+												continue
+											}
+
+											let available = []
+
+											for name in mod.imported.keys() {
+												available.push(name)
+											}
+
+											for name in mod.exported.keys() {
+												available.push(name)
+											}
+
+											// TODO sort global to lower positions
+											for name in typecheckProject.globals.keys() {
+												if not available.includes(name) {
+													available.push(name)
+												}
+											}
+
+											for name in available {
+												var node = mod.exported.get(name)
+												// TODO path is not relative to json?
+												var imported = ''
+												var file = ''
+
+												if node == null {
+													node = mod.imported.get(name)
+
+													if node != null, let mod = typecheckProject.mapModules.get(node) {
+														imported = mod.path
+														file = mod.file
+													}
+												}
+
+												if node == null {
+													imported = '*'
+													node = typecheckProject.globals.get(name)
+												}
+
+												let complete = {
+													imported: imported,
+													file: file,
+													name: name,
+													detail: name,
+													kind: CompletionItemKind.Text
+												}
+
+												switch node as! Node {
+													case Class(t, _):
+														// TODO stringify <T>
+														complete.detail = 'class ' + NodeType.stringify(t) + ' { … }'
+														complete.kind = CompletionItemKind.Class
+													case Enum(t, _):
+														complete.detail = 'enum ' + NodeType.stringify(t) + ' { … }'
+														complete.kind = CompletionItemKind.Enum
+													case Var(_, _, _, const):
+														complete.detail = (const? 'let ' : 'var ') + name
+														complete.kind = CompletionItemKind.Variable
+													case Function(_):
+														complete.detail = 'fun ' + name + '() { … }'
+														complete.kind = CompletionItemKind.Function
+												}
+
+												completes.push(complete)
+											}
+
+											// TODO
+											break
+										}
+
+										response.push(completes)
+										} catch e: Any {
+
+										}
+									} else {
+										response.push([])
+									}
 
 								case _:
 									console.log('Unknown command kind', command.kind, command)
