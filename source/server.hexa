@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// TODO `@lowercaseTagNames` `Tag` => `Tag = 'tag'`
 enum ServerCommandKind : String {
+	// TODO Use `@deprecated` for obsolete commands or just explicit integers Tag = 123
 	// Only syntax check
 	GetWholeFileSyntaxErrors
 
@@ -27,15 +29,58 @@ enum ServerCommandKind : String {
 
 	// Uses `FindProjectFile` internally
 	AutocheckProject
+
+	// IntelliSense
+	DocumentSymbolProvider
+
+	// Deprecated commands here
 }
 
 declare class ServerCommand {
+	// TODO `@as("k")`
 	let kind: ServerCommandKind
+	// TODO `@as("p")`
 	let payload: Any
+}
+
+enum SymbolKind : Int {
+	File = 0
+	Module = 1
+	Namespace = 2
+	Package = 3
+	Class = 4
+	Method = 5
+	Property = 6
+	Field = 7
+	Constructor = 8
+	Enum = 9
+	Interface = 10
+	Function = 11
+	Variable = 12
+	Constant = 13
+	String = 14
+	Number = 15
+	Boolean = 16
+	Array = 17
+	Object = 18
+	Key = 19
+	Null = 20
+	EnumMember = 21
+	Struct = 22
+	Event = 23
+	Operator = 24
+	TypeParameter = 25
+}
+
+// TODO DocumentSymbol.tags?: readonly SymbolTag[];
+enum SymbolTag : Int {
+	Deprecated = 1
 }
 
 let fileContents: [String : Buffer] = [:]
 
+// TODO cache of file by path should always check if file exists before using (not required for remote dependencies)
+// TODO cache (but not forever, recheck (invalidate all cache or if json deleted) for new files?)
 fun findProjectFile(fsPath: String) {
 	var lastPath = '*'
 	var dir = Path.dirname(fsPath)
@@ -69,6 +114,23 @@ fun syntaxCheckOnly(file: String, content: Buffer): [CompilerError] {
 	} catch e: CompilerErrors { // TODO catch () here?
 		let errors: [CompilerError] = e.errors
 		return errors
+	}
+
+	return []
+}
+
+fun parseOnly(file: String, content: Buffer, project: Project): [Node] {
+	try {
+		let tokens = Lexer.tokenize(content, file)
+		try {
+			// TODO argName: lint: typechek
+			return Parser.parseNodes(tokens, project, lint: true)
+			// TODO handle `hexa.json defines`!!!
+		} catch e: CompilerErrors {
+			return []
+		}
+	} catch e: CompilerErrors {
+		return []
 	}
 
 	return []
@@ -124,6 +186,116 @@ class Server {
 									let errors: [CompilerError] = syntaxCheckOnly(file, content)
 									for error in errors {
 										response.push(error)
+									}
+
+								case DocumentSymbolProvider:
+									// TODO guard ?payload
+									let fsPath: String = Path.resolve(command.payload.fsPath)
+									let content: Buffer? = fileContents.get(fsPath)
+
+									if let buffer = content {
+										let project = new Project()
+										let nodes: [Node] = parseOnly(fsPath, content, project)
+
+										var lastPos = {line: 1, start: 1, end: 1}
+										// TODO offset of name, so selects `class Xx` not `cl`
+										fun posToRange(node: Node, length: Int) {
+											let data = project.data.get(node)
+											if let data = data {
+												lastPos = {
+													line: data.line - 1,
+													start: data.column,
+													end: data.column + length
+												}
+											}
+											return lastPos
+										}
+
+										// TODO nested exprs (single level of fun nesting for clarity?)
+										fun fieldToSymbol(node: Node, isStatic: Bool) {
+											switch node {
+												case Var(name, t, _, const):
+													return {
+														name: name,
+														// TODO better stringify
+														detail: (isStatic? 'static ' : '') + NodeType.stringify(t),
+														kind: const? SymbolKind.Constant : SymbolKind.Variable,
+														range: posToRange(node, name.length),
+														children: []
+													}
+												case Function(name, _, _, _, external):
+													let name = name ?? 'new'
+													return {
+														name: name,
+														// TODO better stringify
+														detail: external? 'declare fun' : (
+															isStatic? 'static fun' : (name == 'new'? 'constructor' : 'fun')
+														),
+														kind: SymbolKind.Function,
+														range: posToRange(node, name.length),
+														children: []
+													}
+												case Static(field): return fieldToSymbol(node: field, isStatic: true)
+											}
+
+											// TODO require `throw ...` here for totality
+											return null // {what: 'lmao?'}
+										}
+
+										// TODO `Method` instead of `SymbolKind.Function`
+										// TODO enum Tags
+										// TODO option to disable nested exprs outline
+										fun fieldsToSymbols(fields: [Node]) {
+											return fields.map(field => fieldToSymbol(field, isStatic: false)).filter(f => f != null)
+										}
+
+										for node in nodes {
+											switch node {
+												case Var(_): response.push(fieldToSymbol(node, isStatic: false))
+												case Function(_): response.push(fieldToSymbol(node, isStatic: false))
+
+												case Class(t, extend, implement, fields, _):
+													// TODO `implement`
+													var detail = 'class'
+													// TODO shortcut `if let extend {}` musthave
+													if let extend = extend {
+														detail = 'extends ' + NodeType.stringify(extend)
+													}
+
+													let name = NodeType.stringify(t)
+													response.push({
+														// TODO just `name,`
+														name: name,
+														detail: detail,
+														kind: SymbolKind.Class,
+														range: posToRange(node, name.length),
+														children: fieldsToSymbols(fields)
+													})
+
+												case Enum(t, fields, valuesType, _):
+													// TODO `extend`
+													var detail = 'enum'
+													// TODO shortcut `if let extend {}` musthave
+													if let valuesType = valuesType {
+														detail = ': ' + NodeType.stringify(valuesType)
+													}
+
+													let name = NodeType.stringify(t)
+													response.push({
+														// TODO just `name,`
+														name: name,
+														detail: detail,
+														kind: SymbolKind.Enum,
+														range: posToRange(node, name.length),
+														children: fieldsToSymbols(fields)
+													})
+
+												// TODO more node kinds?
+											}
+										}
+									} else {
+										// TODO then what?
+										response.push({ fail: 'notInCache', fsPath: fsPath })
 									}
 
 								case SyncFileContents:
