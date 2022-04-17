@@ -33,6 +33,7 @@ enum ServerCommandKind : String {
 	// IntelliSense
 	CompletionItemProvider
 	DocumentSymbolProvider
+	HoverProvider
 
 	// Deprecated commands here
 }
@@ -74,6 +75,7 @@ enum CompletionItemKind : Int {
 	Issue
 }
 
+// TODO use it
 enum CompletionItemTag : Int {
     Deprecated = 1
 }
@@ -223,6 +225,87 @@ class Server {
 										response.push(error)
 									}
 
+								case HoverProvider:
+									let fsPath: String = Path.resolve(command.payload.fsPath)
+									// TODO `let {line, character} = command.payload`
+									let line: Int = command.payload.line + 1
+									let character: Int = command.payload.character
+
+									let project = findProjectFile(fsPath)
+									if project.found == true {
+										try {
+											let main = new Main()
+											main.typecheck(project.dir)
+											let typecheckProject: Project = main.typecheckProject
+
+											for mod in typecheckProject.moduleInfo {
+
+												if mod.file != fsPath {
+													continue
+												}
+												var nearest: Node? = null // mod.nodes[0]
+												for node in mod.nodes {
+													let data: NodeData? = typecheckProject.data.get(node)
+													if let data = data {
+														var offset = 0
+														var width = 0
+
+														switch node {
+															case Class(t, _):
+																width = 'class '.length + NodeType.stringify(t).length
+														}
+
+														if
+															line == data.line,
+															character >= data.column + offset,
+															character < data.column + offset + width
+														{
+															nearest = node
+															break
+														}
+													}
+												}
+
+												if let nearest = nearest {
+													var code = ''
+													var doc = ''
+
+													switch nearest {
+														case Class(t, _):
+															let name = NodeType.stringify(t)
+															code = 'class ' + name
+														case Enum(t, _):
+															let name = NodeType.stringify(t)
+															code = 'enum ' + name
+													}
+
+													response.push({
+														code: code,
+														markdown: doc
+														// TODO range is optional, but interesting idea
+													})
+												}
+											}
+
+											response.push({
+												markdown: 'Hover information not available for ' + fsPath
+											})
+
+										} catch e: Any {
+											// TODO then what?
+											// TODO cache latest succeeded typecheck
+											response.push({
+												// TODO well this is internal compiler error here, not syntax one...
+												markdown: 'Fix errors in code to see type hints'
+											})
+										}
+									} else {
+										// TODO then what?
+										response.push({
+											markdown: 'Hover information does not work with files not attached to any projects'
+										})
+									}
+
 								case DocumentSymbolProvider:
 									// TODO guard ?payload
 									let fsPath: String = Path.resolve(command.payload.fsPath)
@@ -286,11 +369,14 @@ class Server {
 
 										for node in nodes {
 											switch node {
+												// TODO merge to `case Var(_) or Function(_):`
 												case Var(_): response.push(fieldToSymbol(node, isStatic: false))
 												case Function(_): response.push(fieldToSymbol(node, isStatic: false))
 
 												case Class(t, extend, implement, fields, _):
-													// TODO `implement`
+													// TODO `implements`
+													// TODO `extends` (with "s" on end)
+													// TODO `declare`
 													var detail = 'class'
 													// TODO shortcut `if let extend {}` musthave
 													if let extend = extend {
@@ -385,7 +471,7 @@ class Server {
 
 										let errors: [CompilerError] = e.errors
 
-										var typecheckProject: Project = main.typecheckProject
+										let typecheckProject: Project = main.typecheckProject
 
 										for mod in typecheckProject.moduleInfo {
 
