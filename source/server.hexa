@@ -329,14 +329,29 @@ class Server {
 											return lastPos
 										}
 
+										fun inferTypeFromExpr(node: Node?): String? {
+											switch node {
+												case null: return null
+												case String(_): return 'String'
+												case Array(_): return 'Array'
+												case Map(_): return 'Map'
+												case Int(_): return 'Int'
+												case Float(_): return 'Float'
+												case Bool(_): return 'Bool'
+											}
+
+											return null
+										}
+
 										// TODO nested exprs (single level of fun nesting for clarity?)
 										fun fieldToSymbol(node: Node, isStatic: Bool) {
 											switch node {
-												case Var(name, t, _, const):
+												case Var(name, t, expr, const):
 													return {
 														name: name,
-														// TODO better stringify
-														detail: (isStatic? 'static ' : '') + NodeType.stringify(t),
+														// TODO better NodeType.stringify
+														// TODO print inferred const value (after successful typing)
+														detail: (isStatic? 'static ' : '') + (NodeType.stringify(t) ?? inferTypeFromExpr(expr) ?? (const? 'let' : 'var')),
 														kind: const? SymbolKind.Constant : SymbolKind.Variable,
 														range: posToRange(node, name.length),
 														children: []
@@ -354,6 +369,42 @@ class Server {
 														children: []
 													}
 												case Static(field): return fieldToSymbol(node: field, isStatic: true)
+
+												// Tag
+												case NodeTypeValue(type):
+													let name = NodeType.stringify(type)
+													return {
+														name: name,
+														// TODO print inferred const value (not for Strings if name == value)
+														detail: '',
+														kind: SymbolKind.EnumMember,
+														range: posToRange(node, name.length),
+														children: []
+													}
+
+												// Tag = value
+												case Binop(a, op, b):
+													let name = Node.stringify(a)
+													return {
+														name: name,
+														// TODO print inferred const value
+														detail: '= ' + Node.stringify(b),
+														kind: SymbolKind.EnumMember,
+														range: posToRange(node, name.length),
+														children: []
+													}
+
+												// Tag(args)
+												case Call(e, args, argNames):
+													let name = Node.stringify(e)
+													return {
+														name: name,
+														// TODO print inferred const value
+														detail: argNames.join(', '),
+														kind: SymbolKind.EnumMember,
+														range: posToRange(node, name.length),
+														children: []
+													}
 											}
 
 											// TODO require `throw ...` here for totality
