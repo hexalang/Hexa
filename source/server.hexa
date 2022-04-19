@@ -43,6 +43,12 @@ declare class ServerCommand {
 	let kind: ServerCommandKind
 	// TODO `@as("p")`
 	let payload: Any
+	// TODO
+	let language: Languages
+}
+
+enum Languages : String {
+	En
 }
 
 enum CompletionItemKind : Int {
@@ -115,6 +121,7 @@ enum SymbolTag : Int {
 }
 
 let fileContents: [String : Buffer] = [:]
+let fileOutline: [String : [{}]] = [:]
 
 // TODO cache of file by path should always check if file exists before using (not required for remote dependencies)
 // TODO cache (but not forever, recheck (invalidate all cache or if json deleted) for new files?)
@@ -156,7 +163,7 @@ fun syntaxCheckOnly(file: String, content: Buffer): [CompilerError] {
 	return []
 }
 
-fun parseOnly(file: String, content: Buffer, project: Project): [Node] {
+fun parseOnly(file: String, content: Buffer, project: Project): [Node]? {
 	try {
 		let tokens = Lexer.tokenize(content, file)
 		try {
@@ -164,13 +171,13 @@ fun parseOnly(file: String, content: Buffer, project: Project): [Node] {
 			return Parser.parseNodes(tokens, project, lint: true)
 			// TODO handle `hexa.json defines`!!!
 		} catch e: CompilerErrors {
-			return []
+			return null
 		}
 	} catch e: CompilerErrors {
-		return []
+		return null
 	}
 
-	return []
+	return null
 }
 
 class Server {
@@ -310,10 +317,9 @@ class Server {
 									// TODO guard ?payload
 									let fsPath: String = Path.resolve(command.payload.fsPath)
 									let content: Buffer? = fileContents.get(fsPath)
+									let project = new Project()
 
-									if let buffer = content {
-										let project = new Project()
-										let nodes: [Node] = parseOnly(fsPath, content, project)
+									if let buffer = content, let nodes = parseOnly(fsPath, content, project) {
 
 										var lastPos = {line: 1, start: 1, end: 1}
 										// TODO offset of name, so selects `class Xx` not `cl`
@@ -467,7 +473,14 @@ class Server {
 										}
 									} else {
 										// TODO then what?
-										response.push({ fail: 'notInCache', fsPath: fsPath })
+										// TOOD remove `as!`
+										if let cache = fileOutline.get(fsPath) as! [{}]? {
+											for item in cache {
+												response.push(item)
+											}
+										} else {
+											response.push({ fail: 'notInCache', fsPath: fsPath })
+										}
 									}
 
 								case SyncFileContents:
