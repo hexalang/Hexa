@@ -1377,10 +1377,11 @@ class Parser {
 			// a ? b : c
 			// a ?? b
 			// a ?. b
-			case Question: i++
+			case Question:
+				i++
 				// TODO Probably keep just Token.OpChain? or only this?
 				// This way it allows to parse `a? .xx()? .yy()` on separate lines
-				if (tok() == Token.Dot) {
+				if tok() == Token.Dot {
 					// a ?. b
 					var name = getgo(Token.LLower)
 					// TODO Node.Chain()
@@ -1397,13 +1398,14 @@ class Parser {
 					result = Node.If([result], eif, eelse, true)
 				}
 			// a ?. b
-			case OpChain: i++
+			case OpChain:
+				i++
 				// TODO
 				result = parseExpr()
 			// a += b
 			case _:
 			let t = tok()
-			if (isBinop(t) && offset(1) == Token.OpAssign) {
+			if isBinop(t) && offset(1) == Token.OpAssign {
 				var op = tok()
 				i++
 				i++
@@ -1448,12 +1450,12 @@ class Parser {
 			}
 			}
 		}
-		if (result == null) {
+		if result == null {
 			Process.stdout.write('\n')
 			fail("Expression postfix is incomplete")
 		}
 
-		if (atts.length > 0) {
+		if atts.length > 0 {
 			project.mapDecorators.set(result, atts)
 			atts = []
 		}
@@ -1461,7 +1463,7 @@ class Parser {
 		return result
 		}
 
-		fun parseVar(external: Bool = false): [Node] {
+	fun parseVar(external: Bool = false): [Node] {
 
 		// let data.Node.Ident(s1) = node
 		var const = tok() == Token.KLet
@@ -1596,6 +1598,7 @@ class Parser {
 		var types = []
 		var values = []
 		var pos: [{ line: Int, column: Int }] = []
+		let params: [NodeType] = null // TODO must error
 		switch tok() {
 			case LLower:
 				name = getgo(Token.LLower)
@@ -1813,12 +1816,12 @@ class Parser {
 			switch parsed {
 				case Block(_):
 					// TODO wrap into error
-					throw "Parse interpolation error: got a block"
+					throw "String interpolation error: got a block"
 				case _: return parsed
 			}
 		}
 		catch e: Any {
-			fail("Parse interpolation error: " + e)
+			fail("String interpolation error\n" + e)
 		}
 	}
 
@@ -1863,15 +1866,15 @@ class Parser {
 	fun parseUndecoratedType(): NodeType {
 		// Plain values
 
-		if (tok() == Token.LInt) {
+		if tok() == Token.LInt {
 			return NodeType.Int(parseInt(getgo(Token.LInt)))
 		}
 
-		if (tok() == Token.LFloat) {
+		if tok() == Token.LFloat {
 			return NodeType.Float(parseFloat(getgo(Token.LFloat)))
 		}
 
-		if (tok() == Token.LString) {
+		if tok() == Token.LString {
 			return NodeType.String(getgo(Token.LString))
 		}
 
@@ -1949,8 +1952,8 @@ class Parser {
 				NodeType.Type(name, path)
 			}
 
-			// A => B
-			if (tok() == Token.OpArrow) {
+			// `A => B`
+			if tok() == Token.OpArrow {
 				i++
 				sresult = NodeType.Function([sresult], parseType())
 			}
@@ -2081,62 +2084,62 @@ class Parser {
 			result = NodeType.Function([result], parseType())
 		}
 		return result
-		}
+	}
 
-		static fun precedence(op: Token) {
-			let left = 100
-			let right = 0
-			switch op {
-				case OpMod: return 0 + left
-				case OpMult: return 1 + left
-				case OpDiv: return 1 + left
-				case OpIntDiv: return 1 + left
-				case OpAdd: return 2 + left
-				case OpSub: return 2 + left
-				case OpShl: return 3 + left
-				case OpShr: return 3 + left
-				case OpUShr: return 3 + left
-				case OpOr: return 4 + left
-				case OpAnd: return 4 + left
-				case OpXor: return 4 + left
-				case OpEq: return 5 + left
-				case OpNotEq: return 5 + left
-				case OpGt: return 5 + left
-				case OpLt: return 5 + left
-				case OpGte: return 5 + left
-				case OpLte: return 5 + left
-				case OpBoolAnd: return 7 + left
-				case OpBoolOr: return 8 + left
-				case OpAssign: return 10 + right
-				case _: // TODO proper message, this is internal error
-					fail("No precedence for " + Token.stringify(op))
-			}
+	static fun precedence(op: Token) {
+		let left = 100
+		let right = 0
+		switch op {
+			case OpMod: return 0 + left
+			case OpMult: return 1 + left
+			case OpDiv: return 1 + left
+			case OpIntDiv: return 1 + left
+			case OpAdd: return 2 + left
+			case OpSub: return 2 + left
+			case OpShl: return 3 + left
+			case OpShr: return 3 + left
+			case OpUShr: return 3 + left
+			case OpOr: return 4 + left
+			case OpAnd: return 4 + left
+			case OpXor: return 4 + left
+			case OpEq: return 5 + left
+			case OpNotEq: return 5 + left
+			case OpGt: return 5 + left
+			case OpLt: return 5 + left
+			case OpGte: return 5 + left
+			case OpLte: return 5 + left
+			case OpBoolAnd: return 7 + left
+			case OpBoolOr: return 8 + left
+			case OpAssign: return 10 + right
+			case _: // TODO proper message, this is internal error
+				fail("No precedence for " + Token.stringify(op))
 		}
+	}
 
-		static fun isBinop(t: Token): Bool {
-			switch t {
-			case OpAdd: return true
-			case OpMult: return true
-			case OpDiv: return true
-			case OpIntDiv: return true
-			case OpSub: return true
-			case OpAssign: return true
-			case OpEq: return true
-			case OpNotEq: return true
-			case OpGt: return true
-			case OpGte: return true
-			case OpLt: return true
-			case OpLte: return true
-			case OpAnd: return true
-			case OpOr: return true
-			case OpXor: return true
-			case OpBoolAnd: return true
-			case OpBoolOr: return true
-			case OpShl: return true
-			case OpShr: return true
-			case OpUShr: return true
-			case OpMod: return true
-			case _: return false
-			}
+	static fun isBinop(t: Token): Bool {
+		switch t {
+		case OpAdd: return true
+		case OpMult: return true
+		case OpDiv: return true
+		case OpIntDiv: return true
+		case OpSub: return true
+		case OpAssign: return true
+		case OpEq: return true
+		case OpNotEq: return true
+		case OpGt: return true
+		case OpGte: return true
+		case OpLt: return true
+		case OpLte: return true
+		case OpAnd: return true
+		case OpOr: return true
+		case OpXor: return true
+		case OpBoolAnd: return true
+		case OpBoolOr: return true
+		case OpShl: return true
+		case OpShr: return true
+		case OpUShr: return true
+		case OpMod: return true
+		case _: return false
 		}
+	}
 }
