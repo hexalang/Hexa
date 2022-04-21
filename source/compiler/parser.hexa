@@ -17,39 +17,40 @@
 @final
 class Parser {
 	static fun toNode(nodes: [Node]): Node? {
-			if nodes.length == 0 {
-				return null
-			}
-			if nodes.length > 1 {
-				return Node.Block(nodes)
-			}
-			return nodes[0]
+		if nodes.length == 0 {
+			return null
+		}
+		if nodes.length > 1 {
+			return Node.Block(nodes)
+		}
+		return nodes[0]
+	}
+
+	static fun parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
+		let parser = new Parser(lexe, project, lint)
+
+		if parser.hints.length > 0 {
+			throw new CompilerErrors(parser.hints)
 		}
 
-		static fun parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
-			let parser = new Parser(lexe, project, lint)
+		return parser.nodes
+	}
 
-			if parser.hints.length > 0 {
-				throw new CompilerErrors(parser.hints)
-			}
+	var project: Project
+	var lint = false
+	private new (lexe: Tokens, project: Project, lint: Bool) {
+		lex = Preprocessor.process(lexe, project)
+		this.lint = lint
+		this.project = project
 
-			return parser.nodes
+		nodes = []
+		// TODO
+		while i < lex.length && tok() != Token.Eof {
+			nodes.push(parseExpr())
 		}
+	}
 
-		var project: Project
-		var lint = false
-		private new (lexe: Tokens, project: Project, lint: Bool) {
-			lex = Preprocessor.process(lexe, project)
-			this.lint = lint
-			this.project = project
-
-			nodes = []
-			while i < lex.length && tok() != Token.Eof {
-				nodes.push(parseExpr())
-			}
-		}
-
-		fun parseFields() {
+	fun parseFields() {
 		var fields = []
 		while tok() != Token.BrClose {
 			var atts: Array<Decorator> = []
@@ -132,10 +133,10 @@ class Parser {
 					parseDecorator()
 				}
 
-				if (
-					tok() != Token.BrClose
-					&& tok() != Token.KFun
-				) {
+				if
+					tok() != Token.BrClose,
+					tok() != Token.KFun
+				{
 					i = tmp
 					expr = parseExpr()
 				} else {
@@ -185,6 +186,7 @@ class Parser {
 				}
 				fail('Fields should start with `var ' + name + '` or `let ' + name + '`')
 			case LUpper:
+				// TODO toCamelCase
 				fail('Fields cannot start with uppercase character `' + print() + '` -> `' + print().toLowerCase() + '`')
 			case BrOpen:
 				let pos = { line: lex.line[i], column: lex.column[i] }
@@ -675,7 +677,7 @@ class Parser {
 				result = Node.Arrow(parseExpr(), v, null)
 			} else {
 				// TODO move into reusable function
-				if (tok() == Token.Eof) {
+				if tok() == Token.Eof {
 					i = startsAt
 					fail('The parenthesis `(` has got unclosed to the end of the file')
 				}
@@ -683,7 +685,7 @@ class Parser {
 				// TODO add same checks for other {} () []
 				// ^ something like pushUbclosed('(') < saves i somewhere,
 				// and `step` uses this var if Eof
-				if (tok() == Token.Eof) {
+				if tok() == Token.Eof {
 					i = startsAt
 					fail('The parenthesis `(` has got unclosed to the end of the file')
 				}
@@ -765,20 +767,22 @@ class Parser {
 		// `T?`
 		// `T<T>`
 		case LUpper:
-			if (lex.token[i + 1] == Token.OpLt) {
-				var res = parseType()
+			if lex.token[i + 1] == Token.OpLt {
+				let res = parseType()
 				result = Node.NodeTypeValue(res)
-			} else if (lex.token[i + 1] == Token.Question) {
-				var name = getgo(Token.LUpper)
+			} else if lex.token[i + 1] == Token.Question {
+				let name = getgo(Token.LUpper)
 				i++
 				result = Node.NodeTypeValue(NodeType.Optional(NodeType.Type(name, null)))
 			} else {
-				var name = getgo(Token.LUpper)
+				let name = getgo(Token.LUpper)
 				result = Node.NodeTypeValue(NodeType.Type(name, null))
 			}
+		// `varName`
+		// `arrow => body`
 		case LLower:
-			var name = getgo(Token.LLower)
-			if (tok() == Token.OpArrow) {
+			let name = getgo(Token.LLower)
+			if tok() == Token.OpArrow {
 				next()
 				result = Node.Arrow(parseExpr(), [Node.Var(name, null, null, true, false)], null)
 			} else {
@@ -787,9 +791,9 @@ class Parser {
 		case LBacktick:
 			result = Node.String(getgo(Token.LBacktick))
 		case LString:
-			var str = getgo(Token.LString)
+			let str = getgo(Token.LString)
 			// TODO Check have interpolations in string
-			if (hasInterpolation(str)) {
+			if hasInterpolation(str) {
 				result = Node.Parenthesis(parseInterpolations(str))
 			} else {
 				result = Node.String(str)
@@ -807,13 +811,13 @@ class Parser {
 			i++ result = Node.Super
 		case KVar:
 			var parsed = parseVar()
-			if (parsed.length > 1) {
+			if parsed.length > 1 {
 			} else {
 				result = parsed[0]
 			}
 		case KLet:
 			var parsed = parseVar()
-			if (parsed.length > 1) {
+			if parsed.length > 1 {
 			} else {
 				result = parsed[0]
 			}
@@ -1348,18 +1352,21 @@ class Parser {
 				switch result {
 					case Unop(_): return result
 				}
-				i++ result = Node.Unop(Token.OpIncrement, true, result)
+				i++
+				result = Node.Unop(Token.OpIncrement, true, result)
 
 			// i--
 			case OpDecrement:
 				switch result {
 					case Unop(_): return result
 				}
-				i++ result = Node.Unop(Token.OpDecrement, true, result)
+				i++
+				result = Node.Unop(Token.OpDecrement, true, result)
 
 			// a.b
 			// a.B
-			case Dot: i++
+			case Dot:
+				i++
 				switch tok() {
 					case LUpper:
 						result = Node.DotUpper(result, getgo(Token.LUpper))

@@ -15,8 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Array of resulting tokens
+// TODO handle @final properly
+@final
 class Tokens {
 	var token: Buffer // TODO let = new.
+	// TODO var kind: Buffer // let = new.
 	// Values of an unique lexemes, like integers and strings
 	var value: [String]
 	var meta: [Meta]
@@ -37,6 +40,7 @@ class Tokens {
 }
 
 // Takes UTF-8 text and returns tokens
+@final
 class Lexer {
 	static fun tokenize(bytes: Buffer, fileName: String): Tokens {
 			// Variables
@@ -51,13 +55,17 @@ class Lexer {
 			// Prefetch
 			let params = []
 			let meta: [Meta] = []
+			// TODO no zeroeing of this buffer when parser is LALR(0)
 			let tokens = Buffer.alloc(len + 1) // Note: 1 extra space for Token.Eof
+			// TODO ensure optimizer/typer infers `Array<T>` properly
 			var lines = []
 			var columns = []
 
 			// Helpers
 			// Just add plain token
 			@inline fun add(t: Token) {
+				// TODO if (#ignore > 0 || ignore_comments) { return }
+				// TODO if (!keep_string_quote_style) push(inquoted)
 				tokens[to++] = t
 				lines.push(line)
 				columns.push(position - columnBase - 1)
@@ -65,12 +73,16 @@ class Lexer {
 
 			// Add parametrized token
 			@inline fun addn(t: Token, p: String) {
+				// TODO if (#ignore > 0 || ignore_comments) { return }
+				// TODO if (!keep_string_quote_style) push(inquoted)
 				params[to] = p
 				add(t)
 			}
 
 			// Add parametrized token with meta
 			@inline fun addm(t: Token, p: String, m: Meta) {
+				// TODO if (#ignore > 0 || ignore_comments) { return }
+				// TODO if (!keep_string_quote_style) push(inquoted)
 				params[to] = p
 				meta[to] = m
 				add(t)
@@ -187,7 +199,7 @@ class Lexer {
 
 				// Identifiers and keywords
 				// A-z _
-				if (((_8 & 95) >= 65 && (_8 & 95) <= 90) || (_8 == 95)) {
+				if ((_8 & 95) >= 65 && (_8 & 95) <= 90) or (_8 == 95) {
 					let titlechar = _8
 					p = position + 1
 					_8 = get_8(p)
@@ -199,7 +211,7 @@ class Lexer {
 					if let t = t {
 						add(t)
 					} else {
-						if (titlechar >= 65 && titlechar <= 90) {
+						if titlechar >= 65 && titlechar <= 90 {
 							addn(Token.LUpper, s)
 						}
 						else {
@@ -242,14 +254,14 @@ class Lexer {
 				}
 
 				// ...
-				if (_16 == 11822 && (get_8(position + 2) == ".".charCodeAt(0))) {
+				if _16 == 11822 and (get_8(position + 2) == ".".charCodeAt(0)) {
 					add(Token.Interval)
 					position += 3
 					continue
 				}
 
 				// >>>
-				if (_16 == 15934 && (get_8(position + 2) == ">".charCodeAt(0))) {
+				if _16 == 15934 and (get_8(position + 2) == ">".charCodeAt(0)) {
 					add(Token.OpUShr)
 					position += 3
 					continue
@@ -257,6 +269,7 @@ class Lexer {
 
 				// 16 bit ops
 				// Verify & extract
+				// TODO parse `if`/etc as 16-bit op? *before a-z
 				let hash = simplehash(_16)
 				if _16 == op16token.readUInt16LE(hash * 2) {
 					add(op16token[hash + 512] as! Token)
