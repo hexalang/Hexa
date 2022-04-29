@@ -11,7 +11,7 @@
 [![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg?logo=telegram)](https://t.me/hexalang)
 [![Telegram feed](https://img.shields.io/badge/news-on%20telegram-blue.svg?logo=telegram)](https://t.me/s/hexalang_news)
 [![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg?logo=GitHub)](https://t.me/hexalang_github)
-[![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/blog/)
+[![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/book/hexa-compiles-itself)
 [![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
 [![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/kawaii?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/kawaii)
 [![Website](https://img.shields.io/badge/web-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
@@ -67,17 +67,17 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - [Visual Studio Code / VSCode](https://marketplace.visualstudio.com/items?itemName=PeyTy.vshexa) — [hexalang/hexa-vscode-bundle](https://github.com/hexalang/hexa-vscode-bundle) is the best supported IDE plugin right now!
 - [Sublime Text 3](https://packagecontrol.io/packages/Hexa) — [hexalang/hexa-sublime-bundle](https://github.com/hexalang/hexa-sublime-bundle)
 - [Atom](https://atom.io/packages/hexa) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
-- [Package manager](https://hexalang.github.io/book/Packages.html) — [hexalang/packages](https://github.com/hexalang/packages)
+- [Package manager](https://hexalang.github.io/book/package-manager) — [hexalang/packages](https://github.com/hexalang/packages)
 
 ## Study
 
 - [Follow progress](https://github.com/hexalang/hexa/issues)
-- [Sources of inspiration](https://hexalang.github.io/blog/Syntax-and-Inspiration.html)
-- [Getting started guide for beginners](https://hexalang.github.io/book/Hello.html)
-- [Some code examples](https://hexalang.github.io/book/Examples.html)
-- [Comparison with other languages for experienced developers](https://hexalang.github.io/book/Comparison.html)
-- [Why Hexa?](https://hexalang.github.io/book/Profit.html)
-- [Contribute your compilation target](https://hexalang.github.io/book/Targets.html)
+- [Sources of inspiration](https://hexalang.github.io/book/syntax-and-inspiration)
+- [Getting started guide for beginners](https://hexalang.github.io/book/hello-hexa)
+- [Some code examples](https://hexalang.github.io/book/syntax-examples)
+- [Comparison with other languages for experienced developers](https://hexalang.github.io/book/comparison-with-other-languages)
+- [Why Hexa?](https://hexalang.github.io/book/why-hexa)
+- [Contribute your compilation target](https://hexalang.github.io/book/third-party-compilation-targets)
 
 ## Build
 
