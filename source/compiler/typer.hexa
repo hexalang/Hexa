@@ -19,6 +19,9 @@ class Typer {
 		// Note that we use new instance for each build to avoid collisions with unit tests
 		// and to support parallel compilation in future
 		var project: Project
+
+		// TODO move all variables here
+
 		new (project: Project) {
 			this.project = project
 		}
@@ -236,6 +239,9 @@ class Typer {
 				names.join(', ')
 			}
 
+			// TODO limit `what` to `types` and `...whatever`
+			// TODO if `types` must recommend only UpperCased ones
+			// TODO ^ lower for otherwise
 			let available = 'Available \(what) are: ' + ten
 			let subject = subject.toLowerCase()
 			let charSubj = subject.split('')
@@ -296,6 +302,7 @@ class Typer {
 				let typeName = DataHelper.nameOf(node)
 
 				let type = switch typeName {
+					// TODO respect "built in" decorator
 					case 'Int':
 						typeIntClass
 					case 'Array':
@@ -372,8 +379,11 @@ class Typer {
 
 						if let ext = extend {
 							toType(ext, node)
+							// TODO cannot extend self or recursively in circle
+							// TODO limit nesting depth
 						}
 						for impl in implement {
+							// TODO
 							toType(impl, node)
 						}
 						pushScope()
@@ -643,6 +653,7 @@ class Typer {
 											type.tagBindVarsNames[type.fieldNames.length - 1] = tagBindVarsNames
 
 											if (args.length == 0) {
+												// TODO fix this `: ` and other messages
 												fail('Enum constructor expects more than zero arguments `(value: Type)`', e)
 											}
 
@@ -664,8 +675,9 @@ class Typer {
 								}
 
 							// `enum E { A = b }`
+							// TODO allow BigInt as possible enum value type?
 							case Binop(a, op, b):
-								if (op != Token.OpAssign) {
+								if op != Token.OpAssign {
 									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
 								}
 								if (valuesType == null) {
@@ -917,6 +929,7 @@ class Typer {
 		private var typeVoid: Type? = null
 		private var namespaces: [String : Node] = [:]
 
+		// Meta
 		private var typeBigInt: Type? = null
 		private var typeInt32: Type? = null
 		private var typeInt64: Type? = null
@@ -941,18 +954,18 @@ class Typer {
 		var thisType: Type = null as! Type // Current class
 		var thisNode: Node = null as! Node // Current class node
 
-		// var to = from
+		// `var to = from`
 		fun unify(to: Type, fromValue: Type, node: Node): Type {
 			// Short path
-			if (to == fromValue) {
+			if to == fromValue {
 				return to
 			}
 
-			if (to == typeAny) {
+			if to == typeAny {
 				return to
 			}
 
-			if (fromValue == typeVoid) {
+			if fromValue == typeVoid {
 				fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`', node)
 			}
 
@@ -1013,15 +1026,17 @@ class Typer {
 			var toEnumInstance = instanceOfEnum(to)
 			var fromEnumInstance = instanceOfEnum(fromValue)
 
-			if (
+			if
 				(toInstance == null and toEnumInstance == null)
 				||
 				(fromInstance == null and fromEnumInstance == null)
-			) {
+			{
 				return to ?? fromValue
 			}
 
 			if toInstance != fromInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
+				// TODO OK by known positive values and zero `: UInt64 = 123`
+				// TODO same for comparisons `if UInt64 == 0 {}`
 				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
@@ -1048,6 +1063,7 @@ class Typer {
 					return subj
 				}
 			}
+
 			// TODO global
 			return null
 		}
@@ -1084,6 +1100,7 @@ class Typer {
 						case null:
 						case _:
 					}}
+					// TODO ^ fix indentation
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch type {
 						case Class(type):
@@ -1109,7 +1126,7 @@ class Typer {
 								+ proposeSimilar(available.filter((named) => DataHelper.isTitleCase(named)), name, 'types'),
 							 node)
 						case _:
-							if (type == typeAny) {
+							if type == typeAny {
 								return typeAny
 							}
 							fail('Unsupported type `\(name)`', node)
@@ -1195,6 +1212,7 @@ class Typer {
 
 		// Uses idea of stacks to track nested function behavior
 		private fun fillFunction(node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
+			// TODO move duplicate argument names check to parser (so it can be cached)
 			pushScope()
 			// Save stack
 			let _insideFunction = insideFunction
@@ -1212,11 +1230,12 @@ class Typer {
 							fail('Argument cannot be of type `Void`', v)
 						}
 
-						if (t != null) {
+						if t != null {
 							types.set(v, toType(t, v))
 						}
 
-						if (e != null) {
+						if e != null {
+							// TODO fillExpression should return type of `e` to not do `types.get(e)`
 							fillExpression(e)
 
 							if let t = types.get(v) {
@@ -1313,6 +1332,7 @@ class Typer {
 				case TypeAlias(alias, value):
 					let type = new AliasType()
 
+					// TODO pre-check somehow that aliased type exists (and takes generic parameters)
 					types.set(node, Type.Alias(type))
 					addScope(nameOfModuleItem(node), node)
 			}
@@ -1377,6 +1397,7 @@ class Typer {
 					// `a = b`
 					if (op == Token.OpAssign) { switch parent {
 						case null:
+							// TODO typings for `[]` etc
 						case Var(name, _, _, const):
 							if const {
 								fail(
@@ -1441,6 +1462,7 @@ class Typer {
 					}
 					if let range = range {
 						fillExpression(range)
+						// TODO `fillExpression(X)` to return `types.get(X)` and fix other places
 						// Ranges always integer/Int for now
 						if (types.get(range) != typeInt) {
 							fail('Range end must be of Int type', range)
@@ -1487,7 +1509,6 @@ class Typer {
 
 					// Restore stack
 					insideFunction = _insideFunction
-
 				}
 
 				// `if econd { eif } else { eelse }`
@@ -1772,6 +1793,7 @@ class Typer {
 				// `e as! t`
 				// `e as? t`
 				case As(e, kind, t):
+					// TODO error position must not a node, but at node type (`x as __here__` not `__here__ as tt`)
 					let type = toType(t, node)
 					if (type == typeVoid) {
 						fail('Conversion `as Void` makes no sense', e)
@@ -1830,13 +1852,13 @@ class Typer {
 							}
 							let index = type.fieldNames.indexOf(n)
 							let named = nameOfModuleItem(type.parent)
-							if (index < 0) {
+							if index < 0 {
 								fail(
 									'Class `\(named)` has no field `.\(n)`\n'
 									+ positionOf(type.parent) + '`\(named)` is defined here\n'
 									+ proposeSimilar(type.fieldNames, n, 'fields'), e ?? node)
 							}
-							if (type.fieldStatic[index] == true) {
+							if type.fieldStatic[index] == true {
 								fail('Class `\(named)` field `.\(n)` is static', node)
 							}
 							switch type.parent {
@@ -1846,10 +1868,11 @@ class Typer {
 									currentModule = mod
 
 									for field in fields {
-										if (DataHelper.nameOf(field) == n) {
 											types.set(node, types.get(field))
+										if DataHelper.nameOf(field) == n {
 											parents.set(node, field)
-											if (types.get(field) == null) {
+
+											if types.get(field) == null {
 												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', type.fieldInitialized[type.fieldNames.indexOf(n)])
 												fail('Type for this field is null: ' + n, field)
 											}
@@ -1957,10 +1980,10 @@ class Typer {
 							}
 						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
-							if (index < 0) {
+							if index < 0 {
 								fail('Enum has no value constructor `.\(n)`\n' + proposeSimilar(type.fieldNames.filter((element, index) => type.fieldEnumConstructor[index]), n, 'constructors'), node)
 							}
-							if (type.fieldEnumConstructor[index] != true) {
+							if type.fieldEnumConstructor[index] != true {
 								fail('Enum field `.\(n)` is not a value constructor', node)
 							}
 							if let fieldType = type.fieldType[index] {
@@ -1977,7 +2000,7 @@ class Typer {
 				case NodeTypeValue(t): switch t {
 					case Type(name):
 						let subj = find(name)
-						if (subj == null) {
+						if subj == null {
 							fail('Cannot find type with name `\(name)`', node)
 						}
 						if parents.get(node) != null, parents.get(node) != subj {
@@ -2032,7 +2055,7 @@ class Typer {
 				// `{names:el, ...}`
 				case Object(names, el):
 					for name in names.length {
-						if (names.indexOf(names[name]) != name) {
+						if names.indexOf(names[name]) != name {
 							fail('Field `\(names[name])` already exists', node)
 						}
 					}
@@ -2064,7 +2087,7 @@ class Typer {
 
 				// `if (econd) eif else eelse`
 				case If(econd, eif, eelse, ternary):
-					if (econd.length > 1) {
+					if econd.length > 1 {
 						fail('More than one condition is not yet supported', econd[1])
 					}
 					switch econd[0] {
@@ -2092,6 +2115,7 @@ class Typer {
 					types.set(node, unify(types.get(eif), types.get(eelse), eelse))
 
 				// Simple nodes
+				// `null`
 				case Null:
 					types.set(node, Type.UnknownNullable({value: null}))
 
@@ -2118,6 +2142,7 @@ class Typer {
 						case UInt16: types.set(node, typeUInt16)
 						case UInt8: types.set(node, typeUInt8)
 
+						// TODO move to MetaNumber or Float(meta)?
 						case Float32: types.set(node, typeFloat32)
 
 						case _: fail('Unhandled meta type of number', node)
@@ -2172,16 +2197,16 @@ class Typer {
 				 		case EnumConstructor(type, tag):
 				 			let name = type.fieldNames[tag]
 
-				 			if (el.length < type.tagBindVars[tag].length) {
+				 			if el.length < type.tagBindVars[tag].length {
 				 				fail('Not enough enum parameters, required `\(name)` parameters are: ' + type.tagBindVarsNames[tag].join(', '), node)
 							}
 
-				 			if (el.length > type.tagBindVars[tag].length) {
+				 			if el.length > type.tagBindVars[tag].length {
 				 				fail('Too many enum parameters, required `\(name)` parameters are: ' + type.tagBindVarsNames[tag].join(', '), node)
 							}
 
 				 			// Don't allow `A.B()` syntax, require `A.B(a, b, c)` or just `A.B`
-				 			if (el.length == 0) {
+				 			if el.length == 0 {
 				 				fail('Use syntax without empty `()`', node)
 							}
 
@@ -2190,7 +2215,7 @@ class Typer {
 				 		case null:
 				 			//fail('Calling null ' + Node.stringify(e), e)
 				 		case _:
-				 			if (types.get(e) == typeAny) {
+				 			if types.get(e) == typeAny {
 				 				types.set(node, typeAny)
 				 			} else {
 				 				fail('Calling *not* a function, type is `' + Type.stringify(types.get(e)) + '`', e)
@@ -2321,8 +2346,8 @@ class Typer {
 								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(iType) + '`', e)
 							}
 						case _:
-							// TODO
 							fail('`value[i]`????? expects `i` only of type `Int`, but got `' + Type.stringify(iType) + '`', e)
+							// TODO is this even reachable?
 						case null:
 					}}
 
@@ -2333,6 +2358,7 @@ class Typer {
 								types.set(node, generic[0])
 							} else if ['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name) {
 								types.set(node, toType(NodeType.Type("Int", null), node))
+								// TODO check actual types
 							} else if ['Any'].includes(type.name) {
 								types.set(node, toType(NodeType.Type("Any", null), node))
 							} else {

@@ -32,13 +32,13 @@ class Decorator {
 // TODO unindent
 enum Node {
 		/// `"text"`
-		String(s: String)
+		String(text: String)
 
 		/// `ident`
 		Ident(name: String)
 
 		/// `true`/`false`
-		Bool(b: Bool)
+		Bool(bool: Bool)
 
 		/// `this`
 		This
@@ -47,11 +47,11 @@ enum Node {
 		Super
 
 		/// `123`
-		Int(s: Int)
+		Int(number: Int)
 
 		/// `123n`
 		/// `123u32`
-		MetaInt(s: BigInt, meta: Meta)
+		MetaInt(number: BigInt, meta: Meta)
 
 		/// `0.123`
 		Float(s: Float)
@@ -59,14 +59,15 @@ enum Node {
 		/// `null`
 		Null
 
-		/// `declare T = V`
+		/// `declare Alias = Value`
 		TypeAlias(alias: NodeType, value: NodeType)
 
-		/// `a op b`
-		Binop(a: Node, op: Token, b: Node)
+		/// `left op right` like `a + b`
+		// TODO rename to `Binary`
+		Binop(left: Node, op: Token, right: Node)
 
-		/// `a op= b`
-		AssignOp(a: Node, op: Token, b: Node)
+		/// `storage op= value`
+		AssignOp(storage: Node, op: Token, value: Node)
 
 		// { el[0] ... el[n] }
 		Block(el: [Node])
@@ -93,14 +94,16 @@ enum Node {
 		Continue
 
 		// postfix ? e op : op e
+		// TODO rename to `Unary`
 		Unop(op: Token, postfix: Bool, e: Node)
 
-		// while econd { e } or if pre == true then do { e } while econd
-		While(econd: Node, e: Node, pre: Bool)
+		// while reason { e } or if pre == true then do { e } while reason
+		While(reason: Node, e: Node, pre: Bool)
 
-		// `declare fun name<params>(vars): rettype { expr }`
+		// `declare fun name<params>(vars): retType { body }`
 		// Name is `new` for constructor
-		Function(name: String?, expr: Node, vars: [Node], retType: NodeType, external: Bool)
+		// TODO expr Node.Block (goal is *not* to `Node extends NodeBlock` but to actually limit tags)
+		Function(name: String?, body: Node, vars: [Node], retType: NodeType, external: Bool)
 
 		// (vars): rettype => { expr }
 		Arrow(expr: Node, vars: [Node], retType: NodeType)
@@ -113,7 +116,7 @@ enum Node {
 
 		// var name: T { get { return x } set (v) {} }
 		// Var, Function, Function
-		Property(v: Node, g: Node, s: Node)
+		Property(field: Node, getter: Node, setter: Node)
 
 		// try { expr } catch v[0]: t[0] { catches[0] } ... catch v[n]: t[n] { catches[n] }
 		Try(expr: Node, t: [NodeType], v: [Node], catches: [Node])
@@ -162,12 +165,12 @@ enum Node {
 		EnumExtract(path: [String], bind: [Node/*.Var*/], expr: Node)
 
 		/// `expr is T`
-		Is(expr: Node, t: NodeType)
+		Is(expr: Node, aType: NodeType)
 
 		/// `expr as T`
 		/// `expr as? T`
 		/// `expr as! T`
-		As(expr: Node, kind: Token, t: NodeType)
+		As(expr: Node, kind: Token, toType: NodeType)
 
 		/// `_`
 		Underscore
@@ -186,7 +189,7 @@ enum Node {
 		For(name: String, over: Node, by: Node, range: Node)
 
 		/// `nullable ?? othewise`
-		Elvis(nullable: Node, othewise: Node)
+		Elvis(nullable: Node, otherwise: Node)
 
 		/// `T<A, B>` but as expression
 		NodeTypeValue(type: NodeType)
@@ -221,7 +224,8 @@ enum Node {
 				case NodeTypeValue(t):
 					return DataHelper.extractTypeName(t)
 				case Static(f): return 'static ' + Node.stringify(f)
-				case _: return "..."
+				case _:
+					return "..."
 			}
 		}
 }
@@ -320,7 +324,7 @@ class DataHelper {
 		}
 
 		static fun getDecorator(atts: [Decorator], name: String): Decorator? {
-			if atts != null && atts.length > 0 { for att in atts {
+			if let atts = atts, atts.length > 0 { for att in atts {
 				if att.name == name {
 					return att
 				}

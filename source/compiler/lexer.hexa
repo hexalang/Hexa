@@ -66,6 +66,7 @@ class Lexer {
 			@inline fun add(t: Token) {
 				// TODO if (#ignore > 0 || ignore_comments) { return }
 				// TODO if (!keep_string_quote_style) push(inquoted)
+				// TODO `[i] = value` not type checked properly, i.e. `Int[i] = Token`
 				tokens[to++] = t
 				lines.push(line)
 				columns.push(position - columnBase - 1)
@@ -117,7 +118,7 @@ class Lexer {
 				position += 3
 			}
 
-			// Ignore #!shebang until end of line
+			// Ignore `#!shebang` until end of line
 			if len > 2, get_8(0) == "#".charCodeAt(0), get_8(1) == "!".charCodeAt(0) { while position < len && get_8(position) != 10 {
 				position++
 			}}
@@ -154,7 +155,7 @@ class Lexer {
 
 				// Comments
 				if _8 == "/".charCodeAt(0) {
-					// // Comment
+					// `// Comment`
 					if _16 == 0x2f2f {
 						var pos = position + 2
 						while get_8(position) != /*"\n".charCodeAt(0)*/10 && not_eof() {
@@ -162,7 +163,7 @@ class Lexer {
 						}
 						continue
 					}
-					// /** Doc **/
+					// `/** Doc **/`
 					if (_16 == 10799 && get_8(position + 2) == "*".charCodeAt(0)) {
 						position += 3
 						p = position
@@ -431,7 +432,7 @@ class Lexer {
 					} else if get_8(p) == "i".charCodeAt(0) {
 						// TODO yeah this should be shorter
 						let header = bytes.readUInt16LE(p + 1)
-						if (get_8(p + 1) == "8".charCodeAt(0)) {
+						if get_8(p + 1) == "8".charCodeAt(0) {
 							m = Meta.Int8
 							offset = 2
 						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
@@ -444,24 +445,24 @@ class Lexer {
 							m = Meta.Int16
 							offset = 3
 						}
-					} else if (get_8(p) == "u".charCodeAt(0)) {
+					} else if get_8(p) == "u".charCodeAt(0) {
 						let header = bytes.readUInt16LE(p + 1)
 						if (get_8(p + 1) == "8".charCodeAt(0)) {
 							m = Meta.UInt8
 							offset = 2
-						} else if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+						} else if header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256 {
 							m = Meta.UInt32
 							offset = 3
-						} else if (header == "6".charCodeAt(0) + "4".charCodeAt(0) * 256) {
+						} else if header == "6".charCodeAt(0) + "4".charCodeAt(0) * 256 {
 							m = Meta.UInt64
 							offset = 3
-						} else if (header == "1".charCodeAt(0) + "6".charCodeAt(0) * 256) {
+						} else if header == "1".charCodeAt(0) + "6".charCodeAt(0) * 256 {
 							m = Meta.UInt16
 							offset = 3
 						}
 					} else if (get_8(p) == "f".charCodeAt(0)) {
 						let header = bytes.readUInt16LE(p + 1)
-						if (header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256) {
+						if header == "3".charCodeAt(0) + "2".charCodeAt(0) * 256 {
 							m = Meta.Float32
 							offset = 3
 						}
@@ -473,7 +474,7 @@ class Lexer {
 				}
 
 				// Error
-				if (position >= len) {
+				if position >= len {
 					break
 				}
 				throw fail('Unexpected character ' + String.fromCharCode(_8))

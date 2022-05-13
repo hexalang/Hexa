@@ -16,6 +16,22 @@
 
 @final
 class Parser {
+	//------------------
+	//       DATA
+	//------------------
+
+	// Parsing result
+	var nodes: [Node]
+	// Lexemes input directly from lexer
+	private var lex: Tokens
+	// The pointer
+	private var i = 0
+	private var endif = 0 // Nesting level of #end's
+	private var lasttok = -1
+	private var lasttokchecks = 10
+	var project: Project
+	var lint = false
+
 	static fun toNode(nodes: [Node]): Node? {
 		if nodes.length == 0 {
 			return null
@@ -36,8 +52,6 @@ class Parser {
 		return parser.nodes
 	}
 
-	var project: Project
-	var lint = false
 	private new (lexe: Tokens, project: Project, lint: Bool) {
 		lex = Preprocessor.process(lexe, project)
 		this.lint = lint
@@ -101,7 +115,8 @@ class Parser {
 				fields.push(f)
 			case KNew:
 				i++
-				var expr = null
+				// TODO `var expr = null` infer type
+				var expr: Node? = null
 				var vars: [String] = []
 				var types = []
 				var values = []
@@ -145,6 +160,7 @@ class Parser {
 
 				var v = []
 				for i in vars.length {
+					// TODO reuse function arguments parser, to check for duplicate argument names, arrow functions etc
 					v.push(Node.Var(vars[i], types[i], values[i], true, false))
 				}
 				switch expr {
@@ -275,20 +291,6 @@ class Parser {
 	}
 
 	//------------------
-	//       DATA
-	//------------------
-
-	// Parsing result
-	var nodes: [Node]
-	// Lexemes input directly from lexer
-	private var lex: Tokens
-	// The pointer
-	private var i = 0
-	private var endif = 0 // Nesting level of #end's
-	private var lasttok = -1
-	private var lasttokchecks = 10
-
-	//------------------
 	//     HELPERS
 	//------------------
 
@@ -320,7 +322,7 @@ class Parser {
 	}
 
 	fun expect(t) {
-		if (t != tok()) {
+		if t != tok() {
 			expected(Token.stringify(t))
 		}
 	}
@@ -368,10 +370,10 @@ class Parser {
 	fun unexpected() {
 		var token = Token.stringify(lex.token[i] as! Token, lex.value[i])
 		var error = 'Unexpected `\(token)`'
-		if (tok() == Token.Semicolon) {
+		if tok() == Token.Semicolon {
 			error += ' semicolon. Note: Hexa has no semicolons!'
 		}
-		if (print() == 'public') {
+		if print() == 'public' {
 			error += '. Note: Hexa has no `public` keyword!'
 		}
 		fail(error)
@@ -528,10 +530,10 @@ class Parser {
 		// {}
 		case BrOpen:
 			i++
-			if (tok() == Token.BrClose) { // Empty block {}
+			if tok() == Token.BrClose { // Empty block {}
 				i++
 				result = Node.Block([])
-			} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
+			} else if (tok() == Token.LLower && offset(1) == Token.Colon) { // Object { k:v }
 				var names: [String] = []
 				var el: [Node] = []
 				while true {
@@ -539,9 +541,9 @@ class Parser {
 					step(Token.Colon)
 
 					el.push(parseExpr())
-					if (tok() == Token.Comma) { // Object { k:v, ... }
+					if tok() == Token.Comma { // Object { k:v, ... }
 						i++
-						if (tok() == Token.BrClose) { // Object { k:v, }
+						if tok() == Token.BrClose { // Object { k:v, }
 							fail("Unexpected `}`, remove trailing `,` comma")
 						}
 						continue
@@ -549,7 +551,7 @@ class Parser {
 						break
 					}
 				}
-				if (tok() != Token.BrClose) {
+				if tok() != Token.BrClose {
 					fail('Expected `}` or `,` before `\(print())`')
 				}
 				step(Token.BrClose)
@@ -571,18 +573,18 @@ class Parser {
 				next()
 				econd.push(parseExpr())
 			}
-			var eif = null
+			var eif: Node? = null
 			var eifAt = i
-			if (tok() != Token.Colon) {
+			if tok() != Token.Colon {
 				eif = parseExpr()
 			}
 			var eelse: Node? = null
 			var eelseAt = i
-			if (tok() == Token.KElse) {
+			if tok() == Token.KElse {
 				i++
 				eelse = parseExpr()
 			}
-			if (eif != null) {
+			if eif != null {
 				switch eif {
 					case Block(_):
 					case _:
@@ -592,7 +594,7 @@ class Parser {
 						i = temp
 				}
 			}
-			if (eelse != null) {
+			if eelse != null {
 				switch eelse {
 					case Block(_):
 					case If(_): // Allow `else if`
@@ -750,11 +752,12 @@ class Parser {
 			let meta = lex.meta[i]
 			let value = getgo(Token.LInt)
 			switch meta {
+				// TODO rename `Default` token to `Empty`
 				case Default:
 					let at = i
 					let v = parseInt(value)
-					if (v > 2147483647 || v < -2147483647) {
 						i = at
+					if v > 2147483647 || v < -2147483647 {
 						fail('Integer `\(value)` is too large for *signed* 32 bit, use `\(value)u32` or `\(value)n`')
 						// TODO recommend i64/u64 depending on value size
 					}
@@ -767,10 +770,10 @@ class Parser {
 		// `T?`
 		// `T<T>`
 		case LUpper:
-			if lex.token[i + 1] == Token.OpLt {
+			if offset(1) == Token.OpLt {
 				let res = parseType()
 				result = Node.NodeTypeValue(res)
-			} else if lex.token[i + 1] == Token.Question {
+			} else if offset(1) == Token.Question {
 				let name = getgo(Token.LUpper)
 				i++
 				result = Node.NodeTypeValue(NodeType.Optional(NodeType.Type(name, null)))
@@ -999,12 +1002,12 @@ class Parser {
 				i++
 				if tok() == Token.BrClose { // Empty {}
 					step(Token.BrClose)
-				} else if (tok() == Token.LLower && lex.token[i + 1] == Token.Colon) { // Object { k:v }
+				} else if (tok() == Token.LLower && offset(1) == Token.Colon) { // Object { k:v }
 					while tok() != Token.BrClose {
 						names.push(getgo(Token.LLower))
 						step(Token.Colon)
 						values.push(parseExpr())
-						if (tok() == Token.Comma) {
+						if tok() == Token.Comma {
 							i++
 						}
 					}
@@ -1026,7 +1029,7 @@ class Parser {
 							parseType()
 						}
 					case _:
-						if lex.token[i + 1] == Token.Colon {
+						if offset(1) == Token.Colon {
 							argNames.push(getgo(Token.LLower))
 							step(Token.Colon)
 						}
@@ -1326,7 +1329,7 @@ class Parser {
 								parseType()
 							}
 						case _:
-							if tok() == Token.LLower, lex.token[i + 1] == Token.Colon {
+							if tok() == Token.LLower, offset(1) == Token.Colon {
 								argNames.push(getgo(Token.LLower))
 								step(Token.Colon)
 							} else {
@@ -1591,8 +1594,8 @@ class Parser {
 	fun parseFunction(parseBody: Bool = true, external: Bool = false): Node {
 		let parseBody = (parseBody != null) ? parseBody : true
 		i++
-		var expr = null
-		var name = null
+		var expr: Node? = null
+		var name: String? = null
 		var vars: [String] = []
 		var atts: [[Decorator]] = []
 		var types = []
@@ -1616,16 +1619,16 @@ class Parser {
 
 				var expr = null
 				var t = null
-				if (tok() == Token.Interval) {
+				if tok() == Token.Interval {
 					i++
 				}
 				pos.push({ line: lex.line[i], column: lex.column[i] })
 				var name = getgo(Token.LLower)
-				if (tok() == Token.Colon) {
+				if tok() == Token.Colon {
 					i++
 					t = parseType()
 				}
-				if (tok() == Token.OpAssign) {
+				if tok() == Token.OpAssign {
 					i++
 					expr = parseExpr()
 				}
@@ -1633,7 +1636,7 @@ class Parser {
 				atts.push(decorators)
 				types.push(t)
 				values.push(expr)
-				if (tok() == Token.Comma) {
+				if tok() == Token.Comma {
 					i++
 				} else {
 					break
@@ -1642,13 +1645,13 @@ class Parser {
 			step(Token.PClose)
 		}
 		var rettype = null
-		if (tok() == Token.Colon) {
+		if tok() == Token.Colon {
 			i++
 			rettype = parseType()
 		}
 
 		if parseBody { switch tok() {
-			case KNew: if (lex.token[i + 1] == Token.POpen) {} else {
+			case KNew: if (offset(1) == Token.POpen) {} else {
 				expr = parseExpr()
 			}
 			case BrClose: {}
