@@ -15,7 +15,8 @@
 
 // TODO Simple enums may be only of types `Int` and `String`
 enum NasmConvention : Int {
-	// TODO accept just `FastCall`
+	/// Custom ABI
+	HexaCall
 	FastCall
 }
 
@@ -35,6 +36,7 @@ class NasmFunction {
 	let storages: [String] = []
 	let storageSizes: [String : Int] = [:]
 	let storagesBySizes: [Int : [String]] = [:]
+	var method: Bool = false
 
 	new () {
 		storageSizes.set('RAX', 8)
@@ -107,7 +109,6 @@ class NasmFunction {
 	}
 
 	fun free(storage: String): Void {
-		// TODO
 		// TODO error if freed twice
 		let bytes = storageSizes.get(storage)
 		let storages = storagesBySizes.get(bytes) ?? []
@@ -123,7 +124,7 @@ class NasmFunction {
 	fun finalize() {
 		if shadowSpace {
 			body.unshift('sub RSP, \(stackStorage + 32); With 32 bytes of shadow space')
-			// TODO align to 15 bytes by +8
+			// TODO align to 16 bytes by +8
 		} else if stackStorage != 0 {
 			body.unshift('sub RSP, \(stackStorage)')
 		}
@@ -197,8 +198,6 @@ class GenNasm {
 		header.push('bits 64')
 		header.push('default rel')
 		// TODO base?
-		//header.push('section .head')
-		//header.push('; This is only Win64* for now')
 
 		// Init
 		let dataSection: [String] = []
@@ -207,15 +206,10 @@ class GenNasm {
 		let mainText: [String] = []
 		let exports: [String] = ['hexaEntry; Entry'] // TODO possibility to rename entry point
 		let imports: [String] = ['ExitProcess'] // TODO
-		//let out: [String] = []
 		//out.push('global HEXA_MAIN\nHEXA_MAIN:\n')
 		//out.push('\tprintf("Starting...\\n");fflush(0);\n')
 		//out.push('\t%%%HEXA_STRINGS@@@\n')
-		//out.push('\t')
 		//out.push('\tprintf("Exiting...\\n");fflush(0);\n')
-		//out.push('\tmov rax, 0\n')
-		//out.push('\tret\n')
-		//out.push('; EOF\n')
 
 		let hexaMain = new NasmFunction()
 		hexaMain.name = 'hexaMain'
@@ -226,6 +220,39 @@ class GenNasm {
 		hexaMain.fillInputs()
 
 		// Generate
+		fun varTypeInit(type: Type): String {
+			switch type {
+				case ClassInstance(type, generic):
+					// TODO 32-bit
+					switch type.name {
+						// TODO detect not by names
+						case 'UInt8': return 'db 0; ' + type.name
+						case 'UInt16': return 'dw 0; ' + type.name
+						case 'UInt32': return 'dd 0; ' + type.name
+						case 'UInt64': return 'dq 0; ' + type.name
+
+						case 'Int8': return 'db 0; ' + type.name
+						case 'Int16': return 'dw 0; ' + type.name
+						case 'Int32': return 'dd 0; ' + type.name
+						case 'Int64': return 'dq 0; ' + type.name
+						// TODO saving of un-signed values as 0x
+					}
+					return 'dq 0; ' + type.name
+			}
+			return 'dq 0; ' + type // TODO proper type.enum.tagName
+		}
+
+		fun fillGlobalVar(fullName: String, expr: Expression?, type: Type) {
+			// TODO let bytes = typeToSize(type)
+			// TODO init known values non-dynamically (in db)
+			if let expr = expr {
+				functionNow = hexaMain
+				let valueStorage = expression(expr)
+				let kind = 'qword' // TODO
+				functionNow.body.push('mov \(kind) [REL ' + fullName + '], ' + valueStorage + '; global.var')
+			}
+		}
+
 		for c in project.classes {
 			if c.useless {
 				continue
@@ -235,37 +262,59 @@ class GenNasm {
 				continue
 			}
 
-			fun varTypeInit(type: Type): String {
-				switch type {
-					case ClassInstance(type, generic):
-						// TODO 32-bit
-						switch type.name {
-							// TODO detect not by names
-							case 'UInt8': return 'db 0; ' + type.name
-							case 'UInt16': return 'dw 0; ' + type.name
-							case 'UInt32': return 'dd 0; ' + type.name
-							case 'UInt64': return 'dq 0; ' + type.name
+			for v in c.methods {
+				switch v {
+					case Function(name, expr, args, defaults, funcType):
+						switch funcType {
+							case Function(argTypes, returns):
+								let ref = c.name + '.' + name
+								let func = pushFunction(ref)
+								func.args = args
+								func.argTypes = argTypes
+								func.returns = returns
+								func.method = true
+								// TODO defaults
+								func.fillInputs()
 
-							case 'Int8': return 'db 0; ' + type.name
-							case 'Int16': return 'dw 0; ' + type.name
-							case 'Int32': return 'dd 0; ' + type.name
-							case 'Int64': return 'dq 0; ' + type.name
-							// TODO saving of un-signed values as 0x
+								if name == null || name == 'new', c.vars.length > 0 {
+									// Init fields
+									// TODO should it be done after `super()` cause super class may override them?
+									for v in c.vars {
+										switch v {
+											case Var(name, expr, type):
+												if let expr = expr {
+													let valueStorage = expression(expr)
+													let kind = 'qword' // TODO
+													let fullName = 'this.' + name // TODO
+													functionNow.body.push('mov \(kind) [REL ' + fullName + '], ' + valueStorage + '; this.var')
+												}
+
+											case Const(name, expr, type):
+												if let expr = expr {
+													// TODO fill here too
+												}
+											}
+									}
+								}
+
+								functionBody(expr)
+								func.finalize()
 						}
-						return 'dq 0; ' + type.name
+
+						}
 				}
-				return 'dq 0; ' + type // TODO proper type.enum.tagName
 			}
 
 			for v in c.staticVars {
 				switch v {
-					// TODO order by size (ie align as in structures)
+					// TODO order by size (globally across all globals) (ie align as in structures)
 					case Var(name, expr, type):
 						dataSection.push(c.name + '.' + name + ' ' + varTypeInit(type))
+						fillGlobalVar(c.name + '.' + name, expr, type)
 						// TODO init known values non-dynamically (in db)
 					case Const(name, expr, type):
-						//dataSection.push('\(stringifyType(type)) ' + c.name + '_$' + name + '_;\n')
 						dataSection.push(c.name + '.' + name + ' ' + varTypeInit(type))
+						fillGlobalVar(c.name + '.' + name, expr, type)
 						// TODO init known values non-dynamically (in db)
 
 						//out.push(' = ' + printExpression(expr))
@@ -288,11 +337,117 @@ class GenNasm {
 								functionBody(expr)
 								func.finalize()
 						}
-						//out.push('\n\t' + c.name + '.' + name + ' = ')
-						//out.push(printFunctionArguments(args, defaults) + ' => ' + printBlock(expr) + ';')
 				}
 			}
 		}
+
+		for e in project.enumsSimple {
+			for v in e.staticVars {
+				switch v {
+					// TODO order by size (ie align as in structures)
+					case Var(name, expr, type):
+						dataSection.push(e.name + '.' + name + ' ' + varTypeInit(type))
+						fillGlobalVar(e.name + '.' + name, expr, type)
+						// TODO init known values non-dynamically (in db)
+					case Const(name, expr, type):
+						dataSection.push(e.name + '.' + name + ' ' + varTypeInit(type))
+						fillGlobalVar(e.name + '.' + name, expr, type)
+						// TODO init known values non-dynamically (in db)
+				}
+			}
+
+			for v in e.staticMethods {
+				switch v {
+					// TODO why even need to `switch` here? Just store function as class in normalizer, same for var
+					case Function(name, expr, args, defaults, funcType):
+						switch funcType {
+							case Function(argTypes, returns):
+								let ref = e.name + '.' + name
+								let func = pushFunction(ref)
+								func.args = args
+								func.argTypes = argTypes
+								func.returns = returns
+								// TODO defaults
+								func.fillInputs()
+								functionBody(expr)
+								func.finalize()
+						}
+				}
+			}
+		}
+
+		for e in project.enumsComplex {
+			for v in e.staticVars {
+				switch v {
+					// TODO order by size (ie align as in structures)
+					case Var(name, expr, type):
+						dataSection.push(e.name + '.' + name + ' ' + varTypeInit(type))
+						fillGlobalVar(e.name + '.' + name, expr, type)
+						// TODO init known values non-dynamically (in db)
+					case Const(name, expr, type):
+						dataSection.push(e.name + '.' + name + ' ' + varTypeInit(type))
+						fillGlobalVar(e.name + '.' + name, expr, type)
+						// TODO init known values non-dynamically (in db)
+				}
+			}
+
+			for v in e.staticMethods {
+				switch v {
+					// TODO why even need to `switch` here? Just store function as class in normalizer, same for var
+					case Function(name, expr, args, defaults, funcType):
+						switch funcType {
+							case Function(argTypes, returns):
+								let ref = e.name + '.' + name
+								let func = pushFunction(ref)
+								func.args = args
+								func.argTypes = argTypes
+								func.returns = returns
+								// TODO defaults
+								func.fillInputs()
+								functionBody(expr)
+								func.finalize()
+						}
+				}
+			}
+		}
+
+		for v in project.globalFuncs {
+			switch v {
+				case Function(name, expr, args, defaults, funcType):
+					switch funcType {
+						case Function(argTypes, returns):
+							let ref = 'global.' + name
+							let func = pushFunction(ref)
+							func.args = args
+							func.argTypes = argTypes
+							func.returns = returns
+							// TODO defaults
+							func.fillInputs()
+							functionBody(expr)
+							func.finalize()
+					}
+			}
+		}
+
+		for v in project.globalVars {
+			switch v {
+				// TODO order by size (ie align as in structures)
+				case Var(name, expr, type):
+					dataSection.push('global.' + name + ' ' + varTypeInit(type))
+					fillGlobalVar('global.' + name, expr, type)
+					// TODO init known values non-dynamically (in db)
+				case Const(name, expr, type):
+					dataSection.push('global.' + name + ' ' + varTypeInit(type))
+					fillGlobalVar('global.' + name, expr, type)
+					// TODO init known values non-dynamically (in db)
+			}
+		}
+
+		functionNow = hexaMain
+		for init in project.init {
+			functionBody(init)
+		}
+		hexaMain.finalize()
 
 		// Output
 		let result = ['']
@@ -315,6 +470,7 @@ class GenNasm {
 		}
 
 		result.push('\n\nsection .data; Initialized')
+		// TODO ^ `alignb 8 or 16`?
 
 		for name in dataSection {
 			result.push('\n ')
@@ -329,12 +485,15 @@ class GenNasm {
 		}
 
 		result.push('\n\nsection .text; Code')
+		// TODO ^ `alignb 8 or 16`?
 
 		result.push('\nhexaEntry:; Entry')
 		/*for line in mainText {
 			result.push('\n ')
 			result.push(line)
 		}*/
+		// TODO align conditionally if not aligned
+		// ^ something like `sub RSP, RSP % 16`
 		result.push('\nsub RSP, 8; Align stack pointer to 16 bytes')
 		result.push('\nsub RSP, 32; 32 bytes of shadow space')
 		//result.push('\nxor ECX, ECX')
@@ -366,24 +525,6 @@ class GenNasm {
 		result.push('\n')
 
 		return result.join('')
-
-/*
-		let newLine = ['']
-		return header.concat([
-			newLine,
-			imports,
-			newLine,
-			exports,
-			newLine,
-			dataSection,
-			newLine,
-		])
-*/
-		/*return (
-			header.join('\n')
-			//+ '\n\n; Strings\nString_Strings resq 1\n' +
-			out.join('')
-		).split('\n').join('\r\n')*/
 	}
 
 	var busyRegisters = []
@@ -460,7 +601,6 @@ class GenNasm {
 					functionNow.body.push('mov ' + aResult + ', ' + aStorage + '; a \(token) b')
 				}
 
-				//let bStorage = expression(b)
 				// TODO same for `a`
 				let bResult =
 				switch b {
@@ -473,21 +613,12 @@ class GenNasm {
 						let temp = 'R10' // We do NOT modify left operand!
 						functionNow.body.push('mov \(temp), ' + aResult)
 						functionNow.body.push('add \(temp), ' + bResult)
-						//functionNow.body.push('mov ' + aResult + ', ' + aStorage)
 						return temp
 					}
 
 					case OpEq | OpNotEq: {
-						/*
-						cmp     dword ptr [_ZN11GenericDemo3vvvE], 444
-						sete    al
-						and     al, 1
-						movzx   eax, al
-						mov     dword ptr [rbp - 16], eax
-						*/
 						let temp = 'R10' // We do NOT modify left operand!
 						functionNow.body.push('cmp \(aResult), ' + bResult)
-						//functionNow.body.push('cmp \(temp), ' + aResult)
 						if op == Token.OpEq {
 							functionNow.body.push('sete al')
 						} else {
@@ -495,8 +626,6 @@ class GenNasm {
 						}
 						functionNow.body.push('and al, 1') // Convert to exact `true` value
 						functionNow.body.push('movzx \(temp), al') // Zero extend
-						//functionNow.body.push('add \(temp), ' + bStorage)
-						////functionNow.body.push('mov ' + aResult + ', ' + aStorage)
 						return temp
 					}
 
@@ -514,14 +643,13 @@ class GenNasm {
 						// TODO is this always a static access?
 						return  `dword [REL ` + typeName + '.' + name + `]`
 						// TODO detect size
-						//return '??' + name + '??'
 					}
 					case _: return expression(expr)
 				}
 			}
 
 			case _: {
-				functionNow.body.push('.?Expression:; ' + e)
+				functionNow.body.push(';.?Expression:; ' + e)
 			}
 		}
 
@@ -530,7 +658,6 @@ class GenNasm {
 	}
 
 	fun referenceToStorage(ref: Expression): String? {
-		//functionNow.getVar(name) ?? '!!!' + name
 		switch ref {
 			case Dot(expr, name, result): {
 				switch expr {
@@ -538,7 +665,6 @@ class GenNasm {
 						// TODO is this always a static access?
 						return  `dword [REL ` + typeName + '.' + name + `]`
 						// TODO detect size
-						//return '??' + name + '??'
 					}
 					case _: return expression(expr)
 				}
@@ -574,7 +700,6 @@ class GenNasm {
 					case _: expression(value)
 				}
 
-				//functionNow.body.push('.?Assign:; ' + value)
 				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; name = value')
 			}
 
@@ -591,20 +716,25 @@ class GenNasm {
 				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; var ' + name)
 			}
 
+			case Const(name, expr, type): {
+				let bytes = typeToSize(type)
+				let storage = functionNow.allocateVar(name, bytes)
+				let valueStorage =
+
+				switch expr {
+					case Int(v): '' + v
+					case _: expression(expr)
+				}
+
+				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; let ' + name)
+			}
+
 			case If(econd, eif, eelse): {
 				var idIf = functionNow.labels++
-				// TODO remove in release
-				//var labelElse = functionNow.labels++
-				//var labelExit = functionNow.labels++
-
 				functionNow.body.push('.if.begin.\(idIf):') // TODO remove in release
 				// TODO shortcut when `justVar cmp justConst` and otherwise
 				let storage = expression(econd)
 				// TODO is RAX always ok? no need to allocate temp vars?
-				/*
-				cmp     DWORD PTR [rbp-4], 0
-				je      .L2
-				*/
 
 				functionNow.body.push('cmp \(storage), 0')
 				if let eelse = eelse {
@@ -637,7 +767,7 @@ class GenNasm {
 			}
 
 			case _:
-				functionNow.body.push('.?:; ' + expr)
+				functionNow.body.push(';.?:; ' + expr)
 		}
 	}
 }
