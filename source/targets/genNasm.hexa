@@ -13,6 +13,135 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// TODO Simple enums may be only of types `Int` and `String`
+enum NasmConvention : Int {
+	// TODO accept just `FastCall`
+	FastCall
+}
+
+class NasmFunction {
+	var convention: NasmConvention = NasmConvention.FastCall
+	// TODO var stackStorage: UInt32 = 0
+	var stackStorage: Int = 0
+	var shadowSpace = true // + 32 bytes of shadow space
+	// TODO ^ false by default
+	var name: String
+	let body: [String] = []
+	var args: [String] = [] // TODO `let` late init
+	var argTypes: [Type]
+	var returns: Type
+	var varStorage: [String : String] = [:]
+	var labels = 0
+	let storages: [String] = []
+	let storageSizes: [String : Int] = [:]
+	let storagesBySizes: [Int : [String]] = [:]
+
+	new () {
+		storageSizes.set('RAX', 8)
+		// TODO more
+	}
+
+	fun fillInputs() {
+		// TODO float & stack & va args
+		let regs = ['RCX', 'RDX', 'R8', 'R9']
+		for arg in args {
+			let storage = regs.shift()
+
+			if storage == null {
+				// TODO throw
+			}
+
+			varStorage.set(arg, storage)
+		}
+	}
+
+	fun allocateVar(name: String, bytes: Int): String {
+		stackStorage += bytes
+
+		var kind = 'dword'
+		if bytes == 8 {
+			kind = 'qword'
+			// TODO others
+		}
+
+		let storage = kind + ` [RBP - ` + stackStorage + `]`
+		varStorage.set(name, storage)
+		return storage
+	}
+
+	fun getVar(name: String): String {
+		return varStorage.get(name)
+	}
+
+	fun freeVar() {
+		// TODO
+	}
+
+	fun freeArgument() {
+		// TODO reuse of unused (anymore) argument registers
+
+	}
+
+	// TODO allocations must be aligned?
+	// TODO allocate grouped by size to avoid too large stack (ie 8;16;8 to 16;8;8)
+	fun allocate(bytes: Int): String {
+		if let storages = storagesBySizes.get(bytes) {
+			if let storage = storages[storages.length - 1] {
+				storages.pop()
+				return storage
+			}
+		}
+
+		stackStorage += bytes
+
+		var kind = 'dword'
+		if bytes == 8 {
+			kind = 'qword'
+			// TODO others
+		}
+
+		let storage = kind + ` [RBP - ` + stackStorage + `]`
+		storageSizes.set(storage, bytes)
+		return storage
+
+	}
+
+	fun free(storage: String): Void {
+		// TODO
+		// TODO error if freed twice
+		let bytes = storageSizes.get(storage)
+		let storages = storagesBySizes.get(bytes) ?? []
+		storagesBySizes.set(bytes, storages) // TODO lazy
+
+		if storages.includes(storage) {
+			throw 'Storage freed twice `\(name)`.`\(storage)'
+		}
+
+		storages.push(storage)
+	}
+
+	fun finalize() {
+		if shadowSpace {
+			body.unshift('sub RSP, \(stackStorage + 32); With 32 bytes of shadow space')
+			// TODO align to 15 bytes by +8
+		} else if stackStorage != 0 {
+			body.unshift('sub RSP, \(stackStorage)')
+		}
+		body.unshift('push RBP; Set stack frame') // Note: `unshift` works in reverse order
+		// TODO add ret only if not done
+
+		// Avoid unnecessary `jmp`
+		if body[body.length - 1] == 'jmp .return' {
+			body.pop()
+		}
+
+		body.push('.return:')
+		body.push('mov RSP, RBP; Remove the stack frame')
+		body.push('pop RBP')
+		body.push('ret')
+	}
+}
+
 // Generates NASM assembly
 class GenNasm {
 	static fun spawn() {
@@ -21,12 +150,36 @@ class GenNasm {
 
 	var project: NiceProject
 	let reserved = []
+	let hexaMain: [String] = []
+	var labelUid = 0
+	let extension = '.js'
+	let nativeEnums = false
+	var toIterator = false
+	let functions: [NasmFunction] = []
+	let functionStack: [NasmFunction] = []
+	var functionNow: NasmFunction = null // TODO should error cause `null`
 
 	new () {}
 
 	fun perform(normalizer): String {
 		project = normalizer
 		return stringify()
+	}
+
+	fun pushFunction(name: String): NasmFunction {
+		let func = new NasmFunction()
+		func.name = name
+		functions.push(func)
+		functionNow = func
+		functionStack.push(func)
+		return func
+	}
+
+	fun popFunction(): NasmFunction {
+		functionStack.pop()
+		let func = functionStack[functionStack.length - 1] // TODO `.last`
+		functionNow = func
+		return func // TODO this is nullable, guard with exception on `null ?? throw`
 	}
 
 	fun stringify() {
@@ -43,27 +196,448 @@ class GenNasm {
 		header.push(Fs.readFileSync(__dirname + '/library/native/hexa.asm').toString('utf8').split('\r\n').join('\n'))
 		header.push('bits 64')
 		header.push('default rel')
-		header.push('section .head')
-		header.push('; This is only Win64 for now')
-
-		let out: [String] = []
+		// TODO base?
+		//header.push('section .head')
+		//header.push('; This is only Win64* for now')
 
 		// Init
-		out.push('global HEXA_MAIN\nHEXA_MAIN:\n')
-		out.push('\tprintf("Starting...\\n");fflush(0);\n')
-		out.push('\t%%%HEXA_STRINGS@@@\n')
+		let dataSection: [String] = []
+		let bssSection: [String] = []
+		let textSection: [String] = []
+		let mainText: [String] = []
+		let exports: [String] = ['hexaEntry; Entry'] // TODO possibility to rename entry point
+		let imports: [String] = ['ExitProcess'] // TODO
+		//let out: [String] = []
+		//out.push('global HEXA_MAIN\nHEXA_MAIN:\n')
+		//out.push('\tprintf("Starting...\\n");fflush(0);\n')
+		//out.push('\t%%%HEXA_STRINGS@@@\n')
+		//out.push('\t')
+		//out.push('\tprintf("Exiting...\\n");fflush(0);\n')
+		//out.push('\tmov rax, 0\n')
+		//out.push('\tret\n')
+		//out.push('; EOF\n')
 
-		out.push('\t')
-		out.push('\tprintf("Exiting...\\n");fflush(0);\n')
-		out.push('\tmov rax, 0\n')
-		out.push('\tret\n')
+		let hexaMain = new NasmFunction()
+		hexaMain.name = 'hexaMain'
+		//let functions = [hexaMain]
+		functions.push(hexaMain)
+		functionNow = hexaMain
+		functionStack.push(hexaMain)
+		hexaMain.fillInputs()
 
-		out.push('; EOF\n')
+		// Generate
+		for c in project.classes {
+			if c.useless {
+				continue
+			}
 
-		return (
+			if c.external {
+				continue
+			}
+
+			fun varTypeInit(type: Type): String {
+				switch type {
+					case ClassInstance(type, generic):
+						// TODO 32-bit
+						switch type.name {
+							// TODO detect not by names
+							case 'UInt8': return 'db 0; ' + type.name
+							case 'UInt16': return 'dw 0; ' + type.name
+							case 'UInt32': return 'dd 0; ' + type.name
+							case 'UInt64': return 'dq 0; ' + type.name
+
+							case 'Int8': return 'db 0; ' + type.name
+							case 'Int16': return 'dw 0; ' + type.name
+							case 'Int32': return 'dd 0; ' + type.name
+							case 'Int64': return 'dq 0; ' + type.name
+							// TODO saving of un-signed values as 0x
+						}
+						return 'dq 0; ' + type.name
+				}
+				return 'dq 0; ' + type // TODO proper type.enum.tagName
+			}
+
+			for v in c.staticVars {
+				switch v {
+					// TODO order by size (ie align as in structures)
+					case Var(name, expr, type):
+						dataSection.push(c.name + '.' + name + ' ' + varTypeInit(type))
+						// TODO init known values non-dynamically (in db)
+					case Const(name, expr, type):
+						//dataSection.push('\(stringifyType(type)) ' + c.name + '_$' + name + '_;\n')
+						dataSection.push(c.name + '.' + name + ' ' + varTypeInit(type))
+						// TODO init known values non-dynamically (in db)
+
+						//out.push(' = ' + printExpression(expr))
+				}
+			}
+
+			for v in c.staticMethods {
+				switch v {
+					// TODO why even need to `switch` here? Just store function as class in normalizer, same for var
+					case Function(name, expr, args, defaults, funcType):
+						switch funcType {
+							case Function(argTypes, returns):
+								let ref = c.name + '.' + name
+								let func = pushFunction(ref)
+								func.args = args
+								func.argTypes = argTypes
+								func.returns = returns
+								// TODO defaults
+								func.fillInputs()
+								functionBody(expr)
+								func.finalize()
+						}
+						//out.push('\n\t' + c.name + '.' + name + ' = ')
+						//out.push(printFunctionArguments(args, defaults) + ' => ' + printBlock(expr) + ';')
+				}
+			}
+		}
+
+		// Output
+		let result = ['']
+
+		for name in header {
+			result.push(name)
+			result.push('\n')
+		}
+
+		for name in imports {
+			result.push('\nextern ')
+			result.push(name)
+		}
+
+		result.push('\n')
+
+		for name in exports {
+			result.push('\nglobal ')
+			result.push(name)
+		}
+
+		result.push('\n\nsection .data; Initialized')
+
+		for name in dataSection {
+			result.push('\n ')
+			result.push(name)
+		}
+
+		result.push('\n\nsection .bss; Uninitialized\n alignb 8')
+
+		for name in bssSection {
+			result.push('\n ')
+			result.push(name)
+		}
+
+		result.push('\n\nsection .text; Code')
+
+		result.push('\nhexaEntry:; Entry')
+		/*for line in mainText {
+			result.push('\n ')
+			result.push(line)
+		}*/
+		result.push('\nsub RSP, 8; Align stack pointer to 16 bytes')
+		result.push('\nsub RSP, 32; 32 bytes of shadow space')
+		//result.push('\nxor ECX, ECX')
+		//result.push('\ncall GetModuleHandleA')
+		//result.push('\nmov qword [REL hInstance], RAX')
+		//result.push('\nadd RSP, 32; Remove the 32 bytes')
+		result.push('\ncall hexaMain')
+		result.push('\n.hexaEntry.ExitProcess:; Default exit routine')
+		//result.push('\n sub RSP, 32; 32 bytes of shadow space')
+		result.push('\n xor ECX, ECX')
+		result.push('\n call ExitProcess')
+
+		//for name in textSection {
+		//	result.push('\n ')
+		//	result.push(name)
+		//}
+
+		for func in functions {
+			result.push('\n\n')
+			result.push(func.name)
+			result.push(':')
+
+			for line in func.body {
+				result.push('\n ')
+				result.push(line)
+			}
+		}
+
+		result.push('\n')
+
+		return result.join('')
+
+/*
+		let newLine = ['']
+		return header.concat([
+			newLine,
+			imports,
+			newLine,
+			exports,
+			newLine,
+			dataSection,
+			newLine,
+		])
+*/
+		/*return (
 			header.join('\n')
-			+ '\n\n; Strings\nString_Strings resq 1\n' +
+			//+ '\n\n; Strings\nString_Strings resq 1\n' +
 			out.join('')
-		).split('\n').join('\r\n')
+		).split('\n').join('\r\n')*/
+	}
+
+	var busyRegisters = []
+
+	/// Scratch registers
+	/// Not arguments
+	/// Not required to be saved and restored
+	var freeRegisters = ['R10', 'R11']
+
+	fun allocateRegister(): String {
+		// TODO fallback to stack
+		return freeRegisters.pop()
+	}
+
+	fun freeRegister(name: String): Void {
+		freeRegisters.push(name)
+	}
+
+	fun typeToSize(type: Type): Int {
+		return 8 // TODO
+	}
+
+	fun storageToSize(storage: String): Int {
+		if storage == null {
+			return 999 // TODO throw
+		}
+
+		if let size = functionNow.storageSizes.get(storage) {
+			return size
+		}
+
+		if storage == 'RAX' {
+			return 8
+		}
+
+		if storage.startsWith('qword ') {
+			return 8
+		}
+
+		if storage.startsWith('dword ') {
+			return 4
+		}
+
+		return 8 // TODO
+	}
+
+	fun expression(e: Expression): String {
+		switch e {
+			case Int(v): {
+				let storage = 'RAX'
+				functionNow.body.push('mov ' + storage + ', ' + v + '; int')
+				return storage
+			}
+
+			case Ident(name, type): {
+				if functionNow.getVar(name) == null {
+					return 'UNKNOWN_VAR_' + name
+				}
+				return functionNow.getVar(name)
+			}
+
+			case Binop(a, op, b, result): {
+				// TODO proposeStorage('RAX') or just allocate within expression(a) if RAX busy
+				let aSimpleRef = referenceToStorage(a)
+				let aStorage = aSimpleRef ?? expression(a)
+				// TODO let aResult = allocateRegisterIfProposedUnused()
+				let bytes = storageToSize(aStorage) // TODO better way
+				let aResult = aSimpleRef ?? functionNow.allocate(bytes)
+				let token = Token.stringify(op)
+
+				// Store value of `a` into temp var to avoid name collisions
+				// Avoids temp if possible (if simple static or local read)
+				if aSimpleRef == null {
+					functionNow.body.push('mov ' + aResult + ', ' + aStorage + '; a \(token) b')
+				}
+
+				//let bStorage = expression(b)
+				// TODO same for `a`
+				let bResult =
+				switch b {
+					case Int(v): '' + v
+					case _: expression(b)
+				}
+
+				switch op {
+					case OpAdd: {
+						let temp = 'R10' // We do NOT modify left operand!
+						functionNow.body.push('mov \(temp), ' + aResult)
+						functionNow.body.push('add \(temp), ' + bResult)
+						//functionNow.body.push('mov ' + aResult + ', ' + aStorage)
+						return temp
+					}
+
+					case OpEq | OpNotEq: {
+						/*
+						cmp     dword ptr [_ZN11GenericDemo3vvvE], 444
+						sete    al
+						and     al, 1
+						movzx   eax, al
+						mov     dword ptr [rbp - 16], eax
+						*/
+						let temp = 'R10' // We do NOT modify left operand!
+						functionNow.body.push('cmp \(aResult), ' + bResult)
+						//functionNow.body.push('cmp \(temp), ' + aResult)
+						if op == Token.OpEq {
+							functionNow.body.push('sete al')
+						} else {
+							functionNow.body.push('setne al')
+						}
+						functionNow.body.push('and al, 1') // Convert to exact `true` value
+						functionNow.body.push('movzx \(temp), al') // Zero extend
+						//functionNow.body.push('add \(temp), ' + bStorage)
+						////functionNow.body.push('mov ' + aResult + ', ' + aStorage)
+						return temp
+					}
+
+					case _: {
+						functionNow.body.push('.UNKNOWN_BIN_OP_' + token)
+					}
+				}
+				// TODO freeRegister/freeStorage(bStorage) b never referenced after this point
+				// TODO ^same thing for func args (and other many-to-one expressions)
+			}
+
+			case Dot(expr, name, result): {
+				switch expr {
+					case Ident(typeName, type): {
+						// TODO is this always a static access?
+						return  `dword [REL ` + typeName + '.' + name + `]`
+						// TODO detect size
+						//return '??' + name + '??'
+					}
+					case _: return expression(expr)
+				}
+			}
+
+			case _: {
+				functionNow.body.push('.?Expression:; ' + e)
+			}
+		}
+
+		// TODO print this to log
+		return 'UNKNOWN_EXPRESSION_' + (e as! [String])[(e as! [String]).length - 1]
+	}
+
+	fun referenceToStorage(ref: Expression): String? {
+		//functionNow.getVar(name) ?? '!!!' + name
+		switch ref {
+			case Dot(expr, name, result): {
+				switch expr {
+					case Ident(typeName, type): {
+						// TODO is this always a static access?
+						return  `dword [REL ` + typeName + '.' + name + `]`
+						// TODO detect size
+						//return '??' + name + '??'
+					}
+					case _: return expression(expr)
+				}
+			}
+
+			case Ident(name, type): {
+				return functionNow.getVar(name) ?? 'UNKNOWN_VAR_' + name
+			}
+
+			case _: {
+				throw 'Unknown ref format ' + ref
+			}
+		}
+
+		return null
+		//'UNKNOWN_STORAGE'
+	}
+
+	fun functionBody(expr: Statement): Void {
+		switch expr {
+			case Block(el): {
+				for e in el {
+					functionBody(e)
+				}
+			}
+
+			case Assign(name, value, to): {
+				let storage = referenceToStorage(name) ?? 'UNKNOWN_STORAGE' // TODO guard
+				let valueStorage =
+
+				switch value {
+					case Int(v): '' + v
+					case _: expression(value)
+				}
+
+				//functionNow.body.push('.?Assign:; ' + value)
+				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; name = value')
+			}
+
+			case Var(name, expr, type): {
+				let bytes = typeToSize(type)
+				let storage = functionNow.allocateVar(name, bytes)
+				let valueStorage =
+
+				switch expr {
+					case Int(v): '' + v
+					case _: expression(expr)
+				}
+
+				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; var ' + name)
+			}
+
+			case If(econd, eif, eelse): {
+				var idIf = functionNow.labels++
+				// TODO remove in release
+				//var labelElse = functionNow.labels++
+				//var labelExit = functionNow.labels++
+
+				functionNow.body.push('.if.begin.\(idIf):') // TODO remove in release
+				// TODO shortcut when `justVar cmp justConst` and otherwise
+				let storage = expression(econd)
+				// TODO is RAX always ok? no need to allocate temp vars?
+				/*
+				cmp     DWORD PTR [rbp-4], 0
+				je      .L2
+				*/
+
+				functionNow.body.push('cmp \(storage), 0')
+				if let eelse = eelse {
+					functionNow.body.push('je .else.\(idIf)')
+				} else {
+					functionNow.body.push('je .if.end.\(idIf)')
+				}
+
+				functionBody(eif)
+				if let eelse = eelse {
+					functionNow.body.push('jmp .if.end.\(idIf)')
+				}
+
+				if let eelse = eelse {
+					functionNow.body.push('.else.\(idIf):')
+					functionBody(eelse)
+				}
+				functionNow.body.push('.if.end.\(idIf):')
+			}
+
+			case Return(e): {
+				if let e = e {
+					let storage = expression(e)
+
+					if storage != 'RAX' {
+						functionNow.body.push('mov RAX, ' + storage + '; return value')
+					}
+				}
+				functionNow.body.push('jmp .return')
+			}
+
+			case _:
+				functionNow.body.push('.?:; ' + expr)
+		}
 	}
 }
