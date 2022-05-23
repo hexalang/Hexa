@@ -40,6 +40,7 @@ struct SYMBOL_INFO
 
 enum CALLING_CONVENTION
 {
+	CALLING_CONVENTION_UNDECORATED,
 	CALLING_CONVENTION_CDECL,
 	CALLING_CONVENTION_STDCALL,
 	CALLING_CONVENTION_FASTCALL,
@@ -172,6 +173,7 @@ void WriteImportLibrary5();
 void WriteImportLibrary6();
 void WriteImportLibraryFunction(SYMBOL_INFO *pSymbolInfo);
 void WriteFileHeader(FILE_INFO *pFileInfo, char *pString, BOOLEAN b, LONGLONG Id, DWORD a, DWORD BodyLength);
+char* UnDecorateFunction(char *pFunctionName, DWORD *pLength);
 char* DecorateCdeclFunction(char *pFunctionName, DWORD *pLength);
 char* DecorateStdCallFunction(char *pFunctionName, DWORD ArgListSizeInBytes, DWORD *pLength);
 char* DecorateFastCallFunction(char *pFunctionName, DWORD ArgListSizeInBytes, DWORD *pLength);
@@ -360,6 +362,21 @@ SYMBOL_INFO** GetSymbolInfoArray0(SYMBOL_INFO *pSymbolList)
 	return pSymbolInfoArray;
 }
 
+char* UnDecorateFunction(char *pFunctionName, DWORD *pLength)
+{
+	DWORD Length;
+	char *pDecoratedFunctionName;
+
+	Length = strlen(pFunctionName) + 1;
+	pDecoratedFunctionName = (char*)malloc(Length + 1);
+
+	strcpy(pDecoratedFunctionName, "");
+	strcat(pDecoratedFunctionName, pFunctionName);
+
+	*pLength = Length;
+	return pDecoratedFunctionName;
+}
+
 char* DecorateCdeclFunction(char *pFunctionName, DWORD *pLength)
 {
 	DWORD Length;
@@ -468,6 +485,9 @@ void ProcessFunction(SYMBOL_INFO *pSymbolInfo, char *pFunctionName, DWORD Value,
 	{
 		switch (CallingConvention)
 		{
+		case CALLING_CONVENTION_UNDECORATED:
+			pSymbolInfo->pSymbolName = UnDecorateFunction(pFunctionName, &pSymbolInfo->SymbolNameLength);
+			break;
 		case CALLING_CONVENTION_CDECL:
 			pSymbolInfo->pSymbolName = DecorateCdeclFunction(pFunctionName, &pSymbolInfo->SymbolNameLength);
 			break;
@@ -656,11 +676,12 @@ DWORD SeekMappedFile(FILE_INFO *pFileInfo, DWORD Offset, DWORD Mode)
 	return PrevOffset;
 }
 
-void WriteImportLibrary(char *pName, char *pExt, SYMBOL_INFO *pSymbolList)
+void WriteImportLibrary(char *pLibName, char *pName, char *pExt, SYMBOL_INFO *pSymbolList)
 {
 	DWORD *pOffsets;
 	FILE_INFO *pFileInfo;
-	char *pLibName, *pModuleName, *pHeaderName;
+	//char *pLibName, *pModuleName, *pHeaderName;
+	char *pModuleName, *pHeaderName;
 	DWORD LibNameLength, ModuleNameLength, HeaderNameLength;
 	DWORD OffsetCount;
 	BOOLEAN bHeaderName;
@@ -668,7 +689,7 @@ void WriteImportLibrary(char *pName, char *pExt, SYMBOL_INFO *pSymbolList)
 	OffsetCount = 2 + PREDEFINED_SYMBOLS_COUNT + g_InfoAll.FunctionCount;
 	pOffsets = (DWORD*)malloc(OffsetCount * sizeof(DWORD));
 
-	pLibName = CopyString2(pName, ".lib", &LibNameLength);
+	//pLibName = CopyString2(pName, ".lib", &LibNameLength);
 	pModuleName = CopyString2(pName, pExt, &ModuleNameLength);
 
 	if ((ModuleNameLength + 1) > 0x10)
@@ -709,7 +730,7 @@ void WriteImportLibrary(char *pName, char *pExt, SYMBOL_INFO *pSymbolList)
 	WriteImportLibrary6();
 
 	free(pOffsets);
-	free(pLibName);
+	//free(pLibName);
 	free(pModuleName);
 	free(pHeaderName);
 
@@ -1494,17 +1515,39 @@ void WriteFileHeader(FILE_INFO *pFileInfo, char *pString, BOOLEAN b, LONGLONG Id
 int main(int argc, char* argv[])
 {
 	char *pName;
+	char *fileName;
 	SYMBOL_INFO *pSymbolList;
 
+	if (argc < 5) {
+		printf("Not enough arguments: 64/32 dllname filename.lib funcname1 funcname2 etc\n");
+		fflush(0);
+		exit(123);
+	}
+
+	g_InfoAll.bX64 = TRUE;
+	if (argv[1][0] == '3') {
+		g_InfoAll.bX64 = FALSE;
+	}
+
 	pName = "long_dll_name_long_dll_name_long_dll_name";
+	pName = argv[2];
+	fileName = argv[3];
 
 	pSymbolList = CreateSymbolList(pName);
 
-	g_InfoAll.bX64 = TRUE;
 
-	AddFunction(pSymbolList, "function100", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
+	int i = 4;
+	while (i < argc) {
+		AddFunction(pSymbolList, argv[i], 0, 0, CALLING_CONVENTION_UNDECORATED, IMPORT_BY_DECORATED_NAME);
+		printf("AddFunction %s\n", argv[i]);
+		fflush(0);
+		i++;
+	}
 
-	WriteImportLibrary(pName, ".dll", pSymbolList);
+	//AddFunction(pSymbolList, "function100", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
+	//AddFunction(pSymbolList, "fibonacci_index", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
+
+	WriteImportLibrary(fileName, pName, ".dll", pSymbolList);
 
 	DestroySymbolList(pSymbolList);
 
