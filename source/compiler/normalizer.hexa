@@ -1138,6 +1138,7 @@ class Normalizer {
 
 				case For(name, over, by, range):
 				if (range == null) { switch over {
+					// TODO compare not `Node.Int` but instead propagate whatever constant *Nice* Int/MetaInt
 					case Int(s):
 					let i = unique(name, e)
 					// This allows to call `continue` within loop body,
@@ -1157,33 +1158,34 @@ class Normalizer {
 					])
 					case _: // Iterate over non-constant Int:
 
-					var iteratorOverInt = false
-					switch typer.types.get(over) as! Type {
-						case ClassInstance(type, generic):
-							if generic == null || generic.length == 0, type.name == 'Int' {
-								iteratorOverInt = true
-							}
-					}
+					let overType = typer.types.get(over)
+					var iteratorOverInt =
+						overType == typer.typeInt
+						or
+						overType == typer.typeUInt32
+						or
+						overType == typer.typeUInt64
+						// TODO more
 
 					if iteratorOverInt {
 						let i = unique(name, e)
-						let it = unique('it')
+						let it = unique('it') // TODO why this var is needed? Control flow of `it++`? Then use `do while`?
 						let finish = unique('at')
 
 						return Statement.Block([
-							Statement.Var(i, Expression.Int(0), typer.typeInt),
-							Statement.Var(it, Expression.Int(0), typer.typeInt),
-							Statement.Var(finish, nodeToExpression(over), typer.types.get(over)),
+							Statement.Var(i, Expression.Int(0), overType),
+							Statement.Var(it, Expression.Int(0), overType),
+							Statement.Var(finish, nodeToExpression(over), overType),
 							Statement.While(
 								Expression.Binop(
-									Expression.Ident(it, typer.typeInt),
+									Expression.Ident(it, overType),
 									Token.OpLt,
-									Expression.Ident(finish, typer.types.get(over)),
+									Expression.Ident(finish, overType),
 									typer.typeBool
 								),
 								Statement.Block([
-									Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
-									Statement.Increment(Expression.Ident(it, typer.typeInt)),
+									Statement.Assign(Expression.Ident(i, overType), Expression.Ident(it, overType), null),
+									Statement.Increment(Expression.Ident(it, overType)),
 									nodeToStatement(by)
 								]),
 								true)
@@ -1829,6 +1831,7 @@ class Normalizer {
 		fun saveInlineIfViable(e: Node, value: Expression) {
 			switch value {
 				case Int(_): inline.set(e, value)
+				case MetaInt(_): inline.set(e, value)
 				case String(_): inline.set(e, value)
 				case Float(_): inline.set(e, value)
 				case True: inline.set(e, value)
