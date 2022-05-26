@@ -27,6 +27,7 @@ fun availableGenerators(name: String): Generators? {
 	switch name {
 	case "js": return Generators.JavaScript
 	case "native": return Generators.Native
+	case "c": return Generators.Native
 
 	// none
 	case _:
@@ -36,6 +37,10 @@ fun availableGenerators(name: String): Generators? {
 /// Get standard library for target
 fun setLibrary(target: Generators, options: [String], defines: Any): [String] {
 	let files: [String] = []
+
+	// Default defines to not see useless preprocessing errors
+	defines.native = defines.native ?? false
+	defines.js = defines.js ?? false
 
 	// Target registration process
 	switch target {
@@ -52,7 +57,25 @@ fun setLibrary(target: Generators, options: [String], defines: Any): [String] {
 
 		case Native:
 			defines.native = defines.native ?? true
+			// TODO 64-bit by default or something?
+			let is64: Bool = defines.bit64 == null ? true : defines.bit64
+			defines.bit64 = is64? true : false
+			defines.bit32 = is64? false : true
+			defines.native = defines.native ?? true
+			defines.bundledRuntime = defines.bundledRuntime ?? true
+
 			files.push('/c/c')
+			files.push('/c/runtime')
+
+			for option in options {
+				switch option {
+					case _: {
+						// TODO show target name + generator name
+						// TODO print this before text `[Building xxx - xxx]`
+						console.log('Option `\(option)` ignored for target `\(target)`')
+					}
+				}
+			}
 	}
 
 	return files
