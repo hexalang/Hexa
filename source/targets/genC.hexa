@@ -119,7 +119,7 @@
 						out.push(printFunctionArguments(args, funcType))
 						let _currentReturnType = currentReturnType
 						currentReturnType = getFunctionReturnType(funcType)
-						out.push(' ' + printBlock(expr) + ';\n')
+						out.push(' ' + printBlock(expr) + ';\n\n')
 						//out.push(' {};\n')
 						currentReturnType = _currentReturnType
 				}}
@@ -211,7 +211,7 @@
 							let _currentReturnType = currentReturnType
 							currentReturnType = getFunctionReturnType(funcType)
 							//out.push(' {};\n')
-							out.push(' ' + printBlock(expr) + ';\n')
+							out.push(' ' + printBlock(expr) + ';\n\n')
 							currentReturnType = _currentReturnType
 					}}
 				types.push('\n};\n')
@@ -242,13 +242,13 @@
 				}
 				//if (c.useless) continue
 				forward.push('struct ' + c.name + '_;')
-				forward.push('struct ' + c.name + '_$vtable_;')
+				forward.push('struct ' + c.name + '__;')
 				//types.push('struct ' + c.name + '_ : Unknown_ {\n\t')
 				types.push('struct ' + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '_$vtable_ {\n\t']
 				// TODO const pointer to const struct
-				types.push('\n\tconst struct ' + c.name + '_$vtable_ const * const $vtable_;')
-				let vtableValue = ['const struct ' + c.name + '_$vtable_ const ' + c.name + '_$vtable_$ = {\n\t']
+				types.push('\n\tconst struct ' + c.name + '__ const * const _;')
+				let vtableValue = ['const struct ' + c.name + '__ const ' + c.name + '__$ = {\n\t']
 				let vtableBind = []
 
 				for v in c.vars { switch v {
@@ -296,7 +296,7 @@
 							out.push(' {\n')
 							// TODO cache own vtable on function enter
 
-							//out.push('\t$this->$vtable_ = &' + c.name + '_$vtable_$;\n')
+							//out.push('\t$this->_ = &' + c.name + '__$;\n')
 
 							// Init fields
 							customThis = '$this'
@@ -309,10 +309,18 @@
 									out.push('\t$this->' + name + '_ = ' + printExpression(expr) + ';\n')
 							}}
 							pushTab()
-							out.push('\t' + printBlock(expr) + ';\n')
+							switch expr {
+								// TODO pattern match as `[...head]` or `[head, ...tail]`
+								// ^ and optimize to no-saving-to-bind cause bound var not used later
+								case Block(el): if el.length > 0 {
+									out.push('\t' + printBlock(expr) + ';\n')
+								}
+								case _:
+									out.push('\t' + printBlock(expr) + ';\n')
+							}
 							popTab()
 							customThis = null
-							out.push('};\n')
+							out.push('};\n\n')
 
 							// Alloc
 							//out.push(c.name + '_* ' + c.name + '_$new_() {\n')
@@ -321,7 +329,7 @@
 							out.push(' {\n')
 							out.push('\tprintf("\(c.name).new_()\\n");fflush(stdout);\n')
 							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(struct ' + c.name + '_)));\n')
-							out.push('\t$_[0] = (void *)&' + c.name + '_$vtable_$;\n')
+							out.push('\t$_[0] = (void *)&' + c.name + '__$;\n')
 							out.push('\tstruct ' + c.name + '_* _ = (struct ' + c.name + '_*)($_);\n')
 
 
@@ -338,7 +346,7 @@
 							out.push(arg.join(', '))
 							out.push(');\n')
 							out.push('\treturn _;\n')
-							out.push('};\n')
+							out.push('};\n\n')
 						} else {
 							if false {
 							types.push('\n\tvirtual ')
@@ -371,9 +379,7 @@
 							customThis = '$this'
 							thisArgument = null
 							// TODO cache own vtable on function enter
-							out.push(' {\n\tprintf("\(c.name).\(name)()\\n");fflush(stdout);\n')
-							out.push(' ' + printBlock(expr) + ';\n')
-							out.push('}\n')
+							out.push(' ' + printBlock(expr) + ';\n\n')
 							customThis = null
 							currentReturnType = _currentReturnType
 
@@ -391,7 +397,7 @@
 							arg.unshift('this')
 							//console.log('slice', arg == args, arg, args)
 							//out.push(' { return ' + c.name + '_$' + name + '_(' + arg.join(', ') + '); };\n')
-							out.push(' { return this->$vtable_->' + name + '_(' + arg.join(', ') + '); };\n')
+							out.push(' { return this->_->' + name + '_(' + arg.join(', ') + '); };\n')
 							//out.push(' { return ' + c.name + '_$' + name + '_' + printFunctionArguments(args) + '; };\n')
 							//thisArgument = null
 							}
@@ -443,7 +449,7 @@
 						currentReturnType = getFunctionReturnType(funcType)
 						//out.push('\t{printf("\(c.name).\(name)()\\n");\n\t')
 						//out.push('{};\n')
-						out.push(' ' + printBlock(expr) + ';\n')
+						out.push(' ' + printBlock(expr) + ';\n\n')
 						//out.push('\t};\n')
 						currentReturnType = _currentReturnType
 						//out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
@@ -464,7 +470,7 @@
 
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
-					out.push(' ' + printBlock(expr) + ';\n')
+					out.push(' ' + printBlock(expr) + ';\n\n')
 					currentReturnType = _currentReturnType
 					//out.push(printFunctionArguments(args, defaults) + ' ' + printBlock(expr) + ';')
 			}}
@@ -913,7 +919,7 @@
 					//}
 					return 'return ' + printTypeConverter(printExpression(e), getType(e), currentReturnType)
 				case If(econd, eif, eelse):
-					var r = 'if (' + printExpression(econd) + ') ' + printBlock(eif)
+					var r = '\n\(tabs)if (' + printExpression(econd) + ') ' + printBlock(eif)
 					if (eelse != null) {
 						r += ' else ' + printStatement(eelse)
 					}
@@ -936,7 +942,7 @@
 								return
 									//'{\n' + tabs +
 									//'\t' + stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr) + ';\n' + tabs +
-									'_$\(temp)->$vtable_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)// + ';\n' + tabs// +
+									'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)// + ';\n' + tabs// +
 									//'}'
 						}
 						//case CallKind.Static: return '*.static'
@@ -980,9 +986,9 @@
 				case While(econd, e, pre):
 				// TODO ^ separate WhileDo DoWhile
 					if (pre) {
-						return 'while (' + printExpression(econd) + ') ' + printStatement(e)
+						return '\n\(tabs)while (' + printExpression(econd) + ') ' + printStatement(e)
 					}
-					return 'do {' + printStatement(e) /*block*/ + '} while (' + printExpression(econd) + ')'
+					return '\n\(tabs)do {' + printStatement(e) /*block*/ + '} while (' + printExpression(econd) + ')'
 				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 				/*case Dot(expr, name): switch expr {
@@ -1484,15 +1490,15 @@
 					if let native = native { switch (native.values[0]) {
 						case String(s):
 							if struct and byValue {
-								return s + '/*byValue*/'
+								return s
 							}
 							if struct {
-								return s + '/*isStruct*/*'
+								return s + '*'
 							}
 							return s
 					}}
 
-					return '/*ClassInstance*/struct ' + type.name + '_*'
+					return 'struct ' + type.name + '_*'
 				case Class(type): return 'struct/*Class*/ ' + type.name + '_*'
 				// TODO ^ probably requires rename basic types too?
 				case Enum(type):
@@ -1621,7 +1627,6 @@
 				case String(string):
 					if let id = declarationsOfStringsMap.get(string) {
 						return 'String_Strings[\(id)]'
-						+ `/*has:` + string.split('*').join('#') + `*/`
 					}
 
 					let s = string.split('')
@@ -1663,10 +1668,9 @@
 					let id = registerString(charsOut.join(""))
 					declarationsOfStringsMap.set(string, id)
 					return 'String_Strings[\(id)]'
-						+ `/*new:` + string.split('*').join('#') + `*/`
 					//return 'String_fromUTF8z("' + charsOut.join('') + '")'
-				case True: return '(uint8_t)1'
-				case False: return '(uint8_t)0'
+				case True: return 'true_'
+				case False: return 'false_'
 				case Dot(expr, name): switch expr {
 					case This: return (customThis ?? 'this') + '->' + name + '_'
 					case Ident(id, typed):
@@ -1699,7 +1703,7 @@
 				case Call(e, args, type, kind):
 					switch kind {
 						case Static:
-							return printExpression(e) + '/*static*/' + printCallArguments(args)
+							return printExpression(e) + printCallArguments(args)
 						case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
@@ -1709,7 +1713,7 @@
 							metaBlock = []
 							let meta = stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr)
 
-							let result = '_$\(temp)->$vtable_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+							let result = '_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
 
 							for b in metaBlock {
 								mb.push('/*b*/' + b)

@@ -24,6 +24,9 @@
 	#include <io.h>
 #endif
 
+#define true_ (uint8_t)1
+#define false_ (uint8_t)0
+
 #ifndef HEXA_MAIN
 	#define HEXA_MAIN main
 #endif
