@@ -35,6 +35,7 @@ class NasmFunction {
 	var args: [String] = [] // TODO `let` late init
 	var argTypes: [Type]
 	var returns: Type
+	var thisType: String?
 	var varStorage: [String : String] = [:]
 	var labels = 0
 	let storages: [String] = []
@@ -68,7 +69,14 @@ class NasmFunction {
 		}
 	}
 
-	fun allocateVar(name: String, bytes: Int): String {
+	fun allocateVar(name: String, bytes: Int, type: String): String {
+		if asC {
+			varStorage.set(name, name + '_')
+			// TODO bug
+			return type + name + '_'
+			//return typeToString(type) + name + '_'
+		}
+
 		stackStorage += bytes
 
 		var kind = 'dword'
@@ -93,6 +101,11 @@ class NasmFunction {
 	fun freeArgument() {
 		// TODO reuse of unused (anymore) argument registers
 
+	}
+
+	var uid = 0
+	fun allocateTempVar(): String {
+		return '$' + uid++
 	}
 
 	// TODO allocations must be aligned?
@@ -132,26 +145,30 @@ class NasmFunction {
 		storages.push(storage)
 	}
 
-	fun finalize() {
+	fun finalize(): Void {
 		// TODO sub only if shadow+stack > 0
-		if shadowSpace {
-			body.unshift('sub RSP, \(stackStorage + 32); With 32 bytes of shadow space')
-			// TODO align to 16 bytes by +8
-		} else if stackStorage != 0 {
-			body.unshift('sub RSP, \(stackStorage)')
+		if not asC {
+			if shadowSpace {
+				body.unshift('sub RSP, \(stackStorage + 32); With 32 bytes of shadow space')
+				// TODO align to 16 bytes by +8
+			} else if stackStorage != 0 {
+				body.unshift('sub RSP, \(stackStorage)')
+			}
+			body.unshift('push RBP; Set stack frame') // Note: `unshift` works in reverse order
+			// TODO add ret only if not done
 		}
-		body.unshift('push RBP; Set stack frame') // Note: `unshift` works in reverse order
-		// TODO add ret only if not done
 
 		// Avoid unnecessary `jmp`
 		if body[body.length - 1] == 'jmp .return' {
 			body.pop()
 		}
 
-		body.push('.return:')
-		body.push('mov RSP, RBP; Remove the stack frame')
-		body.push('pop RBP')
-		body.push('ret')
+		if not asC {
+			body.push('.return:')
+			body.push('mov RSP, RBP; Remove the stack frame')
+			body.push('pop RBP')
+			body.push('ret')
+		}
 	}
 }
 
@@ -180,6 +197,7 @@ class GenNasm {
 	let typeSection: [String] = []
 	let bssSection: [String] = []
 	let strings: [String : Int] = [:]
+	let globalAccessor = ''
 
 	new (modeC: Bool) {
 		asC = modeC
@@ -219,6 +237,7 @@ class GenNasm {
 			header.push('\(comment) The generated code is subject to the original license')
 		}
 
+		//header.push(Fs.readFileSync(__dirname + '/library/native/hexa.asm').toString('utf8').split('\r\n').join('\n'))
 		if asC {
 			header.push('#include <stdint.h>')
 			header.push('#include <stdarg.h>')
@@ -229,6 +248,8 @@ class GenNasm {
 			header.push('#else')
 			header.push('#define nullptr 0')
 			header.push('#endif')
+
+			header.push('#define HX_UNREACHABLE uint64_t $written; WriteFile($StdHandle, "UNREACHABLE", 11, &$written, NULL); FlushFileBuffers($StdHandle); ExitProcess(0xBADC0DE);')
 		} else {
 			header.push('bits 64')
 			header.push('default rel')
@@ -266,6 +287,7 @@ class GenNasm {
 
 		let hexaMain = new NasmFunction()
 		hexaMain.name = 'hexaMain'
+		hexaMain.returns = project.typer.typeVoid
 		//let functions = [hexaMain]
 		functions.push(hexaMain)
 		functionNow = hexaMain
@@ -301,9 +323,13 @@ class GenNasm {
 			if let expr = expr {
 				functionNow = hexaMain
 				let valueStorage = expression(expr)
-				// TODO compact `mov` for ints/etc
-				let kind = 'qword' // TODO
-				functionNow.body.push('mov \(kind) [REL ' + fullName + '], ' + valueStorage + '; global.var')
+				if asC {
+					functionNow.body.push('' + fullName + ' = ' + valueStorage + '; // global.var')
+				} else {
+					// TODO compact `mov` for ints/etc
+					let kind = 'qword' // TODO
+					functionNow.body.push('mov \(kind) [REL ' + fullName + '], ' + valueStorage + '; global.var')
+				}
 			}
 		}
 
@@ -331,12 +357,13 @@ class GenNasm {
 					case Function(name, expr, args, defaults, funcType):
 						switch funcType {
 							case Function(argTypes, returns):
-								let ref = c.name + '.' + name
+								let ref = c.name + '$' + name
 								let func = pushFunction(ref)
 								func.args = args
 								func.argTypes = argTypes
 								func.returns = returns
 								func.method = true // Constructor takes `this` as method, cause allocated externally
+								func.thisType = 'struct \(c.name)_* '
 								// TODO defaults
 								func.fillInputs()
 
@@ -385,10 +412,20 @@ class GenNasm {
 												if let expr = expr {
 													// TODO compact `mov` for ints/etc
 													let valueStorage = expression(expr)
-													let kind = 'qword' // TODO
-													let fullName = 'this.' + name // TODO
-													let fullName = c.name + '.' + name // TODO
-													functionNow.body.push('mov \(kind) [' + fullName + '], ' + valueStorage + '; this.var')
+													if asC {
+														functionNow.body.push([
+															'_this->',
+															name,
+															'_ = ',
+															valueStorage,
+															'; // this.var'
+														].join(''))
+													} else {
+														let kind = 'qword' // TODO
+														let fullName = 'this.' + name // TODO
+														let fullName = c.name + '$' + name // TODO
+														functionNow.body.push('mov \(kind) [' + fullName + '], ' + valueStorage + '; this.var')
+													}
 												}
 
 											case Const(name, expr, type):
@@ -399,7 +436,11 @@ class GenNasm {
 									}
 								}
 
-								functionBody(expr)
+								if let expr = expr {
+									functionBody(expr)
+								} else {
+									functionNow.body.push('HX_UNREACHABLE // Abstract method')
+								}
 								func.finalize()
 						}
 				}
@@ -454,7 +495,7 @@ class GenNasm {
 					case Function(name, expr, args, defaults, funcType):
 						switch funcType {
 							case Function(argTypes, returns):
-								let ref = c.name + '.' + name
+								let ref = c.name + '$' + name
 								let func = pushFunction(ref)
 								func.args = args
 								func.argTypes = argTypes
@@ -504,7 +545,7 @@ class GenNasm {
 					case Function(name, expr, args, defaults, funcType):
 						switch funcType {
 							case Function(argTypes, returns):
-								let ref = e.name + '.' + name
+								let ref = e.name + '$' + name
 								let func = pushFunction(ref)
 								func.args = args
 								func.argTypes = argTypes
@@ -556,7 +597,7 @@ class GenNasm {
 					case Function(name, expr, args, defaults, funcType):
 						switch funcType {
 							case Function(argTypes, returns):
-								let ref = e.name + '.' + name
+								let ref = e.name + '$' + name
 								let func = pushFunction(ref)
 								func.args = args
 								func.argTypes = argTypes
@@ -567,7 +608,7 @@ class GenNasm {
 								func.finalize()
 
 								forwardFun.push('\n')
-								forwardFun.push('static ' + typeToString(returns) + '\(e.name)$\(name)(')
+								forwardFun.push('static ' + typeToString(returns) + '\(func.name)(')
 								if args.length > 0 {
 									forwardFun.push(args.map((arg, i) => typeToString(argTypes[i]) + arg + '_').join(', '))
 								}
@@ -582,7 +623,7 @@ class GenNasm {
 				case Function(name, expr, args, defaults, funcType):
 					switch funcType {
 						case Function(argTypes, returns):
-							let ref = 'global.' + name
+							let ref = '' + name + '_'
 							let func = pushFunction(ref)
 							func.args = args
 							func.argTypes = argTypes
@@ -756,9 +797,13 @@ class GenNasm {
 		for id in strings.values() {
 			// TODO call after `mov qword [REL global.rootString]`
 			// TODO init root lazily if not inited from another DLL
-			result.push('\nlea RCX, [REL String.\(id)]')
-			result.push('\ncall String.fromUTF16z')
-			result.push('\nmov qword [REL String$\(id)], RAX')
+			if asC {
+				result.push('\n String$\(id) = String$fromUTF16z(String\(id));')
+			} else {
+				result.push('\nlea RCX, [REL String.\(id)]')
+				result.push('\ncall String.fromUTF16z')
+				result.push('\nmov qword [REL String$\(id)], RAX')
+			}
 		}
 
 		if asC {
@@ -770,20 +815,50 @@ class GenNasm {
 			// ^ something like `sub RSP, RSP % 16`
 			result.push('\nsub RSP, 8; Align stack pointer to 16 bytes')
 			result.push('\nsub RSP, 32; 32 bytes of shadow space')
+			//result.push('\nxor ECX, ECX')
+			//result.push('\ncall GetModuleHandleA')
+			//result.push('\nmov qword [REL hInstance], RAX')
+			//result.push('\nadd RSP, 32; Remove the 32 bytes')
 			result.push('\ncall hexaMain')
 			result.push('\n.hexaEntry.ExitProcess:; Default exit routine')
+			//result.push('\n sub RSP, 32; 32 bytes of shadow space')
 			result.push('\n xor ECX, ECX')
 			result.push('\n call ExitProcess')
 		}
 
 		for func in functions {
-			result.push('\n\n')
-			result.push(func.name)
-			result.push(':')
+			if asC {
+				let returns = func.returns
+				let args = func.args
+				let argTypes = func.argTypes
+
+				result.push('\n\n')
+				result.push('static ' + typeToString(returns) + '\(func.name)(')
+
+				if let thisType = func.thisType {
+					result.push(thisType + 'this_')
+					if args.length > 0 {
+						result.push(', ')
+					}
+				}
+
+				if args.length > 0 {
+					result.push(args.map((arg, i) => typeToString(argTypes[i]) + arg + '_').join(', '))
+				}
+				result.push(') {')
+			} else {
+				result.push('\n\n')
+				result.push(func.name)
+				result.push(':')
+			}
 
 			for line in func.body {
 				result.push('\n ')
 				result.push(line)
+			}
+
+			if asC {
+				result.push('\n};')
 			}
 		}
 
@@ -842,17 +917,26 @@ class GenNasm {
 			switch type {
 				case ClassInstance(classType, generic): {
 					if let gen = generic {
+						fun unwrapType(type: Type): Type {
+							switch type {
+								case Unknown(handle): return unwrapType(handle.value)
+							}
+							return type
+						}
+
 						fun unrollGenerics(generic: [Type]): [String] {
-							return generic.map((gen: Type) => switch gen {
+							return generic.map((gen: Type) => switch unwrapType(gen) {
 								case ClassInstance(classType, generic):
 									var result = classType.name
 
 									if let gen = generic {
-										result += '$' + unrollGenerics.join('$')
+										// result += '$' + unrollGenerics.join('$') TODO why no error
+										result += '$' + unrollGenerics(gen).join('$')
 									}
 
 									result
-								case _: '?'
+								case null: 'NOT_INFERRED'
+								case _: '?<' + unwrapType(gen) + '>'
 							})
 						}
 
@@ -923,12 +1007,58 @@ class GenNasm {
 		return 8 // TODO
 	}
 
+	fun omitPointer(type: String): String {
+		if type.endsWith('* ') {
+			return type.substr(0, type.length - 2) + ' '
+		}
+
+		return type
+	}
+
+	fun omitStruct(type: String): String {
+		if type.startsWith('struct ') {
+			return type.substr('struct '.length).replace(' ', '')
+		}
+
+		return type
+	}
+
 	fun expression(e: Expression): String {
 		switch e {
-			case Null: return '0'
+			case Null: {
+				if asC {
+					return 'nullptr'
+				} else {
+					return '0'
+				}
+			}
 			case True: return '1'
 			case False: return '0'
-			case This(me): return 'RCX'
+			case This(me): {
+				if asC {
+					return 'this_'
+				} else {
+					return 'RCX'
+				}
+			}
+
+			case MetaInt(v, meta, type): {
+				if asC {
+					switch meta {
+						case Int32: return '(int32_t)' + v
+						case Int64: return '(int64_t)' + v
+						case Int16: return '(int16_t)' + v
+						case Int8: return '(int8_t)' + v
+
+						case UInt32: return '(uint32_t)' + v
+						case UInt64: return '(uint64_t)' + v
+						case UInt16: return '(uint16_t)' + v
+						case UInt8: return '(uint8_t)' + v
+					}
+				} else {
+					// TODO
+				}
+			}
 
 			case Int(v): {
 				// Return immediate value
@@ -939,10 +1069,19 @@ class GenNasm {
 				return storage
 			}
 
+			case Parenthesis(inner): {
+				let aSimpleRef = referenceToStorage(inner)
+				let aStorage = aSimpleRef ?? expression(inner)
+				return '(' + aStorage + ')'
+			}
+
 			case String(s): {
 				if let id = strings.get(s) {
-					return '[REL String$\(id)]'
-					return '[REL String.\(id)]'
+					if asC {
+						return 'String$\(id)' // TODO ARC++
+					} else {
+						return '[REL String$\(id)]'
+					}
 				} else {
 					let id = stringId++
 					let text = s.split("'").join("\'")
@@ -957,21 +1096,82 @@ class GenNasm {
 						bssSection.push("String$\(id) resq 1")
 					}
 					strings.set(s, id)
-					return '[REL String$\(id)]'
-					return '[REL String.\(id)]'
+					if asC {
+						return 'String$\(id)' // TODO ARC++
+					} else {
+						return '[REL String$\(id)]'
+					}
 				}
 			}
 
 			case Array(values, arrayType): {
+				//let tempAllocated = functionNow.allocateTempVar()
+				let temp = functionNow.allocateTempVar()
+				let type = typeToString(arrayType)
+				let byValue = omitPointer(type)
+				let byName = omitStruct(byValue)
+				functionNow.body.push(type + temp + ' = (\(type))$malloc(sizeof(\(byValue)));')
+				functionNow.body.push('\(byName)$new(\(temp));')
 
+				for value in values {
+					let aSimpleRef = referenceToStorage(value)
+					let aStorage = aSimpleRef ?? expression(value)
+					functionNow.body.push('\(temp)->_->push_(\(temp), \(aStorage));')
+				}
+
+				return temp
+			}
+
+			case New(e, args, result): {
+				//let tempAllocated = functionNow.allocateTempVar()
+				let temp = functionNow.allocateTempVar()
+				let type = typeToString(result)
+				let byValue = omitPointer(type)
+				let byName = omitStruct(byValue)
+				functionNow.body.push(type + temp + ' = (\(type))$malloc(sizeof(\(byValue)));')
+				var init = '\(byName)$new(\(temp)'
+
+				if args.length > 0 {
+					init += ', '
+				}
+
+				init += [for arg in args {
+					let aSimpleRef = referenceToStorage(arg)
+					let aStorage = aSimpleRef ?? expression(arg)
+					aStorage
+				}].join(', ')
+
+				functionNow.body.push(init + ');')
+				return temp
+			}
+
+			case Call(e, args, result, kind): {
+				let aSimpleRef = referenceToStorage(e)
+				let aStorage = aSimpleRef ?? expression(e)
+
+				return (aStorage + '(' + [for arg in args {
+					let aSimpleRef = referenceToStorage(arg)
+					let aStorage = aSimpleRef ?? expression(arg)
+					aStorage
+				}].join(', ') + ')')
 			}
 
 			case Ident(name, type): {
 				if functionNow.getVar(name) == null {
-					return 'UNKNOWN_VAR_' + name
+					return name + '_'
 				}
 				return functionNow.getVar(name)
 			}
+
+			case Unop(op, postfix, e):
+				let token = Token.stringify(op)
+				let aStorage = expression(e)
+
+				if postfix {
+					return aStorage + token
+				}
+
+				return token + aStorage
 
 			case Binop(a, op, b, result): {
 				// TODO proposeStorage('RAX') or just allocate within expression(a) if RAX busy
@@ -984,7 +1184,7 @@ class GenNasm {
 
 				// Store value of `a` into temp var to avoid name collisions
 				// Avoids temp if possible (if simple static or local read)
-				if aSimpleRef == null {
+				if aSimpleRef == null, not asC {
 					functionNow.body.push('mov ' + aResult + ', ' + aStorage + '; a \(token) b')
 				}
 
@@ -995,8 +1195,16 @@ class GenNasm {
 					case _: expression(b)
 				}
 
+				if asC {
+					return aResult + ' ' + token + ' ' + bResult
+				}
+
 				switch op {
 					case OpAdd: {
+						if asC {
+							return aResult + ' + ' + bResult
+						}
+
 						let temp = 'R10' // We do NOT modify left operand!
 						functionNow.body.push('mov \(temp), ' + aResult)
 						functionNow.body.push('add \(temp), ' + bResult)
@@ -1049,23 +1257,16 @@ class GenNasm {
 				switch expr {
 					case Ident(typeName, type): {
 						// TODO is this always a static access?
-						return  `qword [REL ` + typeName + '.' + name + `]`
+						return  `dword [REL ` + typeName + '$' + name + `]`
 						// TODO detect size
-					}
-					case This(me): {
-						switch me {
-							case ClassInstance(type):
-								return `qword [` + type.name + '.' + name + `]`
-								// TODO detect size
-							case Class(type):
-								return `qword [` + type.name + '.' + name + `]`
-								// TODO detect size
-							case _: return 'UNKNOWN_THIS_STORAGE_' + me
-						}
 					}
 					case _:
 						return expression(expr)
 				}
+			}
+
+			case UnsafeBitCast(expr, to): {
+				return '(' + typeToString(to) +  ')(' + expression(expr) + ')'
 			}
 
 			case _: {
@@ -1082,9 +1283,23 @@ class GenNasm {
 			case Dot(expr, name, result): {
 				switch expr {
 					case Ident(typeName, type): {
+						if asC {
+							return typeName + '_->' + name + '_'
+						}
 						// TODO is this always a static access?
-						return  `dword [REL ` + typeName + '.' + name + `]`
+						return  `qword [REL ` + typeName + '$' + name + `]`
 						// TODO detect size
+					}
+					case This(me): {
+						switch me {
+							case ClassInstance(type):
+								return `qword [` + type.name + '$' + name + `]`
+								// TODO detect size
+							case Class(type):
+								return `qword [` + type.name + '$' + name + `]`
+								// TODO detect size
+							case _: return 'UNKNOWN_THIS_STORAGE_' + me
+						}
 					}
 					case _:
 						return expression(expr)
@@ -1092,7 +1307,7 @@ class GenNasm {
 			}
 
 			case Ident(name, type): {
-				return functionNow.getVar(name) ?? 'UNKNOWN_VAR_' + name
+				return functionNow.getVar(name) ?? name + '_'
 			}
 
 			case _: {
@@ -1120,12 +1335,16 @@ class GenNasm {
 					case _: expression(value)
 				}
 
-				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; name = value')
+				if asC {
+					functionNow.body.push(storage + ' = ' + valueStorage + '; // name = value')
+				} else {
+					functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; name = value')
+				}
 			}
 
 			case Var(name, expr, type): {
 				let bytes = typeToSize(type)
-				let storage = functionNow.allocateVar(name, bytes)
+				let storage = functionNow.allocateVar(name, bytes, typeToString(type))
 				let valueStorage =
 
 				switch expr {
@@ -1133,12 +1352,16 @@ class GenNasm {
 					case _: expression(expr)
 				}
 
-				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; var ' + name)
+				if asC {
+					functionNow.body.push(storage + ' = ' + valueStorage + '; // var ' + name)
+				} else {
+					functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; var ' + name)
+				}
 			}
 
 			case Const(name, expr, type): {
 				let bytes = typeToSize(type)
-				let storage = functionNow.allocateVar(name, bytes)
+				let storage = functionNow.allocateVar(name, bytes, typeToString(type))
 				let valueStorage =
 
 				switch expr {
@@ -1146,33 +1369,80 @@ class GenNasm {
 					case _: expression(expr)
 				}
 
-				functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; let ' + name)
+				if asC {
+					functionNow.body.push(storage + ' = ' + valueStorage + '; // let ' + name)
+				} else {
+					functionNow.body.push('mov ' + storage + ', ' + valueStorage + '; let ' + name)
+				}
 			}
 
 			case If(econd, eif, eelse): {
 				var idIf = functionNow.labels++
-				functionNow.body.push('.if.begin.\(idIf):') // TODO remove in release
+				// TODO dot `.label` required for NASM local labels
+				functionNow.body.push('_if_begin_\(idIf):') // TODO remove in release
 				// TODO shortcut when `justVar cmp justConst` and otherwise
 				let storage = expression(econd)
 				// TODO is RAX always ok? no need to allocate temp vars?
 
 				functionNow.body.push('cmp \(storage), 0')
 				if let eelse = eelse {
-					functionNow.body.push('je .else.\(idIf)')
+					functionNow.body.push('je _else_\(idIf)')
 				} else {
-					functionNow.body.push('je .if.end.\(idIf)')
+					functionNow.body.push('je _if_end_\(idIf)')
 				}
 
 				functionBody(eif)
 				if let eelse = eelse {
-					functionNow.body.push('jmp .if.end.\(idIf)')
+					if asC {
+						functionNow.body.push('goto _if_end_\(idIf);')
+					} else {
+						functionNow.body.push('jmp _if_end_\(idIf)')
+					}
 				}
 
 				if let eelse = eelse {
-					functionNow.body.push('.else.\(idIf):')
+					functionNow.body.push('_else_\(idIf):')
 					functionBody(eelse)
 				}
-				functionNow.body.push('.if.end.\(idIf):')
+				functionNow.body.push('_if_end_\(idIf):')
+			}
+
+			case Call(e, args, expects, kind): {
+				switch kind {
+					case Static:
+					case Function:
+					case VirtualMethod:
+				}
+
+				let aSimpleRef = referenceToStorage(e)
+				let aStorage = aSimpleRef ?? expression(e)
+
+				functionNow.body.push(aStorage + '(' + [for arg in args {
+					let aSimpleRef = referenceToStorage(arg)
+					let aStorage = aSimpleRef ?? expression(arg)
+					aStorage
+				}].join(', ') + ');')
+
+				/*let tempAllocated = functionNow.allocateTempVar()
+				let temp = functionNow.allocateTempVar()
+				let type = typeToString(result)
+				let byValue = omitPointer(type)
+				let byName = omitStruct(byValue)
+				functionNow.body.push(type + tempAllocated + ' = (\(type))$malloc(sizeof(\(byValue)));')
+				var init = '\(byName)$new(\(tempAllocated)'
+
+				if args.length > 0 {
+					init += ', '
+				}
+
+				init += [for arg in args {
+					let aSimpleRef = referenceToStorage(arg)
+					let aStorage = aSimpleRef ?? expression(arg)
+					aStorage
+				}].join(', ')
+
+				functionNow.body.push(init + ');')
+				return temp*/
 			}
 
 			case Return(e): {
@@ -1180,11 +1450,25 @@ class GenNasm {
 					let storage = expression(e)
 
 					if storage != 'RAX' {
-						functionNow.body.push('mov RAX, ' + storage + '; return value')
+						if asC {
+							functionNow.body.push('return ' + storage + ';')
+						} else {
+							functionNow.body.push('mov RAX, ' + storage + '; return value')
+						}
 					}
 				}
-				functionNow.body.push('jmp .return')
+
+				if asC {
+				} else {
+					functionNow.body.push('jmp .return')
+				}
 			}
+
+			case Increment(e): functionNow.body.push(expression(e) + '++;')
+			case Decrement(e): functionNow.body.push(expression(e) + '--;')
+
+			case For(name, over, by):
+				functionNow.body.push('// TODO For')
 
 			case _:
 				functionNow.body.push(';.?:; ' + expr)
