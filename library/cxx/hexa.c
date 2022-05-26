@@ -4,8 +4,13 @@
 #ifdef __cplusplus
 #include <new> // Placement new
 #include <functional> // For [&]
+#define _Static_assert(value, error) static_assert(value, error)
+#else
+#define nullptr 0
+#ifndef _Static_assert
+	#define _Static_assert(value, error)
 #endif
-
+#endif
 
 #ifndef HEXA_NO_DEFAULT_INCLUDES
 	#include <stdio.h> // printf
@@ -50,7 +55,7 @@
 struct Any_ {};
 //#define Any_ void*
 struct String_;
-String_** Strings_ = nullptr;
+//struct String_** Strings_ = nullptr;
 struct Array_;
 struct Map_;
 
@@ -87,9 +92,9 @@ struct IUnknown_ {
 };
 
 // Types
-String_* String__object_Object_ = nullptr;
-struct _Any_ : IUnknown_ {
-	uint32_t rc_ = 0;
+//String_* String__object_Object_ = nullptr;
+//struct _Any_ : IUnknown_ {
+//	uint32_t rc_ = 0;
 	// IUnknown interface
 	/*virtual HRESULT __stdcall__ QueryInterface_(_REFIID riid, void **ppvObject) const {
 		*ppvObject = nullptr;
@@ -132,44 +137,44 @@ struct _Any_ : IUnknown_ {
 		//return String__object_Object_;
 		return Strings_[4];
 	}*/
-};
+//};
 
-template <typename T>
-struct Any : Any_ {
-	T value = 0;
-	static Any<T> from(T src) {
-		Any<T> result;
-		result.value = src;
-		return result;
-	}
-};
-
-// Primitives as Any
-struct AnyInt32 : Any_ {
-	int32_t value = 0;
-	AnyInt32 () {};
-	virtual String_* toString_() const {
-		// TODO ARC & string gen
-		return Strings_[4];
-	}
-};
-
-struct AnyTrue : Any_ {
-	AnyTrue () {};
-	virtual String_* toString_() const {
-		// TODO ARC
-		return Strings_[1];
-	}
-};
-
-struct AnyFalse : Any_ {
-	AnyFalse () {};
-	virtual String_* toString_() const {
-		// TODO ARC
-		return Strings_[0];
-	}
-};
-
+//template <typename T>
+//struct Any : Any_ {
+//	T value = 0;
+//	static Any<T> from(T src) {
+//		Any<T> result;
+//		result.value = src;
+//		return result;
+//	}
+//};
+//
+//// Primitives as Any
+//struct AnyInt32 : Any_ {
+//	int32_t value = 0;
+//	AnyInt32 () {};
+//	virtual String_* toString_() const {
+//		// TODO ARC & string gen
+//		return Strings_[4];
+//	}
+//};
+//
+//struct AnyTrue : Any_ {
+//	AnyTrue () {};
+//	virtual String_* toString_() const {
+//		// TODO ARC
+//		return Strings_[1];
+//	}
+//};
+//
+//struct AnyFalse : Any_ {
+//	AnyFalse () {};
+//	virtual String_* toString_() const {
+//		// TODO ARC
+//		return Strings_[0];
+//	}
+//};
+//
 // Dummy values
 
 // Just empty global single object, used to convert
@@ -179,7 +184,7 @@ struct AnyFalse : Any_ {
 //	virtual uint32_t __stdcall__ AddRef_() {/*nothing*/};
 //	virtual uint32_t __stdcall__ Release_() {/*never deallocated*/};
 //};
-Any_ _dummy;
+struct Any_ _dummy;
 // Note global instance is defined here, but
 // should be created in main function
 
@@ -187,10 +192,12 @@ Any_ _dummy;
 //AnyTrue* _true = new AnyTrue();
 //AnyFalse* _false = new AnyFalse();
 
-AnyTrue _true;
-AnyFalse _false;
-Any_* _bool[3] = {&_false, &_true, nullptr};
-Any_* Any_fromBool(const uint8_t this_) {
+struct AnyTrue {};
+struct AnyTrue _true;
+struct AnyFalse {};
+struct AnyFalse _false;
+struct Any_* _bool[3] = {(struct Any_*)&_false, (struct Any_*)&_true, nullptr};
+struct Any_* Any_fromBool(const uint8_t this_) {
 	return _bool[this_];
 }
 
@@ -235,65 +242,65 @@ struct Object_ {};
 	};};
 #endif
 
-template <typename T>
-struct Null {
-	T value_;
-	bool has_ : 1;
-
-	bool operator == (Null<T> &v) const {
-		if (v.has_ && has_ && v.value_ == value_) return true;
-		if (!v.has_ && !has_) return true;
-		return false;
-	};
-
-	bool operator != (Null<T> &v) const {
-		return !(*this == v);
-	};
-
-	bool operator == (T v) const {
-		if (!has_) return false;
-		return value_ == v;
-	};
-
-	bool operator != (T v) const {
-		if (!has_) return true;
-		return value_ != v;
-	};
-
-	operator T() const {
-		if (!has_) return 0;
-		return value_;
-	}
-
-	//explicit operator T() const {
-	//    if (!has_) return 0;
-	//	return value_;
-	//}
-
-	operator T*() const {
-		if (!has_) return nullptr;
-		return &value_;
-	}
-
-	//explicit operator T*() const {
-	//    if (!has_) return nullptr;
-	//	return &value_;
-	//}
-
-	bool demo() {
-		Null<T> a;
-		Null<T> b;
-		return a == b;
-	};
-
-	bool demo2() {
-		Null<T> a;
-		Null<T> b;
-		T c = 0;
-		return a != b && (a != c) && (a == c);
-	};
-};
-
+//template <typename T>
+//struct Null {
+//	T value_;
+//	bool has_ : 1;
+//
+//	bool operator == (Null<T> &v) const {
+//		if (v.has_ && has_ && v.value_ == value_) return true;
+//		if (!v.has_ && !has_) return true;
+//		return false;
+//	};
+//
+//	bool operator != (Null<T> &v) const {
+//		return !(*this == v);
+//	};
+//
+//	bool operator == (T v) const {
+//		if (!has_) return false;
+//		return value_ == v;
+//	};
+//
+//	bool operator != (T v) const {
+//		if (!has_) return true;
+//		return value_ != v;
+//	};
+//
+//	operator T() const {
+//		if (!has_) return 0;
+//		return value_;
+//	}
+//
+//	//explicit operator T() const {
+//	//    if (!has_) return 0;
+//	//	return value_;
+//	//}
+//
+//	operator T*() const {
+//		if (!has_) return nullptr;
+//		return &value_;
+//	}
+//
+//	//explicit operator T*() const {
+//	//    if (!has_) return nullptr;
+//	//	return &value_;
+//	//}
+//
+//	bool demo() {
+//		Null<T> a;
+//		Null<T> b;
+//		return a == b;
+//	};
+//
+//	bool demo2() {
+//		Null<T> a;
+//		Null<T> b;
+//		T c = 0;
+//		return a != b && (a != c) && (a == c);
+//	};
+//};
+//
 // TODO generate from @primitiveType
 //typedef Null<int32_t> struct Null$Int32;
 //typedef Null<double> struct Null$Float64;
@@ -316,9 +323,9 @@ struct Null$Float64 {
 //	//String_* result = (String_*)malloc(sizeof(String_) + strlen(this_));
 //	return (String_*)0;
 //};
-String_* String_fromInt(const int32_t this_) {
-	return Strings_[2];
-};
+//String_* String_fromInt(const int32_t this_) {
+//	return Strings_[2];
+//};
 //String_ String__empty_;
 //String_* String__empty_; // Root
 //String_* String__null_;
@@ -347,16 +354,16 @@ String_* String_fromInt(const int32_t this_) {
 //	String_* sb_ = (b_ == $null)? String__null_ : b_->toString_();
 //	return String__null_;
 //};
-Array_* Array_from(...) {
-	return (Array_*)0;
+struct Array_* Array_from(void* stub, ...) {
+	return (struct Array_*)0;
 };
 // name, value, name, value
-Object_* Object_from(...) {
-	return (Object_*)0;
+struct Object_* Object_from(void* stub, ...) {
+	return (struct Object_*)0;
 };
 // key, value, key, value
-Map_* Map_from(...) {
-	return (Map_*)0;
+struct Map_* Map_from(void* stub, ...) {
+	return (struct Map_*)0;
 };
 
 //uint32_t Any_::AddRef_() {
@@ -408,9 +415,9 @@ Map_* Map_from(...) {
 //#define Bool$Null_true 1
 //#define Bool$Null_false 0
 //#define Bool$Null_null 2
-Any_* Any_fromInt(const int32_t this_) {
+struct Any_* Any_fromInt(const int32_t this_) {
 	// Cache special cases like 0 1 -1
-	return (Any_*)0;
+	return (struct Any_*)0;
 }
 //#define String_op String_* operator + (String_ *right) { return $null; }
 //String_* operator + (String_ left, String_ *right) {
@@ -429,4 +436,4 @@ void printInt(int32_t v) {
 }
 
 // wchar_t is UTF-16LE with -fshort-wchar
-static_assert(sizeof(wchar_t) == 2, "bad wchar_t sizeof");
+_Static_assert(sizeof(wchar_t) == 2, "bad wchar_t sizeof");
