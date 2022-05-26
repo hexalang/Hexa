@@ -55,6 +55,7 @@
 // Runtime code is under MIT license
 // Forward
 struct Any_ {};
+typedef struct Any_ Any_;
 //#define Any_ void*
 struct String_;
 //struct String_** Strings_ = nullptr;
@@ -311,10 +312,13 @@ struct Null$Int32 {
 	int32_t value_;
 	uint8_t has_;
 };
+typedef struct Null$Int32 Null$Int32;
+
 struct Null$Float64 {
 	double value_;
 	uint8_t has_;
 };
+typedef struct Null$Float64 Null$Float64;
 
 //namespace std {
 //    void __throw_bad_function_call() {}
