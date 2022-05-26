@@ -1,0 +1,92 @@
+// The MIT License
+//
+// Copyright (C) 2022 Oleg Petrenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+// Hexa's minimal runtime
+
+// Sets `hexaRuntimeStringRoot`
+fun
+hexaRuntimeInit(): Void
+{
+
+}
+
+@struct class RuntimeAllocated {
+}
+
+@fastCall
+// TODO #if not bundledRuntime extern #end
+fun hexaRuntimeAllocate(bytesAlignedBy8: UInt32): RuntimeAllocated
+#if bundledRuntime
+{
+	return null
+}
+#end
+
+/// Fields are the same as in `String` class, bit-to-bit
+@struct class StringStructure {
+	// TODO `@keepFieldsOrder` on String
+	// ^ `String extends StringStructure`? no, cause arc
+	var virtualTable: RuntimeAllocated
+	var refCount: UInt32 //??
+	var next: StringStructure?
+}
+
+// Not really a function, but storage of StringStructure
+// TODO
+//#ifdef PROJECT_EXPORTS
+//    #define API __declspec(dllexport)
+//#else
+//    #define API __declspec(dllimport)
+//#endif
+//fun hexaRuntimeStringRoot(): Void
+var hexaRuntimeStringRoot: StringStructure
+
+fun hexaRuntimeString(bytes: ArrayPointer<UInt16>, length: UInt32): StringStructure
+{
+	// *The* root is never null!
+	var root: StringStructure = hexaRuntimeStringRoot as! StringStructure
+	while true {
+		// TODO compare root bytes & hash
+		if true {
+			return root
+		}
+
+		if let next = root.next {
+			root = next
+			continue
+		}
+
+		break
+	}
+
+	let newRoot: StringStructure = hexaRuntimeAllocate(sizeOf<StringStructure>()) as! StringStructure
+	// Ref count is already set in allocator
+
+	let storage: StringStructure = hexaRuntimeAllocate(sizeOf<StringStructure>()) as! StringStructure
+
+	root.next = newRoot
+}
+
+let knownStrings: [StringStructure] = ['', 'TODO'] // TODO like on C-gen
+fun hexaRuntimeReuseString(id: UInt16): StringStructure {
+	return knownStrings as! StringStructure
+}
