@@ -429,4 +429,4 @@ void printInt(int32_t v) {
 }
 
 // wchar_t is UTF-16LE with -fshort-wchar
-static_assert(sizeof(wchar_t) == 2, "bad sizeof");
+static_assert(sizeof(wchar_t) == 2, "bad wchar_t sizeof");
