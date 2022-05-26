@@ -1,12 +1,13 @@
 // Include only basic language features
 #include <stdint.h>
 #include <stdarg.h>
+#include <stddef.h>
 #ifdef __cplusplus
 #include <new> // Placement new
 #include <functional> // For [&]
 #define _Static_assert(value, error) static_assert(value, error)
 #else
-#define nullptr 0
+#define nullptr NULL
 #ifndef _Static_assert
 	#define _Static_assert(value, error)
 #endif
@@ -16,12 +17,10 @@
 	#include <stdio.h> // printf
 	#include <stdlib.h> // malloc
 	#include <string.h> // strlen
-	#include <wchar.h>
 	#ifndef UNICODE
 		#define UNICODE
 	#endif
 	#include <windows.h> // TODO
-	#include <io.h>
 #endif
 
 #define true_ (uint8_t)1
