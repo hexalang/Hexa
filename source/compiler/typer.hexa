@@ -1395,6 +1395,7 @@ class Typer {
 
 					var parent: Node = parents.get(a)
 					// `a = b`
+					// TODO separate assign node? or just nested pattern...
 					if (op == Token.OpAssign) { switch parent {
 						case null:
 							// TODO typings for `[]` etc
@@ -1970,14 +1971,12 @@ class Typer {
 					}
 					fillExpression(e)
 					switch types.get(e) as! Type {
+						case EnumInstance(type):
+							fail('Enum instance has no field `.\(n)`', node)
+						case ClassInstance(type):
+							fail('Class has no field `.\(n)`', node)
 						case Class(type):
-							let index = type.fieldNames.indexOf(n)
-							if (index < 0) {
-								fail('Class has no field `.\(n)`', node)
-							}
-							if (type.fieldStatic[index] != true) {
-								fail('Class field `.\(n)` is not static', node)
-							}
+							fail('Class has no field `.\(n)`', node)
 						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							if index < 0 {
@@ -1992,9 +1991,9 @@ class Typer {
 								fail('Enum field type is null for `\(Node.stringify(node))`', node)
 							}
 						case null:
-							fail('Doing .Upper `\(Node.stringify(node))` over `\(Node.stringify(e))` (\(e)) of type null', node)
+							fail('Accessing non-existing field `.\(n)` of `\(Node.stringify(e))`', node)
 						case _:
-					}// else fail('Got node without type `\(e)`' + never, node)
+					}// else TODO fail('Got node without type `\(e)`' + never, node)
 
 				// `T` or `T<G>`
 				case NodeTypeValue(t): switch t {
