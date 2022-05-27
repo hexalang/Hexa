@@ -31,6 +31,10 @@ class Normalizer {
 		// Pre-computed value of say `let x = 123` thus `inline[x] == 123`
 		let inline: [Node : Expression] = [:]
 
+		/// Never reassigned local variables
+		let neverReassignedLocal: [Node : Bool] = [:]
+		let neverReassignedLocalParent: [Statement : Node] = [:]
+
 		new (project: Project) {
 			this.project = project
 		}
@@ -643,6 +647,17 @@ class Normalizer {
 					return Expression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
 
 				case Unop(op, postfix, e):
+					switch op {
+						case OpIncrement | OpDecrement:
+							var source: Node? = typer.parents.get(e)
+							if let source = source {
+								switch source {
+									case Var(name, _):
+										neverReassignedLocal.set(source, false)
+								}
+							}
+					}
+
 					let expression = nodeToExpression(e)
 					switch op {
 						case OpNot:
@@ -671,7 +686,14 @@ class Normalizer {
 				return Expression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]))
 
 				case AssignOp(a, op, b):
-				return Expression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+					var source: Node? = typer.parents.get(a)
+					if let source = source {
+						switch source {
+							case Var(name, _):
+								neverReassignedLocal.set(source, false)
+						}
+					}
+					return Expression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 
 				case If(econd, eif, eelse):
 				// Check if it contains if-let bindings
@@ -799,6 +821,17 @@ class Normalizer {
 
 						case _:
 							els.push(statement)
+					}
+				}
+
+				// Promote local to constant
+				for i in els.length {
+					let element = els[i]
+					switch element {
+						case Var(name, expr, type):
+							if let parent = neverReassignedLocalParent.get(element), neverReassignedLocal.get(parent) == true {
+								els[i] = Statement.Const(name, expr, type)
+							}
 					}
 				}
 
@@ -1122,7 +1155,11 @@ class Normalizer {
 
 					return Statement.Const(uname, value, typer.types.get(e))
 				}
-				return Statement.Var(uname, nodeToExpression(expr), typer.types.get(e))
+
+				let result = Statement.Var(uname, nodeToExpression(expr), typer.types.get(e))
+				neverReassignedLocal.set(e, true)
+				neverReassignedLocalParent.set(result, e)
+				return result
 
 				case Function(name, expr, vars, rettype, external):
 				var uname: String? = null
@@ -1390,12 +1427,27 @@ class Normalizer {
 				case Throw(value):
 				return Statement.Throw(nodeToExpression(value))
 
-				case AssignOp(a, op, b):
-				return Statement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+				case AssignOp(a, op, b): {
+					var source: Node? = typer.parents.get(a)
+						if let source = source {
+							switch source {
+								case Var(name, _):
+									neverReassignedLocal.set(source, false)
+							}
+						}
+					return Statement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+				}
 
 				case Binop(a, op, b):
 				switch op {
 					case OpAssign:
+						var source: Node? = typer.parents.get(a)
+						if let source = source {
+							switch source {
+								case Var(name, _):
+									neverReassignedLocal.set(source, false)
+							}
+						}
 					return Statement.Assign(nodeToExpression(a), nodeToExpression(b), null)
 					case _:
 					let sa = nodeToStatement(a)
@@ -1416,6 +1468,16 @@ class Normalizer {
 				return Statement.While(nodeToExpression(econd), nodeToStatement(e), pre)
 
 				case Unop(op, postfix, e):
+					switch op {
+						case OpIncrement | OpDecrement:
+							var source: Node? = typer.parents.get(e)
+							if let source = source {
+								switch source {
+									case Var(name, _):
+										neverReassignedLocal.set(source, false)
+								}
+							}
+					}
 					switch op {
 						case OpIncrement: return Statement.Increment(nodeToExpression(e))
 						case OpDecrement: return Statement.Decrement(nodeToExpression(e))
