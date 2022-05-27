@@ -34,6 +34,10 @@
 	#end
 #end
 
+// Generated
+@rename('selfVersion')
+declare let selfVersion: String
+
 //@rename('pointerOf')
 //@header('#define pointerOf(v) (&(v))')
 //@nativeGeneric
@@ -130,14 +134,45 @@ declare class Any {}
 @nativeBasicType // @keepFieldsOrder
 @orderingSizeOf(32)
 declare class Int {
+	fun toString(format: Int?): String
 }
 
-declare class Int32 {}
-declare class UInt32 {}
-declare class UInt16 {}
-declare class Int16 {}
-declare class UInt8 {}
-declare class Int8 {}
+declare class Int32 {
+	fun toString(format: Int?): String
+}
+
+declare class UInt32 {
+	fun toString(format: Int?): String
+}
+
+declare class UInt16 {
+	fun toString(format: Int?): String
+}
+
+declare class Int16 {
+	fun toString(format: Int?): String
+}
+
+declare class UInt8 {
+	fun toString(format: Int?): String
+}
+
+declare class Int8 {
+	fun toString(format: Int?): String
+}
+
+class BigInt {
+	fun toString(format: Int?): String
+}
+
+fun toBigInt(value: Int): BigInt { return null as! BigInt }
+fun parseBigInt(text: String): BigInt { return null as! BigInt }
+
+@final
+declare class Number {
+	// TODO overload for value Int, value Float
+	static fun isNaN(value: Any): Bool
+}
 
 @final
 //@rename('int32_t')
@@ -167,7 +202,9 @@ declare class CBool {}
 @final
 //@rename('double')
 @nativeBasicType
-declare class Float {}
+declare class Float {
+	fun toString(): String
+}
 
 @final
 @nativeBasicType
@@ -362,10 +399,10 @@ declare class CString16 {}
 class String {
 	// TODO `let length: Int` ?
 	//var length: SizeOfPointer = 0 as! SizeOfPointer
-	var length: UInt32 = 0
+	var length: Int = 0
 
 	/// Approximately 2 gigabytes + `\0`, also fits into 31-bit as a value
-	static let defaultLimit: UInt32 = 1073741824u32
+	static let defaultLimit: Int = 1073741824
 
 	/// Used for runtime purposes
 	@keep private var next: String? = null as! String
@@ -411,6 +448,8 @@ class String {
 	fun substr(pos: Int, len: Int?): String {return''}
 	fun endsWith(str: String): Bool {return false}
 	fun startsWith(str: String): Bool {return false}
+	fun slice(pos: Int, len: Int?): String {return''}
+	fun replace(what: String, with: String): String {return''}
 
 	// Runtime functions
 	private fun fromInt() {}
@@ -422,7 +461,7 @@ class String {
 
 	static fun fromUTF8z(string: ConstArrayPointer<UInt8>): String {
 		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
-		let size: UInt32 = strlen(string as! ConstArrayPointer<ClangChar>)
+		let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
 		// TODO test type check that constructor is private
 		let result = new String()
 		let bytes = malloc(size * 2 + 2) as! ArrayPointer<UInt16>
@@ -438,21 +477,21 @@ class String {
 		return result
 	}
 
-	static fun countUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: UInt32): UInt32 {
+	static fun countUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: Int): Int {
 		// TODO stop at UINT32_MAX or define MAX_STRING_LENGTH
 		// var size = 1u32 // TODO starts from 1? Nope, fromUTF16 adds own `\0`
-		var i = 0u32
+		var i = 0
 		while string[i] != 0 and i < limit {
 			i++
 		}
 		return i
 	}
 
-	static fun countUTF16z(string: ConstArrayPointer<UInt16>): UInt32 {
+	static fun countUTF16z(string: ConstArrayPointer<UInt16>): Int {
 		return countUTF16zUpTo(string, defaultLimit)
 	}
 
-	static fun fromUTF16(string: ConstArrayPointer<UInt16>, offset: UInt32, chars: UInt32): String {
+	static fun fromUTF16(string: ConstArrayPointer<UInt16>, offset: UInt32, chars: Int): String {
 		//@rename('malloc') declare fun malloc(size: Int): RuntimeAllocated
 		//let size: Int = wcslen(string)
 		//var size: Int = 1
@@ -477,7 +516,7 @@ class String {
 		return result
 	}
 
-	static fun fromUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: UInt32): String {
+	static fun fromUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: Int): String {
 		// TODO another version that does not require scanning twice
 		return fromUTF16(string: string, offset: 0, chars: countUTF16zUpTo(string, limit))
 	}
@@ -577,11 +616,13 @@ class JSON {
 
 class Map<K, V> {
 	//fun get(k: K): V {}
-	fun get(k: K): V? {return null}
+	// TODO nullable `V?`
+	fun get(k: K): V {return null as! V}
 	//fun get(k: K): Any {return null}
 	fun set(k: K, v: V): Void {}
 	fun has(k: K): Bool {return false}
 	fun keys(): [K] {return [null]} // TODO what with [null]?
+	fun delete(k: K): Bool {return false} // TODO
 	new(/*...values: T*/) {} // TODO fix ... in parser
 }
 
@@ -622,6 +663,11 @@ class Console {
 	new() {}
 	//fun log(str: Any): Void {
 	fun log(any: Any): Void {
+	}
+
+	fun trace(message: String): Void {
+		logString(message)
+		// TODO trace
 	}
 
 	fun logString(str: String): Void {
@@ -672,7 +718,7 @@ class Console {
 		//fflush(0 as! FILE)
 		fflush(stdout)
 	}
-	fun error(data: Any, message: String?): Void {}
+	fun error(data: Any, message: Any?): Void {}
 }
 
 let console: Console = new Console()
@@ -699,6 +745,7 @@ class Array<T> {
 	fun indexOf(x: T, fromIndex: Int?): Int {return 0}
 	fun lastIndexOf(x: T, fromIndex: Int?): Int {return 0}
 	fun filter(f: T=>Bool): [T] {return[]}
+	fun forEach(f: (accumulator: T, currentValue: T)=>Void): Void {return}
 
 	// TODO `@noLeave f` means `f` never transferred outside of `fun map`
 	// ^ useful for detecting that `f` closure is short-living
@@ -746,6 +793,7 @@ class Buffer /*implements ArrayAccess<T>*/ {
 	fun toString(encoding: String): String {return 'null'}//: String, start: Int?, end: Int?): String {}
 	static fun fromBytes(data: ArrayPointer<UInt8>, length: Int): Buffer {return null as! Buffer}
 	static fun from/*<T>*/(string: String, encoding: String?): Buffer {return null as! Buffer}
+	static fun concat(buffers: [Buffer]): Buffer {return null as! Buffer}
 }
 
 class ProcessStd {
@@ -754,7 +802,7 @@ class ProcessStd {
 	let fd: Any
 }
 
-class NodeProcess {
+class Process {
 	static let stdin: ProcessStd
 	static let stdout: ProcessStd
 	static let stderr: ProcessStd
@@ -765,7 +813,7 @@ class NodeProcess {
 	let env: Any
 }
 
-class ProcessT {
+class ProcessModule {
 	let stdin: ProcessStd
 	let stdout: ProcessStd
 	let stderr: ProcessStd
@@ -774,9 +822,11 @@ class ProcessT {
 	fun cwd(): String {return 'null'}
 	let versions: { node: String } // todo not require value = for lets in declare
 	let env: Any // todo not require value = for lets in declare
+	let platform: String
+	fun memoryUsage(): { rss: Int, heapTotal: Int, heapUsed: Int }
 }
 
-declare let process: ProcessT
+declare let process: ProcessModule
 
 class ParsedPath {
 	var root: String
@@ -788,7 +838,9 @@ class ParsedPath {
 
 class Path {
 	static let sep: String
+	static fun dirname(path: String): String {return 'null'}
 	static fun resolve(path: String): String {return 'null'}
+	static fun relative(from: String, to: String): String {return 'null'}
 	static fun parse(path: String): ParsedPath {return null as! ParsedPath}
 	static fun join(...path: String): String {return 'null'}
 }
@@ -804,9 +856,6 @@ class Fs {
 	static fun openSync(path: String, flags: String): Int {return 0}
 	static fun renameSync(oldPath: String, newPath: String): Void {}
 }
-
-@require("fs")
-declare let fssss: ProcessT
 
 // Global
 @rename('undefined') declare let undefined: Any?
