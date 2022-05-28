@@ -247,8 +247,8 @@ class GenCxx {
 				types.push('struct ' + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '__ {\n\t']
 				// TODO const pointer to const struct
-				types.push('\n\tconst struct ' + c.name + '__ const * const _;')
-				let vtableValue = ['const struct ' + c.name + '__ const ' + c.name + '__$ = {\n\t']
+				types.push('\n\tconst struct ' + c.name + '__ * const _;')
+				let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = {\n\t']
 				let vtableBind = []
 
 				for v in c.vars { switch v {
@@ -543,7 +543,7 @@ class GenCxx {
 
 			// Note: strings should be gathered after ALL expressions printed
 			// TODO may be [] length == 0
-			let strings: [String] = []
+			let strings: [String] = ['\tString_$root_ = String_$new_();\n']
 			for id in declarationsOfStrings.length {
 				// Note: `const char[]` causes compiler to make a copy of the entire string on every usage
 				// TODO set ref counting
@@ -1394,6 +1394,7 @@ class GenCxx {
 						return 'Null$Float64'
 					}
 					return name
+				case Unknown(handle): return stringifyType(handle.value)
 				case UnknownNullable(handle): return stringifyType(handle.value)
 				case ClassInstance(type, generics):
 					// TODO generic params < T > !!!!! just output into C++  templates
@@ -1489,7 +1490,7 @@ class GenCxx {
 					}}
 
 					return type.name + '_*'
-				case Class(type): return 'struct/*Class*/ ' + type.name + '_*'
+				case Class(type): return 'struct ' + type.name + '_*'
 				// TODO ^ probably requires rename basic types too?
 				case Enum(type):
 					if let sub = type.fieldsTypeSimple {
@@ -1724,6 +1725,13 @@ class GenCxx {
 						case SizeOf: return printExpression(e)
 					}
 					return printExpression(e) + printCallArguments(args)
+				case Arrow(expr, args, defaults, types, returns, funcType): {
+					return printExpression(
+						// TODO temp names '$arrow'
+						Expression.Function(null, expr: Statement.Return(expr), args, defaults, funcType)
+					)
+				}
+
 				case Function(name, expr, args, defaults, funcType):
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
