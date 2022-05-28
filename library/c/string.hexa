@@ -1,0 +1,296 @@
+// The MIT License
+//
+// Copyright (C) 2022 Oleg Petrenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+@final // TODO optimize into non-virtual calls
+class String {
+	// TODO `let length: Int` ?
+	//var length: SizeOfPointer = 0 as! SizeOfPointer
+	var length: Int = 0
+
+	/// Approximately 2 gigabytes + `\0`, also fits into 31-bit as a value
+	static let defaultLimit: Int = 1073741824
+
+	/// This is also initialized by code gen, thus `??`
+	@weak private static let root: String = root ?? new String()
+
+	/// Used for runtime purposes
+	@keep private var next: String? = null
+	@keep private var bytesLength: Int = 0
+	@keep private var bytesHash: Int = 0
+	@keep private var bytes: ConstArrayPointer<UInt16> = null as! ConstArrayPointer<UInt16>
+	//fun getBytesPointer(): Int {return 0}
+
+	// TODO `@to(ConstArrayPointer<ClangWideChar>)` so allows to call without `.wide`
+	// ^ fix tofitaDebugLog calls in Tofita
+	@to(ConstArrayPointer<ClangWideChar>)
+	fun wide(): ConstArrayPointer<ClangWideChar> {
+		return bytes as! ConstArrayPointer<ClangWideChar>
+	}
+
+	// TODO keep that instead of wide()
+	fun utf16(): ConstArrayPointer<UInt16> {
+		return bytes
+	}
+
+	fun utf8(): Buffer {
+		// TODO implement!
+		return Buffer.alloc(this.length as! Int)
+	}
+
+	//fun toUpperCase(): String TODO typer not errors here!
+	fun toUpperCase(): String {return''}
+	fun toLowerCase(): String {return''}
+	fun charAt(index: Int): String {return''}
+	// TODO `@weak` for other fun
+	fun indexOf(@weak str: String, startIndex: Int?): Int {return 0}
+	fun lastIndexOf(str: String, startIndex: Int?): Int {return 0}
+	fun split(delimiter: String): [String] {return []}
+	fun toString(): String {return this}
+	fun substring(startIndex: Int, endIndex: Int?): String {return''}
+	static fun fromCharCode(code: Int): String {return''}
+	// TODO overloads
+	// static fun fromCharCode(code: Int, code: Int): String {return''}
+	// static fun fromCharCode(code: Int, code: Int, code: Int): String {return''}
+	// static fun fromCharCode(code: Int, code: Int, code: Int, code: Int): String {return''}
+	// static fun fromCharCode(...codes: Int): String {return''}
+	fun charCodeAt(index: Int): Int? {return 0}
+	fun trim(): String {return''}
+	fun substr(pos: Int, len: Int?): String {return''}
+	fun endsWith(str: String): Bool {return false}
+	fun startsWith(str: String): Bool {return false}
+	fun slice(pos: Int, len: Int?): String {return''}
+	fun replace(what: String, with: String): String {return''}
+
+	// Runtime functions
+	private fun fromInt() {}
+
+	private new () {
+		// TODO set `length` here
+		// TODO `length` must be immutable after construction
+	}
+
+	static fun fromUTF8z(string: ConstArrayPointer<UInt8>): String {
+		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
+		let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
+		// TODO test type check that constructor is private
+		//let result = new String()
+		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
+		let bytes = malloc(size * 2 + 2) as! ArrayPointer<UInt16>
+
+		// TODO proper UTF convert
+		for i in size {
+			bytes[i] = string[i]
+		}
+
+		bytes[size + 1] = 0
+		//result.bytes = bytes as! ConstArrayPointer<UInt16>
+		//result.length = size
+		//return result
+		// TODO transfer size
+		// TODO no as!
+		let result = fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+		free(bytes as! RuntimeAllocated)
+		return result
+	}
+
+	static fun countUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: Int): Int {
+		// TODO stop at UINT32_MAX or define MAX_STRING_LENGTH
+		// var size = 1u32 // TODO starts from 1? Nope, fromUTF16 adds own `\0`
+		var i = 0
+		while string[i] != 0 and i < limit {
+			i++
+		}
+		return i
+	}
+
+	static fun countUTF16z(string: ConstArrayPointer<UInt16>): Int {
+		return countUTF16zUpTo(string, defaultLimit)
+	}
+
+	static fun fromUTF16(string: ConstArrayPointer<UInt16>, offset: UInt32, chars: Int): String {
+		//@rename('malloc') declare fun malloc(size: Int): RuntimeAllocated
+		//let size: Int = wcslen(string)
+		//var size: Int = 1
+		//var i = 0
+		//while string[i] != 0 {
+		//	size++
+		//	i++
+		//}
+
+		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
+		//let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
+		var hash: Int = 0x1e2caa1f // Just a random number
+		//var size: Int = 0
+
+		//wprintf("string!\r\n".wide())
+		//wprintf("string: %s\r\n".wide(), string)
+
+		// TODO 64-bit steps
+		for i in chars {
+			//let char = string[size]
+			hash += string[i]
+			//hash += char
+			//if char == 0 {
+			//	break
+			//}
+			//size++
+		}
+
+		let bytesSize = chars * 2 + 2
+		@weak var cursor: String = root
+
+		while true {
+			// We do NOT check the root itself here
+			if let now = cursor.next {
+				cursor = now
+				//wprintf("scan: %s\r\n".wide(), now.bytes)
+
+				if now.bytesHash != hash, now.bytesLength != bytesSize {
+					continue
+				}
+
+				var i = 0
+				while string[i] == now.bytes[i] and i < chars {
+				// TODO syntax `while string[i] == now.bytes[i], i < chars {` + `while let`
+					i++
+				}
+
+				//console.log('size: ' + String.fromInt(i),
+
+				// TODO type check fails `if not i == chars {`
+				if not (i == chars) {
+					continue
+				}
+
+				// TODO arc++? Cause `@weak`
+				//console.log('deduped: ', now)
+				// TODO LMAO NONVCALLconsole.logString('deduped: ')
+				// TODO LMAO NONVCALLconsole.logString(now)
+				//wprintf("dedup: %s\r\n".wide(), now.bytes)
+				trace(now.bytes as! ConstArrayPointer<ClangWideChar>)
+				return now
+			} else {
+				break
+			}
+		}
+
+		// TODO test type check that constructor is private
+		//let bytes = malloc(bytesSize) as! ArrayPointer<UInt16>
+
+		// TODO proper UTF convert
+		//for i in size {
+		//	bytes[i] = string[i]
+		//}
+
+		//bytes[size + 1] = 0
+		//result.bytes = bytes as! ConstArrayPointer<UInt16>
+		//result.length = size
+		//return result
+
+		// Produce new string
+		///let size = chars
+		let result = new String()
+		//malloc(256/*sizeOf(String)*/) as! String
+		//result.bytes = malloc(((size as! Int) + 1) as! SizeOfPointer) as! ConstArrayPointer<UInt8>
+		result.bytes = malloc(bytesSize) as! ConstArrayPointer<UInt16>
+		let bytes: ArrayPointer<UInt16> = result.bytes as! ArrayPointer<UInt16>
+		if chars > 0 {
+			// TODO respect offset !!!
+			memcpy(bytes as! ArrayPointer<UInt8>, string as! ConstArrayPointer<UInt8>, chars * 2)
+		}
+		bytes[chars] = 0
+		result.length = chars
+		result.bytesLength = bytesSize
+		cursor.next = result
+		return result
+	}
+
+	static fun fromUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: Int): String {
+		// TODO another version that does not require scanning twice
+		return fromUTF16(string: string, offset: 0, chars: countUTF16zUpTo(string, limit))
+	}
+
+	static fun fromUTF16z(string: ConstArrayPointer<UInt16>): String {
+		// TODO another version that does not require scanning twice
+		return fromUTF16(string: string, offset: 0, chars: countUTF16z(string))
+	}
+
+	// TODO disallow String? + String (i.e. left/this cannot be null)
+	// TODO with may be null
+	fun concat(with: String): String {
+		let length = with.length + this.length
+		let bytes = malloc(length * 2 + 2) as! ArrayPointer<UInt16>
+		bytes[length] = 0
+
+		let left: ArrayPointer<UInt16> = bytes as! ArrayPointer<UInt16>
+		if this.length > 0 {
+			memcpy(left as! ArrayPointer<UInt8>, this.bytes as! ConstArrayPointer<UInt8>, this.length * 2)
+		}
+
+		let right: ArrayPointer<UInt16> = ((bytes as! UInt64) + this.length * 2) as! ArrayPointer<UInt16>
+		if with.length > 0 {
+			memcpy(right as! ArrayPointer<UInt8>, with.bytes as! ConstArrayPointer<UInt8>, with.length * 2)
+		}
+
+		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+	}
+
+	static fun fromInt32(value: Int): String {
+		//let bytes = malloc(22) as! ArrayPointer<UInt16>
+		var bytes: ArrayByValue<UInt16, 11> = [0]
+
+		for i in 11 {
+			bytes[i] = 0
+		}
+		var value = value
+		var pos = 10
+		let negative = value < 0
+
+		if negative {
+			value = -value
+		}
+
+		while value >= 10 {
+			// TODO optimize if non-null value in normalizer? wrap to return 0?
+			//TODO!!!uncomment
+			bytes[pos] = '0'.charCodeAt(0) + (value % 10)
+			//
+			//bytes[pos] = 48 + (value % 10)
+			value = value \ 10
+			pos--
+		}
+
+		//TODO
+		bytes[pos] = 48 + (value % 10)
+		pos--
+
+		if negative {
+			//TODO
+			bytes[pos] = '-'.charCodeAt(0)
+		} else {
+			pos++
+		}
+
+		let bytes = ((bytes as! UInt64) + pos * 2) as! ConstArrayPointer<UInt16>
+		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+	}
+}
