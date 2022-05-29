@@ -338,11 +338,6 @@ typedef struct Null$Float64 Null$Float64;
 
 // TODO just force register as Strings_[0] = 'false', etc, to reuse that global array
 //String_* String__false_true_null_[3] = {nullptr, nullptr, nullptr};
-
-//String_* String_opAdd_(Any_* a_, Any_* b_) {
-//
-//
-//
 //	// TODO actual concat
 //	// TODO ARC here
 //	String_* left = a_? a_->toString_() : Strings_[2];
