@@ -1750,17 +1750,32 @@ class GenCxx {
 				}
 
 				case Function(name, expr, args, defaults, funcType):
+					// TODO this should generate arguments from caller side, ie:
+					// `f A -> B` `((a IA)=>IB)` => generate `((a A)=>B)`
+					// ^ should be done at normalizer
 					let _currentReturnType = currentReturnType
 					currentReturnType = getFunctionReturnType(funcType)
-					let result = '[&]' + printFunctionArguments(args, funcType, true)
-					+ '->' + printFunctionReturnType(funcType) + ' '
-					+ printBlock(expr)
+
+					let temp = tempId++
+					let rt = printFunctionReturnType(funcType)
+					forwardFunctions.push(rt)
+					forwardFunctions.push(' _$\(temp)')
+					forwardFunctions.push(printFunctionArguments(args, funcType, false))
+					forwardFunctions.push(';\n')
+
+					let tab = tabs
+					tabs = ''
+					globalFunctions.push(rt)
+					globalFunctions.push(' _$\(temp)')
+					globalFunctions.push(printFunctionArguments(args, funcType, true))
+					globalFunctions.push(' ')
+					globalFunctions.push(printBlock(expr))
+					globalFunctions.push('\n\n')
+					tabs = tab
+
 					currentReturnType = _currentReturnType
-					return result
-					//if (name == null)
-					//	return printType(returns) + ' __function' + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
-					//return '((() => { void* _x' + name + ' = ' + printFunctionArguments(args, defaults, types) + ' => '
-					//+ printBlock(expr) + ';return _x' + name + ';})())'
+					return '_$\(temp)'
+
 				case New(e, args): return '/*'+e+'*/'+'' + printExpression(e) + '$new_' + printCallArguments(args)
 				case Array(el):
 					if (el.length == 0) {
