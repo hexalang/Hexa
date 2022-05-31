@@ -43,85 +43,85 @@ class Tokens {
 @final
 class Lexer {
 	static fun tokenize(bytes: Buffer, fileName: String): Tokens {
-			// Variables
-			var position = 0
-			let len = bytes.length
-			var to = 0
-			var s = ""
-			var p = 0
-			var line = 1
-			var columnBase = 0
+		// Variables
+		var position = 0
+		let len = bytes.length
+		var to = 0
+		var s = ""
+		var p = 0
+		var line = 1
+		var columnBase = 0
 
-			// Prefetch
-			let params = []
-			let meta: [Meta] = []
-			// TODO no zeroeing of this buffer when parser is LALR(0)
-			let tokens = Buffer.alloc(len + 1) // Note: 1 extra space for Token.Eof
-			// TODO ensure optimizer/typer infers `Array<T>` properly
-			var lines = []
-			var columns = []
+		// Prefetch
+		let params = []
+		let meta: [Meta] = []
+		// TODO no zeroeing of this buffer when parser is LALR(0)
+		let tokens = Buffer.alloc(len + 1) // Note: 1 extra space for Token.Eof
+		// TODO ensure optimizer/typer infers `Array<T>` properly
+		var lines = []
+		var columns = []
 
-			// Helpers
-			// Just add plain token
-			@inline fun add(t: Token) {
-				// TODO if (#ignore > 0 || ignore_comments) { return }
-				// TODO if (!keep_string_quote_style) push(inquoted)
-				// TODO `[i] = value` not type checked properly, i.e. `Int[i] = Token`
-				tokens[to++] = t
-				lines.push(line)
-				columns.push(position - columnBase - 1)
-			}
+		// Helpers
+		// Just add plain token
+		@inline fun add(t: Token) {
+			// TODO if (#ignore > 0 || ignore_comments) { return }
+			// TODO if (!keep_string_quote_style) push(inquoted)
+			// TODO `[i] = value` not type checked properly, i.e. `Int[i] = Token`
+			tokens[to++] = t
+			lines.push(line)
+			columns.push(position - columnBase - 1)
+		}
 
-			// Add parametrized token
-			@inline fun addn(t: Token, p: String) {
-				// TODO if (#ignore > 0 || ignore_comments) { return }
-				// TODO if (!keep_string_quote_style) push(inquoted)
-				params[to] = p
-				add(t)
-			}
+		// Add parametrized token
+		@inline fun addn(t: Token, p: String) {
+			// TODO if (#ignore > 0 || ignore_comments) { return }
+			// TODO if (!keep_string_quote_style) push(inquoted)
+			params[to] = p
+			add(t)
+		}
 
-			// Add parametrized token with meta
-			@inline fun addm(t: Token, p: String, m: Meta) {
-				// TODO if (#ignore > 0 || ignore_comments) { return }
-				// TODO if (!keep_string_quote_style) push(inquoted)
-				params[to] = p
-				meta[to] = m
-				add(t)
-			}
+		// Add parametrized token with meta
+		@inline fun addm(t: Token, p: String, m: Meta) {
+			// TODO if (#ignore > 0 || ignore_comments) { return }
+			// TODO if (!keep_string_quote_style) push(inquoted)
+			params[to] = p
+			meta[to] = m
+			add(t)
+		}
 
-			@inline fun curPos() {
-				return position - columnBase - 1
-			}
-			// Getting bytes
-			@inline fun get_8(pos) {
-				return bytes[pos]
-			}
-			// Not out of length
-			@inline fun not_eof(): Bool {
-				return (position < len)
-			}
-			// Lines
-			@inline fun new_line() {
-				line++
-				columnBase = position
-			}
+		@inline fun curPos() {
+			return position - columnBase - 1
+		}
+		// Getting bytes
+		@inline fun get_8(pos) {
+			return bytes[pos]
+		}
+		// Not out of length
+		@inline fun not_eof(): Bool {
+			return (position < len)
+		}
+		// Lines
+		@inline fun new_line() {
+			line++
+			columnBase = position
+		}
 
-			@inline fun fail(message: String, erline: Int? = null, column: Int? = null, filename: String? = null) {
-				var erline = erline != null ? erline : line
-				var column = column != null ? column : curPos()
-				var filename = filename != null ? filename : fileName
-				return new CompilerErrors([new CompilerError(Fail.LexerError, message, erline, column, filename)])
-			}
+		@inline fun fail(message: String, erline: Int? = null, column: Int? = null, filename: String? = null) {
+			var erline = erline != null ? erline : line
+			var column = column != null ? column : curPos()
+			var filename = filename != null ? filename : fileName
+			return new CompilerErrors([new CompilerError(Fail.LexerError, message, erline, column, filename)])
+		}
 
-			// UTF-8 with BOM
-			if len > 2, get_8(0) == 239, get_8(1) == 187, get_8(2) == 191 {
-				position += 3
-			}
+		// UTF-8 with BOM
+		if len > 2, get_8(0) == 239, get_8(1) == 187, get_8(2) == 191 {
+			position += 3
+		}
 
-			// Ignore `#!shebang` until end of line
-			if len > 2, get_8(0) == "#".charCodeAt(0), get_8(1) == "!".charCodeAt(0) { while position < len && get_8(position) != 10 {
-				position++
-			}}
+		// Ignore `#!shebang` until end of line
+		if len > 2, get_8(0) == "#".charCodeAt(0), get_8(1) == "!".charCodeAt(0) { while position < len && get_8(position) != 10 {
+			position++
+		}}
 
 			// Lexer main loop
 			while position < len {
