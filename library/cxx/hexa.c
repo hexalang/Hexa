@@ -308,12 +308,14 @@ struct Object_ {};
 //typedef Null<int32_t> struct Null$Int32;
 //typedef Null<double> struct Null$Float64;
 
-struct Null$Int32 {
-	int32_t value_;
-	uint8_t has_;
-};
-typedef struct Null$Int32 Null$Int32;
+// The idea here is zero-cost conversion of integer to optional
+// Impossible 32-bit value is "null"
+#define uint32_t$ uint64_t
+#define uint32_t$null (uint64_t)0b1111111111111111111111111111111111111111111111111111111111111111ULL
+#define int32_t$ int64_t
+#define int32_t$null (int64_t)0b1111111111111111111111111111111111111111111111111111111111111111LL
 
+// TODO 0x instead of 0b for compiler compat
 struct Null$Float64 {
 	double value_;
 	uint8_t has_;

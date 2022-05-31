@@ -114,6 +114,7 @@ class GenCxx {
 						forwardFunctions.push(printFunctionArguments(args, funcType))
 						forwardFunctions.push(';\n')
 
+						// TODO cache `printFunctionReturnType` here etc to not print twice
 						out.push(printFunctionReturnType(funcType))
 						out.push(' ' + e.name + '_$' + name + '_')
 						out.push(printFunctionArguments(args, funcType))
@@ -1202,8 +1203,8 @@ class GenCxx {
 						case _:
 							// `var x: T? = T`
 							if (toNull == fromValue) {
-									return '((struct Null$Int32){(' + string + '), 1})'
 								if toNull == project.typer.typeInt {
+									return '((int32_t$)(' + string + '))' // TODO
 								}
 								return '%T? = T%'
 							}
@@ -1213,8 +1214,12 @@ class GenCxx {
 							switch fromValue {
 								// Essentially just `null`
 								case UnknownNullable(value): if (value.value == null) {
-								if (toNull == project.typer.typeInt) {
-									return '((struct Null$Int32){0, 0})'
+								if toNull == project.typer.typeInt or toNull == project.typer.typeInt32 {
+									return 'int32_t$null'
+								}
+								// TODO null float etc as struct for now
+								if toNull == project.typer.typeUInt32 {
+									return 'uint32_t$null'
 								}
 								if toNull == null {
 									return string // TODO seems like unspecified generic type <T>
@@ -1250,6 +1255,14 @@ class GenCxx {
 							switch fromValue {
 								// Essentially just `null`, not `T?`!
 								case UnknownNullable(value): if (value.value == null) {
+								if to == project.typer.typeInt or to == project.typer.typeInt32 {
+									return 'int32_t$null'
+								}
+								// TODO null float etc as struct for now
+								if to == project.typer.typeUInt32 {
+									return 'uint32_t$null'
+								}
+								// TODO this `if` should be detected as unreachable (if `to` is `let`)
 								if (to == project.typer.typeInt) {
 									return '(int32_t)0'
 								}
@@ -1374,8 +1387,8 @@ class GenCxx {
 				case Generic(index, name): return 'Any_ *' + '/*TODO Generic<\(name)>*/'
 				case Nullable(t):
 					let name = stringifyType(t)
-						return 'Null$Int32'
 					if name == 'int32_t' {
+						return 'int32_t$'
 					}
 					if name == 'double' {
 						return 'Null$Float64'
