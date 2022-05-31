@@ -232,24 +232,6 @@ class Normalizer {
 					}
 					return result
 
-				// `name<T>`
-				case ParametricIdent(name, params):
-					// TODO
-					if name == 'sizeOf' {
-						if params.length != 1 {
-							throw 'sizeOf takes only one <T>'
-						}
-
-						switch params[0] {
-							case Type(name): {
-								let type = typer.toType(params[0])
-								return Expression.SizeOf(type)
-							}
-						}
-					}
-
-					return Expression.String('TODO_ParametricIdent')
-
 				// `expr.name`
 				// TODO constant propagation
 				case Dot(expr, name):
@@ -372,12 +354,28 @@ class Normalizer {
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
 				if let infix = getDec(atts, 'infix') { switch infix.values[0] {
-					case String(s): return Expression.NativeOperator(NativeOperatorKind.Infix, a, s)
+					case String(s):
+						switch expr {
+							case Ident(_, params):
+								if let parames = params {
+									return Expression.NativeOperator(NativeOperatorKind.Infix, a, s, params.map(param => typer.toType(param)))
+								}
+
+								return Expression.NativeOperator(NativeOperatorKind.Infix, a, s, null)
+						}
 					case _: throw '@infix takes string as argument'
 				}}
 
 				if let operator = getDec(atts, 'operator') { switch operator.values[0] {
-					case String(s): return Expression.NativeOperator(NativeOperatorKind.Function, a, s)
+					case String(s):
+						switch expr {
+							case Ident(_, params):
+								if let parames = params {
+									return Expression.NativeOperator(NativeOperatorKind.Function, a, s, params.map(param => typer.toType(param)))
+								}
+
+								return Expression.NativeOperator(NativeOperatorKind.Function, a, s, null)
+						}
 					case _: throw '@operator takes string as argument'
 				}}
 

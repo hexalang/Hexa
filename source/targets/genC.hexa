@@ -1572,6 +1572,14 @@ class GenCxx {
 			//throw 'getType ' + e
 		}}
 
+		/// Returns type name without last `*` on the end
+		fun omitPointer(type: String): String {
+			if type.endsWith('*') {
+				return type.substr(0, type.length - 1) + ' '
+			}
+			return type
+		}
+
 		fun registerString(string: String): Int {
 			declarationsOfStrings.push(string)
 			return declarationsOfStrings.length - 1
@@ -1586,16 +1594,6 @@ class GenCxx {
 						return name
 					}
 					return '' + name + '_'
-				case SizeOf(what):
-					fun omitPointer(type: String): String {
-						if type.endsWith('*') {
-							return type.substr(0, type.length - 1) + ' '
-						}
-
-						return type
-					}
-					return 'sizeof(' + omitPointer(stringifyType(what)) + ')'
-					//return 'sizeof(' + stringifyType(what) + ')'
 				case Null:
 					// TODO infer actual type of null in typer,
 					// to print type conversion `((T*)0)`
@@ -1737,10 +1735,6 @@ class GenCxx {
 						}
 					}
 
-					switch e {
-						// TODO better way
-						case SizeOf: return printExpression(e)
-					}
 					return printExpression(e) + printCallArguments(args)
 				case Arrow(expr, args, defaults, types, returns, funcType): {
 					return printExpression(
@@ -1844,9 +1838,17 @@ class GenCxx {
 					+ ')'
 				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-				case NativeOperator(kind, args, s): switch kind {
+				case NativeOperator(kind, args, s, params): switch kind {
 					case Infix: return '((' + printExpression(args[0]) + ')' + s + '(' + printExpression(args[1]) + '))'
-					case Function: return s + printCallArguments(args)
+					case Function:
+						if let params = params, s == '*sizeof' {
+							return 'sizeof(' + omitPointer(stringifyType(params[0])) + ')'
+						}
+
+						if let params = params, s == '&sizeof' {
+							return 'sizeof(' + stringifyType(params[0]) + ')'
+						}
+						return s + printCallArguments(args)
 					case Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
 					case Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
