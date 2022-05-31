@@ -952,6 +952,21 @@ class GenCxx {
 								return  printExpression(expr) +
 									'->$set(String_$fromUTF16z_(L"' + name + '"), ' + printToAnyConverter(printExpression(v), getType(v)) + ')'
 							}
+						case Index(expr, index):
+							switch getType(expr) {
+								case ClassInstance(type, generic):
+									if type.name != 'Array' {
+										return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
+										+ ' = ' + printExpression(v)
+									}
+									// TODO meta block
+									return printExpression(Expression.Call(
+										Expression.Dot(expr, 'set', null /*TODO*/),
+										[index, v],
+										[project.typer.typeInt, generic[0] /*TODO is this correct way to pass `T`*/],
+										CallKind.VirtualMethod
+									))
+							}
 					}
 					return printExpression(a) + ' = ' + printExpression(v)
 					//return printExpression(a) + ' = ' + printTypeConverter(printExpression(v), getType(v), getType(a))
@@ -1774,7 +1789,15 @@ class GenCxx {
 								return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
 							}
 					}
-					return printExpression(expr) + '->get_(' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ')'
+					// TODO meta block
+					return printExpression(Expression.Call(
+						// TODO `set`
+						Expression.Dot(expr, 'get', null /*TODO*/),
+						[index],
+						[project.typer.typeInt],
+						CallKind.VirtualMethod
+					))
+
 				case If(econd, eif, eelse):
 					var r = ''
 					try {
