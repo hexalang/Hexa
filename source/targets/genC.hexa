@@ -81,7 +81,7 @@ class GenCxx {
 					continue
 				}
 				// TODO tdef C* C
-				types.push('struct ' + e.name + '_ {\n\t')
+				types.push(e.name + '_ {\n\t')
 
 				// Static vars before static functions
 				for v in e.staticVars { switch v {
@@ -127,7 +127,7 @@ class GenCxx {
 
 			for e in project.enumsComplex {
 				forward.push('struct ' + e.name + '_;')
-				types.push('struct ' + e.name + '_ : Unknown_ {\n\t')
+				types.push(e.name + '_ : Unknown_ {\n\t')
 				types.push('\n\tAny_** enum_;') // Enum.Name(enum_...)
 				types.push('\n\tuint16_t is_;')
 				types.push('\n\tuint8_t length_;') // Amount of enum_[] to dealloc
@@ -149,9 +149,9 @@ class GenCxx {
 						].join(', '))
 						out.push(') {\n')
 						out.push('\tprintf("\(e.name).\(name)_()\\n");fflush(stdout);\n')
-						out.push('\t' + e.name + '_* _ = (struct ' + e.name + '_*)(HEXA_NEW(sizeof(struct ' + e.name + '_)));\n')
+						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
 						out.push('\t_->length_ = \(e.constructors[i].length);\n')
-						out.push('\t_->enum_ = (struct Any_**)(HEXA_NEW(sizeof(struct Any_*) * \(e.constructors[i].length)));\n')
+						out.push('\t_->enum_ = (Any_**)(HEXA_NEW(sizeof(Any_*) * \(e.constructors[i].length)));\n')
 						out.push('\t_->is_ = \(i);\n')
 						for c in e.constructors[i].length {
 							//out.push('\t_->enum_[\(c)] = \(e.constructors[i][c])_;\n')
@@ -167,7 +167,7 @@ class GenCxx {
 
 						out.push(e.name + '_* ' + e.name + '_$' + name + '_() {\n')
 						out.push('\tprintf("\(e.name).\(name)_()\\n");fflush(stdout);\n')
-						out.push('\t' + e.name + '_* _ = (struct ' + e.name + '_*)(HEXA_NEW(sizeof(struct ' + e.name + '_)));\n')
+						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
 						out.push('\t_->length_ = 0;\n')
 						out.push('\t_->is_ = \(i);\n')
 						out.push('\treturn _;\n')
@@ -243,7 +243,6 @@ class GenCxx {
 				//if (c.useless) continue
 				forward.push('struct ' + c.name + '_;')
 				forward.push('typedef struct \(c.name)_ \(c.name)_;')
-				//types.push('struct ' + c.name + '_ : Unknown_ {\n\t')
 				types.push('struct ' + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '__ {\n\t']
 				// TODO const pointer to const struct
@@ -281,7 +280,7 @@ class GenCxx {
 							//forward.push('\n\tstatic ' + c.name + '_* new_')
 							//forward.push(printFunctionArguments(args, funcType))
 							//forward.push(';')
-							forwardFunctions.push('struct ' + c.name + '_* ' + c.name + '_$new_')
+							forwardFunctions.push(c.name + '_* ' + c.name + '_$new_')
 							forwardFunctions.push(printFunctionArguments(args, funcType))
 							forwardFunctions.push(';\n')
 
@@ -290,7 +289,7 @@ class GenCxx {
 							// Init
 							//out.push('void ' + c.name + '_::this_() {\n')
 							out.push('void ' + c.name + '_$this_')
-							thisArgument = 'struct ' + c.name + '_* $this'
+							thisArgument = c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
 							out.push(' {\n')
@@ -324,15 +323,13 @@ class GenCxx {
 
 							// Alloc
 							//out.push(c.name + '_* ' + c.name + '_$new_() {\n')
-							out.push('struct ' + c.name + '_* ' + c.name + '_$new_')
+							out.push(c.name + '_* ' + c.name + '_$new_')
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
 							out.push('\tprintf("\(c.name).new_()\\n");fflush(stdout);\n')
-							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(struct ' + c.name + '_)));\n')
+							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
 							out.push('\t$_[0] = (void *)&' + c.name + '__$;\n')
-							out.push('\tstruct ' + c.name + '_* _ = (struct ' + c.name + '_*)($_);\n')
-
-
+							out.push('\t' + c.name + '_* _ = (' + c.name + '_*)($_);\n')
 
 							//out.push('\tvoid* buffer_ = (struct ' + c.name + '_*)(HEXA_NEW(sizeof(struct ' + c.name + '_)));\n')
 							//out.push('\tstruct ' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
@@ -589,7 +586,7 @@ class GenCxx {
 				+ '\n// Global functions\n' +
 				globalFunctions.join('')
 
-				+ '\n// Statements\n' +
+				+ '// Statements\n' +
 				// TODO Boi, dat weird
 				out.join('').split('%%%HEXA_STRINGS@@@').join(strings.join(''))
 			).split('\n').join('\r\n')
@@ -891,12 +888,6 @@ class GenCxx {
 
 					currentReturnType = _currentReturnType
 					return stringifyType(funcType) + ' \(name)_ = _$\(temp)'
-
-					let result = 'auto \(name)_ = [&]' + printFunctionArguments(args, funcType, true)
-					+ '->' + printFunctionReturnType(funcType) + ' '
-					+ printBlock(expr)
-					currentReturnType = _currentReturnType
-					return result
 				case Return(e):
 					if (e == null) {
 						return 'return'
@@ -1215,8 +1206,8 @@ class GenCxx {
 						case _:
 							// `var x: T? = T`
 							if (toNull == fromValue) {
-								if (toNull == project.typer.typeInt) {
 									return '((struct Null$Int32){(' + string + '), 1})'
+								if toNull == project.typer.typeInt {
 								}
 								return '%T? = T%'
 							}
@@ -1229,7 +1220,7 @@ class GenCxx {
 								if (toNull == project.typer.typeInt) {
 									return '((struct Null$Int32){0, 0})'
 								}
-								if (toNull == null) {
+								if toNull == null {
 									return string // TODO seems like unspecified generic type <T>
 								}
 								return '/*%T? = null%*/(' + string + ')'
@@ -1324,8 +1315,8 @@ class GenCxx {
 					for a in args.length {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) { switch types[a] {
-							case Nullable(_): result += ' = ((struct Unknown_ *)0)'
-							case UnknownNullable(_): result += ' = ((struct Unknown_ *)0)'
+							case Nullable(_): result += ' = ((Unknown_ *)0)'
+							case UnknownNullable(_): result += ' = ((Unknown_ *)0)'
 						}}
 						results.push(result)
 					}
@@ -1339,15 +1330,15 @@ class GenCxx {
 					return '(' + [for a in args.length {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						if (defaults) { switch types[a] {
-							case Nullable(_): result += ' = ((struct Unknown_ *)0)'
-							case UnknownNullable(_): result += ' = ((struct Unknown_ *)0)'
+							case Nullable(_): result += ' = ((Unknown_ *)0)'
+							case UnknownNullable(_): result += ' = ((Unknown_ *)0)'
 						}}
 						result
 					}].join(', ') + ')'
 
 			}
 			return '(' + [for a in args.length
-				'struct Any_* ' + args[a] + '_'
+				'Any_* ' + args[a] + '_'
 			].join(', ') + ')'
 			// TODO defaults
 			// 'void* ' + args[a] + ((defaults != null && defaults[a] != null)? ' = ' + printExpression(defaults[a]) : '')
@@ -1387,10 +1378,10 @@ class GenCxx {
 				case Generic(index, name): return 'void*' + '/*TODO Generic<\(name)>*/'
 				case Nullable(t):
 					let name = stringifyType(t)
-					if (name == 'int32_t') {
 						return 'Null$Int32'
+					if name == 'int32_t' {
 					}
-					if (name == 'double') {
+					if name == 'double' {
 						return 'Null$Float64'
 					}
 					return name
@@ -1490,15 +1481,15 @@ class GenCxx {
 					}}
 
 					return type.name + '_*'
-				case Class(type): return 'struct ' + type.name + '_*'
+				case Class(type): return type.name + '_*'
 				// TODO ^ probably requires rename basic types too?
 				case Enum(type):
 					if let sub = type.fieldsTypeSimple {
 						return stringifyType(sub)
 					}
-					return 'struct ' + type.name + '_*'
-				case EnumInstance(type): return 'struct ' + type.name + '_*'
-				case Struct(_): return 'struct Any_*/*Struct*/'
+					return type.name + '_*'
+				case EnumInstance(type): return type.name + '_*'
+				case Struct(_): return 'Any_*/*Struct*/'
 				case Function(args, returns):
 					let temp = tempId++
 					typedefFunctions.push('typedef ')
@@ -1513,8 +1504,7 @@ class GenCxx {
 					typedefFunctions.push(a.join(', '))
 					typedefFunctions.push(');\n')
 					return '_$\(temp)'
-					//return 'struct Any_* /*Function* /'
-				case null: return 'struct Any_*/*null?*/'
+				case null: return 'Any_*/*null?*/'
 				case _: throw 'stringifyType ' + t
 			}
 		}
@@ -1568,7 +1558,6 @@ class GenCxx {
 						return name
 					}
 					return '' + name + '_'
-				//case Null: return '((struct Unknown_ *)0)'
 				case SizeOf(what):
 					fun omitPointer(type: String): String {
 						if type.endsWith('*') {
@@ -1583,7 +1572,7 @@ class GenCxx {
 					// TODO infer actual type of null in typer,
 					// to print type conversion `((T*)0)`
 					return 'nullptr'
-					return '((struct Unknown_ *)0)'
+					return '((Unknown_ *)0)'
 					/*
 					void f(int*) { /*...*/ }
 					void f(double*) { /*...*/ }
@@ -1677,7 +1666,6 @@ class GenCxx {
 
 						switch typed {
 							case ClassInstance(c):
-								//console.log( 'Reaaaaaanme ' + c.name + '.' + name)
 								//if let rename = c.fieldRenames[c.fieldNames.indexOf(name)] {
 								if c.fieldRenames.includes(name) {
 									return printExpression(expr) + '->' + name
@@ -1744,8 +1732,6 @@ class GenCxx {
 					//	return printType(returns) + ' __function' + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
 					//return '((() => { void* _x' + name + ' = ' + printFunctionArguments(args, defaults, types) + ' => '
 					//+ printBlock(expr) + ';return _x' + name + ';})())'
-				//case Arrow(expr, args, defaults, types, returns):
-				//	return printType(returns) + ' __arrow' + printFunctionArguments(args, defaults, types) + ' { return (' + printExpression(expr) + '); }'
 				case New(e, args): return '/*'+e+'*/'+'' + printExpression(e) + '$new_' + printCallArguments(args)
 				case Array(el):
 					if (el.length == 0) {
@@ -1814,7 +1800,7 @@ class GenCxx {
 				}
 				case UnsafeBitCast(e, to):
 					//switch e {
-					//	case Null: return '(/*UnsafeBitCast*/(struct Unknown_ *)0)'
+					//	case Null: return '(/*UnsafeBitCast*/(Unknown_ *)0)'
 					//	// TODO maybe use `0` value? or static_cast?
 					//}
 					return printTypeConverter(printExpression(e), getType(e), to)
