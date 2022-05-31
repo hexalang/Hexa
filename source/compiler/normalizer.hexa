@@ -339,6 +339,25 @@ class Normalizer {
 					a.push(nodeToExpression(arg))
 				}
 
+				switch typer.parents.get(expr) as! Node {
+					case Function(_, _, vars): {
+						if vars.length > a.length {
+							// Fill default arg values
+							for i in vars.length {
+								if i < a.length {
+									continue
+								}
+
+								switch vars[i] as! Node {
+									case Var(_, _, value): if let value = value {
+										a.push(nodeToExpression(value))
+									} // TODO else `break`? cause not args have values?
+								}
+							}
+						}
+					}
+				}
+
 				// Enum constructor
 				if not nativeEnums { switch expr {
 					case DotUpper(expr, name):
@@ -636,7 +655,7 @@ class Normalizer {
 				// `nullable ?? otherwise`
 				case Elvis(nullable, otherwise):
 					let result = unique('result')
-					let resultType = null // TODO
+					let resultType = typer.types.get(nullable)
 					return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block([
 						Statement.Const(result, nodeToExpression(nullable), resultType),
 						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.OpNotEq, Expression.Null, typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
