@@ -1401,7 +1401,7 @@ class GenCxx {
 			return type
 		}
 
-		fun stringifyType(t: Type) {
+		fun stringifyType(t: Type, prefixNull: Bool = false) {
 			switch t {
 				case Generic(index, name): return 'Any_*' // + '/*TODO Generic<\(name)>*/'
 				case Nullable(t):
@@ -1412,9 +1412,14 @@ class GenCxx {
 					if name == 'double' {
 						return 'Null$Float64'
 					}
+
+					if prefixNull == true {
+						return 'Null$' + name
+					}
+
 					return name
-				case Unknown(handle): return stringifyType(handle.value)
-				case UnknownNullable(handle): return stringifyType(handle.value)
+				case Unknown(handle): return stringifyType(handle.value, prefixNull)
+				case UnknownNullable(handle): return stringifyType(handle.value, prefixNull)
 				case ClassInstance(type, generics):
 					// TODO generic params < T > !!!!! just output into C++  templates
 					// TODO type == typer.typeX
@@ -1516,7 +1521,7 @@ class GenCxx {
 						}
 
 						name += '_$' + [for param in generic {
-							omitPointer(stringifyType(param))
+							omitPointer(stringifyType(param, prefixNull: true))
 						}].join('$')
 
 						if name.endsWith('_') {
@@ -1550,7 +1555,7 @@ class GenCxx {
 					typedefFunctions.push(a.join(', '))
 					typedefFunctions.push(');\n')
 					return '_$\(temp)'
-				case null: return 'Any_*/*null?*/'
+				case null: return 'Any_*'
 				case _: throw 'stringifyType ' + t
 			}
 		}
@@ -1808,11 +1813,19 @@ class GenCxx {
 					return name + '$new_' + printCallArguments(args)
 
 				case Array(el, arrayType):
-					if (el.length == 0) {
-						return 'Array_$new_(0)'
-					}
 					let type = stringifyType(arrayType)
-					return '(\(type))Array_from(0, ' + [for a in el printExpression(a)].join(', ') + ')'
+
+					if (el.length == 0) {
+						return '\(omitPointer(type))$new_(0)'
+					}
+
+					switch arrayType {
+						case ClassInstance(_, generic):
+							let elType: String = stringifyType(generic[0])
+							return '\(omitPointer(type))$from_(\(omitPointer(type))$new_(\(el.length)), (\(elType)[]){' + [for a in el printExpression(a)].join(', ') + '})'
+					}
+
+					return '\(omitPointer(type))$from_(\(omitPointer(type))$new_(\(el.length)), {' + [for a in el printExpression(a)].join(', ') + '})'
 
 				case Unop(op, postfix, e):
 					if (postfix) {
