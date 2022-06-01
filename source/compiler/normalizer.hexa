@@ -1006,10 +1006,6 @@ class Normalizer {
 				renameClassFields(fields)
 				let type = new NiceClass()
 
-				switch typer.types.get(e) as! Type {
-					case Class(the): type.useless = the.useless
-				}
-
 				type.external = external
 				type.extend = DataHelper.extractTypeName(ext)
 
@@ -1040,7 +1036,12 @@ class Normalizer {
 						type.name = unique(s, e)
 					case _: throw '@rename takes string as argument'
 				}} else {
-					type.name = unique(DataHelper.extractTypeName(t), e)
+					switch typer.types.get(e) as! Type {
+						case Class(the):
+							type.name = unique(the.name, e)
+						case _:
+							type.name = unique(DataHelper.extractTypeName(t), e)
+					}
 				}
 				globals.push(type.name)
 
@@ -1113,6 +1114,64 @@ class Normalizer {
 					case _: console.error("(internal warning) Unknown class field kind:", f)
 				}}
 				niceProject.classes.push(type)
+
+				switch typer.types.get(e) as! Type {
+					case Class(the):
+						type.useless = the.useless
+
+						fun fillSignature(signature: [String], type: Type) {
+							switch type {
+								case ClassInstance(type, generic):
+									// TODO safe/renamed name
+									// TODO nested names
+									signature.push(type.name)
+									let generic = generic ?? []
+									for param in generic {
+										fillSignature(signature, param)
+									}
+								// TODO are enum instances support generic-ness now?
+								case EnumInstance(type):
+									signature.push(type.name)
+								case Class(type):
+									signature.push(type.name)
+								case Enum(type):
+									signature.push(type.name)
+								case Nullable(handle):
+									// TODO
+									signature.push('Null')
+									fillSignature(signature, handle)
+
+								case Unknown(handle):
+									if let type = handle.value {
+										fillSignature(signature, type)
+									} else {
+										signature.push('Unknown')
+									}
+								case Function(value):
+									signature.push('fun')
+								case Constant(value):
+									signature.push('const')
+								case Struct(value):
+									signature.push('struct')
+								case _:
+									throw type
+							}
+						}
+
+						for instance in the.instances {
+							var signature = ['_']
+							if let instanceParams = instance.instanceParams {
+								for param in instanceParams {
+									fillSignature(signature, param)
+								}
+							}
+							// TODO do not save it like this? also `unique(name)`
+							instance.name += signature.join('$')
+							instance.useless = the.useless
+							nodeToStatement(instance.parent)
+						}
+				}
+
 				return null //type
 
 				case TypeAlias(_):
