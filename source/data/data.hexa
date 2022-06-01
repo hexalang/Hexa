@@ -230,7 +230,10 @@ enum Node {
 			case String(s):
 				return cloneData(p, node, Node.String(s))
 			case Ident(name, params):
-				return cloneData(p, node, Node.Ident(name, params))
+				if let params = params {
+					return cloneData(p, node, Node.Ident(name, params.map(param => NodeType.clone(param))))
+				}
+				return cloneData(p, node, Node.Ident(name, null))
 			case Bool(b):
 				return cloneData(p, node, Node.Bool(b))
 			case Int(s):
@@ -244,7 +247,10 @@ enum Node {
 			case Parenthesis(expr):
 				return cloneData(p, node, Node.Parenthesis(cloneData(p, expr, clone(p, expr))))
 			case Index(expr, index):
-				return cloneData(p, node, Node.Index(cloneData(p, expr, clone(p, expr)), index))
+				return cloneData(p, node, Node.Index(
+					cloneData(p, expr, clone(p, expr)),
+					cloneData(p, index, clone(p, index))
+				))
 			case Dot(expr, name):
 				return cloneData(p, node, Node.Dot(cloneData(p, expr, clone(p, expr)), name))
 			case DotUpper(expr, name):
@@ -255,6 +261,13 @@ enum Node {
 				return cloneData(p, node, Node.Array(elements.map(arg => cloneData(p, arg, clone(p, arg)))))
 			case Binop(a, op, b):
 				return cloneData(p, node, Node.Binop(cloneData(p, a, clone(p, a)), op, cloneData(p, b, clone(p, b))))
+			case For(name, over, by, range):
+				return cloneData(p, node, Node.For(
+					name: name,
+					over: cloneData(p, over, clone(p, over)),
+					by: cloneData(p, by, clone(p, by)),
+					range: cloneData(p, range, clone(p, range))
+				))
 			case Object(names, el):
 				return cloneData(p, node, Node.Object(names, el.map(arg => cloneData(p, arg, clone(p, arg)))))
 			case NodeTypeValue(t):
@@ -263,7 +276,7 @@ enum Node {
 				return cloneData(p, node, Node.As(
 					expr: cloneData(p, expr, clone(p, expr)),
 					kind: kind,
-					toType: toType
+					toType: NodeType.clone(toType)
 				))
 			}
 			case New(path, t, args, fields, el, argNames): {
@@ -342,9 +355,9 @@ enum Node {
 			case null:
 				return null
 			case _:
-				console.log('Cannot clone', node)
 		}
 
+		console.log('Cannot clone', node)
 		return node
 	}
 

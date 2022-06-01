@@ -23,12 +23,43 @@
 // TODO decorators like `@final` etc
 class Array<T> {
 	// TODO do not store "capacity" - it can be always(?) calculated from length
-	var length: Int
+	var length: Int = 0
+	private var capacity: Int = 0
+	private var data: ArrayPointer<T>
 
 	@operator('[]')
-	fun get(index: Int): T? {return null}
+	fun get(index: Int): T? {
+		if index < 0 or index >= length {
+			return null
+		}
+
+		return data[index]
+	}
 	@operator('[]=')
-	fun set(index: Int, value: T): Void {}
+	fun set(index: Int, value: T): Void {
+		if index < 0 {
+			return // Invalid operation
+		}
+
+		if index >= capacity {
+			let newCapacity = capacity * 2 // TODO 1.5
+			let newData = malloc(sizeOfPreferPointer<T>() * newCapacity) as! ArrayPointer<T>
+
+			for i in length {
+				newData[i] = data[i]
+			}
+
+			free(data as! RuntimeAllocated)
+			data = newData
+			capacity = newCapacity
+		}
+
+		if index >= length {
+			length = index + 1
+		}
+
+		data[index] = value
+	}
 
 	fun concat(a: [T]): [T] {return[]}
 	fun join(sep: String): String {return''}
@@ -49,19 +80,26 @@ class Array<T> {
 	fun filter(f: T=>Bool): [T] {return[]}
 	fun forEach(f: (accumulator: T, currentValue: T)=>Void): Void {return}
 
-	private fun from(payload: ArrayPointer<T>): [T] {
-
-		return this
-	}
-
 	// TODO `@noLeave f` means `f` never transferred outside of `fun map`
 	// ^ useful for detecting that `f` closure is short-living
 	// TODO also means that closure may be STACK ALLOCATED
 	fun map(f: T=>T): [T] {return[]}
 	//new(...values: T) {} // TODO fix ... in parser
-	new(size: Int) {} // TODO fix ... in parser
+	new(size: Int) {
+		length = size
+		capacity = size
+		//var a: T = sizeOf<T>() as! T
+		data = malloc(sizeOfPreferPointer<T>() * size) as! ArrayPointer<T>
+	}
 	//private fun get(index: Int): T {return null}
 	//private fun set(index: Int, value: T): T {return null}
-	@operator('[]++') fun incrementPost(index: Int): Float {return 0}
-	@operator('++[]') fun incrementPre(index: Int): Float {return 0}
+
+	/// Do not use other than in code generator
+	/// Implies that length is known from instance
+	private fun from(payload: ArrayPointer<T>): [T] {
+		for i in length {
+			data[i] = payload[i]
+		}
+		return this
+	}
 }

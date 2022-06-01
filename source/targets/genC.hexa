@@ -1225,7 +1225,9 @@ class GenCxx {
 								if toNull == project.typer.typeInt {
 									return '((int32_t$)(' + string + '))' // TODO
 								}
-								return '%T? = T%'
+
+								// TODO more (un)wrapping cases for basic types where needed
+								return string
 							}
 							// `var x: A? = B` unsafe conversion
 							// TODO `(Int?) as! (Float)` should not be bit-cast (how C does `(double)(int)123`?)
@@ -1239,6 +1241,9 @@ class GenCxx {
 								// TODO null float etc as struct for now
 								if toNull == project.typer.typeUInt32 {
 									return 'uint32_t$null'
+								}
+								if toNull == project.typer.typeBool {
+									return '(uint8_t)2'
 								}
 								if toNull == null {
 									return string // TODO seems like unspecified generic type <T>
@@ -1450,13 +1455,21 @@ class GenCxx {
 					if (type.name == 'UInt64') {
 						return 'uint64_t'
 					}
-					if let generic = generics, type.name == 'ConstArrayPointer' {
+
+					let atts = project.mapDecorators.get(type.parent)
+					// TODO refactor
+					var renamed = ''
+					if let rename = Normalizer.getDec(atts, 'rename') {
+						renamed = DataHelper.asStringAttValue(rename, 0)
+					}
+
+					if let generic = generics, renamed == 'ConstArrayPointer' {
 						return 'const ' + stringifyType(generic[0]) + '*'
 					}
-					if let generic = generics, type.name == 'ArrayPointer' {
+					if let generic = generics, renamed == 'ArrayPointer' {
 						return stringifyType(generic[0]) + '*'
 					}
-					if let generic = generics, type.name == 'ArrayByValue' {
+					if let generic = generics, renamed == 'ArrayByValue' {
 						//if let count = generic[1] {
 						//	return stringifyType(generic[0]) + '[' + Type.stringify(count) + ']'
 						//}
@@ -1585,6 +1598,7 @@ class GenCxx {
 			case Call(_, _, type): return type
 			//case If(_): return project.typer.typeAny
 			case Binop(_, _, _, type): return type
+			case NativeOperator(_, _, _, _, type): return type
 			case Dot(_, _, type): return type
 			case This(type): return type
 			case Null: return Type.UnknownNullable({value: null})
@@ -1896,7 +1910,7 @@ class GenCxx {
 					+ ')'
 				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-				case NativeOperator(kind, args, s, params): switch kind {
+				case NativeOperator(kind, args, s, params, result): switch kind {
 					case Infix: return '((' + printExpression(args[0]) + ')' + s + '(' + printExpression(args[1]) + '))'
 					case Function:
 						if let params = params, s == '*sizeof' {

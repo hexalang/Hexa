@@ -357,9 +357,6 @@ typedef struct Null$Float64 Null$Float64;
 //	String_* sb_ = (b_ == $null)? String__null_ : b_->toString_();
 //	return String__null_;
 //};
-struct Array_* Array_from(void* stub, ...) {
-	return (struct Array_*)0;
-};
 // name, value, name, value
 struct Object_* Object_from(void* stub, ...) {
 	return (struct Object_*)0;
