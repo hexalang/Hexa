@@ -220,4 +220,139 @@ enum Node {
 				return "..."
 		}
 	}
+
+	/// Creates recursive tree clone, also clones positions and decorators
+	static fun clone(project: Project, node: Node?): Node? {
+		let p = project
+		@allCases // TODO
+		switch node {
+			// TODO this should have been a macro
+			case String(s):
+				return cloneData(p, node, Node.String(s))
+			case Ident(name, params):
+				return cloneData(p, node, Node.Ident(name, params))
+			case Bool(b):
+				return cloneData(p, node, Node.Bool(b))
+			case Int(s):
+				return cloneData(p, node, Node.Int(s))
+			case Float(s, meta):
+				return cloneData(p, node, Node.Float(s, meta))
+			case Null:
+				return cloneData(p, node, Node.Null)
+			case This:
+				return cloneData(p, node, Node.This)
+			case Parenthesis(expr):
+				return cloneData(p, node, Node.Parenthesis(cloneData(p, expr, clone(p, expr))))
+			case Index(expr, index):
+				return cloneData(p, node, Node.Index(cloneData(p, expr, clone(p, expr)), index))
+			case Dot(expr, name):
+				return cloneData(p, node, Node.Dot(cloneData(p, expr, clone(p, expr)), name))
+			case DotUpper(expr, name):
+				return cloneData(p, node, Node.DotUpper(cloneData(p, expr, clone(p, expr)), name))
+			case Call(e, args, argNames):
+				return cloneData(p, node, Node.Call(cloneData(p, e, clone(p, e)), args.map(arg => cloneData(p, arg, clone(p, arg))), argNames))
+			case Array(elements):
+				return cloneData(p, node, Node.Array(elements.map(arg => cloneData(p, arg, clone(p, arg)))))
+			case Binop(a, op, b):
+				return cloneData(p, node, Node.Binop(cloneData(p, a, clone(p, a)), op, cloneData(p, b, clone(p, b))))
+			case Object(names, el):
+				return cloneData(p, node, Node.Object(names, el.map(arg => cloneData(p, arg, clone(p, arg)))))
+			case NodeTypeValue(t):
+				return cloneData(p, node, Node.NodeTypeValue(t))
+			case As(expr, kind, toType): {
+				return cloneData(p, node, Node.As(
+					expr: cloneData(p, expr, clone(p, expr)),
+					kind: kind,
+					toType: toType
+				))
+			}
+			case New(path, t, args, fields, el, argNames): {
+				return cloneData(p, node, Node.New(
+					path: path,
+					t: t,
+					args: args.map(arg => cloneData(p, arg, clone(p, arg))),
+					fields: fields,
+					el: el.map(arg => cloneData(p, arg, clone(p, arg))),
+					argNames: argNames
+				))
+			}
+			case Unop(op, postfix, e): {
+				return cloneData(p, node, Node.Unop(
+					op: op,
+					postfix: postfix,
+					e: cloneData(p, e, clone(p, e))
+				))
+			}
+			case Arrow(expr, vars, retType): {
+				return cloneData(p, node, Node.Arrow(
+					expr: cloneData(p, expr, clone(p, expr)),
+					vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
+					retType: retType
+				))
+			}
+			case Static(f):
+				return cloneData(p, node, Node.Static(cloneData(p, f, clone(p, f))))
+			case Return(e): {
+				if let e = e {
+					return cloneData(p, node, Node.Return(cloneData(p, e, clone(p, e))))
+				}
+				return cloneData(p, node, Node.Return(null))
+			}
+			case Block(el): {
+				return cloneData(p, node, Node.Block(
+					el: el.map(arg => cloneData(p, arg, clone(p, arg)))
+				))
+			}
+			case If(econd, eif, eelse, ternary): {
+				return cloneData(p, node, Node.If(
+					econd: econd.map(arg => cloneData(p, arg, clone(p, arg))),
+					eif: cloneData(p, eif, clone(p, eif)),
+					eelse: eelse != null ? cloneData(p, eelse, clone(p, eelse)) : null,
+					ternary: ternary
+				))
+			}
+			case Var(name, t, expr, const, external): {
+				return cloneData(p, node, Node.Var(
+					name: name,
+					t: t,
+					expr: cloneData(p, expr, clone(p, expr)),
+					const: const,
+					external: external
+				))
+			}
+			case Function(name, body, vars, retType, external): {
+				return cloneData(p, node, Node.Function(
+					name: name,
+					body: cloneData(p, body, clone(p, body)),
+					vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
+					// TODO vars: `[Node]`, somehow valid? Array of what? Fix
+					retType: retType,
+					external: external
+				))
+			}
+			case Class(t, extend, implement, fields, external, kind):
+				return cloneData(p, node, Node.Class(
+					t: t,
+					extend: extend,
+					implement: implement,
+					fields: fields.map(arg => cloneData(p, arg, clone(p, arg))),
+					external: external,
+					kind: kind
+				))
+			case null:
+				return null
+			case _:
+				console.log('Cannot clone', node)
+		}
+
+		return node
+	}
+
+	/// Clones decorators and position
+	static fun cloneData(project: Project, from: Node, to: Node): Node {
+		let project = project as! Any // TODO
+		project.mapDecorators.set(to, project.mapDecorators.get(from))
+		project.data.set(to, project.data.get(from))
+		return to
+	}
 }
