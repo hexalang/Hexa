@@ -22,6 +22,8 @@
 // and `()` will check their arguments and have a `returns` as it's type
 // taken from `Type.Function`
 enum Type {
+	Generic(index: Int, name: String)
+
 	// Nullability
 	/// Type not known at all
 	Unknown(handle: { value: Type? })
@@ -65,6 +67,8 @@ enum Type {
 					return DataHelper.nameOf(type.parent) + '<' + [for g in gen Type.stringify(g)].join(', ') + '>'
 				}
 				return DataHelper.nameOf(type.parent)
+			case Generic(index, name):
+				return '<' + name + ' at ' + index + '>'
 			case Class(type):
 				return DataHelper.nameOf(type.parent)
 			case Function(args, returns):
@@ -123,6 +127,13 @@ class ClassType {
 	let genericParams: [String] = [] // GenericParameter
 	var useless: Bool = true // No reason to generate
 
+	/// Is itself instanced from another `ClassType`
+	var instanceOf: ClassType? = null
+	var instanceParams: [Type]? = null
+
+	/// Fully typed instances, viable for code generation
+	var instances: [ClassType] = []
+
 	// Non-generic `Type.ClassInstance`
 	let instanceCache = Type.ClassInstance(this, null)
 	fun instantiate(): Type {
@@ -157,8 +168,11 @@ class ClassType {
 		}
 
 		let result = Type.ClassInstance(this, params)
+		// Save self instance for reuse
+		// TODO also save `new ClassType` for accessing instance fields and methods
 		let cache = [result]
 		for param in params {
+			// Save instance parameters
 			cache.push(param)
 		}
 		genericCache.push(cache)

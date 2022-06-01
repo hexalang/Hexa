@@ -205,6 +205,59 @@ class Typer {
 				popScope()
 			}
 
+			for info in project.moduleInfo {
+				let nodes = info.nodes
+				let self = Node.Module(info.path, info.nodes)
+				pushScope()
+				currentModule = info
+
+				// Again for generics
+				// TODO has no instances from global vars and exprs!
+				for node in nodes {
+					switch node {
+						case Import(_):
+						case Class(_):
+							// Fill generic instances
+							// TODO same for enums
+							switch types.get(node) as! Type {
+								case Class(classType):
+								if classType.genericCache.length > 0 {
+									for knownParams in classType.genericCache {
+										let known = knownParams.slice()
+										known.shift()
+										let cloned = Node.clone(project, node)
+
+										var type = null as! Type?
+										switch known[0] as! Type {
+											case Unknown(handle): type = handle.value
+											case Generic(_): // Not supposed to be typed TODO is this okay?
+											case _: type = known[0]
+										}
+
+										if type == null {
+											// TODO supposedly un-inferred `=[:]` and `=[]`
+										} else {
+											parents.set(cloned, cloned)
+											//pushScope()
+											// TODO in future, this should be done on demand,
+											// in the instantiation place, due to type inference
+											// of function return types etc
+											fillModuleTypes(cloned, known, classType)
+											//popScope()
+										}
+									}
+								}
+							}
+
+						case TypeAlias(_):
+						case Enum(_):
+						case _:
+					}
+				}
+
+				popScope()
+			}
+
 			if failures.length > 0 {
 				let errors = failures.slice()
 				failures = []
@@ -279,16 +332,16 @@ class Typer {
 			return available
 		}
 
-		fun registerClassType(node: Node, callback: Any): ClassType {
+		fun registerClassType(node: Node, callback: Any, params: [Type]?, instanceOf: ClassType?): ClassType {
 			let mod = currentModule
 			currentModule = project.mapModules.get(node) ?? mod
-			let registered = registerClassTypeWrapped(node, callback)
+			let registered = registerClassTypeWrapped(node, callback, params, instanceOf)
 			currentModule = mod
 			return registered
 		}
 
 		// `class T {}`
-		fun registerClassTypeWrapped(node: Node, callback: Any): ClassType {
+		fun registerClassTypeWrapped(node: Node, callback: Any, knownParams: [Type]?, instanceOf: ClassType?): ClassType {
 			if let type = types.get(node) {
 				switch type as! Type {
 					// Avoid typing if already typed
@@ -306,7 +359,7 @@ class Typer {
 					case 'Int':
 						typeIntClass
 					case 'Array':
-						typeArray
+						knownParams != null? new ClassType() : typeArray
 					case 'Any':
 						typeAnyClass
 					case _:
@@ -317,10 +370,18 @@ class Typer {
 				let _thisNode = thisNode
 
 				// TODO not simply instantiate, must be filled with generic dummies
-				thisType = type.instantiate()
+				thisType = knownParams != null? type.instantiateGeneric(knownParams) : type.instantiate()
 				thisNode = node
 				type.parent = node
 				type.name = typeName
+
+				if let instanceOf = instanceOf, knownParams != null {
+					// TODO better detection
+					type.instanceOf = instanceOf
+					type.instanceParams = knownParams
+					instanceOf.instances.push(type)
+				}
+
 				types.set(node, Type.Class(type))
 
 				// Solve race condition
@@ -336,8 +397,15 @@ class Typer {
 					case 'Bool': typeBool = type.instantiate()
 					case 'Float': typeFloat = type.instantiate()
 					case 'String': typeString = type.instantiate()
-					case 'Array': typeArray = type
-					case 'Map': typeMap = type
+					case 'Array':
+						// TODO protect the same way whole `switch`
+						if knownParams == null {
+							typeArray = type
+						}
+					case 'Map':
+						if knownParams == null {
+							typeMap = type
+						}
 					case 'Any':
 						nodeAny = node
 					case 'Void': typeVoid = type.instantiate()
@@ -388,8 +456,15 @@ class Typer {
 						}
 						pushScope()
 
+						var genericParamIndex = 0
 						for genericParam in type.genericParams {
 							addScopeType(genericParam, typeAny)
+							if let knownParams = knownParams {
+								addScopeType(genericParam, knownParams[genericParamIndex])
+							} else {
+								addScopeType(genericParam, Type.Generic(genericParamIndex, genericParam))
+							}
+							genericParamIndex++
 						}
 
 						// Fill scopes
@@ -1110,6 +1185,12 @@ class Typer {
 							return type.instantiate()
 						case Enum(type):
 							return types.get(nodeType)
+						case ClassInstance(_):
+							return type
+						case EnumInstance(_):
+							return type
+						case Nullable(_):
+							return type
 						case null:
 							let available = []
 
@@ -1129,7 +1210,8 @@ class Typer {
 							if type == typeAny {
 								return typeAny
 							}
-							fail('Unsupported type `\(name)`', node)
+
+							return type
 					}
 				case ParametricType(name, params, path):
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name) ?? currentModule.imported.get(name)
@@ -1159,6 +1241,11 @@ class Typer {
 								return typeAny
 							}
 							fail('Unsupported type `\(name)`', node)
+
+							switch type {
+								case Generic(_):
+									return typeAny
+							}
 					}
 				case Optional(t):
 					return Type.Nullable(toType(t, node))
@@ -1317,13 +1404,13 @@ class Typer {
 			types.set(node, Type.Function(args: [for v in vars types.get(v)], returns: ret))
 		}
 
-		private fun fillModuleTypes(node: Node): Void {
+		private fun fillModuleTypes(node: Node, params: [Type]?, instanceOf: ClassType?): Void {
 			switch node {
 				// `class T {}`
 				case Class(t, extend, implement, f, external):
 					addScope(DataHelper.extractTypeName(t), node)
 					let mod = currentModule
-					registerClassType(node)
+					registerClassType(node, null, params, instanceOf)
 					currentModule = mod
 
 				// `enum T {}`
@@ -1850,7 +1937,7 @@ class Typer {
 							fillExpression(e)
 					}
 					if let etype = types.get(e) as! Type? { switch etype {
-						case ClassInstance(type): // Non-static fields
+						case ClassInstance(type, generic): // Non-static fields
 							type.useless = false
 							if etype == typeAny {
 								types.set(node, typeAny)
@@ -1880,7 +1967,7 @@ class Typer {
 
 											if types.get(field) == null {
 												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', type.fieldInitialized[type.fieldNames.indexOf(n)])
-												fail('Type for this field is null: ' + n, field)
+												fail('Type for this field cannot be inferred, try to specify types manually: ' + n, field)
 											}
 										}
 									}
