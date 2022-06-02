@@ -57,11 +57,7 @@
 struct Any_ {};
 typedef struct Any_ Any_;
 //#define Any_ void*
-struct String_;
 //struct String_** Strings_ = nullptr;
-struct Array_;
-struct Map_;
-
 //#define Any_ Any_
 //#define ConstCharPointer_ const char *
 //typedef long LONG;
@@ -187,7 +183,6 @@ struct IUnknown_ {
 //	virtual uint32_t __stdcall__ AddRef_() {/*nothing*/};
 //	virtual uint32_t __stdcall__ Release_() {/*never deallocated*/};
 //};
-struct Any_ _dummy;
 // Note global instance is defined here, but
 // should be created in main function
 
