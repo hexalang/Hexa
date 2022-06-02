@@ -57,10 +57,18 @@ class Preprocessor {
 		// TODO `#elseif`
 		// TODO more complex conditions `1 > b`, `not b`, `true`
 		fun evaluateCondition(): Bool {
-			if tokens.token[i] != Token.LLower {
-				fail(tokens, i, 'Incorrect `#if` syntax')
+			// TODO better way/place
+			project.defines['false'] = false
+			project.defines['true'] = true
+
+			var defName = tokens.value[i]
+			let token: Token = tokens.token[i] as! Token
+
+			switch token {
+				case LLower: // Ok
+				case KFalse: defName = 'false'
+				case KTrue: defName = 'true'
 			}
-			let defName = tokens.value[i]
 
 			let def = project.defines[defName]
 
@@ -151,6 +159,15 @@ class Preprocessor {
 						to++
 					case _:
 						i++
+				}
+
+				switch state {
+					case IgnoreUntilElseOrEnd | IgnoreUntilEnd | ConsumeUntilElseOrEnd | ConsumeUntilEnd:
+						let token = tokens.token[i] as! Token
+						// if token == Token.End { TODO rename Eof to End
+						if token == Token.Eof {
+							fail(tokens, i, 'Unexpected end, you have unclosed `#if` or `#else`. Place `#end` to close condition.')
+						}
 				}
 			}
 
