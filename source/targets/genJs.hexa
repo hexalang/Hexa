@@ -240,6 +240,7 @@ class GenJs {
 			}}
 
 			// Init
+			tabs = '\t\t'
 			for init in project.init {
 				out.push('\n\t{\n\t\t')
 				out.push(printStatement(init))
@@ -247,14 +248,16 @@ class GenJs {
 			}
 
 			if toIterator {
-				constants.unshift('\n\tfunction $toIterator(v) { if (typeof(v) === "number") { v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };')
+				// constants.unshift('\n\tfunction $toIterator(v) { if (typeof(v) === "number") { if (v > 10) console.log(v); v = Math.max(v, 0); const i = new Uint32Array(v); let n = 0; while (n < v) i[n] = n++; return i; } return v; };')
+				// TODO don't use this for known types
+				constants.unshift('\n\tconst $toIterator = (v) => typeof(v) === "number"? Array(Math.max(v, 0)).keys() : v;')
 			}
 			out[constantsIndex] = constants.join('')
 			out.push('\n})();\n')
 			return out.join('')
 		}
 
-		var tabs = '\t\t'
+		var tabs = '\t'
 
 		@inline fun pushTab() {
 			tabs += '\t'
@@ -556,10 +559,10 @@ class GenJs {
 				case If(econd, eif, eelse):
 					var r = ''
 					try {
-						r += '(' + printExpression(econd) + ')?'
+						r += '((' + printExpression(econd) + ')?'
 						r += ' (' + printExpression(eif) + ')'
 						r += ' : ' + printExpression(eelse)
-						return r
+						return r + ')'
 					} catch error: Any {
 						console.log('If =>', e, error)
 						return r + '<!--If => error-->'
