@@ -13,11 +13,33 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// TODO class NiceName {
+//	var native = false
+//	var name = '<!--NiceName-->'
+//	new (name, native) {
+//		this.name = name
+//		this.native = native
+//	}
+//}
+
+// TODO enum NiceName {
+//	// Name of `var`, `function`, not attached to any type
+//	Local(name: String)
+//	// Should be kept as-is, if `@rename` applied
+//	Native(name: String)
+//	// Index of class or any type field
+//	Field(index: Int)
+//	ClassField(index: Int, ref: NiceClass)
+//}
+
 // Does not return a value
 enum Statement {
 	/// Multiple statements *not* wrapped into a block
 	// TODO get rid of this, use meta blocks like native gen (currentBlock push/pop)
 	Statements(el: [Statement])
+
+	/// Expression used as statement
+	// TODO Expression(expr: Expression)
 
 	Block(el: [Statement])
 	Call(e: Expression, args: [Expression], expects: [Type], kind: CallKind)
@@ -46,6 +68,13 @@ enum Statement {
 	Break
 	SuperConstructor(args: [Expression])
 	// TODO seems like types *here* `EnumValue(e: THISTYPE)` not checked
+
+	/// Can be re-allocated (on stack)
+	// TODO NotNeededStack(name: String)
+
+	/// Can be un-counted (ARC--)
+	// TODO it is bettr to unref early, not a func return
+	// TODO NotNeededRef(name: String)
 }
 
 // Returns a value
@@ -68,7 +97,7 @@ enum Expression {
 	// TODO ^ `LocalVar`
 //		Reference(name: NiceName, type: Type)
 //		NativeIdent(s: String) // Just textual as is, sorta hack
-	Null
+	Null(nullOf: Type)
 	This(me: Type)
 	Dot(expr: Expression, name: String, result: Type)
 	// TODO ^ resolved references, not `expr: Expression, name: String`
@@ -170,11 +199,14 @@ class NiceClass {
 	var implementParams: [String]
 	var rename: Int
 	var constructor
+	// TODO native kind: class, union, struct
 
 	var staticMethods: [Statement] = []
+	// TODO ^ actual NiceMethods instead of Function statements, cause closures, is-virtual methods, throws etc
 	var staticVars: [Statement] = []
 	var methods: [Statement] = []
 	var vars: [Statement] = []
+	// TODO let renames: [String] = []
 	let property: [String] = [] // `var/let { get ?set }`
 
 	var jsRequire: String? = null

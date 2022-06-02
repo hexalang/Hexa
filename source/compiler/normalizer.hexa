@@ -166,7 +166,7 @@ class Normalizer {
 					}
 					return Expression.False
 				case Null:
-					return Expression.Null
+					return Expression.Null(typer.types.get(e))
 
 				case NodeTypeValue(t): switch t {
 					case Type(name):
@@ -391,6 +391,7 @@ class Normalizer {
 				return Expression.Call(v, a, typer.types.get(e), kind)
 
 				case Binop(a, op, b):
+				// TODO extract bin-op handler to function so than can be called commutatively `infixCommutative()`
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
@@ -452,6 +453,7 @@ class Normalizer {
 					}
 				}}
 
+				// `a == b`
 				if op == Token.OpEq {
 					switch ea {
 					case True: switch eb {
@@ -482,6 +484,7 @@ class Normalizer {
 					}
 				}}
 
+				// `a != b`
 				if op == Token.OpNotEq {
 					switch ea {
 					case True: switch eb {
@@ -657,7 +660,7 @@ class Normalizer {
 					let resultType = typer.types.get(nullable)
 					return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block([
 						Statement.Const(result, nodeToExpression(nullable), resultType),
-						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.OpNotEq, Expression.Null, typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
+						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.OpNotEq, Expression.Null(resultType), typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
 						Statement.Return(nodeToExpression(otherwise))
 						]), [], [], Type.Function([], typer.types.get(otherwise)))), [], typer.types.get(otherwise),
 						CallKind.Function
@@ -1441,12 +1444,12 @@ class Normalizer {
 				while current < econd.length - 1 { switch econd[current + 1] {
 					case Var(vname, t, expr, const):
 					let name = unique(vname, econd[current + 1])
-					block.push(Statement.Var(name, Expression.Null, typer.types.get(expr)))
+					block.push(Statement.Var(name, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
 					block.push(Statement.If(
 						Expression.Binop(
 							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(current + 0), typer.typeBool),
 							Token.OpBoolAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null : Expression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
@@ -1459,12 +1462,12 @@ class Normalizer {
 					case _:
 					let next = unique('temp')
 					let nextType = typer.types.get(econd[0])
-					block.push(Statement.Var(next, Expression.Null, nextType))
+					block.push(Statement.Var(next, Expression.Null(nextType), nextType))
 					block.push(Statement.If(
 						Expression.Binop(
 							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(current + 0), typer.typeBool),
 							Token.OpBoolAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null : Expression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
@@ -1481,7 +1484,7 @@ class Normalizer {
 					Expression.Binop(
 						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(econd.length - 1), typer.typeBool),
 						Token.OpBoolAnd,
-						Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null : Expression.False, typer.typeBool),
+						Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
 						typer.typeBool
 					),
 					Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(econd.length), null), null))
@@ -1584,7 +1587,7 @@ class Normalizer {
 					for i in cases.length {
 
 						fun toCase(co: Node) { switch co {
-							case Null: return Expression.Null
+							case Null: return Expression.Null(typer.typeAny)
 							case Underscore: return Expression.Underscore
 							case String(v): return Expression.String(v)
 							case Int(v): return Expression.Int(v)
