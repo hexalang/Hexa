@@ -44,13 +44,8 @@ class String {
 	// TODO `@to(ConstArrayPointer<ClangWideChar>)` so allows to call without `.wide`
 	// ^ fix tofitaDebugLog calls in Tofita
 	@to(ConstArrayPointer<ClangWideChar>)
-	fun wide(): ConstArrayPointer<ClangWideChar> {
+	fun utf16(): ConstArrayPointer<ClangWideChar> {
 		return bytes as! ConstArrayPointer<ClangWideChar>
-	}
-
-	// TODO keep that instead of wide()
-	fun utf16(): ConstArrayPointer<UInt16> {
-		return bytes
 	}
 
 	fun utf8(): Buffer {
@@ -99,6 +94,7 @@ class String {
 		let bytes = malloc(size * 2 + 2) as! ArrayPointer<UInt16>
 
 		// TODO proper UTF convert
+		// TODO copy 8 bytes at a time
 		for i in size {
 			bytes[i] = string[i]
 		}
@@ -118,6 +114,7 @@ class String {
 		// TODO stop at UINT32_MAX or define MAX_STRING_LENGTH
 		// var size = 1u32 // TODO starts from 1? Nope, fromUTF16 adds own `\0`
 		var i = 0
+		// TODO scan 8 bytes at a time
 		while string[i] != 0 and i < limit {
 			i++
 		}
@@ -143,8 +140,6 @@ class String {
 		var hash: Int = 0x1e2caa1f // Just a random number
 		//var size: Int = 0
 
-		//wprintf("string!\r\n".wide())
-		//wprintf("string: %s\r\n".wide(), string)
 
 		// TODO 64-bit steps
 		for i in chars {
@@ -164,13 +159,13 @@ class String {
 			// We do NOT check the root itself here
 			if let now = cursor.next {
 				cursor = now
-				//wprintf("scan: %s\r\n".wide(), now.bytes)
 
 				if now.bytesHash != hash, now.bytesLength != bytesSize {
 					continue
 				}
 
 				var i = 0
+				// TODO scan 8 bytes at a time
 				while string[i] == now.bytes[i] and i < chars {
 				// TODO syntax `while string[i] == now.bytes[i], i < chars {` + `while let`
 					i++
@@ -187,7 +182,6 @@ class String {
 				//console.log('deduped: ', now)
 				// TODO LMAO NONVCALLconsole.logString('deduped: ')
 				// TODO LMAO NONVCALLconsole.logString(now)
-				//wprintf("dedup: %s\r\n".wide(), now.bytes)
 				trace(now.bytes as! ConstArrayPointer<ClangWideChar>)
 				return now
 			} else {
@@ -218,6 +212,7 @@ class String {
 		let bytes: ArrayPointer<UInt16> = result.bytes as! ArrayPointer<UInt16>
 		if chars > 0 {
 			// TODO respect offset !!!
+			// TODO copy 4/8 bytes at a time manually
 			memcpy(bytes as! ArrayPointer<UInt8>, string as! ConstArrayPointer<UInt8>, chars * 2)
 		}
 		bytes[chars] = 0
