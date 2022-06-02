@@ -15,6 +15,7 @@
 
 /// Analyzes and transforms untyped syntax tree from parser into typed syntax tree, and sends into normalizer
 @final
+// TODO class Typer extends TyperData {
 class Typer {
 	// Note that we use new instance for each build to avoid collisions with unit tests
 	// and to support parallel compilation in future
@@ -1208,6 +1209,8 @@ class Typer {
 								'Cannot find type `\(name)`\n'
 								+ proposeSimilar(available.filter((named) => DataHelper.isTitleCase(named)), name, 'types'),
 							 node)
+						case Alias(alias):
+							return toType(alias.value, node)
 						case _:
 							if type == typeAny {
 								return typeAny
@@ -1450,8 +1453,7 @@ class Typer {
 
 				// `declare A = T`
 				case TypeAlias(alias, value):
-					let type = new AliasType()
-
+					let type = new AliasType(value)
 					// TODO pre-check somehow that aliased type exists (and takes generic parameters)
 					types.set(node, Type.Alias(type))
 					addScope(nameOfModuleItem(node), node)
@@ -1472,6 +1474,21 @@ class Typer {
 
 				case TypeAlias(_, t):
 					fail('Defining alias within blocks not allowed', node)
+
+					let name = switch t {
+						case Type(name): name
+						case ParametricType(name, _): name
+						case null:
+							fail('Type has no name: ' + NodeType.stringify(t), node)
+							// TODO `throw` ie must break this expression
+							''
+						case _:
+							fail('Wrong alias format: ' + NodeType.stringify(t), node)
+							// TODO `throw` ie must break this expression
+							''
+					}
+					let type: Type? = findActualType(name)
+					types.set(node, Type.Alias(type))
 					addScope(nameOfModuleItem(node), node)
 					// TODO
 					// fail('Defining types within blocks not allowed', node)
@@ -1628,6 +1645,7 @@ class Typer {
 						fill(expr)
 					}
 					popScope()
+					popFuncParamsIfRequired(node) // Do this after `expr` typing
 
 					// Restore stack
 					insideFunction = _insideFunction
@@ -1833,7 +1851,6 @@ class Typer {
 						fill(expr)
 					}
 					popScope()
-					popFuncParamsIfRequired(node) // Do this after `expr` typing
 
 					// Restore stack
 					insideFunction = _insideFunction
