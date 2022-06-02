@@ -27,7 +27,7 @@ class String {
 	//var length: SizeOfPointer = 0 as! SizeOfPointer
 	var length: Int = 0
 
-	/// Approximately 2 gigabytes + `\0`, also fits into 31-bit as a value
+	/// Approximately 2 gigabytes + `\0`, also fits into 31-bit (signed 32-bit) as a value
 	static let defaultLimit: Int = 1073741824
 
 	/// This is also initialized by code gen, thus `??`
@@ -39,7 +39,7 @@ class String {
 	@keep private var bytesLength: Int = 0
 	@keep private var bytesHash: Int = 0
 	@keep private var bytes: ConstArrayPointer<UInt16> = null as! ConstArrayPointer<UInt16>
-	//fun getBytesPointer(): Int {return 0}
+	// TODO fun getBytesPointer(): Int {return 0}
 
 	// TODO `@to(ConstArrayPointer<ClangWideChar>)` so allows to call without `.wide`
 	// ^ fix tofitaDebugLog calls in Tofita
@@ -77,8 +77,7 @@ class String {
 	fun slice(pos: Int, len: Int?): String {return''}
 	fun replace(what: String, with: String): String {return''}
 
-	// Runtime functions
-	private fun fromInt() {}
+	// Runtime functions below //
 
 	private new () {
 		// TODO set `length` here
@@ -89,7 +88,6 @@ class String {
 		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
 		let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
 		// TODO test type check that constructor is private
-		//let result = new String()
 		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
 		let bytes = malloc(size * 2 + 2) as! ArrayPointer<UInt16>
 
@@ -100,9 +98,6 @@ class String {
 		}
 
 		bytes[size + 1] = 0
-		//result.bytes = bytes as! ConstArrayPointer<UInt16>
-		//result.length = size
-		//return result
 		// TODO transfer size
 		// TODO no as!
 		let result = fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
@@ -126,30 +121,12 @@ class String {
 	}
 
 	static fun fromUTF16(string: ConstArrayPointer<UInt16>, offset: UInt32, chars: Int): String {
-		//@rename('malloc') declare fun malloc(size: Int): RuntimeAllocated
-		//let size: Int = wcslen(string)
-		//var size: Int = 1
-		//var i = 0
-		//while string[i] != 0 {
-		//	size++
-		//	i++
-		//}
-
 		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
-		//let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
 		var hash: Int = 0x1e2caa1f // Just a random number
-		//var size: Int = 0
-
 
 		// TODO 64-bit steps
 		for i in chars {
-			//let char = string[size]
 			hash += string[i]
-			//hash += char
-			//if char == 0 {
-			//	break
-			//}
-			//size++
 		}
 
 		let bytesSize = chars * 2 + 2
@@ -171,8 +148,6 @@ class String {
 					i++
 				}
 
-				//console.log('size: ' + String.fromInt(i),
-
 				// TODO type check fails `if not i == chars {`
 				if not (i == chars) {
 					continue
@@ -190,28 +165,13 @@ class String {
 		}
 
 		// TODO test type check that constructor is private
-		//let bytes = malloc(bytesSize) as! ArrayPointer<UInt16>
-
-		// TODO proper UTF convert
-		//for i in size {
-		//	bytes[i] = string[i]
-		//}
-
-		//bytes[size + 1] = 0
-		//result.bytes = bytes as! ConstArrayPointer<UInt16>
-		//result.length = size
-		//return result
-
 		// Produce new string
-		///let size = chars
 		let result = new String()
-		//malloc(256/*sizeOf(String)*/) as! String
-		//result.bytes = malloc(((size as! Int) + 1) as! SizeOfPointer) as! ConstArrayPointer<UInt8>
 		// TODO allocate 8-byte aligned for 8-byte comparison steps
 		result.bytes = malloc(bytesSize) as! ConstArrayPointer<UInt16>
 		let bytes: ArrayPointer<UInt16> = result.bytes as! ArrayPointer<UInt16>
 		if chars > 0 {
-			// TODO respect offset !!!
+			// TODO respect `offset` !!!
 			// TODO copy 4/8 bytes at a time manually
 			memcpy(bytes as! ArrayPointer<UInt8>, string as! ConstArrayPointer<UInt8>, chars * 2)
 		}
@@ -271,7 +231,6 @@ class String {
 	}
 
 	static fun fromInt32(value: Int): String {
-		//let bytes = malloc(22) as! ArrayPointer<UInt16>
 		var bytes: ArrayByValue<UInt16, 11> = [0]
 
 		// TODO error on out of bounds limit like `for i in 22` of `bytes`
@@ -279,6 +238,7 @@ class String {
 		for i in 11 {
 			bytes[i] = 0
 		}
+
 		var value = value
 		var pos = 10
 		let negative = value < 0
@@ -289,20 +249,15 @@ class String {
 
 		while value >= 10 {
 			// TODO optimize if non-null value in normalizer? wrap to return 0?
-			//TODO!!!uncomment
 			bytes[pos] = '0'.charCodeAt(0) + (value % 10)
-			//
-			//bytes[pos] = 48 + (value % 10)
 			value = value \ 10
 			pos--
 		}
 
-		//TODO
-		bytes[pos] = 48 + (value % 10)
+		bytes[pos] = '0'.charCodeAt(0) + (value % 10)
 		pos--
 
 		if negative {
-			//TODO
 			bytes[pos] = '-'.charCodeAt(0)
 		} else {
 			pos++
