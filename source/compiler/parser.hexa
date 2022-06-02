@@ -525,6 +525,8 @@ class Parser {
 
 		// {}
 		case BrOpen:
+			// TODO handle EOF
+			let startsAt = i
 			i++
 			if tok() == Token.BrClose { // Empty block {}
 				i++
@@ -555,6 +557,10 @@ class Parser {
 			} else { // Block { expr expr expr }
 				var el = []
 				while tok() != Token.BrClose {
+					if tok() == Token.Eof {
+						i = startsAt
+						fail('The block `{` has got unclosed to the end of the file')
+					}
 					el.push(parseExpr())
 				}
 				step(Token.BrClose)
@@ -578,7 +584,10 @@ class Parser {
 			var eelseAt = i
 			if tok() == Token.KElse {
 				i++
-				eelse = parseExpr()
+				switch tok() {
+					case KIf: eelse = parseExpr()
+					case _: eelse = parseBlock()
+				}
 			}
 			if eif != null {
 				switch eif {
@@ -1472,7 +1481,48 @@ class Parser {
 		}
 		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 		return result
+	}
+
+	fun parseBlock(): Node {
+		// TODO handle EOF
+		step(Token.BrOpen)
+		if (tok() == Token.BrClose) { // Empty block {}
+			i++
+			return Node.Block([])
+		} else if (tok() == Token.LLower && offset(1) == Token.Colon) { // Object { k:v }
+			var names: [String] = []
+			var el: [Node] = []
+			while true {
+				names.push(getgo(Token.LLower))
+				step(Token.Colon)
+
+				el.push(parseExpr())
+				if (tok() == Token.Comma) { // Object { k:v, ... }
+					i++
+					if (tok() == Token.BrClose) { // Object { k:v, }
+						fail("Unexpected `}`, remove trailing `,` comma")
+					}
+					continue
+				} else {
+					break
+				}
+			}
+			if (tok() != Token.BrClose) {
+				fail('Expected `}` or `,` before `\(print())`')
+			}
+			step(Token.BrClose)
+			return Node.Object(names, el)
+		} else { // Block { expr expr expr }
+			var el = []
+			while tok() != Token.BrClose {
+				el.push(parseExpr())
+			}
+			step(Token.BrClose)
+			return Node.Block(el)
 		}
+
+		return Node.Block([]) // TODO just throw
+	}
 
 	fun parseVar(external: Bool = false): [Node] {
 
@@ -1610,12 +1660,29 @@ class Parser {
 		var values = []
 		var pos: [{ line: Int, column: Int }] = []
 		let params: [NodeType] = null // TODO must error
+		var params: [NodeType]? = null
 		switch tok() {
 			case LLower:
 				name = getgo(Token.LLower)
-			case LUpper: fail("Function names can't start with uppercase `\(print())` -> `\(print().toLowerCase())`")
+				if tok() == Token.OpLt {
+					i++
+					let param: [NodeType] = [parseType()]
+					while tok() == Token.Comma {
+						i++
+						param.push(parseType())
+					}
+					step(Token.OpGt)
+					params = param
+				}
+			case LUpper:
+				fail("Function names can't start with uppercase `\(print())` -> `\(Hint.toCamelCase(print()))`")
 			case _:
 		}
+
+		if name == null, external {
+			fail('Unnamed functions cannot be marked as `declare fun`')
+		}
+
 		step(Token.POpen)
 		{
 			if tok() != Token.PClose { while true {
@@ -1686,7 +1753,14 @@ class Parser {
 					i = tmp
 				}
 			}
-			case _: expr = parseExpr()
+			case Eof:
+				// TODO top-lever functionc cannoet be unnamed
+				if let name = name {
+					fail('Function `fun \(name)` should have a `{ block }` as a body or must be marked as `declare fun \(name)`')
+				} else {
+					fail('Unnamed functions should have a `{ block }` as a body')
+				}
+			case _: expr = parseBlock()
 		}}
 
 		var v = []
