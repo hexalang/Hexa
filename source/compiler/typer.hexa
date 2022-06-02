@@ -171,7 +171,9 @@ class Typer {
 									fillModuleTypes(node)
 								case Function(name, expr, vars, rettype):
 									if let rettype = rettype {
+										pushFuncParamsIfRequired(node)
 										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
+										popFuncParamsIfRequired(node)
 									}
 								case Var(name, t, e, const):
 									if let t = t {
@@ -1280,6 +1282,25 @@ class Typer {
 			}
 		}
 
+		/// Adds to scope all of `fun name<PARAMS>`
+		fun pushFuncParamsIfRequired(func: Node) {
+			if let params = project.mapFuncParams.get(func) as! [NodeType], params.length > 0 {
+				pushScope()
+
+				for genericParam in params {
+					let name = DataHelper.extractTypeName(genericParam)
+					addScopeType(name, typeAny)
+				}
+			}
+		}
+
+		fun popFuncParamsIfRequired(func: Node) {
+			if let params = project.mapFuncParams.get(func) as! [NodeType], params.length > 0 {
+				popScope()
+			}
+		}
+
+		// Used only for function arguments
 		fun varTypes(vars: [Node]): [Type] {
 			let varTypes: [Type] = []
 
@@ -1305,6 +1326,8 @@ class Typer {
 		// Uses idea of stacks to track nested function behavior
 		private fun fillFunction(node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
 			// TODO move duplicate argument names check to parser (so it can be cached)
+			let argNames: [String] = []
+
 			pushScope()
 			// Save stack
 			let _insideFunction = insideFunction
@@ -1318,6 +1341,11 @@ class Typer {
 				let v = vars[i]
 				switch v {
 					case Var(vname, t, e, const):
+						if argNames.includes(vname) {
+							fail('Argument `\(vname)` defined multiple times', v)
+						}
+						argNames.push(vname)
+
 						if t != null, toType(t, v) == typeVoid {
 							fail('Argument cannot be of type `Void`', v)
 						}
@@ -1587,6 +1615,7 @@ class Typer {
 						fail('External function `\(name)` should have a returning type', node)
 					}
 					addScope(name, node)
+					pushFuncParamsIfRequired(node) // Do this before `expr` typing
 					fillFunction(node, expr, vars, rettype)
 					if false {
 
@@ -1804,6 +1833,7 @@ class Typer {
 						fill(expr)
 					}
 					popScope()
+					popFuncParamsIfRequired(node) // Do this after `expr` typing
 
 					// Restore stack
 					insideFunction = _insideFunction
@@ -2055,6 +2085,8 @@ class Typer {
 							}
 						case null:
 							fail('Cannot access `.\(n)` due to type being `null`, seems to be internal compiler error', node)
+						case Function(_):
+							fail('Cannot access `.\(n)` of function type `\(Type.stringify(etype))`', node)
 						case _:
 							fail('Cannot access `.\(n)` due to type being unhandled `\(Type.stringify(etype))`, seems to be internal compiler error', node)
 					}} else {
