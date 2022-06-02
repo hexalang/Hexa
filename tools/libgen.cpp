@@ -1540,10 +1540,10 @@ int main(int argc, char* argv[])
 	while (i < argc) {
 		AddFunction(pSymbolList, argv[i], 0, 0, CALLING_CONVENTION_UNDECORATED, IMPORT_BY_DECORATED_NAME);
 		printf("AddFunction %s\n", argv[i]);
-		fflush(0);
 		i++;
 	}
 
+	fflush(0);
 	//AddFunction(pSymbolList, "function100", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
 	//AddFunction(pSymbolList, "fibonacci_index", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
 
