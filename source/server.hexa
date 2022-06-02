@@ -472,6 +472,8 @@ class Server {
 												// TODO more node kinds?
 											}
 										}
+
+										fileOutline.set(fsPath, response)
 									} else {
 										// TODO then what?
 										// TOOD remove `as!`
@@ -501,11 +503,25 @@ class Server {
 
 									if project.found == true {
 										// TODO try-catch `typecheck`
+										try {
 										let e: CompilerErrors = new Main().typecheck(project.dir)
 
 										let errors: [CompilerError] = e.errors
 										for error in errors {
 											response.push(error)
+										}
+
+										} catch e: Any {
+											console.log('Compiler stopped with exception', e)
+											response.push(
+												new CompilerError(
+													Fail.InternalError,
+													'Compiler stopped with exception: ' + JSON.stringify(e.message),
+													0,
+													0,
+													project.dir + Path.sep + "hexa.json"
+												)
+											)
 										}
 									} else {
 										// Syntax check only
@@ -594,8 +610,12 @@ class Server {
 														// TODO stringify <T>
 														complete.detail = 'class ' + NodeType.stringify(t) + ' { … }'
 														complete.kind = CompletionItemKind.Class
-													case Enum(t, _):
-														complete.detail = 'enum ' + NodeType.stringify(t) + ' { … }'
+													case Enum(t, _, valuesType):
+														if let valuesType = valuesType {
+															complete.detail = 'enum ' + NodeType.stringify(t) + ' : ' + NodeType.stringify(valuesType) + ' { … }'
+														} else {
+															complete.detail = 'enum ' + NodeType.stringify(t) + ' { … }'
+														}
 														complete.kind = CompletionItemKind.Enum
 													case Var(_, _, _, const):
 														complete.detail = (const? 'let ' : 'var ') + name
