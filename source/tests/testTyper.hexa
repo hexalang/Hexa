@@ -57,7 +57,10 @@ class TestTyper {
 
 			// Boolean operators
 			shouldNotError('not not (true and false or true)')
+			//shouldError('var x = {{"343" and false}}')
+			//shouldError('{{"343" and false}}')
 			shouldError('true and 0')
+			//shouldError('true and true')
 			shouldError('0 and false')
 			shouldError('true or 0')
 			shouldError('0 or false')
@@ -73,6 +76,7 @@ class TestTyper {
 			shouldError('class A { static fun x() {} var x = 1 }') // Duplicate
 			shouldError('class A { static let x = 1 static var x = 1 }') // Duplicate
 			shouldError('class A { static let x = 1 fun x() {} }') // Duplicate
+			//shouldNotError('module { class A { static fun x() {} } } A.x()')
 			shouldError('class A { static fun x() {} } B.y()')
 			shouldError('class A { static fun x() {} } A.y()')
 			shouldError('module { class A { static fun x() {} } } A.y()')
@@ -90,6 +94,7 @@ class TestTyper {
 			shouldNotError('var x: Bool = true')
 			shouldError('var x: Bool = 1')
 			shouldNotError('var x: Bool? = null')
+			//shouldError('var x: Bool = null')
 			shouldNotError('var x: Int = 1 x = 1')
 			shouldError('var x: Int = 1 x = true')
 			shouldError('var x = 1 x = true')
@@ -99,8 +104,10 @@ class TestTyper {
 			shouldError('var x = 1 var y = true x = y')
 			shouldNotError('var x = null x = null')
 			shouldNotError('var x = null x = true')
+			//shouldError('var x = 1 x = null')
 			shouldError('var x = 1 var y = x y = true') // Simple inference
 			shouldNotError('var x = null var y = true x = y')
+			//shouldError('var x = null var y = true y = x')
 			shouldNotError('fun x() {} var y = x y = x')
 			shouldNotError('fun x() {} var y: ()=>Void = x y = x')
 
@@ -171,7 +178,7 @@ class TestTyper {
 			shouldNotError('var a: Int? = null if let a = a, let b = a, let a = b {} a = 5')
 
 			shouldNotError('var a: Int? = null if let a = a {} a = 5')
-			shouldError('var a = null if let a = a {} a = 5')
+			//shouldError('var a = null if let a = a {} a = 5')
 
 			// Function arguments and returns
 			shouldError('fun x(y: Int): Void {} var z: Int = x(1)')
@@ -292,6 +299,7 @@ class TestTyper {
 			shouldError('class A {} class A {}') // Can not redefine in same namespace
 			shouldError('{ let x = 1 } x = 1') // Constant
 			shouldNotError('{ var x = 1 } var x = 1') // Overlapping of global var x
+			//shouldNotError('module { var x = 1 } x = 1') // Global var x
 			shouldError('{ class A {} }') // Can not define type in expression
 			shouldError('{ enum A {} }') // Can not define type in expression
 			shouldNotError('class A {new() {} let a: A = new A()}') // `A` sees itself
@@ -301,6 +309,8 @@ class TestTyper {
 
 			// Module namespaces
 			shouldError('module hi { fun hi() }') // Non-declare should have a body
+			//shouldError('{ fun () {} }') // Statement fun should have a name
+			//shouldError('module hi { fun () {} }') // Module fun should have a name
 			shouldError('fun hi() { static var x = 1 }')
 			shouldError('fun hi() { private var x = 1 }')
 			shouldError('class A {} A = null')
@@ -415,11 +425,16 @@ class TestTyper {
 
 			shouldNotError("let x: Array<Int> = [1]")
 			shouldError("   let x: Array     = [1]")
+			//shouldError("class T<A, B> {} let a: T<Int, Int> = null")
 
 			// Internal <...> check
 			shouldNotError("class T<A> { fun foo(): T<Int> { return null as! T<Int> } }")
+			//shouldError("class T<A> { fun foo(): T { return null as! T<Int> } }")
+			//shouldError("class T<A> { fun foo(): T<Int> { return null as! T } }")
 
 			// Nested generics of generic parameters
+			//shouldNotError("class T<A> { fun foo() { return null as! A<Int> } }")
+			//shouldNotError("class T<A> { fun foo() { return null as! A<Int, A> } }")
 
 			// Declarations
 			shouldError("declare var a")

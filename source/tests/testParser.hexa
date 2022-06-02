@@ -50,6 +50,37 @@ class TestParser {
 				"\"s\"" 	 : 'String(s)'
 			])
 
+//			shouldAllEqual([
+//				'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
+//					'Block([
+//					Int(1),
+//					Int(2),
+//					Int(3),
+//					Binop(
+//					Call(Ident(trace),[String(Hello!),String(World!)]),
+//					+,
+//					Binop(Binop(Int(5),*,Int(6)),/,Int(3)))])',
+//
+//				'enum Test { Demo } hello World':
+//					'Block([Enum(Type(Test),[NodeTypeValue(Type(Demo))]),
+//					Ident(hello),
+//					NodeTypeValue(Type(World))])'
+//			])
+
+			// Precedence
+//			shouldAllEqual([
+//				'5 * 6 / 3': 'Binop(Binop(Int(5),*,Int(6)),/,Int(3))',
+//				'5 * 6 / 2 * 3': '
+//				Binop(
+//					Binop(
+//						Int(5),
+//						*,
+//						Binop(Int(6),/,Int(2))
+//					),
+//					*,
+//					Int(3)
+//				)' // TODO Should de * -> / -> *
+//			])
 
 			// Operators
 			shouldAllEqual([
@@ -61,12 +92,34 @@ class TestParser {
 			// String interpolation
 			shouldAllEqual([
 				'"\\\\(v)"': "String(\\\\(v))"//,
+				//'"\\(v)"': 'Parenthesis(Binop(Binop(String(),+,Parenthesis(Ident(v))),+,String()))',
+				//'"\\(((v)))"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(Parenthesis(Parenthesis(Ident(v)))),+,String())))',
+				//'"\\( v )"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(Ident(v)),+,String())))',
+				//'"\\(V)\\(v)"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(NodeTypeValue(Type(V))),+,Binop(String(),+,Binop(Parenthesis(Ident(v)),+,String())))))',
+				//'"\\(V)\\(v)s\\(v)"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(NodeTypeValue(Type(V))),+,Binop(String(),+,Binop(Parenthesis(Ident(v)),+,Binop(String(s),+,Binop(Parenthesis(Ident(v)),+,String())))))))',
+				//'"\\(V)s\\(v)s\\(v)"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(NodeTypeValue(Type(V))),+,Binop(String(s),+,Binop(Parenthesis(Ident(v)),+,Binop(String(s),+,Binop(Parenthesis(Ident(v)),+,String())))))))'
 			])
 
 			shouldAllEqualWithoutTrim([
+				//'"\\( v )"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(Ident(v)),+,String())))',
+				//'"\\(V)\r\n\\(v)"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(NodeTypeValue(Type(V))),+,Binop(String(\n),+,Binop(Parenthesis(Ident(v)),+,String())))))',
+				//'"\\(V) \\(v) \\(v)"': 'Parenthesis(Binop(String(),+,Binop(Parenthesis(NodeTypeValue(Type(V))),+,Binop(String( ),+,Binop(Parenthesis(Ident(v)),+,Binop(String( ),+,Binop(Parenthesis(Ident(v)),+,String())))))))'
 			])
 
 			// Modularity
+			//shouldAllEqual([
+			//	// New syntax
+			//	'module { }': 'Block([Module(,[]),Block([])])',
+			//	'module': 'Module(, [])',
+			//	//'code module x code': 'Block([Ident(code),Module(x,[Ident(code)])])',
+			//	//'code module x module y code': 'Block([Ident(code),Module(x,[]),Module(y,[Ident(code)])])',
+			//	//'code module x module y code {code}': 'Block([Ident(code),Module(x,[]),Module(y,[Ident(code)]),Block([Ident(code)])])',
+			//	//'module a': 'Module(a, [])',
+			//	//'module a.b': 'Module(a.b, [])',
+			//	'module class Inner { }': 'Module(,[Class(Type(Inner),null,[],[],false)])',
+			//	'module private class Inner {}' : 'Module(,[Private(Class(Type(Inner),null,[],[],false))])'
+			//	//'module a module b': 'Block([Module(a,[]),Module(b,[])])'
+			//])
 			shouldAllEqual([
 				'import "test"': 'Import([],test)',
 				'import xxx in "test"': 'Import([Lower(xxx)],test)',
