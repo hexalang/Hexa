@@ -752,7 +752,8 @@ class Parser {
 			result = fix(value)
 		case LFloat:
 			// TODO handle Meta
-			result = Node.Float(parseFloat(getgo(Token.LFloat)))
+			let meta = lex.meta[i]
+			result = Node.Float(parseFloat(getgo(Token.LFloat)), meta)
 		case LInt:
 			let meta = lex.meta[i]
 			let value = getgo(Token.LInt)
@@ -761,12 +762,43 @@ class Parser {
 				case Default:
 					let at = i
 					let v = parseInt(value)
-						i = at
 					if v > 2147483647 || v < -2147483647 {
+						i = at - 1
 						fail('Integer `\(value)` is too large for *signed* 32 bit, use `\(value)u32` or `\(value)n`')
 						// TODO recommend i64/u64 depending on value size
 					}
 					result = Node.Int(v)
+				case UInt8:
+				let at = i
+					let v = parseBigInt(value)
+					if v >= 256n || v < 0n {
+						i = at - 1
+						fail('Integer `\(value)` is negative or too large for *unsigned* 8 bit, use `\(value)u16` or `\(value)n`')
+						// TODO shorter way to write all those checks for all type combinations
+						// TODO separate message for negative numbers
+					}
+					result = Node.MetaInt(v, meta)
+				case UInt16:
+				let at = i
+					let v = parseBigInt(value)
+					if v >= 65536n || v < 0n {
+						i = at - 1
+						fail('Integer `\(value)` is negative or too large for *unsigned* 16 bit, use `\(value)u32` or `\(value)n`')
+						// TODO shorter way to write all those checks for all type combinations
+						// TODO separate message for negative numbers
+						// TODO correctly propose uXX with XX large enough for provided number
+					}
+					result = Node.MetaInt(v, meta)
+				case UInt32:
+				let at = i
+					let v = parseBigInt(value)
+					if v >= 4294967296n || v < 0n {
+						i = at - 1
+						fail('Integer `\(value)` is negative or too large for *unsigned* 32 bit, use `\(value)u64` or `\(value)n`')
+						// TODO shorter way to write all those checks for all type combinations
+						// TODO separate message for negative numbers
+					}
+					result = Node.MetaInt(v, meta)
 				case _:
 					result = Node.MetaInt(parseBigInt(value), meta)
 			}
@@ -1424,12 +1456,25 @@ class Parser {
 				result = parseExpr()
 			// a += b
 			case _:
+			let failAt = i
 			let t = tok()
 			if isBinop(t) && offset(1) == Token.OpAssign {
 				var op = tok()
 				i++
 				i++
 				var b = parseExpr()
+
+				switch result {
+					case Ident(_): // Ok
+					case Dot(_): // Ok
+					case Index(_): // Ok
+					case _:
+						let temp = i
+						i = failAt
+						failHint('Cannot reassign `=` expression `\(Node.stringify(result))`')
+						i = temp
+				}
+
 				result = Node.AssignOp(result, op, b)
 			}
 			// a + b
