@@ -709,7 +709,7 @@ class Typer {
 						type.fieldsTypeSimple != typeUInt32,
 						type.fieldsTypeSimple != typeUInt64
 					{
-						fail('Simple enums may be only of types `Int` and `String`', node)
+						fail('Simple enums may be only of integer and string types', node)
 					}
 
 					if f.length == 0, extend == null {
@@ -1155,8 +1155,152 @@ class Typer {
 			}
 
 			if toInstance != fromInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
+				// Cannot assign signed to unsigned
 				// TODO OK by known positive values and zero `: UInt64 = 123`
 				// TODO same for comparisons `if UInt64 == 0 {}`
+
+				// Float is 64-bit signed
+				// `UInt64` & `Int64` are too large or too precise
+				if to == typeFloat, [
+					typeUInt32,
+					typeUInt16,
+					typeUInt8,
+
+					typeInt32,
+					typeInt16,
+					typeInt8,
+
+					typeFloat32,
+					typeInt
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeFloat32, [
+					typeUInt16,
+					typeUInt8,
+
+					typeInt16,
+					typeInt8
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeUInt16, [
+					typeUInt8 // TODO LMAO just one case? is it useful?
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeInt16, [
+					typeUInt8,
+					typeInt8
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeUInt64, [
+					typeUInt8,
+					typeUInt16,
+					typeUInt32
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeInt64, fromValue == typeInt {
+					return to // Larger type
+				}
+
+				if to == typeInt64, fromValue == typeInt32 {
+					return to // Larger type
+				}
+
+				if to == typeInt64, fromValue == typeUInt32 {
+					return to // Larger type
+				}
+
+				if to == typeInt64, [
+					typeInt8,
+					typeInt16,
+					typeInt32,
+
+					typeUInt8,
+					typeUInt16,
+					typeUInt32
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeUInt64, fromValue == typeUInt32 {
+					return to // Larger type
+				}
+
+				if to == typeUInt32, fromValue == typeUInt8 {
+					return to // Larger type
+				}
+
+				if to == typeUInt32, fromValue == typeUInt16 {
+					return to // Larger type
+				}
+
+				if to == typeInt32 or to == typeInt, [
+					typeUInt8,
+					typeInt8,
+
+					typeUInt16,
+					typeInt16,
+
+					typeInt
+				].includes(fromValue) {
+					return to // Larger type
+				}
+
+				if to == typeInt32, fromValue == typeUInt16 {
+					return to // Larger type
+				}
+
+				if (to == typeInt32 and fromValue == typeInt) or (to == typeInt and fromValue == typeInt32) {
+					return typeInt32 // More specific
+				}
+
+				switch node {
+					case Int(value):
+						if value == 0 && [
+							typeInt64,
+							typeInt32,
+							typeInt16,
+							typeInt8,
+
+							typeUInt64,
+							typeUInt32,
+							typeUInt16,
+							typeUInt8,
+
+							typeInt
+						].includes(fromValue) {
+							return to
+						}
+
+						// TODO more cases
+						if to == typeUInt8, value >= 0, value < 256 {
+							// TODO override type of node or node itself in normalizer
+							// so code generator generates proper int
+							return to
+						}
+
+						if to == typeUInt16, value >= 0, value < 65536 {
+							return to
+						}
+
+						if to == typeUInt32, value >= 0, value < 4294967296u64 {
+							return to
+						}
+
+						if to == typeUInt64, value >= 0, value < 18446744073709551616n {
+							return to
+						}
+				}
+
 				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
