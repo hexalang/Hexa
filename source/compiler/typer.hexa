@@ -284,9 +284,14 @@ class Typer {
 
 		// Generates `Did you mean xxx?`
 		// TODO use this for other errors
-		fun proposeSimilar(names: [String], subject: String, what: String): String {
+		fun proposeSimilar(names: [String], subject: String, what: String, similarTo: String?): String {
 			if names.length == 0 {
 				return 'No \(what) available for access'
+			}
+
+			if let similarTo = similarTo {
+				let firstLetter = similarTo.charAt(0)
+				names.sort((left, right) => left.startsWith(firstLetter)? -1 : 0)
 			}
 
 			let ten = if names.length > 11 { // Yeah, 11, so it says "more whats" in plural
@@ -1207,7 +1212,7 @@ class Typer {
 
 							fail(
 								'Cannot find type `\(name)`\n'
-								+ proposeSimilar(available.filter((named) => DataHelper.isTitleCase(named)), name, 'types'),
+								+ proposeSimilar(available.filter((named) => DataHelper.isTitleCase(named)), name, 'types', name),
 							 node)
 						case Alias(alias):
 							return toType(alias.value, node)
@@ -1245,12 +1250,12 @@ class Typer {
 								// Ignore all parameters here
 								return typeAny
 							}
-							fail('Unsupported type `\(name)`', node)
 
 							switch type {
 								case Generic(_):
 									return typeAny
 							}
+							fail('Unsupported type `\(name)`', node)
 					}
 				case Optional(t):
 					return Type.Nullable(toType(t, node))
