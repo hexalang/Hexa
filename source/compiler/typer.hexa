@@ -1301,6 +1301,64 @@ class Typer {
 						}
 				}
 
+				let toName = Type.primaryName(to)
+				let fromName = Type.primaryName(fromValue)
+
+				if toName == 'ArrayByValue', (fromName == 'Array' or fromName == 'String') {
+					// TODO better checks
+					return to
+				}
+
+				if toName == 'ConstPointer', fromName == 'Pointer' {
+					// TODO better checks
+					return to // More specific
+				}
+
+				switch fromValue {
+					case ClassInstance(type, generic):
+						// Infer `= []`
+						switch to {
+							case ClassInstance(typeTo, genericTo):
+								// TODO better comparison, not by name
+								if type.name == typeTo.name {
+										switch generic[0] {
+											case Unknown(handle):
+												return to
+											case _:
+												if let instanceOf = type.instanceOf {
+													return instanceOf.instantiateGeneric(genericTo)
+												}
+
+												if let instanceOf = typeTo.instanceOf {
+													return instanceOf.instantiateGeneric(genericTo)
+												}
+										}
+								}
+						}
+
+						// TODO respect generics
+						var extended = type.extend
+
+						while true {
+							if let extend = extended {
+								if extend == to {
+									return to
+								}
+
+								switch extend {
+									case ClassInstance(type, generic):
+										extended = type.extend
+									case Class(type):
+										extended = type.extend
+									case _:
+										extended = null
+								}
+							} else {
+								break
+							}
+						}
+				}
+
 				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
