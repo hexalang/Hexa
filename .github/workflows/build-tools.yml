@@ -1,0 +1,45 @@
+name: Build tools
+
+on:
+  push:
+    branches:
+      # Matches every branch
+      - '**'
+  pull_request:
+    branches:
+      # Targets the main branch
+      - kawaii
+
+jobs:
+  build-windows:
+    # Use oldest available to check build regressions
+    runs-on: windows-2019
+
+    strategy:
+      matrix:
+        architecture:
+          - amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Enable Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+            arch: ${{ matrix.architecture }}
+
+      - name: Build Library Generator
+        run: |
+          cl tools\libgen\main.cpp /Felibgen.exe /Os /INCREMENTAL:NO /nologo
+
+      - name: Prepare artifacts
+        run: |
+          mkdir out
+          move libgen.exe out\libgen.exe
+
+      - name: Upload Library Generator
+        uses: actions/upload-artifact@v3
+        with:
+          name: libgen
+          path: out/libgen.exe
