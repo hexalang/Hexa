@@ -915,6 +915,7 @@ class Typer {
 		}
 
 		fun failNonFatal(msg: String, node: Node = null): Void {
+			let t: Int = project.data.get // TODO invalid
 			let data = project.data.get(node)
 			if let data = data {
 				failures.push(new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName))
@@ -1035,7 +1036,7 @@ class Typer {
 		}
 
 		// Types
-		private let types: [String : Type] = [:]
+		private let types: [Node : Type] = [:]
 		private var typeString: Type? = null
 		private var typeIntClass: ClassType = new ClassType()
 		private var typeInt: Type = typeIntClass.instantiate()
@@ -1671,7 +1672,7 @@ class Typer {
 		}
 
 		// Uses idea of stacks to track nested function behavior
-		private fun fillFunction(node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
+		private fun fillFunction(node: Node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
 			// TODO move duplicate argument names check to parser (so it can be cached)
 			let argNames: [String] = []
 
@@ -1706,12 +1707,23 @@ class Typer {
 							fillExpression(e)
 
 							if let t = types.get(v) {
-								unify(types.get(e), t, e)
+								unify(to: t, fromValue: types.get(e), e)
 							}
 						}
 
 						addScope(vname, v)
 				}
+			}
+
+			switch node {
+				case Function(_):
+				// var x: [] = [] // TODO invalid!!!
+					if let params = project.mapFuncParams.get(node) as! [NodeType] {
+						for genericParam in params {
+							let name = DataHelper.extractTypeName(genericParam)
+							addScopeType(name, typeAny)
+						}
+					}
 			}
 
 			// Reset stack
@@ -1879,6 +1891,13 @@ class Typer {
 					// TODO separate assign node? or just nested pattern...
 					if (op == Token.OpAssign) { switch parent {
 						case null:
+							switch a {
+								case Ident(_): // Ok
+								case Dot(_): // Ok
+								case Index(_): // Ok
+								case _:
+									fail('Cannot reassign `\(Node.stringify(a))`', a)
+							}
 							// TODO typings for `[]` etc
 						case Var(name, _, _, const):
 							if const {
@@ -1887,7 +1906,20 @@ class Typer {
 									+ positionOf(parent) + '`let \(name)` is defined here',
 								node)
 							}
-							types.set(node, unify(types.get(a), types.get(b), b))
+
+							let newType = unify(types.get(a), types.get(b), b)
+							types.set(node, newType)
+
+							let parentType: Type? = types.get(parent)
+							switch parentType {
+								case null:
+									types.set(parent, newType)
+								case UnknownNullable(handle):
+									if handle.value == null {
+										handle.value = newType
+									}
+
+							}
 						case Ident(name):
 							fail('Cannot reassign case parameter `\(name)`', node)
 						case Function(name, _):
@@ -1916,6 +1948,21 @@ class Typer {
 
 				// `for name in over ... range { by }`
 				case For(name, over, by, range):
+					// TODO refactor
+					let iterableIntegers = [
+						typeInt,
+
+						typeUInt64,
+						typeUInt32,
+						typeUInt16,
+						typeUInt8,
+
+						typeInt64,
+						typeInt32,
+						typeInt16,
+						typeInt8
+					]
+
 					pushScope()
 					fillExpression(over)
 					let overType: Type = types.get(over)
@@ -1924,12 +1971,10 @@ class Typer {
 							// Extract Array<T>
 							if generic != null, generic.length == 1 {
 								types.set(node, generic[0])
-							} else if overType == typeInt {
-								types.set(node, typeInt)
-							} else if ((overType == typeUInt32) || (overType == typeUInt64)) {
+							} else if (iterableIntegers.includes(overType)) {
 								types.set(node, overType)
 							} else {
-								fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
+								fail('Type of iterable is neither integer nor `Array`, but ' + Type.stringify(overType), over)
 							}
 
 						case Nullable(_):
@@ -1940,19 +1985,23 @@ class Typer {
 
 						case null:
 						case _:
-							fail('Type of iterable is neiter Int nor Array', over)
+							fail('Type of iterable is neither integer nor `Array`', over)
 					}
 					if let range = range {
 						fillExpression(range)
+						let endType = types.get(range)
 						// TODO `fillExpression(X)` to return `types.get(X)` and fix other places
 						// Ranges always integer/Int for now
-						if (types.get(range) != typeInt) {
-							fail('Range end must be of Int type', range)
+						if not iterableIntegers.includes(endType) {
+							fail('Range end must be of integer type', range)
 						}
-						if (overType != typeInt) {
-							fail('Range start must be of Int type', over)
+						if not iterableIntegers.includes(overType) {
+							fail('Range start must be of integer type', over)
 						}
-						types.set(node, typeInt)
+						if endType != overType {
+							fail('Range start and end must be of the same type, but got `' + Type.stringify(overType) + '...' + Type.stringify(endType) + '`', over)
+						}
+						types.set(node, overType)
 					}
 					addScope(name, node)
 					let _allowBreakAndContinue = allowBreakAndContinue
@@ -2033,7 +2082,11 @@ class Typer {
 								// Only Bool allowed
 								let type = types.get(e)
 								if type != typeBool, type != typeAny, type != null {
-									fail('`if (value)` expects `value` only of type `Bool`, but got `' + Type.stringify(types.get(e)) + '`', e)
+									if type == typeInt {
+										fail('Use `if ' + Node.stringify(e) + ' != 0` syntax to compare `Int` values with zero', e)
+									}
+
+									fail('`if value` expects `value` only of type `Bool`, but got `' + Type.stringify(type) + '`', e)
 								}
 						}
 					}
@@ -2227,7 +2280,7 @@ class Typer {
 									} else if ((overType == typeUInt32) || (overType == typeUInt64)) {
 										types.set(el[0], overType)
 									} else {
-										fail('Type of iterable is neither Int nor Array, but ' + Type.stringify(overType), over)
+										fail('Type of iterable is neither `Int` nor `Array`, but ' + Type.stringify(overType), over)
 									}
 
 								case Nullable(_):
@@ -2358,8 +2411,55 @@ class Typer {
 									currentModule = mod
 
 									for field in fields {
-											types.set(node, types.get(field))
 										if DataHelper.nameOf(field) == n {
+											fun genericFixup(ofType: Type, generic: [Type]): Type {
+												switch ofType {
+													// TODO `: Generic<NonGeneric, Generic>`
+													// `: T`
+													case Generic(genericParamIndex, genericParam):
+														// TODO due enable null checks so this never happens AND ARGS COUNT
+														if generic == null {
+															// TODO console.log('bad generic')
+															return typeAny
+														}
+														return generic[genericParamIndex]
+													// `: [T]`
+													case ClassInstance(type, generics):
+														if let general = generics {
+															return type.instantiateGeneric([for item in general genericFixup(item, generic)])
+														} else {
+															return ofType
+														}
+													// `: T?`
+													case Nullable(type):
+														return Type.Nullable(genericFixup(type, generic))
+													case Function(args, returns):
+														var returns = returns
+														var changed = false
+														let fixedReturns = genericFixup(returns, generic)
+														changed = fixedReturns != returns
+														returns = fixedReturns
+
+														var reArgs: [Type] = []
+														for arg in args {
+															let fixedArg = genericFixup(arg, generic)
+															changed = changed or (fixedArg != arg)
+															reArgs.push(fixedArg)
+														}
+
+														if changed {
+															return Type.Function(reArgs, returns)
+														}
+													case _:
+														// TODO handle more types
+												}
+
+												return ofType
+											}
+
+											let extractedType = types.get(field) as! Type
+											// TODO somehow pre-flag (when parsing class fields) it it requires fixup at all
+											types.set(node, genericFixup(extractedType, generic))
 											parents.set(node, field)
 
 											if types.get(field) == null {
@@ -2640,8 +2740,17 @@ class Typer {
 						case _: fail('Unhandled meta type of number', node)
 					}
 
-				case Float(_):
-					types.set(node, typeFloat)
+					if types.get(node) == null {
+						let name = Meta.stringify(meta)
+						fail('Number literal of type `\(name)` fail, probably standard library of the current target does not define `class \(name)` type', node)
+					}
+
+				case Float(v, meta):
+					if meta == Meta.Float32 {
+						types.set(node, typeFloat32)
+					} else {
+						types.set(node, typeFloat)
+					}
 
 				// `(e)`
 				case Parenthesis(e):
@@ -2740,6 +2849,45 @@ class Typer {
 						types.set(node, typeBool)
 					} else
 					// Always provides boolean result
+					if (typeA == typeB) and (typeA == typeString) and (
+						(op == Token.OpGte) ||
+						(op == Token.OpGt) ||
+						(op == Token.OpLte) ||
+						(op == Token.OpLt)
+					) {
+						types.set(node, typeBool)
+					} else
+					if op == Token.OpEq or op == Token.OpNotEq {
+						let booleans = (typeA == typeB) and (typeA == typeBool)
+						let comparable = areComparable(typeA, typeB)
+						let covariant = areCovariant(typeA, typeB)
+
+						if not comparable, not booleans, not covariant {
+							let tokenString = Token.stringify(op)
+
+							// TODO optimize in normalizer those simple returnable switches
+							let leftString = switch a {
+								case Null:
+									'null'
+								case _:
+									Type.stringify(typeA)
+							}
+
+							let rightString = switch b {
+								case Null:
+									'null'
+								case _:
+									Type.stringify(typeB)
+							}
+
+							// TODO `null == null` should error cause no sense
+							if leftString != 'null', rightString != 'null' {
+								fail('Operator `a \(tokenString) b` requires `a` and `b` of comparable types, but got `\(leftString)` and `\(rightString)`', b)
+							}
+						}
+
+						types.set(node, typeBool)
+					} else
 					if (
 						(op == Token.OpGte) ||
 						(op == Token.OpGt) ||
@@ -2748,10 +2896,51 @@ class Typer {
 						(op == Token.OpEq) ||
 						(op == Token.OpNotEq)
 					) {
+						let comparable = areComparable(typeA, typeB)
+
+						if not comparable {
+							let tokenString = Token.stringify(op)
+
+							let leftString = switch a {
+								case Null:
+									'null'
+								case _:
+									Type.stringify(typeA)
+							}
+
+							let rightString = switch b {
+								case Null:
+									'null'
+								case _:
+									Type.stringify(typeB)
+							}
+
+							fail(
+								'Operator `a \(tokenString) b` requires `a` and `b` of comparable non-nullable types, but got `\(leftString)` and `\(rightString)`',
+								b
+							)
+						}
+
 						types.set(node, typeBool)
 					} else {
+						// TODO replace without `??`
+						var typeLeft = types.get(a) ?? types.get(b)
+						var typeRight = types.get(b) ?? types.get(a)
+
 						// TODO
-						types.set(node, types.get(b) ?? types.get(a))
+						if typeLeft == typeUInt32, typeRight == typeInt {
+							typeRight = typeUInt32
+						}
+
+						if typeLeft == typeUInt64, typeRight == typeInt {
+							typeRight = typeUInt64
+						}
+
+						if typeLeft == typeUInt16, typeRight == typeInt {
+							typeRight = typeUInt16
+						}
+
+						types.set(node, typeRight)
 					}
 
 				// `op e` or `e op`
@@ -2824,31 +3013,67 @@ class Typer {
 
 					// For now, only Int & Any index supported
 					var indexableIsAny = false
+					var indexableIsMap = false
+					var mapKey: Type? = null
 					switch eType {
 						case ClassInstance(type, generic):
 							if type.name == 'Any' { // TODO
 								indexableIsAny = true
 							}
+
+							if type.name == 'Map' { // TODO
+								indexableIsMap = true
+								mapKey = generic[0]
+							}
+						case Nullable(_):
+							fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` can be null, try to extract its value with `if let value = \(Node.stringify(e))`', e)
+						case UnknownNullable(handle):
+							fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` can be null, try to extract its value with `if let value = \(Node.stringify(e))`', e)
 					}
 
 					if not indexableIsAny {
 					switch iType {
 						case ClassInstance(type):
-							if type.name != 'Int', type.name != 'Any' {
-								fail('`value[i]` expects `i` only of type `Int`, but got `' + Type.stringify(iType) + '`', e)
+							if
+								// TODO check actual types
+								not indexableIsMap,
+								type.name != 'Int',
+								type.name != 'UInt64',
+								type.name != 'UInt32',
+								type.name != 'UInt16',
+								type.name != 'UInt8',
+								type.name != 'Int64',
+								type.name != 'Int32',
+								type.name != 'Int16',
+								type.name != 'Int8',
+								type.name != 'Any',
+								type.name != 'UInt64'
+							{
+								fail('`value[index]` expects `index` only of type `Int` or similar, but got `' + Type.stringify(iType) + '`', e)
+							}
+
+							if indexableIsMap, iType != mapKey {
+								// TODO `or similar` i.e. inherited classes etc covariance
+								fail('`map[key]` expects `key` only of type `\(Type.stringify(mapKey))`, but got `' + Type.stringify(iType) + '`', e)
 							}
 						case _:
-							fail('`value[i]`????? expects `i` only of type `Int`, but got `' + Type.stringify(iType) + '`', e)
 							// TODO is this even reachable?
+							fail('`value[i]` expects `i` only of type `Int` or similar, but got `' + Type.stringify(iType) + '`', e)
 						case null:
 					}}
 
-					// For now, only Array[i] supported
+					// For now, only `Array[i]` and `Map[k]` supported
 					switch eType {
 						case ClassInstance(type, generic):
-							if generic != null, generic.length == 1 {
-								types.set(node, generic[0])
-							} else if ['Array','Buffer','Uint8Array','Uint32Array'].includes(type.name) {
+							if generic != null, generic.length >= 1 {
+								// TODO check actual types
+								if type.name == 'Map' {
+									types.set(node, generic[1])
+								} else {
+									types.set(node, generic[0])
+								}
+								// TODO check actual types
+							} else if ['Buffer','Uint8Array','Uint32Array'].includes(type.name) {
 								types.set(node, toType(NodeType.Type("Int", null), node))
 								// TODO check actual types
 							} else if ['Any'].includes(type.name) {
@@ -3028,11 +3253,24 @@ class Typer {
 
 					// TODO typeArray
 					// TODO typeMap?
-					if etype == typeBool {
-						// Okay
-					} else if etype == typeInt {
-						// Okay
-					} else if etype == typeString {
+					let switchable = [
+						typeBool,
+						typeInt,
+
+						typeUInt64,
+						typeUInt32,
+						typeUInt16,
+						typeUInt8,
+
+						typeInt64,
+						typeInt32,
+						typeInt16,
+						typeInt8,
+
+						typeString
+					]
+
+					if switchable.includes(etype) {
 						// Okay
 					} else if etype == typeFloat {
 						fail('Due to imprecise nature of `Float` type, switching over it is not allowed', exprs[0])
@@ -3129,7 +3367,25 @@ class Typer {
 								// TODO MetaInt
 								case Int(val):
 									tagCheck('' + val, e)
-									if etype != typeInt {
+
+									// TODO validate that values are within integer range of switch value
+									// TODO big int?
+
+									let validNumberTypes = [
+										typeInt32,
+										typeInt64,
+										typeInt16,
+										typeInt8,
+
+										typeUInt32,
+										typeUInt64,
+										typeUInt16,
+										typeUInt8,
+
+										typeInt
+									]
+
+									if not validNumberTypes.includes(etype) {
 										fail('Cannot switch over number here', e)
 									}
 								case String(val):
