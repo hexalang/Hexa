@@ -695,8 +695,19 @@ class Typer {
 
 					if
 						type.fieldsTypeSimple != null,
+						type.fieldsTypeSimple != typeString,
 						type.fieldsTypeSimple != typeInt,
-						type.fieldsTypeSimple != typeString
+
+						// Meta
+						type.fieldsTypeSimple != typeInt8,
+						type.fieldsTypeSimple != typeInt16,
+						type.fieldsTypeSimple != typeInt32,
+						type.fieldsTypeSimple != typeInt64,
+
+						type.fieldsTypeSimple != typeUInt8,
+						type.fieldsTypeSimple != typeUInt16,
+						type.fieldsTypeSimple != typeUInt32,
+						type.fieldsTypeSimple != typeUInt64
 					{
 						fail('Simple enums may be only of types `Int` and `String`', node)
 					}
@@ -783,7 +794,22 @@ class Typer {
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 											switch b {
-												case Int(_): if (type.fieldsTypeSimple != typeInt) {
+												case Int(_):
+												if
+													// TODO infer i32/etc from constant
+													type.fieldsTypeSimple != typeInt,
+
+													type.fieldsTypeSimple != typeInt32,
+													type.fieldsTypeSimple != typeInt16,
+													type.fieldsTypeSimple != typeInt8,
+													type.fieldsTypeSimple != typeInt64,
+
+													type.fieldsTypeSimple != typeUInt32,
+													type.fieldsTypeSimple != typeUInt16,
+													type.fieldsTypeSimple != typeUInt8,
+													type.fieldsTypeSimple != typeUInt64
+													// TODO ^ this code doesn't validate
+												{
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
 												case String(_): if (type.fieldsTypeSimple != typeString) {
@@ -819,6 +845,9 @@ class Typer {
 									addScope(name, field)
 							}
 
+							case Function(name, expr, vars, rettype):
+								fail('Enum fields cannot be functions', field)
+								// TODO allow but as non-virtual
 							case _:
 								fail('Wrong enum field format', field)
 						}
