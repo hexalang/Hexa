@@ -1907,7 +1907,10 @@ class Typer {
 								node)
 							}
 
-							let newType = unify(types.get(a), types.get(b), b)
+							let typeA = types.get(a)
+							let typeB = types.get(b)
+							inferNullType(typeB, typeA) // `a = null`
+							let newType = unify(typeA, typeB, b)
 							types.set(node, newType)
 
 							let parentType: Type? = types.get(parent)
@@ -2196,7 +2199,7 @@ class Typer {
 						fail('Cannot find variable with name `\(name)`', node)
 					}
 					if parents.get(node) != null, parents.get(node) != subj {
-						fail('Parent overwitten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
+						fail('Parent overwritten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 					}
 					parents.set(node, subj)
 					if let type = types.get(subj) {
@@ -2708,8 +2711,6 @@ class Typer {
 				// `null`
 				case Null:
 					types.set(node, Type.UnknownNullable({value: null}))
-					// TODO consider something better
-					types.set(node, Type.Nullable(typeAny))
 
 				case String(_):
 					types.set(node, typeString)
@@ -2767,6 +2768,7 @@ class Typer {
 				// `e(elNames: el, ...)`
 				// TODO show called function/method position
 				case Call(e, el, elNames):
+					// TODO validate `elNames`
 					// JavaScript evaluates arguments first
 					switch e {
 						case Super:
@@ -2784,7 +2786,11 @@ class Typer {
 				 	switch types.get(e) as! Type {
 				 		case Function(args, returns):
 				 			for i in el.length { if let arg = args[i] {
-				 				unify(arg, types.get(el[i]), el[i])
+								let argumentValueType = types.get(el[i])
+								let expectedType = arg
+								// `func(null)`
+								inferNullType(argumentValueType, expectedType)
+				 				unify(expectedType, argumentValueType, el[i])
 				 			}}
 				 			types.set(node, returns)
 				 			// TODO (name: )
@@ -2861,8 +2867,30 @@ class Typer {
 						let booleans = (typeA == typeB) and (typeA == typeBool)
 						let comparable = areComparable(typeA, typeB)
 						let covariant = areCovariant(typeA, typeB)
+						let nullableA = unwrapUnknownAndNullable(typeA)
+						let nullableB = unwrapUnknownAndNullable(typeB)
+						let nullable = nullableA == nullableB
 
-						if not comparable, not booleans, not covariant {
+						// Fill `a != null`
+						inferNullType(typeA, typeB)
+						inferNullType(typeB, typeA)
+
+						/* Alternative version:
+						if nullableB == null {
+							switch typeB {
+								case UnknownNullable(handle):
+									handle.value = nullableA
+							}
+						// TODO commutative due to `[]`: `switch [a, b] { case [null, UN(_)] or [UN(_), null]:`
+						} else if nullableA == null {
+							switch typeA {
+								case UnknownNullable(handle):
+									handle.value = nullableB
+							}
+						}
+						*/
+
+						if not comparable, not booleans, not covariant, not nullable {
 							let tokenString = Token.stringify(op)
 
 							// TODO optimize in normalizer those simple returnable switches
@@ -3170,6 +3198,10 @@ class Typer {
 						if ret == typeVoid {
 							fail('Cannot `return` a `Void` non-value', node)
 						}
+
+						// TODO test this `return null`
+						inferNullType(ret, functionReturnsAType)
+
 						functionReturnsAType = unify(functionReturnsAType, ret, e)
 						functionActuallyReturns = true
 					} else {
@@ -3222,6 +3254,28 @@ class Typer {
 			}
 		}
 
+		/// Sets the type of `null` which has `UnknownNullable` be default
+		fun inferNullType(to: Type, fromValue: Type) {
+			switch to {
+				case UnknownNullable(handle):
+					if handle.value == null {
+						handle.value = unwrapUnknownAndNullable(fromValue)
+					}
+			}
+		}
+
+		/// `T? => T`
+		fun unwrapUnknownAndNullable(type: Type?): Type? {
+			switch type {
+				case null: return null
+				case Nullable(type): return unwrapUnknownAndNullable(type)
+				case Unknown(type): return unwrapUnknownAndNullable(type.value)
+				case UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
+			}
+
+			return type
+		}
+
 		fun fillSwitch(node: Node, value: Bool) {
 			switch node {
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
@@ -3229,17 +3283,6 @@ class Typer {
 					for e in exprs { pushScope() fillExpression(e) popScope() }
 					if let expr = exprs[1] {
 						fail('Multiple switch values are not yet supported', expr)
-					}
-
-					fun unwrapUnknownAndNullable(type: Type?): Type? {
-						switch type {
-							case null: return null
-							case Nullable(type): return unwrapUnknownAndNullable(type)
-							case Unknown(type): return unwrapUnknownAndNullable(type.value)
-							case UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
-						}
-
-						return type
 					}
 
 					let etype = unwrapUnknownAndNullable(types.get(exprs[0]))
