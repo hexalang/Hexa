@@ -22,6 +22,7 @@ class Typer {
 	var project: Project
 
 	// TODO move all variables here
+	let expectedArrowType: [Node : Type] = [:]
 
 	new (project: Project) {
 		this.project = project
@@ -1675,6 +1676,12 @@ class Typer {
 		private fun fillFunction(node: Node, expr, vars: [Node], rettype, arrow: Bool = false): Void {
 			// TODO move duplicate argument names check to parser (so it can be cached)
 			let argNames: [String] = []
+			var expectedArrow: [Type] = []
+			if let expectedArrowSignature = expectedArrowType.get(node) {
+				switch expectedArrowSignature {
+					case Function(args, rets): expectedArrow = args
+				}
+			}
 
 			pushScope()
 			// Save stack
@@ -1700,6 +1707,8 @@ class Typer {
 
 						if t != null {
 							types.set(v, toType(t, v))
+						} else {
+							types.set(v, expectedArrow[i])
 						}
 
 						if e != null {
@@ -1709,6 +1718,8 @@ class Typer {
 							if let t = types.get(v) {
 								unify(to: t, fromValue: types.get(e), e)
 							}
+
+							// TODO `Unknown` or something, argument shouldn't be of type `null`
 						}
 
 						addScope(vname, v)
@@ -2215,7 +2226,7 @@ class Typer {
 						}
 					}
 
-				// `(args)=>{expr}`
+				// `(args) => {expr}`
 				case Arrow(expr, vars, rettype):
 					fillFunction(node, expr, vars, rettype, arrow: true)
 					if false {
@@ -2782,19 +2793,37 @@ class Typer {
 				 			fillExpression(e)
 				 	}
 
-					for e in el {
-						fillExpression(e)
+					fun evaluateArguments(el: [Node], expected: [Type]) {
+						for i in el.length {
+							let e = el[i]
+							let arg = expected[i]
+
+							switch e {
+								case Arrow(_): {
+									expectedArrowType.set(e, arg)
+								}
+							}
+
+							fillExpression(e)
+							let argumentValueType = types.get(el[i])
+							let expectedType = arg
+							// `func(null)`
+							inferNullType(argumentValueType, expectedType)
+				 			unify(expectedType, argumentValueType, el[i])
+						}
 					}
 
 				 	switch types.get(e) as! Type {
 				 		case Function(args, returns):
+							evaluateArguments(el, args)
+/*
 				 			for i in el.length { if let arg = args[i] {
 								let argumentValueType = types.get(el[i])
 								let expectedType = arg
 								// `func(null)`
 								inferNullType(argumentValueType, expectedType)
 				 				unify(expectedType, argumentValueType, el[i])
-				 			}}
+				 			}}*/
 				 			types.set(node, returns)
 				 			// TODO (name: )
 				 			// TODO Not enough
@@ -2805,6 +2834,8 @@ class Typer {
 				 			// TODO is const exprs >= 3 then require second names
 				 			// "This function call is hard to read.\Replace this code: ... with this one: ..."
 				 		case EnumConstructor(type, tag):
+							evaluateArguments(el, [])
+
 				 			let name = type.fieldNames[tag]
 
 				 			if el.length < type.tagBindVars[tag].length {
@@ -2823,8 +2854,13 @@ class Typer {
 				 			types.set(node, Type.EnumInstance(type, tag))
 				 			// TODO check arg types
 				 		case null:
-				 			// TODO fail('Calling null ' + Node.stringify(e), e)
+							evaluateArguments(el, [])
+
+				 			// TODO
+							//fail('Calling null ' + Node.stringify(e), e)
 				 		case _:
+							evaluateArguments(el, [])
+
 				 			if types.get(e) == typeAny {
 				 				types.set(node, typeAny)
 				 			} else {
