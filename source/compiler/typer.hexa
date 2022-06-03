@@ -1290,6 +1290,78 @@ class Typer {
 			}
 		}
 
+		// `var left = right`
+		fun areCovariant(left: Type?, right: Type?, strictNull: Bool): Bool {
+			if left == right {
+				return true
+			}
+
+			var left = left
+			var right = right
+
+			var leftNullable = false
+			var rightNullable = false
+
+			switch left {
+				case null:
+					return true // TODO inference hack
+				case Nullable(t):
+					left = t
+					leftNullable = true
+			}
+
+			switch right {
+				case null:
+					return true // TODO inference hack
+				case Nullable(t):
+					right = t
+					rightNullable = true
+			}
+
+			// Nullability still checks even `Any`
+			if rightNullable, not leftNullable, strictNull {
+				return false
+			}
+
+			if left == typeAny or right == typeAny {
+				return true
+			}
+
+			if left == right {
+				return true
+			}
+
+			// TODO inheritance etc
+
+			switch left {
+				case Enum(lt):
+					switch right {
+						case EnumInstance(rt):
+							if lt == rt {
+								return true
+							}
+						case Enum(rt):
+							if lt == rt {
+								return true
+							}
+						// TODO Class, ClassInstance
+					}
+				case EnumInstance(lt):
+					switch right {
+						case EnumInstance(rt):
+							if lt == rt {
+								return true
+							}
+						case Enum(rt):
+							if lt == rt {
+								return true
+							}
+					}
+			}
+
+			return false
+		}
+
 		/// Adds to scope all of `fun name<PARAMS>`
 		fun pushFuncParamsIfRequired(func: Node) {
 			if let params = project.mapFuncParams.get(func) as! [NodeType], params.length > 0 {
