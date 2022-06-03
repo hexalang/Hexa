@@ -34,8 +34,16 @@
 	#ifdef _WIN32
 		// TODO cache GetProcessHeap
 		#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+		void HEXA_UNREACHABLE(uint32_t where) {
+			unsigned long $_;
+			HANDLE _ = GetStdHandle((DWORD)(uint32_t)(-11));
+			WriteFile(_, "UNREACHABLE", 11, &$_, nullptr);
+			FlushFileBuffers(_);
+			ExitProcess(where);
+		}
 	#else
 		#define HEXA_NEW(z) malloc(z)
+		#define HEXA_UNREACHABLE(where) {} // TODO
 	#endif
 #endif
 
