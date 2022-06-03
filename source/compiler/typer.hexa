@@ -448,7 +448,9 @@ class Typer {
 				}
 
 				switch node {
-					case Class(t, extend, implement, f, external):
+					case Class(t, extend, implement, f, external, kind):
+						type.kind = kind
+
 						switch t {
 							case ParametricType(name, params):
 								type.genericParams.push(DataHelper.extractTypeName(params[0]))
@@ -469,7 +471,7 @@ class Typer {
 						}
 						for impl in implement {
 							// TODO
-							toType(impl, node)
+							type.implement.push(toType(impl, node))
 						}
 						pushScope()
 
@@ -1321,6 +1323,13 @@ class Typer {
 						// Infer `= []`
 						switch to {
 							case ClassInstance(typeTo, genericTo):
+								// Compare interfaces
+								if typeTo.kind == ClassKind.Interface {
+									if type.implement.includes(to) {
+										return to
+									}
+								}
+
 								// TODO better comparison, not by name
 								if type.name == typeTo.name {
 										switch generic[0] {
@@ -1340,8 +1349,15 @@ class Typer {
 
 						// TODO respect generics
 						var extended = type.extend
+						var depth = 0
 
 						while true {
+							depth++
+							if depth > 100 {
+								fail('Inheritance depth is too large', node)
+								break
+							}
+
 							if let extend = extended {
 								if extend == to {
 									return to
