@@ -226,9 +226,60 @@ class Typer {
 							switch types.get(node) as! Type {
 								case Class(classType):
 								if classType.genericCache.length > 0 {
-									for knownParams in classType.genericCache {
+
+									let nullables = new Map<Type, Type>()
+
+									fun unwrap(type: Type?): Type? {
+										switch type as! Type {
+											case Unknown(handle): return unwrap(handle.value)
+											case UnknownNullable(handle):
+												return unwrap(Type.Nullable((handle.value)))
+											case Nullable(t):
+												let type = unwrap(t)
+												if type == null {
+													return null
+												}
+
+												if let nullable = nullables.get(type) {
+													return nullable
+												}
+
+												let rewrapped = Type.Nullable(unwrapUnknownAndNullable(type))
+												nullables.set(type, rewrapped)
+												return rewrapped
+
+											case Generic(_): return null // Not supposed to be typed
+											case _:
+										}
+
+										return type
+									}
+
+									fun indexOf(type: [Type], types: [[Type]]): Int {
+										for i in types.length {
+											var found = 0
+											for t in types[i].length {
+												if types[i][t] == type[t] {
+													found++
+												}
+											}
+
+											if found == types[i].length {
+												return i
+											}
+										}
+
+										return -1
+									}
+
+									let genericCache = classType.genericCache.map(fun (knownParams: [Type]): [Type] {
 										let known = knownParams.slice()
 										known.shift()
+										return known.map(unwrap)
+									}).filter(known => not known.includes(null)).filter((item, pos, self) => indexOf(item, self) == pos)
+
+									for knownParams in genericCache {
+										let known = knownParams //.slice()
 										let cloned = Node.clone(project, node)
 
 										var type = null as! Type?
@@ -1336,6 +1387,9 @@ class Typer {
 										switch generic[0] {
 											case Unknown(handle):
 												return to
+											// `[null]`
+											case UnknownNullable(handle):
+												return to
 											case _:
 												if let instanceOf = type.instanceOf {
 													return instanceOf.instantiateGeneric(genericTo)
@@ -2337,10 +2391,11 @@ class Typer {
 
 							types.set(node, typeArray.instantiateGeneric([types.get(by)]))
 						case _:
-							for e in el {
+							for i in el.length {
+								let e = el[i]
 								fillExpression(e)
 
-								if let elementsType = types.get(el[0]) {
+								if let elementsType = types.get(el[0]), i != 0 {
 									unify(elementsType, types.get(e), e)
 								}
 							}
