@@ -833,6 +833,7 @@ class GenCxx {
 					return r + '\n' + tabs + '}'
 				//case New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
 				case Const(name, expr, type):
+					return printStatement(Statement.Var(name, expr, type))
 					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
 				case Var(name, expr, type):
 					switch type {
@@ -1632,6 +1633,7 @@ class GenCxx {
 			case Index(_, _, result): return result
 			case New(_, _, result): return result
 			case Array(_, result): return result
+			case Map(keys, values, keyType, valueType, mapType): return mapType
 			case Unop(op, postfix, e): return getType(e) // TODO `-N` should convert `UInt` to `Int` in typer
 			case _:
 			return project.typer.typeAny
@@ -1952,13 +1954,22 @@ class GenCxx {
 						((names[i]) + ', ' + printExpression(el[i]))
 					}].join(', ') + ')'
 
-				case Map(keys, values):
-					if (keys.length == 0) {
-						return 'Map_$new_()'
+				case Map(keys, values, keyType, valueType, mapType):
+					let type = omitPointer(stringifyType(mapType))
+
+					if keys.length == 0 {
+						return '\(type)$new_()'
 					}
-					return 'Map_from(' +
-					[for i in keys.length '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')
-					+ ')'
+
+					let kType: String = stringifyType(keyType)
+					let vType: String = stringifyType(valueType)
+
+					return '\(type)$from_(\(type)$new_(), \(keys.length), (\(kType)[]){' +
+						[for el in keys printExpression(el)].join(', ')
+						+ '}, (\(vType)[]){' +
+						[for el in values printExpression(el)].join(', ')
+					// TODO keep order with meta blocks `[for i in keys.length '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')`
+					+ '})'
 				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 				case NativeOperator(kind, args, s, params, result): switch kind {
