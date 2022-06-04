@@ -1012,6 +1012,17 @@ class Normalizer {
 
 				type.external = external
 				type.extend = DataHelper.extractTypeName(ext)
+				type.type = typer.types.get(e) // TODO better `type` naming
+				thisType = type.type
+				switch type.type {
+					case Class(c):
+						if let instanceParams = c.instanceParams {
+							type.type = c.instantiateGeneric(instanceParams)
+							thisType = type.type
+						}
+
+						type.template = c.instances != null and c.instances.length > 0
+				}
 
 				for implement in impl { switch implement {
 					case Type(name):
@@ -1175,8 +1186,6 @@ class Normalizer {
 							}
 						}
 
-						type.template = the.instances != null and the.instances.length > 0
-
 						for instance in the.instances {
 							var signature = ['_']
 							if let instanceParams = instance.instanceParams {
@@ -1185,7 +1194,6 @@ class Normalizer {
 								}
 							}
 							// TODO do not save it like this? also `unique(name)`
-							instance.name += signature.join('$')
 							instance.useless = the.useless
 							nodeToStatement(instance.parent)
 						}
