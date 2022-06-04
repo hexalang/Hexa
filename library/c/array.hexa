@@ -21,13 +21,14 @@
 // THE SOFTWARE.
 
 // TODO decorators like `@final` etc
+// TODO `Array` should behave as interface for all other array implementations, so documentation is valid
 class Array<T> {
 	// TODO do not store "capacity" - it can be always(?) calculated from length
 	var length: Int = 0
 	private var capacity: Int = 0
 	private var data: ArrayPointer<T>
 
-	@operator('[]')
+	//@operator('[]')
 	fun get(index: Int): T? {
 		if index < 0 or index >= length {
 			return null
@@ -35,12 +36,14 @@ class Array<T> {
 
 		return data[index]
 	}
-	@operator('[]=')
+
+	//@operator('[]=')
 	fun set(index: Int, value: T): Void {
 		if index < 0 {
 			return // Invalid operation
 		}
 
+		// TODO #if sanitizer > MAX_LENGTH error
 		if index >= capacity {
 			let newCapacity = capacity * 2 // TODO 1.5
 			let newData = malloc(sizeOfPreferPointer<T>() * newCapacity) as! ArrayPointer<T>
@@ -65,7 +68,12 @@ class Array<T> {
 	fun join(sep: String): String {return''}
 	//fun pop(): T? {}
 	fun pop(): T? {return null}
-	fun push(x: T): Int {return 0}
+
+	fun push(x: T): Int {
+		set(length, x)
+		return length
+	}
+
 	fun reverse(): Void {}
 	//fun shift(): T? {}
 	fun shift(): T? {return null}
@@ -74,8 +82,25 @@ class Array<T> {
 	fun splice(pos: Int, len: Int): [T] {return[]}
 	fun toString(): String {return ''}
 	fun unshift(x: T): Void {}
-	fun includes(x: T): Bool {return false}
-	fun indexOf(x: T, fromIndex: Int? = 0): Int {return 0}
+
+	fun includes(x: T): Bool {
+		return indexOf(x) != -1
+	}
+
+	fun indexOf(x: T, fromIndex: Int? = 0): Int {
+		if let fromIndex = fromIndex {
+			// TODO
+		}
+
+		for i in length {
+			if get(i) == x {
+				return i
+			}
+		}
+
+		return -1
+	}
+
 	fun lastIndexOf(x: T, fromIndex: Int?): Int {return 0}
 	fun filter(f: T=>Bool): [T] {return[]}
 	fun forEach(f: (accumulator: T, currentValue: T)=>Void): Void {return}
@@ -88,15 +113,21 @@ class Array<T> {
 	new(size: Int) {
 		length = size
 		capacity = size
+
+		// Note: zero capacity causes crash after "grow" cause `0 * N == 0`
+		if capacity < 8 {
+			capacity = 8
+		}
+
 		//var a: T = sizeOf<T>() as! T
-		data = malloc(sizeOfPreferPointer<T>() * size) as! ArrayPointer<T>
+		data = malloc(sizeOfPreferPointer<T>() * capacity) as! ArrayPointer<T>
 	}
 	//private fun get(index: Int): T {return null}
 	//private fun set(index: Int, value: T): T {return null}
 
 	/// Do not use other than in code generator
 	/// Implies that length is known from instance
-	private fun from(payload: ArrayPointer<T>): [T] {
+	private fun from(payload: ArrayPointer<T>) {
 		for i in length {
 			data[i] = payload[i]
 		}
