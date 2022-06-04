@@ -1206,7 +1206,10 @@ class GenCxx {
 			if fromValue == project.typer.typeInt, to == project.typer.typeString {
 				return 'String_$fromInt32_(' + string + ')'
 			}
-			// TODO ^ from Float, Bool, etc
+			// TODO ^ from Float, etc
+			if fromValue == project.typer.typeBool, to == project.typer.typeString {
+				return 'String_$fromBool_(' + string + ')'
+			}
 
 			if (fromValue == project.typer.typeString) { switch to {
 				case ClassInstance(type): if (type.name == 'ConstCharPointer') {
@@ -1273,17 +1276,27 @@ class GenCxx {
 					// `T = _`
 					case _: switch fromValue {
 						case Nullable(fromNull):
-							// `var x: T = T?`
+							// `var x: T = T?` used in `if let`
 							if (to == fromNull) {
 								if (fromNull == project.typer.typeInt) {
-									return string + '.value_'
+									return '(int32_t)(' + string + ')' // Should truncate
+									// TODO Example `return string + '.value_'`
 								}
 								return string
 								return '%T = T?%'
 							}
+
+							if fromNull == project.typer.typeInt, to == project.typer.typeString {
+								return 'String_$fromNullableInt32_(' + string + ')'
+							}
+
+							if fromNull == project.typer.typeBool, to == project.typer.typeString {
+								return 'String_$fromBool_(' + string + ')'
+							}
+
 							// `var x: A = B?` unsafe conversion
 							// TODO `(Int?) as! (Float)` should not be bit-cast (how C does `(double)(int)123`?)
-							return '(/*A = B?*/' + stringifyType(to) + ')(' + string + ')'
+							return '(/*A = B? \(stringifyType(fromNull)) */' + stringifyType(to) + ')(' + string + ')'
 						case _:
 							// `var x: T = T`
 							if (to == fromValue) {
@@ -1619,6 +1632,7 @@ class GenCxx {
 			case Index(_, _, result): return result
 			case New(_, _, result): return result
 			case Array(_, result): return result
+			case Unop(op, postfix, e): return getType(e) // TODO `-N` should convert `UInt` to `Int` in typer
 			case _:
 			return project.typer.typeAny
 			//throw 'getType ' + e
