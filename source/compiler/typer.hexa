@@ -233,7 +233,7 @@ class Typer {
 										switch type as! Type {
 											case Unknown(handle): return unwrap(handle.value)
 											case UnknownNullable(handle):
-												return unwrap(Type.Nullable((handle.value)))
+												return unwrap(asNullable(handle.value))
 											case Nullable(t):
 												let type = unwrap(t)
 												if type == null {
@@ -244,7 +244,7 @@ class Typer {
 													return nullable
 												}
 
-												let rewrapped = Type.Nullable(unwrapUnknownAndNullable(type))
+												let rewrapped = asNullable(unwrapUnknownAndNullable(type))
 												nullables.set(type, rewrapped)
 												return rewrapped
 
@@ -1554,7 +1554,7 @@ class Typer {
 							fail('Unsupported type `\(name)`', node)
 					}
 				case Optional(t):
-					return Type.Nullable(toType(t, node))
+					return asNullable(toType(t, node))
 				case Function(args, ret):
 					return Type.Function([for arg in args toType(arg, node)], toType(ret, node))
 				case Object(names, el):
@@ -2046,7 +2046,7 @@ class Typer {
 							} else if (iterableIntegers.includes(overType)) {
 								types.set(node, overType)
 							} else {
-								fail('Type of iterable is neither integer nor `Array`, but ' + Type.stringify(overType), over)
+								fail('Type of iterable is neither integer nor `Array`, but `' + Type.stringify(overType) + '`', over)
 							}
 
 						case Nullable(_):
@@ -2509,7 +2509,7 @@ class Typer {
 														}
 													// `: T?`
 													case Nullable(type):
-														return Type.Nullable(genericFixup(type, generic))
+														return asNullable(genericFixup(type, generic))
 													case Function(args, returns):
 														var returns = returns
 														var changed = false
@@ -3087,6 +3087,7 @@ class Typer {
 					types.set(node, types.get(e))
 
 					let mutates = op == Token.OpIncrement || op == Token.OpDecrement
+					// TODO ^ must allow only integer ++/--
 					if not mutates { return }
 					var parent: Node = parents.get(e)
 					switch parent {
@@ -3351,6 +3352,17 @@ class Typer {
 				case _:
 					fail('Unknown node expression kind to type ' + node + never, node)
 			}
+		}
+
+		let nullables: [Type : Type] = [:]
+		fun asNullable(type: Type): Type {
+			if let has = nullables.get(type) {
+				return has
+			}
+
+			let spawned = Type.Nullable(type)
+			nullables.set(type, spawned)
+			return spawned
 		}
 
 		/// Sets the type of `null` which has `UnknownNullable` be default
