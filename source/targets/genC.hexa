@@ -220,7 +220,7 @@ class GenCxx {
 			for c in project.classes {
 				if (c.external) {
 					// TODO rename to just 'require'
-					if (c.jsRequire != null) {
+					if c.jsRequire != null {
 						// `@require('#include <...>')`
 						forward.push(c.jsRequire)
 					}
@@ -259,7 +259,8 @@ class GenCxx {
 				let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = {\n\t']
 				let vtableBind = []
 
-				for v in c.vars { switch v {
+				for v in c.vars {
+					switch v {
 					case Var(name, expr, type):
 						//if (let t = type)
 						types.push('\n\t\(stringifyType(type)) ' + name + '_;')
@@ -274,7 +275,8 @@ class GenCxx {
 						//types.push('\n\tAny_* ' + name + '_;')
 						//if (expr != null) // null if property
 						//out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
-				}}
+				}
+				}
 
 				//if (c.name == 'String') types.push('String_op')
 				for v in c.methods { switch v {
@@ -1212,7 +1214,7 @@ class GenCxx {
 				return 'String_$fromBool_(' + string + ')'
 			}
 
-			if (fromValue == project.typer.typeString) { switch to {
+			if fromValue == project.typer.typeString { switch to {
 				case ClassInstance(type): if (type.name == 'ConstCharPointer') {
 					console.log(type)
 					return '(' + string + ')->bytes_'
@@ -1221,10 +1223,11 @@ class GenCxx {
 
 			//console.log(to) // , (to as! Any). ConstCharPointer
 
-			if (to == project.typer.typeAny) {
+			if to == project.typer.typeAny {
 				return printToAnyConverter(string, fromValue)
 			}
-			if (fromValue != to) {
+
+			if fromValue != to {
 				// TODO in future reformat into `case N(A),N(B)|A,B if (A==B):` etc complex nested combined patterns
 				// TODO what if use `E.nullable` instead of `Null(E)`? meh than T1 != T2 would be broken?
 				switch to {
@@ -1232,7 +1235,7 @@ class GenCxx {
 					case Nullable(toNull): switch fromValue {
 						case Nullable(fromNull):
 							// `var x: T? = T?`
-							if (toNull == fromNull) {
+							if toNull == fromNull {
 								return string
 							}
 							// `var x: A? = B?` unsafe conversion
@@ -1240,7 +1243,7 @@ class GenCxx {
 							return '(/*A? = B?*/' + stringifyType(to) + ')(' + string + ')'
 						case _:
 							// `var x: T? = T`
-							if (toNull == fromValue) {
+							if toNull == fromValue {
 								if toNull == project.typer.typeInt {
 									return '((int32_t$)(' + string + '))' // TODO
 								}
@@ -1253,7 +1256,7 @@ class GenCxx {
 
 							switch fromValue {
 								// Essentially just `null`
-								case UnknownNullable(value): if (value.value == null) {
+								case UnknownNullable(value): if value.value == null {
 								if toNull == project.typer.typeInt or toNull == project.typer.typeInt32 {
 									return 'int32_t$null'
 								}
@@ -1278,8 +1281,8 @@ class GenCxx {
 					case _: switch fromValue {
 						case Nullable(fromNull):
 							// `var x: T = T?` used in `if let`
-							if (to == fromNull) {
-								if (fromNull == project.typer.typeInt) {
+							if to == fromNull {
+								if fromNull == project.typer.typeInt {
 									return '(int32_t)(' + string + ')' // Should truncate
 									// TODO Example `return string + '.value_'`
 								}
@@ -1364,9 +1367,11 @@ class GenCxx {
 			if args.length == 0, thisArgument != null {
 				return '(' + thisArgument + ')'
 			}
-			if (args.length == 0) {
+
+			if args.length == 0 {
 				return '(void)' // Otherwise C function takes infinite number of arguments
 			}
+
 			switch funcType {
 				case Function(types, _):
 					let results: [String] = []
@@ -1385,16 +1390,9 @@ class GenCxx {
 					//let results: String = (thisArgument != null)? [thisArgument] : []
 					// lol result [String] no String
 
-					return '(' + [for a in args.length {
-						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
-						if (defaults) { switch types[a] {
-							case Nullable(_): result += ' = ((Unknown_ *)0)'
-							case UnknownNullable(_): result += ' = ((Unknown_ *)0)'
-						}}
-						result
-					}].join(', ') + ')'
-
 			}
+
+			// TODO seems like dead code
 			return '(' + [for a in args.length
 				'Any_* ' + args[a] + '_'
 			].join(', ') + ')'
@@ -1769,7 +1767,8 @@ class GenCxx {
 					//return 'String_fromUTF8z("' + charsOut.join('') + '")'
 				case True: return 'true_'
 				case False: return 'false_'
-				case Dot(expr, name): switch expr {
+				case Dot(expr, name):
+					switch type {
 					case This: return (customThis ?? 'this') + '->' + name + '_'
 					case Ident(id, typed):
 						// Static
@@ -1910,7 +1909,7 @@ class GenCxx {
 						if (getType(a) == project.typer.typeString) {
 							return 'String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), project.typer.typeString) + ')'
 						}
-						if (getType(b) == project.typer.typeString) {
+						if getType(b) == project.typer.typeString {
 							return 'String_$combine_(' + printTypeConverter(printExpression(a), getType(a), project.typer.typeString) + ', ' + printExpression(b) + ')'
 						}
 					}
@@ -1920,7 +1919,7 @@ class GenCxx {
 				case Index(expr, index):
 					switch (getType(expr)) {
 						case ClassInstance(type, generic):
-							if (type.name != 'Array') {
+							if type.name != 'Array' {
 								return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
 							}
 					}

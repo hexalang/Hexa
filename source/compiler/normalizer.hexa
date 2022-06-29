@@ -1011,6 +1011,7 @@ class Normalizer {
 
 				case Class(t, ext, impl, fields, external):
 				renameClassFields(fields)
+				let atts = project.mapDecorators.get(e)
 				let type = new NiceClass()
 
 				type.external = external
@@ -1041,7 +1042,7 @@ class Normalizer {
 						type.genericParams = [for param in params DataHelper.extractTypeName(param)]
 				}
 
-				let atts = project.mapDecorators.get(e)
+				// `@require`
 
 				if let require = getDec(atts, 'require') { switch require.values[0] {
 					case String(s): type.jsRequire = s
@@ -1061,6 +1062,7 @@ class Normalizer {
 							type.name = unique(DataHelper.extractTypeName(t), e)
 					}
 				}
+
 				globals.push(type.name)
 
 				for f in fields { switch f {
@@ -1294,7 +1296,7 @@ class Normalizer {
 					case Var(name, t, expr, const):
 						a.push(unique(name, arg))
 						types.push(t)
-						if (expr != null) {
+						if expr != null {
 							defaults.push(nodeToExpression(expr))
 						} else {
 							defaults.push(null)
@@ -1811,19 +1813,20 @@ class Normalizer {
 					switch f {
 						case NodeTypeValue(t): switch t {
 							case Type(n):
-								if (n == name) {
-									if (typed.fieldsTypeSimple == typer.typeString) {
+								if n == name {
+									if typed.fieldsTypeSimple == typer.typeString {
 										return Expression.String(n)
 									}
 								}
-								if (n == name) {
+
+								if n == name {
 									return Expression.Int(i)
 								}
 						}
 						case Call(e, _): switch e {
 							case NodeTypeValue(t): switch t {
 								case Type(n):
-									if (n == name) {
+									if n == name {
 										return Expression.Int(i)
 									}
 							}
@@ -1831,7 +1834,7 @@ class Normalizer {
 						case Binop(a, op, b): switch a {
 							case NodeTypeValue(t): switch t {
 								case Type(n):
-									if (n == name) {
+									if n == name {
 										return nodeToExpression(b)
 									}
 							}
@@ -1906,6 +1909,7 @@ class Normalizer {
 			{
 				uname = (name + '_') + (++id)
 			}
+
 			addToScope(uname)
 			if node != null {
 				parentNames.set(node, uname)
@@ -1966,7 +1970,7 @@ class Normalizer {
 							case _: throw '@rename takes string as argument'
 						}} else
 
-						if (parentNames.get(field) == null) {
+						if parentNames.get(field) == null {
 							unique(name, field)
 						}
 					case Function(name, expr, vars, rettype):
@@ -1979,7 +1983,7 @@ class Normalizer {
 							case _: throw '@rename takes string as argument'
 						}} else
 
-						if (parentNames.get(field) == null) {
+						if parentNames.get(field) == null {
 							unique(name, field)
 						}
 				}

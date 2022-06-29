@@ -13,7 +13,6 @@
 [![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg?logo=GitHub)](https://t.me/hexalang_github)
 [![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/book/hexa-compiles-itself)
 [![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
-[![Build status](https://ci.appveyor.com/api/projects/status/gi6cm17w4r0l3ahj/branch/kawaii?svg=true)](https://ci.appveyor.com/project/PeyTy/hexa/branch/kawaii)
 [![Website](https://img.shields.io/badge/web-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
 Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps

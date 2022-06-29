@@ -546,14 +546,14 @@ class Typer {
 										fail('Field `\(name)` already exists', field)
 									}
 									type.fieldNames.push(name)
-									if (name == 'new') {
+									if name == 'new' {
 										type.constructor = type.fieldNames.length - 1
 									} else {
 										type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
 									}
 									addScope(name, field)
 								case Var(name, t, e, _):
-									if (type.fieldNames.includes(name)) {
+									if type.fieldNames.includes(name) {
 										fail('Field `\(name)` already exists', field)
 									}
 									type.fieldNames.push(name)
@@ -837,14 +837,14 @@ class Typer {
 								if op != Token.OpAssign {
 									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
 								}
-								if (valuesType == null) {
+								if valuesType == null {
 									fail('Cannot use `Value = value` format for complex enum', node)
 								}
 								switch a {
 									case NodeTypeValue(t): switch t {
 										case Type(name):
-											if (type.fieldNames.includes(name)) {
 												fail('Field `\(name)` already exists', node)
+											if type.fieldNames.includes(name) {
 											}
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
@@ -922,7 +922,7 @@ class Typer {
 
 								// This weird hack, because of race condition
 								// if function called within self
-								if (rettype != null) {
+								if rettype != null {
 									types.set(f, Type.Function([], toType(rettype, f)))
 								} else {
 									types.set(f, Type.Function([], typeVoid))
@@ -931,12 +931,12 @@ class Typer {
 
 								fillFunction(f, expr, vars, rettype)
 								insideClassMethod = _insideClassMethod
-								if (types.get(f) == null) {
+								if types.get(f) == null {
 									fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' static ' + name, f)
 								}
 								types.set(field, types.get(f))
 							case Var(name, t, e, const):
-								if (e != null) {
+								if e != null {
 									fillExpression(e)
 								}
 								mixVarTypes(t, e, f)
@@ -1048,22 +1048,6 @@ class Typer {
 				return node
 			}
 
-			return null
-
-			if (namespaces.get(name) != null) {
-				return namespaces.get(name)
-			}
-			var m = namespaces.get('')
-			var el: [Node] = null as! [Node]
-			switch m as! Node {
-				case Module(_, els): el = els
-				case _: return null // No root
-			}
-			for e in el {
-				if (name == nameOfModuleItem(e)) {
-					return e
-				}
-			}
 			return null
 		}
 
@@ -2368,7 +2352,7 @@ class Typer {
 									} else if ((overType == typeUInt32) || (overType == typeUInt64)) {
 										types.set(el[0], overType)
 									} else {
-										fail('Type of iterable is neither `Int` nor `Array`, but ' + Type.stringify(overType), over)
+										fail('Type of iterable is neither `Int` nor `Array`, but `' + Type.stringify(overType) + '`', over)
 									}
 
 								case Nullable(_):
@@ -2557,7 +2541,7 @@ class Typer {
 
 											if types.get(field) == null {
 												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', type.fieldInitialized[type.fieldNames.indexOf(n)])
-												fail('Type for this field cannot be inferred, try to specify types manually: ' + n, field)
+												fail('Type for this field cannot be inferred, try to specify types manually: `' + n + '`', field)
 											}
 										}
 									}
@@ -2586,10 +2570,10 @@ class Typer {
 							}
 						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
-							if (index < 0) {
+							if index < 0 {
 								fail('Enum `\(type.name)` has no field `.\(n)`', node)
 							}
-							if (type.fieldStatic[index] != true) {
+							if not type.fieldStatic[index] {
 								fail('Enum field `.\(n)` is not static', node)
 							}
 							switch type.parent {
@@ -2599,7 +2583,7 @@ class Typer {
 										case NodeTypeValue(_):
 										case Binop(_):
 										case _:
-										if (DataHelper.nameOf(field) == n) {
+										if DataHelper.nameOf(field) == n {
 											types.set(node, types.get(field))
 											parents.set(node, field)
 										}
@@ -2915,11 +2899,11 @@ class Typer {
 				 			let name = type.fieldNames[tag]
 
 				 			if el.length < type.tagBindVars[tag].length {
-				 				fail('Not enough enum parameters, required `\(name)` parameters are: ' + type.tagBindVarsNames[tag].join(', '), node)
+				 				fail('Not enough enum parameters, required `\(name)` parameters are: `' + type.tagBindVarsNames[tag].join('`, `') + '`', node)
 							}
 
 				 			if el.length > type.tagBindVars[tag].length {
-				 				fail('Too many enum parameters, required `\(name)` parameters are: ' + type.tagBindVarsNames[tag].join(', '), node)
+				 				fail('Too many enum parameters, required `\(name)` parameters are: `' + type.tagBindVarsNames[tag].join('`, `') + '`', node)
 							}
 
 				 			// Don't allow `A.B()` syntax, require `A.B(a, b, c)` or just `A.B`
