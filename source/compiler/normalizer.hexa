@@ -54,7 +54,7 @@ class Normalizer {
 							renameClassFields(fields)
 						case Var(name, t, expr, const, external):
 							let atts = project.mapDecorators.get(e)
-							if let native = getDec(atts, 'rename') { switch native.values[0] {
+							if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 								case String(s): uniqueNative(s, e)
 								case _: throw '@rename takes string as argument'
 							}} else {
@@ -355,7 +355,7 @@ class Normalizer {
 
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
-				if let infix = getDec(atts, 'infix') { switch infix.values[0] {
+				if let infix = Decorator.getDecorator(atts, 'infix') { switch infix.values[0] {
 					case String(s):
 						switch expr {
 							case Ident(_, params):
@@ -369,7 +369,7 @@ class Normalizer {
 				}}
 
 				// TODO pre-compute `sizeof` for known types, so can eliminate `if sizeof(T) % 8 == 0 { 8-byte step } else`
-				if let operator = getDec(atts, 'operator') { switch operator.values[0] {
+				if let operator = Decorator.getDecorator(atts, 'operator') { switch operator.values[0] {
 					case String(s):
 						switch expr {
 							case Ident(_, params):
@@ -878,7 +878,7 @@ class Normalizer {
 					let atts = project.mapDecorators.get(e)
 					type.expose = false
 					// TODO move to function `getExposeDecorator(e)`
-					if let expose = getDec(atts, 'expose') {
+					if let expose = Decorator.getDecorator(atts, 'expose') {
 						if expose.values.length != 0 {
 							// TODO move this check to typer
 							// TODO normalizer should never throw
@@ -1044,12 +1044,14 @@ class Normalizer {
 
 				// `@require`
 
-				if let require = getDec(atts, 'require') { switch require.values[0] {
+				if let require = Decorator.getDecorator(atts, 'require') { switch require.values[0] {
 					case String(s): type.jsRequire = s
 					case _: throw '@require takes string as argument'
 				}}
 
-				if let native = getDec(atts, 'rename') { switch native.values[0] {
+				// `@rename` TODO strategy
+
+				if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 					case String(s):
 						type.jsNative = s
 						type.name = unique(s, e)
@@ -1275,7 +1277,7 @@ class Normalizer {
 
 				// TODO wrap getting `native` into function, also validate it takes only 1 argument
 				let atts = project.mapDecorators.get(e)
-				if let native = getDec(atts, 'rename') { switch native.values[0] {
+				if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 						case String(s): if (parentNames.get(e) == null) {
 							uniqueNative(s, e)
 						}
@@ -1849,18 +1851,9 @@ class Normalizer {
 			}
 		}
 
-		static fun getDec(atts: [Decorator], atname: String): Decorator? {
-			if (atts != null && atts.length > 0) { for att in atts {
-				if (att.name == atname) {
-					return att
-				}
-			}}
-			return null
-		}
-
 		fun getNative(e: Node): String? {
 			let atts = project.mapDecorators.get(e)
-			if let native = getDec(atts, 'rename') { switch native.values[0] {
+			if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 					case String(s):
 						return s
 					case _: throw '@rename takes string as argument'
@@ -1932,10 +1925,10 @@ class Normalizer {
 			for f in fields { switch f {
 				case Var(name, t, expr, const):
 					let atts = project.mapDecorators.get(f)
-
-					if let native = getDec(atts, 'rename') { switch native.values[0] {
 						case String(s): if (parentNames.get(f) == null) {
 							unique(s, f)
+
+					if let native = Decorator.getDecorator(atts, 'rename') {
 						}
 						case _: throw '@rename takes string as argument'
 					}} else
@@ -1948,7 +1941,7 @@ class Normalizer {
 					} else {
 						let atts = project.mapDecorators.get(f)
 
-						if let native = getDec(atts, 'rename') { switch native.values[0] {
+						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 							case String(s): if (parentNames.get(f) == null) {
 								unique(s, f)
 							}
@@ -1963,8 +1956,9 @@ class Normalizer {
 					case Var(name, t, expr, const):
 						let atts = project.mapDecorators.get(f)
 
-						if let native = getDec(atts, 'rename') { switch native.values[0] {
-							case String(s): if (parentNames.get(field) == null) {
+						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
+							case String(s):
+							if parentNames.get(field) == null {
 								unique(s, field)
 							}
 							case _: throw '@rename takes string as argument'
@@ -1976,7 +1970,7 @@ class Normalizer {
 					case Function(name, expr, vars, rettype):
 						let atts = project.mapDecorators.get(f)
 
-						if let native = getDec(atts, 'rename') { switch native.values[0] {
+						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 							case String(s): if (parentNames.get(field) == null) {
 								unique(s, field)
 							}

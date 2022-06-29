@@ -1340,13 +1340,15 @@ class GenCxx {
 							switch fromValue {
 								case ClassInstance(type):
 									let atts = project.mapDecorators.get(type.parent)
-									fromStructByValue = Normalizer.getDec(atts, 'byValue') != null
+
+									fromStructByValue = Decorator.getDecorator(atts, 'byValue') != null
 							}
 							var toStructByPointer = false
 							switch to {
 								case ClassInstance(type):
 									let atts = project.mapDecorators.get(type.parent)
-									toStructByPointer = Normalizer.getDec(atts, 'struct') != null
+
+									toStructByPointer = Decorator.getDecorator(atts, 'struct') != null
 							}
 
 							if fromStructByValue and toStructByPointer {
@@ -1483,7 +1485,7 @@ class GenCxx {
 					let atts = project.mapDecorators.get(type.parent)
 					// TODO refactor
 					var renamed = ''
-					if let rename = Normalizer.getDec(atts, 'rename') {
+					if let rename = Decorator.getDecorator(atts, 'rename') {
 						renamed = DataHelper.asStringAttValue(rename, 0)
 					}
 
@@ -1531,14 +1533,14 @@ class GenCxx {
 
 					let atts = project.mapDecorators.get(type.parent)
 
-					let struct = Normalizer.getDec(atts, 'struct') != null
-					let byValue = Normalizer.getDec(atts, 'byValue') != null
+					let struct = Decorator.getDecorator(atts, 'struct') != null
+					let byValue = Decorator.getDecorator(atts, 'byValue') != null
 
 					if byValue and not struct {
 						throw 'Must be @struct to be @byValue'
 					}
 
-					let native = Normalizer.getDec(atts, 'rename')
+					let native = Decorator.getDecorator(atts, 'rename')
 					if let native = native { switch (native.values[0]) {
 						case String(s):
 							if struct and byValue {
@@ -1905,8 +1907,8 @@ class GenCxx {
 				case Parenthesis(e): return '(' + printExpression(e) + ')'
 
 				case Binop(a, op, b):
-					if (op == Token.OpAdd) {
-						if (getType(a) == project.typer.typeString) {
+					if op == Token.OpAdd {
+						if getType(a) == project.typer.typeString {
 							return 'String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), project.typer.typeString) + ')'
 						}
 						if getType(b) == project.typer.typeString {
