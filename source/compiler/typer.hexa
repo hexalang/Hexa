@@ -485,9 +485,13 @@ class Typer {
 					case 'BigInt': typeBigInt = type.instantiate()
 				}
 
-				fun getRename(f: Node): String? {
+				let classDecorators = project.mapDecorators.get(node)
+				fun getRename(f: Node, name: String, globalDecorators: [Decorator]): String? {
 					let atts = project.mapDecorators.get(f)
+					let renamingStrategy = getRenamingStrategy(atts) ?? getRenamingStrategy(globalDecorators)
+
 					if let native = DataHelper.getDecorator(atts, 'rename') {
+						// TODO `@asIs` disallows `@rename`
 						if native.values.length != 1 {
 							throw '@rename takes one string argument'
 						}
@@ -495,7 +499,14 @@ class Typer {
 							case String(s): return s
 							case _: throw '@rename takes string as argument'
 						}}
+					} else {
+						switch renamingStrategy {
+							case AsTitleCase: return Hint.toTitleCase(name)
+							case AsIs: return name
+							case null:
+						}
 					}
+
 					return null
 				}
 
@@ -549,7 +560,7 @@ class Typer {
 									if name == 'new' {
 										type.constructor = type.fieldNames.length - 1
 									} else {
-										type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
+										type.fieldRenames[type.fieldNames.length - 1] = getRename(field, name, classDecorators)
 									}
 									addScope(name, field)
 								case Var(name, t, e, _):
@@ -558,7 +569,7 @@ class Typer {
 									}
 									type.fieldNames.push(name)
 									type.fieldInitialized[type.fieldNames.length - 1] = false
-									type.fieldRenames[type.fieldNames.length - 1] = getRename(field)
+									type.fieldRenames[type.fieldNames.length - 1] = getRename(field, name, classDecorators)
 									addScope(name, field)
 								case Property(field, _, _):
 									switch field {

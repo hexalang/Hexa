@@ -49,9 +49,9 @@ class Normalizer {
 			// Rename upfront to avoid race condition
 			for file in project.moduleInfo { for e in file.nodes { switch e {
 						case Class(t, ext, impl, fields, external):
-							renameClassFields(fields)
+							renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
 						case Enum(t, fields, valuesType):
-							renameClassFields(fields)
+							renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
 						case Var(name, t, expr, const, external):
 							let atts = project.mapDecorators.get(e)
 							if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
@@ -869,7 +869,7 @@ class Normalizer {
 
 				// Types
 				case Enum(t, fields, valuesType):
-				renameClassFields(fields)
+				renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
 				let isComplexEnum = valuesType == null
 				if isComplexEnum {
 					// TODO require here new NiceComplexEnum {} fields init
@@ -1010,8 +1010,8 @@ class Normalizer {
 				}
 
 				case Class(t, ext, impl, fields, external):
-				renameClassFields(fields)
 				let atts = project.mapDecorators.get(e)
+				renameClassFields(fields, getRenamingStrategy(atts))
 				let type = new NiceClass()
 
 				type.external = external
@@ -1069,7 +1069,7 @@ class Normalizer {
 
 				for f in fields { switch f {
 					case Var(name, t, expr, const):
-						let uname = parentNames.get(f) ?? unique(name, f)
+						let uname = getClassDotField(e, name) ?? parentNames.get(f) ?? unique(name, f)
 						if const {
 							let value = nodeToExpression(expr)
 							saveInlineIfViable(f, value)
@@ -1920,20 +1920,33 @@ class Normalizer {
 			return nodeToStatement(e)
 		}
 
-		fun renameClassFields(fields: [Node]) {
+		fun renameClassFields(fields: [Node], renaming: FieldRenaming?) {
+			// TODO pre-add `_` suffix to avoid String allocations on every .dot
 			pushScope()
 			for f in fields { switch f {
 				case Var(name, t, expr, const):
 					let atts = project.mapDecorators.get(f)
-						case String(s): if (parentNames.get(f) == null) {
-							unique(s, f)
+					let renamingStrategy = getRenamingStrategy(atts) ?? renaming
 
 					if let native = Decorator.getDecorator(atts, 'rename') {
+						switch native.values[0] {
+						case String(s):
+						// TODO what that `parentNames` thing even means here? Elaborate in comment!
+						// Cause new rename has higher priority
+						// oooohhh it just avoids double-renaming, cause `renameClassFields` called twice
+						if parentNames.get(f) == null {
+							unique(s, f) // TODO `uniqueNative`?
 						}
 						case _: throw '@rename takes string as argument'
-					}} else
-					if (parentNames.get(f) == null) {
-						unique(name, f)
+					}} else {
+
+					if parentNames.get(f) == null {
+						switch renamingStrategy {
+							case AsTitleCase: unique(Hint.toTitleCase(name), f)
+							case AsIs: unique(name, f) // TODO what?
+							case null: unique(name, f)
+						}
+					}
 					}
 				case Function(name, expr, vars, rettype):
 					if name == 'new' {
@@ -1953,6 +1966,7 @@ class Normalizer {
 						}
 					}
 				case Static(field): switch field {
+					// TODO `RenamingStrategy`
 					case Var(name, t, expr, const):
 						let atts = project.mapDecorators.get(f)
 
@@ -1987,6 +2001,18 @@ class Normalizer {
 
 		// Used for `something.name`
 		fun getClassDotField(expr: Node, name: String): String? {
+			if let type = typer.types.get(expr) {
+				switch type as! Type {
+					case Class(type):
+						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
+						if let rename = renamed {
+							return rename
+						}
+					case _:
+					// TODO Enum
+				}
+			}
+
 			switch expr {
 				case Class(t, ext, impl, fields, external): for f in fields { switch f {
 					case Static(sf):
