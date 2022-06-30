@@ -320,7 +320,7 @@ class GenCxx {
 
 							// Init
 							//out.push('void ' + c.name + '_::this_() {\n')
-							out.push('void ' + c.name + '_$this_')
+							out.push(c.name + '_* ' + c.name + '_$this_')
 							thisArgument = c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
@@ -351,6 +351,7 @@ class GenCxx {
 							}
 							popTab()
 							customThis = null
+							out.push('\n\treturn $this;\n')
 							out.push('};\n\n')
 
 							// Alloc
@@ -1915,18 +1916,21 @@ class GenCxx {
 				case New(e, args, result):
 					// TODO probably just `omitPointer(stringifyType(result))`
 					var name = omitPointer(stringifyType(result)) // TODO redesign, just string from normalizer
-					/*switch result {
+					switch result {
 						case ClassInstance(type, params): {
-							if let params = params, params.length == 1 {
-								switch params[0] {
-									case Class(type): name += '$' + type.name + '_' // TODO redesign, should support renaming
-									case ClassInstance(type): name += '$' + type.name + '_' // TODO redesign, should support renaming
-									case Generic(_): name += '$Any_' // TODO should be resolved in normalizer
-									case _: console.log(params[0])
+							let atts = project.mapDecorators.get(type.parent)
+							let isStruct = Decorator.getDecorator(atts, 'struct') != null
+							// TODO Only *external* `C++` and non-external Hexa structs have constructors
+							// TODO check arguments count to be zero
+							if isStruct {
+								let shouldInit = not type.external
+								if shouldInit {
+									return name + '$this_((\(name)*)malloc(sizeof(\(name))))'
 								}
+								return '(\(name)*)malloc(sizeof(\(name)))'
 							}
 						}
-					}*/
+					}
 					return name + '$new_' + printCallArguments(args)
 
 				case Array(el, arrayType):
