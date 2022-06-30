@@ -462,15 +462,15 @@ class GenCxx {
 			}
 
 			for g in project.globalFuncs { switch g {
-				case Function(name, expr, args, defaults, funcType):
+				case Function(name, expr, args, defaults, funcType, variadic):
 					types.push(printFunctionReturnType(funcType))
 					types.push(' ' + name + '_')
-					types.push(printFunctionArguments(args, funcType))
+					types.push(printFunctionArguments(args, funcType, variadic))
 					types.push(';\n')
 
 					out.push(printFunctionReturnType(funcType))
 					out.push(' ' + name + '_')
-					out.push(printFunctionArguments(args, funcType))
+					out.push(printFunctionArguments(args, funcType, variadic))
 					//out.push(' {};\n')
 
 					let _currentReturnType = currentReturnType
@@ -870,7 +870,7 @@ class GenCxx {
 					let rt = printFunctionReturnType(funcType)
 					forwardFunctions.push(rt)
 					forwardFunctions.push(' _$\(temp)')
-					forwardFunctions.push(printFunctionArguments(args, funcType, false))
+					forwardFunctions.push(printFunctionArguments(args, funcType))
 					forwardFunctions.push(';\n')
 //
 //
@@ -900,7 +900,7 @@ class GenCxx {
 					tabs = ''
 					globalFunctions.push(rt)
 					globalFunctions.push(' _$\(temp)')
-					globalFunctions.push(printFunctionArguments(args, funcType, true))
+					globalFunctions.push(printFunctionArguments(args, funcType))
 					globalFunctions.push(' ')
 					globalFunctions.push(printBlock(expr))
 					tabs = tab
@@ -1365,12 +1365,14 @@ class GenCxx {
 		}
 
 		var thisArgument: String? = null
-		fun printFunctionArguments(args: [String], funcType: Type, defaults: Bool = false) {
+		fun printFunctionArguments(args: [String], funcType: Type, variadic: VariadicKind = VariadicKind.NotVariadic) {
 			if args.length == 0, thisArgument != null {
+				// TODO variadic
 				return '(' + thisArgument + ')'
 			}
 
 			if args.length == 0 {
+				// TODO variadic
 				return '(void)' // Otherwise C function takes infinite number of arguments
 			}
 
@@ -1385,6 +1387,12 @@ class GenCxx {
 						var result = stringifyType(types[a]) + ' ' + args[a] + '_'
 						results.push(result)
 					}
+
+					if variadic == VariadicKind.NativeVariadic {
+						results.pop() // Last argument is unused
+						results.push('...')
+					}
+
 					return '(' + results.join(', ') + ')'
 
 					// TODO Incompatible types `String` and value of `Array<String?>`
@@ -1431,7 +1439,7 @@ class GenCxx {
 			return type
 		}
 
-		fun stringifyType(t: Type, prefixNull: Bool = false) {
+		fun stringifyType(t: Type, prefixNull: Bool = false): String {
 			switch t {
 				case Generic(index, name): return 'Any_*' // + '/*TODO Generic<\(name)>*/'
 				case Nullable(t):
@@ -1853,14 +1861,14 @@ class GenCxx {
 					let rt = printFunctionReturnType(funcType)
 					forwardFunctions.push(rt)
 					forwardFunctions.push(' _$\(temp)')
-					forwardFunctions.push(printFunctionArguments(args, funcType, false))
+					forwardFunctions.push(printFunctionArguments(args, funcType))
 					forwardFunctions.push(';\n')
 
 					let tab = tabs
 					tabs = ''
 					globalFunctions.push(rt)
 					globalFunctions.push(' _$\(temp)')
-					globalFunctions.push(printFunctionArguments(args, funcType, true))
+					globalFunctions.push(printFunctionArguments(args, funcType))
 					globalFunctions.push(' ')
 					globalFunctions.push(printBlock(expr))
 					globalFunctions.push('\n\n')
