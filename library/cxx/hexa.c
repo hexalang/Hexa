@@ -1,19 +1,20 @@
 // Include only basic language features
-#include <stdint.h>
-#include <stdarg.h>
-#include <stddef.h>
 #ifdef __cplusplus
 #include <new> // Placement new
 #include <functional> // For [&]
-#define _Static_assert(value, error) static_assert(value, error)
+	#define _Static_assert(value, error) static_assert(value, error)
 #else
-#define nullptr NULL
-#ifndef _Static_assert
-	#define _Static_assert(value, error)
-#endif
+	#define nullptr NULL
+	#ifndef _Static_assert
+		#define _Static_assert(value, error)
+	#endif
 #endif
 
 #ifndef HEXA_NO_DEFAULT_INCLUDES
+	#include <stdint.h>
+	#include <stdarg.h>
+	#include <stddef.h>
+
 	#include <stdio.h> // printf
 	#include <stdlib.h> // malloc
 	#include <string.h> // strlen
@@ -319,12 +320,55 @@ struct Object_ {};
 #define int32_t$ int64_t
 #define int32_t$null (int64_t)0b1111111111111111111111111111111111111111111111111111111111111111LL
 
+#define uint16_t$ uint32_t
+#define uint16_t$null (uint32_t)0xFFFFF
+
+#define int16_t$ int32_t
+#define int16_t$null (int32_t)0xFFFFF
+
+#define uint8_t$ uint16_t
+#define uint8_t$null (uint16_t)0xFFF
+
+#define int8_t$ int16_t
+#define int8_t$null (int16_t)0xFFF
+
+#define Bool_ uint8_t
+
 // TODO 0x instead of 0b for compiler compat
 struct Null$Float64 {
 	double value_;
 	uint8_t has_;
 };
 typedef struct Null$Float64 Null$Float64;
+
+struct Null$UInt64 {
+	uint64_t value_;
+	uint8_t has_;
+};
+typedef struct Null$UInt64 Null$UInt64;
+// TODO move this to `class UInt64`? Or, create new `@keep @struct @byValue class NullUInt64`
+uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
+	// if (a.has_ == 0 && b.has_ == 0) return 1;
+	//if (a.has_ != b.has_) return 1;
+	// TODO short-circuit version `(a.has_ + b.has_ + (uint8_t)(a.value_ == b.value_)) == 3` + cache `a.has_ + b.has_`
+	if (a.has_ && b.has_ && a.value_ == b.value_) return 1;
+	// if (!a.has_ && !b.has_) return true;
+	if ((a.has_ + b.has_) == 0) return 1;
+	return 0;
+}
+// This is done to not evaluate `value` twice (also useful for ABI)
+// TODO consider adding meta-block unroll
+Null$UInt64 toNull$UInt64(uint64_t value) {
+	return (Null$UInt64){value, (uint8_t)(value != 0)};
+}
+
+struct Null$Int64 {
+	// TODO fat value? aka inline struct, but what about return from function?
+	int64_t value_;
+	uint8_t has_;
+};
+typedef struct Null$Int64 Null$Int64;
+// TODO conversion methods
 
 //namespace std {
 //    void __throw_bad_function_call() {}

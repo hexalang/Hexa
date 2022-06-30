@@ -1287,6 +1287,30 @@ class GenCxx {
 			if fromValue == project.typer.typeInt, to == project.typer.typeString {
 				return 'String_$fromInt32_(' + string + ')'
 			}
+			if fromValue == project.typer.typeInt8, to == project.typer.typeString {
+				return 'String_$fromInt32_(' + string + ')'
+			}
+			if fromValue == project.typer.typeUInt8, to == project.typer.typeString {
+				return 'String_$fromInt32_(' + string + ')'
+			}
+			if fromValue == project.typer.typeInt16, to == project.typer.typeString {
+				return 'String_$fromInt32_(' + string + ')'
+			}
+			if fromValue == project.typer.typeUInt16, to == project.typer.typeString {
+				return 'String_$fromInt32_(' + string + ')'
+			}
+
+			// 64-bit
+			if fromValue == project.typer.typeUInt32, to == project.typer.typeString {
+				return 'String_$fromUInt64_(' + string + ')'
+			}
+			if fromValue == project.typer.typeInt64, to == project.typer.typeString {
+				return 'String_$fromInt64_(' + string + ')'
+			}
+			if fromValue == project.typer.typeUInt64, to == project.typer.typeString {
+				return 'String_$fromUInt64_(' + string + ')'
+			}
+
 			// TODO ^ from Float, etc
 			if fromValue == project.typer.typeBool, to == project.typer.typeString {
 				return 'String_$fromBool_(' + string + ')'
@@ -1298,6 +1322,19 @@ class GenCxx {
 					return '(' + string + ')->bytes_'
 				}
 			}}
+
+			switch fromValue {
+				case Nullable(_):
+				case UnknownNullable(_):
+				case _:
+					if to == project.typer.typeString {
+						let type = omitPointer(stringifyType(fromValue))
+						// TODO use meta block
+						if type != 'Any_' {
+							return type + '$toString_(' + string + ')'
+						}
+					}
+			}
 
 			//console.log(to) // , (to as! Any). ConstCharPointer
 
@@ -1316,6 +1353,11 @@ class GenCxx {
 							if toNull == fromNull {
 								return string
 							}
+
+							if to == project.typer.typeNullUInt64 {
+								return 'toNull$UInt64((uint64_t)(' + string + '))'
+							}
+
 							// `var x: A? = B?` unsafe conversion
 							// TODO `(Int?) as! (Float?)` should not be bit-cast (how C does `(double)(int)123`?)
 							return '(/*A? = B?*/' + stringifyType(to) + ')(' + string + ')'
@@ -1324,6 +1366,12 @@ class GenCxx {
 							if toNull == fromValue {
 								if toNull == project.typer.typeInt {
 									return '((int32_t$)(' + string + '))' // TODO
+								}
+								if toNull == project.typer.typeUInt64 {
+									return '(Null$UInt64){' + string + ', 1}'
+								}
+								if toNull == project.typer.typeInt64 {
+									return '(Null$Int64){' + string + ', 1}'
 								}
 
 								// TODO more (un)wrapping cases for basic types where needed
@@ -1341,6 +1389,24 @@ class GenCxx {
 								// TODO null float etc as struct for now
 								if toNull == project.typer.typeUInt32 {
 									return 'uint32_t$null'
+								}
+								if toNull == project.typer.typeInt16 {
+									return 'int16_t$null'
+								}
+								if toNull == project.typer.typeUInt16 {
+									return 'uint16_t$null'
+								}
+								if toNull == project.typer.typeInt8 {
+									return 'int8_t$null'
+								}
+								if toNull == project.typer.typeUInt8 {
+									return 'uint8_t$null'
+								}
+								if toNull == project.typer.typeUInt64 {
+									return '(Null$UInt64){0, 0}'
+								}
+								if toNull == project.typer.typeInt64 {
+									return '(Null$Int64){0, 0}'
 								}
 								if toNull == project.typer.typeBool {
 									return '(uint8_t)2'
@@ -1364,7 +1430,11 @@ class GenCxx {
 									return '(int32_t)(' + string + ')' // Should truncate
 									// TODO Example `return string + '.value_'`
 								}
-								return string
+								if fromValue == project.typer.typeNullUInt64, to == project.typer.typeUInt64 {
+									return string + '.value_'
+									// Note: no need to validate `has_` cause `null => has_ == 0 and value == 0`
+								}
+								return string + '/*T = T?*/'
 								return '%T = T?%'
 							}
 
@@ -1396,6 +1466,18 @@ class GenCxx {
 								if to == project.typer.typeUInt32 {
 									return 'uint32_t$null'
 								}
+								if to == project.typer.typeInt16 {
+									return 'int16_t$null'
+								}
+								if to == project.typer.typeUInt16 {
+									return 'uint16_t$null'
+								}
+								if to == project.typer.typeInt8 {
+									return 'int8_t$null'
+								}
+								if to == project.typer.typeUInt8 {
+									return 'uint8_t$null'
+								}
 								// TODO this `if` should be detected as unreachable (if `to` is `let`)
 								if (to == project.typer.typeInt) {
 									return '(int32_t)0'
@@ -1415,22 +1497,34 @@ class GenCxx {
 							}
 
 							var fromStructByValue = false
+							var fromBasicType = false
 							switch fromValue {
 								case ClassInstance(type):
 									let atts = project.mapDecorators.get(type.parent)
 
+									fromBasicType = Decorator.getDecorator(atts, 'nativeBasicType') != null
+
 									fromStructByValue = Decorator.getDecorator(atts, 'byValue') != null
+									fromStructByValue = fromStructByValue or type.name == 'ByValue'
 							}
 							var toStructByPointer = false
+							var toStructByValue = false
 							switch to {
 								case ClassInstance(type):
 									let atts = project.mapDecorators.get(type.parent)
 
 									toStructByPointer = Decorator.getDecorator(atts, 'struct') != null
+
+									toStructByValue = Decorator.getDecorator(atts, 'byValue') != null
+									toStructByValue = toStructByValue or type.name == 'ByValue'
 							}
 
-							if fromStructByValue and toStructByPointer {
+							if fromStructByValue and toStructByPointer, not fromBasicType {
 								return '(/*struct to pointer*/' + stringifyType(to) + ')&(' + string + ')'
+							}
+
+							if fromStructByValue and toStructByValue {
+								return '*((/*struct to struct*/' + omitPointer(stringifyType(to)) + '*)&(' + string + '))'
 							}
 
 							return '(' + stringifyType(to) + ')(' + string + ')'
@@ -1525,8 +1619,23 @@ class GenCxx {
 					if name == 'int32_t' {
 						return 'int32_t$'
 					}
+					if name == 'int16_t' {
+						return 'int16_t$'
+					}
+					if name == 'int8_t' {
+						return 'int8_t$'
+					}
+					if name == 'Bool' {
+						return 'Bool_'
+					}
 					if name == 'double' {
 						return 'Null$Float64'
+					}
+					if name == 'uint64_t' {
+						return 'Null$UInt64'
+					}
+					if name == 'int64_t' {
+						return 'Null$Int64'
 					}
 
 					if prefixNull == true {
@@ -1540,6 +1649,10 @@ class GenCxx {
 				case ClassInstance(type, generics):
 					// TODO generic params < T > !!!!! just output into C++  templates
 					// TODO type == typer.typeX
+
+					if (type.name == 'ByValue') {
+						return omitPointer(stringifyType(generics[0], prefixNull))
+					}
 					if (type.name == 'Int') {
 						return 'int32_t'
 					}
@@ -1590,7 +1703,7 @@ class GenCxx {
 					}
 					// Keeps three states: 1 = true, 0 = false, 2 = null
 					if (type.name == 'Bool') {
-						return 'uint8_t'
+						return 'Bool_'
 					}
 
 					// WinDef.h `typedef int BOOL;`
@@ -1775,6 +1888,22 @@ class GenCxx {
 						return 'uint32_t$null'
 					}
 
+					if type == project.typer.typeInt16 {
+						return 'int16_t$null'
+					}
+
+					if type == project.typer.typeUInt16 {
+						return 'uint16_t$null'
+					}
+
+					if type == project.typer.typeInt8 {
+						return 'int8_t$null'
+					}
+
+					if type == project.typer.typeUInt8 {
+						return 'uint8_t$null'
+					}
+
 					if type == project.typer.typeBool {
 						return '(uint8_t)2'
 					}
@@ -1886,7 +2015,8 @@ class GenCxx {
 					case This: return (customThis ?? 'this') + '->' + name + '_'
 					case Ident(id, typed):
 						// Static
-						if (id.charAt(0) == id.charAt(0).toUpperCase()) {
+						// TODO better detect
+						if id.charAt(0) == id.charAt(0).toUpperCase(), not id.startsWith('_') {
 							return id + '_$' + name + '_'
 						}
 						// Dynamic
@@ -2028,6 +2158,12 @@ class GenCxx {
 				case Parenthesis(e): return '(' + printExpression(e) + ')'
 
 				case Binop(a, op, b):
+					if op == Token.OpEq or op == Token.OpNotEq {
+						// TODO commutative
+						if let aType = getType(a), aType == project.typer.typeNullUInt64 {
+							return (op == Token.OpNotEq? '!' : '') + 'equalNull$UInt64(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), aType) + ')'
+						}
+					}
 					if op == Token.OpAdd {
 						if getType(a) == project.typer.typeString {
 							return 'String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), project.typer.typeString) + ')'
