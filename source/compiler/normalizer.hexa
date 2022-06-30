@@ -77,6 +77,7 @@ class Normalizer {
 				pushScope()
 				for e in file.nodes {
 					switch e {
+						// TODO indent
 								case Function(_):
 									if let s = nodeToStatement(e) { // Non-declare ones
 										niceProject.globalFuncs.push(s)
@@ -937,7 +938,7 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field)))
+								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
 							case _: console.error("(internal warning) Unknown complex enum static field kind:", field)
 						}
 						case _: console.error("(internal warning) Unknown complex enum field kind:", f)
@@ -998,7 +999,7 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field)))
+								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
 							case _: console.error("(internal warning) Unknown simple enum static field kind:", field)
 						}
 						case _: console.error("(internal warning) Unknown simple enum field kind:", f)
@@ -1103,7 +1104,7 @@ class Normalizer {
 									defaults.push(null)
 								}
 						}}
-						type.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f)))
+						type.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic))
 					case Static(field):
 						switch field {
 							case Var(name, t, expr, const):
@@ -1130,7 +1131,7 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field)))
+								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
 							case _: console.error("(internal warning) Unknown class static field kind:", field)
 						}
 					case _: console.error("(internal warning) Unknown class field kind:", f)
@@ -1272,7 +1273,7 @@ class Normalizer {
 				neverReassignedLocalParent.set(result, e)
 				return result
 
-				case Function(name, expr, vars, rettype, external):
+				case Function(name, expr, vars, rettype, external, variadic):
 				var uname: String? = null
 
 				// TODO wrap getting `native` into function, also validate it takes only 1 argument
@@ -1304,10 +1305,14 @@ class Normalizer {
 							defaults.push(null)
 						}
 				}}
-				if (name == 'new') {
-					return Statement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e))
+
+				let variadic = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
+
+				if name == 'new' {
+					return Statement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic)
 				}
-				return Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e))
+
+				return Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic)
 
 				case For(name, over, by, range):
 				if (range == null) { switch over {
