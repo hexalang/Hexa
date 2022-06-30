@@ -166,7 +166,7 @@ class Parser {
 						i--
 						fail('Constructor `new` should have a `{ block }` as a body')
 				}
-				let field = Node.Function('new', expr, v, null, false)
+				let field = Node.Function('new', expr, v, null, false, variadic: false)
 				project.data.set(field, pos)
 				fields.push(field)
 			case LLower:
@@ -260,10 +260,10 @@ class Parser {
 
 				step(Token.BrClose)
 
-				let getter: Node? = (getterExpr == null)? null : Node.Function('get_' + n, getterExpr, [], t, false)
+				let getter: Node? = (getterExpr == null)? null : Node.Function('get_' + n, getterExpr, [], t, false, variadic: false)
 				let setter: Node? = (setterExpr == null)? null : Node.Function('set_' + n, setterExpr, [
 						Node.Var(setterVar, t, null, true, false)
-					], null, false)
+					], null, false, variadic: false)
 				let property = Node.Property(
 					field,
 					getter,
@@ -313,7 +313,7 @@ class Parser {
 		return lex.token[i] as! Token
 	}
 
-	fun print() {
+	fun print(): String {
 		return Token.stringify(lex.token[i] as! Token, lex.value[i])
 	}
 
@@ -1728,6 +1728,7 @@ class Parser {
 			fail('Unnamed functions cannot be marked as `declare fun`')
 		}
 
+		var variadic = false
 		step(Token.POpen)
 		{
 			if tok() != Token.PClose {
@@ -1741,6 +1742,7 @@ class Parser {
 				var expr = null
 				var t = null
 				if tok() == Token.Interval {
+					variadic = true
 					i++
 				}
 				pos.push({ line: lex.line[i], column: lex.column[i] })
@@ -1759,6 +1761,9 @@ class Parser {
 				values.push(expr)
 				if tok() == Token.Comma {
 					i++
+					if variadic {
+						fail('Variadic `...\(name)` argument must be the last argument')
+					}
 				} else {
 					break
 				}
@@ -1829,7 +1834,7 @@ class Parser {
 				i--
 				fail('Function `\(named)` should have a `{ block }` as a body')
 		}
-		let result = Node.Function(name, expr, v, rettype, external/*, TODO params*/)
+		let result = Node.Function(name, expr, v, rettype, external/*, TODO params*/, variadic: variadic)
 		if let params = params {
 			project.mapFuncParams.set(result, params)
 		}

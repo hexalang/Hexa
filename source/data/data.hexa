@@ -92,7 +92,7 @@ enum Node {
 	// `declare fun name<params>(vars): retType { body }`
 	// Name is `new` for constructor
 	// TODO expr Node.Block (goal is *not* to `Node extends NodeBlock` but to actually limit tags)
-	Function(name: String?, body: Node, vars: [Node], retType: NodeType, external: Bool)
+	Function(name: String?, body: Node, vars: [Node], retType: NodeType, external: Bool, variadic: Bool)
 
 
 	// (vars): rettype => { expr }
@@ -261,6 +261,8 @@ enum Node {
 				return cloneData(p, node, Node.Array(elements.map(arg => cloneData(p, arg, clone(p, arg)))))
 			case Binop(a, op, b):
 				return cloneData(p, node, Node.Binop(cloneData(p, a, clone(p, a)), op, cloneData(p, b, clone(p, b))))
+			case AssignOp(storage, op, value):
+				return cloneData(p, node, Node.AssignOp(cloneData(p, storage, clone(p, storage)), op, cloneData(p, value, clone(p, value))))
 			case For(name, over, by, range):
 				return cloneData(p, node, Node.For(
 					name: name,
@@ -333,14 +335,15 @@ enum Node {
 					external: external
 				))
 			}
-			case Function(name, body, vars, retType, external): {
+			case Function(name, body, vars, retType, external, variadic): {
 				return cloneData(p, node, Node.Function(
 					name: name,
 					body: cloneData(p, body, clone(p, body)),
 					vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
 					// TODO vars: `[Node]`, somehow valid? Array of what? Fix
 					retType: retType,
-					external: external
+					external: external,
+					variadic: variadic
 				))
 			}
 			case Class(t, extend, implement, fields, external, kind):
