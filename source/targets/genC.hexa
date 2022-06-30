@@ -250,10 +250,12 @@ class GenCxx {
 				// TODO better way
 				c.name = stringifyType(c.type).replace('_*','')
 
+				var isStruct = false
 				var isPacked = false
 				switch c.type {
 					case Class(type): {
 						let atts = project.mapDecorators.get(type.parent)
+						isStruct = Decorator.getDecorator(atts, 'struct') != null
 						isPacked = Decorator.getDecorator(atts, 'packed') != null
 					}
 				}
@@ -267,7 +269,11 @@ class GenCxx {
 				types.push('struct ' + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '__ {\n\t']
 				// TODO const pointer to const struct
-				types.push('\n\tconst struct ' + c.name + '__ * const _;')
+				if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
+					// Ok
+				} else {
+					types.push('\n\tconst struct ' + c.name + '__ * const _;')
+				}
 				let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = {\n\t']
 				let vtableBind = []
 
@@ -360,7 +366,11 @@ class GenCxx {
 							out.push(printFunctionArguments(args, funcType))
 							out.push(' {\n')
 							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
-							out.push('\t$_[0] = (void *)&' + c.name + '__$;\n')
+							// TODO why so complicated? Just assign `_` v table pointer, makes also type-safer
+							if c.api == ClassBinaryInterface.StructureNoVirtual {
+							} else {
+								out.push('\t$_[0] = (void *)&' + c.name + '__$;\n')
+							}
 							out.push('\t' + c.name + '_* _ = (' + c.name + '_*)($_);\n')
 
 							//out.push('\tvoid* buffer_ = (struct ' + c.name + '_*)(HEXA_NEW(sizeof(struct ' + c.name + '_)));\n')
