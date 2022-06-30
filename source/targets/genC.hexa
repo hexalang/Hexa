@@ -1593,10 +1593,17 @@ class GenCxx {
 				// TODO ^ probably requires rename basic types too?
 				case Enum(type):
 					if let sub = type.fieldsTypeSimple {
+						let atts = project.mapDecorators.get(type.parent)
+						if let rename = Decorator.getDecorator(atts, 'castTo') {
+							return DataHelper.asStringAttValue(rename, 0)
+						}
+
 						return stringifyType(sub)
 					}
+
 					return type.name + '_*'
-				case EnumInstance(type): return type.name + '_*'
+				case EnumInstance(type):
+					return stringifyType(Type.Enum(type))
 				case Struct(_): return 'Any_*/*Struct*/'
 				case Function(args, returns):
 					let temp = tempId++
@@ -1612,6 +1619,7 @@ class GenCxx {
 					typedefFunctions.push(a.join(', '))
 					typedefFunctions.push(');\n')
 					return '_$\(temp)'
+				case Constant(_): return 'Any_*'
 				case null: return 'Any_*'
 				case _: throw 'stringifyType ' + t
 			}
