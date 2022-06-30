@@ -250,8 +250,20 @@ class GenCxx {
 				// TODO better way
 				c.name = stringifyType(c.type).replace('_*','')
 
+				var isPacked = false
+				switch c.type {
+					case Class(type): {
+						let atts = project.mapDecorators.get(type.parent)
+						isPacked = Decorator.getDecorator(atts, 'packed') != null
+					}
+				}
+
 				forward.push('struct ' + c.name + '_;')
 				forward.push('typedef struct \(c.name)_ \(c.name)_;')
+
+				if isPacked {
+					types.push('#pragma pack(1)\n')
+				}
 				types.push('struct ' + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '__ {\n\t']
 				// TODO const pointer to const struct
@@ -443,6 +455,9 @@ class GenCxx {
 				//}
 
 				types.push('\n};\n')
+				if isPacked {
+					types.push('#pragma pack()\n')
+				}
 				vtable.push('\n};\n')
 				vtableValue.push(vtableBind.join(',\n\t'))
 				vtable.push(vtableValue.join('') + '\n};\n')
