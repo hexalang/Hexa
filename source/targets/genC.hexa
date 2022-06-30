@@ -291,6 +291,21 @@ class GenCxx {
 						} else {
 							types.push('\n\t\(stringifyType(type)) ' + name + '_;')
 						}
+						switch type {
+							case ClassInstance(type, generics): {
+								if type.name == 'ArrayByValue' {
+									var arraySize = ''
+									if let count = generics[1] {
+										arraySize = '[' + Type.stringify(count) + ']'
+									} else {
+										arraySize = '[]'
+									}
+
+									types.pop() // TODO better idea
+									types.push('\n\t\(stringifyType(generics[0])) ' + name + '_' + arraySize + ';')
+								}
+							}
+						}
 						//else
 						//types.push('\n\tAny_* ' + name + '_;')
 						//if (expr != null)
@@ -874,11 +889,17 @@ class GenCxx {
 					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
 				case Var(name, expr, type):
 					switch type {
-						case ClassInstance(type, generics):
+						case ClassInstance(typeClass, generics):
 							var arraySize = ''
-							if type.name == 'ArrayByValue' {
+							var arrayLength = 0x7FFFFFFF
+							if typeClass.name == 'ArrayByValue' {
 								if let count = generics[1] {
 									arraySize = '[' + Type.stringify(count) + ']'
+									switch count {
+										case Constant(value): {
+											arrayLength = parseInt(value)
+										}
+									}
 								} else {
 									arraySize = '[]'
 								}
@@ -886,9 +907,28 @@ class GenCxx {
 								switch expr {
 									case Array(el):
 										let valueType = generics[0]
+										// TODO typer check: 1 or N elements and type of elements
 										return stringifyType(valueType) + ' ' + name + '_' + arraySize + ' = {' + [for a in el printTypeConverter(printExpression(a), getType(a), valueType)].join(', ') + '}'
+									case String(string):
+										if arrayLength <= string.length {
+											throw 'String initializer is of length `\(string.length + 1)` including null terminator'
+										}
+
+										let valueType = generics[0]
+										if generics[0] == project.typer.typeUInt8 {
+											return stringifyType(valueType) + ' ' + name + '_' + arraySize + ' = "' + string + '"'
+										}
+										throw 'String initializer is incompatible'
 									case null:
-										throw 'Array initializer required'
+										// TODO check this in typer
+										throw 'Array initializer required ' + name
+								}
+							} else if typeClass.name == 'ByValue' {
+								switch expr {
+									case null:
+									case New(e, args, result):
+										// Just print out `T varName; init(&varName);`
+										return stringifyType(type) + ' ' + name + '_; ' // + stringifyType(type) + '$this_(&' + name + '_);'
 								}
 							}
 					}
@@ -1824,7 +1864,25 @@ class GenCxx {
 				case True: return 'true_'
 				case False: return 'false_'
 				case Dot(expr, name):
+				if name == 'ref' or name == 'address' {
+					let type = getType(expr)
 					switch type {
+						case ClassInstance(c):
+							if c.name == 'ByValue', name == 'ref' {
+								return '(&' + printExpression(expr) + ')'
+							}
+
+							if c.name == 'ArrayByValue', name == 'ref' {
+								return '(&' + printExpression(expr) + '[0])'
+							}
+
+							if c.name == 'ArrayByValue' and name == 'address' {
+								return '(uint64_t)&(' + printExpression(expr) + ')'
+							}
+					}
+				}
+
+				switch expr {
 					case This: return (customThis ?? 'this') + '->' + name + '_'
 					case Ident(id, typed):
 						// Static
