@@ -1535,11 +1535,11 @@ int main(int argc, char* argv[])
 
 	pSymbolList = CreateSymbolList(pName);
 
-
 	int i = 4;
 	while (i < argc) {
 		AddFunction(pSymbolList, argv[i], 0, 0, CALLING_CONVENTION_UNDECORATED, IMPORT_BY_DECORATED_NAME);
-		printf("AddFunction %s\n", argv[i]);
+		// TODO add verbose mode
+		// printf("AddFunction %s\n", argv[i]);
 		i++;
 	}
 
