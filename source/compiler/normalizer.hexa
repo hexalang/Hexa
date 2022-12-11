@@ -95,7 +95,7 @@ class Normalizer {
 							switch statement {
 								case null:
 								case Block(el):
-								if (el.length > 0) { // Don't output empty blocks
+								if el.length > 0 { // Don't output empty blocks
 									initial.push(statement)
 								}
 								case _:
@@ -104,14 +104,14 @@ class Normalizer {
 					}
 				}
 				popScope()
-				if (initial.length > 0) {
+				if initial.length > 0 {
 					init.push(Statement.Block(initial))
 				}
 			}
 
 			niceProject.init.push(Statement.Block(init))
 
-			if (niceProject.init.length > 1) {
+			if niceProject.init.length > 1 {
 				throw "too many inits"
 			}
 
@@ -122,7 +122,7 @@ class Normalizer {
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
 			niceProject.classes.sort(fun(a, b) {
-				if (a.external == true) {
+				if a.external == true {
 					return -1
 				}
 
@@ -138,7 +138,7 @@ class Normalizer {
 
 		fun nodeToExpression(e: Node): Expression? {
 			let result = nodeToExpressionWithoutPosition(e)
-			if (result != null) {
+			if result != null {
 				niceProject.expressionPosition.set(result, project.data.get(e))
 				if (niceProject.expressionType.get(result) == null) {
 					niceProject.expressionType.set(result, typer.types.get(e))
@@ -148,7 +148,7 @@ class Normalizer {
 		}
 
 		fun nodeToExpressionWithoutPosition(e: Node): Expression? {
-			if (e == null) {
+			if e == null {
 				return null
 			}
 
@@ -956,6 +956,7 @@ class Normalizer {
 					let type = new NiceSimpleEnum()
 					type.name = DataHelper.extractTypeName(t)
 					let names = []
+					// TODO must error cause type of `[]` is unknown
 					let values = []
 					for f in fields { switch f {
 						// `ValueName = b`
@@ -1334,13 +1335,15 @@ class Normalizer {
 				let variadic = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
 
 				if name == 'new' {
+					// TODO just keep `new` as name or whatever
 					return Statement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic)
 				}
 
 				return Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic)
 
 				case For(name, over, by, range):
-				if (range == null) { switch over {
+				if range == null {
+					switch over {
 					// TODO compare not `Node.Int` but instead propagate whatever constant *Nice* Int/MetaInt
 					case Int(s):
 					let i = unique(name, e)
@@ -1989,7 +1992,7 @@ class Normalizer {
 						let atts = project.mapDecorators.get(f)
 
 						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-							case String(s): if (parentNames.get(f) == null) {
+							case String(s): if parentNames.get(f) == null {
 								unique(s, f)
 							}
 							case _: throw '@rename takes string as argument'

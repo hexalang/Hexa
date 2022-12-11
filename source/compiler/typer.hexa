@@ -456,8 +456,12 @@ class Typer {
 				switch type.name {
 					case 'Int': //typeInt = type.instantiate()
 					case 'Bool': typeBool = type.instantiate()
-					case 'Float': typeFloat = type.instantiate()
-					case 'Float32': typeFloat32 = type.instantiate()
+					case 'Float':
+						typeFloat = type.instantiate()
+
+					case 'Float32':
+						typeFloat32 = type.instantiate()
+
 					case 'String': typeString = type.instantiate()
 					case 'Array':
 						// TODO protect the same way whole `switch`
@@ -713,7 +717,7 @@ class Typer {
 										types.set(f, Type.Function(varTypes(vars), rettype!=null? toType(rettype, f) : typeVoid))
 									}
 									insideClassMethod = _insideClassMethod
-									if (types.get(f) == null) {
+									if types.get(f) == null {
 										fail('Function get no type: class ' + DataHelper.nameOf(node) + ' static ' + name, f)
 									}
 									types.set(field, types.get(f))
@@ -721,7 +725,7 @@ class Typer {
 									if external, e != null {
 										fail('External class field `static var \(name)` cannot have expression', field)
 									}
-									if (e != null) {
+									if e != null {
 										fillExpression(e)
 									}
 									mixVarTypes(t, e, f)
@@ -900,14 +904,14 @@ class Typer {
 							// `enum E { static ... }`
 							case Static(f): switch f {
 								case Function(name, _):
-									if (type.fieldNames.includes(name)) {
+									if type.fieldNames.includes(name) {
 										fail('Field `\(name)` already exists', node)
 									}
 									type.fieldNames.push(name)
 									type.fieldStatic[type.fieldNames.length - 1] = true
 									addScope(name, field)
 								case Var(name, _):
-									if (type.fieldNames.includes(name)) {
+									if type.fieldNames.includes(name) {
 										fail('Field `\(name)` already exists', node)
 									}
 									type.fieldNames.push(name)
@@ -996,7 +1000,7 @@ class Typer {
 
 		fun positionOf(node: Node) {
 			let data = project.data.get(node)
-			if (data == null) {
+			if data == null {
 				return "[Unknown]: "
 			}
 			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
@@ -1004,7 +1008,7 @@ class Typer {
 
 		static fun nodeToNodeType(node: Node): NodeType { switch node {
 			case Array(el):
-				if (el.length > 1) {
+				if el.length > 1 {
 					fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
 				}
 				return NodeType.ParametricType("Array", [nodeToNodeType(el[0])], null)
@@ -1105,6 +1109,7 @@ class Typer {
 		private var namespaces: [String : Node] = [:]
 
 		// Meta
+		// TODO those fields should be public actually
 		private var typeBigInt: Type? = null
 		private var typeInt32: Type? = null
 		private var typeInt64: Type? = null
@@ -1537,7 +1542,7 @@ class Typer {
 					}
 				case ParametricType(name, params, path):
 					let nodeType: Node = findType(name) ?? currentModule.exported.get(name) ?? currentModule.imported.get(name)
-					if (types.get(nodeType) == null) { switch nodeType {
+					if types.get(nodeType) == null { switch nodeType {
 						case Class(_):
 							let mod = currentModule
 							registerClassType(nodeType)
@@ -1548,17 +1553,17 @@ class Typer {
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch type {
 						case Class(type):
-							if (type.genericParams.length == 0) {
+							if type.genericParams.length == 0 {
 								fail('The type `\(type.name)` requires zero generic parameters', node)
 							}
-							if (type.genericParams.length != params.length) {
+							if type.genericParams.length != params.length {
 								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
 							}
 							return type.instantiateGeneric([for p in params toType(p, node)])
 						case null:
 							fail('Cannot find type `\(name)`', node)
 						case _:
-							if (type == typeAny) {
+							if type == typeAny {
 								// Ignore all parameters here
 								return typeAny
 							}
@@ -1974,7 +1979,7 @@ class Typer {
 					var parent: Node = parents.get(a)
 					// `a = b`
 					// TODO separate assign node? or just nested pattern...
-					if (op == Token.OpAssign) { switch parent {
+					if op == Token.OpAssign { switch parent {
 						case null:
 							switch a {
 								case Ident(_): // Ok
@@ -2025,6 +2030,7 @@ class Typer {
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
 							node)
 						case Static(_):
+							// TODO is this ok?
 						case Super:
 							fail('Cannot reassign `super`', node)
 						case _:
