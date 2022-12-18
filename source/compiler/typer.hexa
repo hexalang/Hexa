@@ -2985,7 +2985,24 @@ class Typer {
 						}
 					}
 
-				 	switch types.get(e) as! Type {
+					@noCapture // TODO cause I wrote `return types.get(e)` not `return types.get(node)`
+					fun obviousTyping(node: Node): Type {
+						switch node {
+							case Function(name, expr, vars, rettype):
+								pushFuncParamsIfRequired(node)
+								if let rettype = rettype {
+									types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
+								} else {
+									types.set(node, Type.Function(varTypes(vars), Type.Unknown({handle: null})))
+								}
+								popFuncParamsIfRequired(node)
+						}
+						return types.get(node)
+					}
+
+					let eType = types.get(e) ?? obviousTyping(parents.get(e) ?? e)
+
+				 	switch eType {
 				 		case Function(args, returns):
 							evaluateArguments(el, args)
 /*
