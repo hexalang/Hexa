@@ -383,7 +383,9 @@ class GenCxx {
 									if expr != null {
 									}
 								case Const(name, expr, type):
-									out.push('\t$this->' + name + '_ = ' + printExpression(expr) + ';\n')
+									if expr != null {
+										out.push('\t$this->' + name + '_ = ' + printInitializer(type, expr) + ';\n')
+									}
 							}}
 							pushTab()
 							switch expr {
@@ -1154,7 +1156,7 @@ class GenCxx {
 									))
 							}
 					}
-					return printExpression(a) + ' = ' + printExpression(v)
+					return printExpression(a) + ' = ' + printInitializer(getType(a), v)
 					//return printExpression(a) + ' = ' + printTypeConverter(printExpression(v), getType(v), getType(a))
 
 				case Throw(e):
@@ -2013,6 +2015,29 @@ class GenCxx {
 		fun registerString(string: String): Int {
 			declarationsOfStrings.push(string)
 			return declarationsOfStrings.length - 1
+		}
+
+		fun printInitializer(ofType: Type, v: Expression) {
+			switch ofType {
+				case ClassInstance(c):
+					if c.name == 'ArrayByValue' {
+						switch v {
+							case Array(el) if el.length == 1: {
+								switch el[0] {
+									case Int(val): {
+										if val == 0 {
+											// Print single-element (C-style) initializer for `ArrayByValue`
+											return '{0}'
+										}
+										// TODO else what?
+									}
+								}
+							}
+						}
+					}
+			}
+
+			return printExpression(v)
 		}
 
 		var customThis: String? = null
