@@ -257,22 +257,28 @@ class GenCxx {
 				c.name = stringifyType(c.type).replace('_*','')
 
 				var isStruct = false
+				var isUnion = false
 				var isPacked = false
 				switch c.type {
 					case Class(type): {
 						let atts = project.mapDecorators.get(type.parent)
 						isStruct = Decorator.getDecorator(atts, 'struct') != null
+						isUnion = Decorator.getDecorator(atts, 'union') != null
 						isPacked = Decorator.getDecorator(atts, 'packed') != null
 					}
 				}
 
-				forward.push('struct ' + c.name + '_;')
-				forward.push('typedef struct \(c.name)_ \(c.name)_;')
+				let nativeKind = isUnion? 'union ' : 'struct '
+
+				let forwardedAs = nativeKind + c.name + '_;'
+
+				forward.push(forwardedAs)
+				forward.push('typedef \(nativeKind)\(c.name)_ \(c.name)_;')
 
 				if isPacked {
 					types.push('#pragma pack(1)\n')
 				}
-				types.push('struct ' + c.name + '_ {\n\t')
+				types.push(nativeKind + c.name + '_ {\n\t')
 				let vtable = ['struct ' + c.name + '__ {\n\t']
 				// TODO const pointer to const struct
 				if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
