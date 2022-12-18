@@ -1564,7 +1564,19 @@ class Typer {
 							if type.genericParams.length != params.length {
 								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
 							}
-							return type.instantiateGeneric([for p in params toType(p, node)])
+
+							let instanceParams = [for p in params toType(p, node)]
+
+							// Fix C forward declaration order
+							if name == 'ByValue' {
+								switch instanceParams[0] {
+									case ClassInstance(type):
+										// TODO is it even useful here? Or just keep in normalizer?
+										type.usedByValueDepth = 1
+								}
+							}
+
+							return type.instantiateGeneric(instanceParams)
 						case null:
 							fail('Cannot find type `\(name)`', node)
 						case _:
