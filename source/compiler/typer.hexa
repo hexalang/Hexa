@@ -1543,6 +1543,11 @@ class Typer {
 								return typeAny
 							}
 
+							switch type {
+								case Generic(_):
+									return type
+							}
+
 							return type
 					}
 				case ParametricType(name, params, path):
@@ -1996,7 +2001,14 @@ class Typer {
 					}
 					if e != null {
 						pushScope()
-						fillExpression(e)
+
+						switch e {
+							case Array(el) if el.length == 0 and t != null: {
+								// Inferred in `mixVarTypes`
+							}
+							case _:
+								fillExpression(e)
+						}
 						popScope()
 					}
 
@@ -2219,6 +2231,14 @@ class Typer {
 								if type != typeBool, type != typeAny, type != null {
 									if type == typeInt {
 										fail('Use `if ' + Node.stringify(e) + ' != 0` syntax to compare `Int` values with zero', e)
+									}
+
+									switch e {
+										case Binop(a, op, b):
+											// TODO rename OpEq to Equal, also confusion with OpAssign
+											if op == Token.OpAssign {
+												fail('Probably change `=` to `==` here. `if value` expects `value` only of type `Bool`, but got `' + Type.stringify(type) + '`', e)
+											}
 									}
 
 									fail('`if value` expects `value` only of type `Bool`, but got `' + Type.stringify(type) + '`', e)
@@ -2692,7 +2712,21 @@ class Typer {
 							if let type = handle.value {
 								types.set(node, type)
 							} else {
-								failNonFatal('Cannot access `.\(n)` due to type of value being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
+								switch e {
+									case Call(what, _):
+										switch what {
+											case Ident(name):
+												// TODO show position of Ident parent
+												failNonFatal('Cannot access `.\(n)` due to return type of `\(name)(...)` being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
+											case _:
+												// TODO specify `value` that's referenced in the text
+												failNonFatal('Cannot access `.\(n)` due to type of value being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
+										}
+									case Ident(name):
+									case _:
+										failNonFatal('Cannot access `.\(n)` due to type of value being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
+								}
+								// TODO what means `set full type [T]`?
 								types.set(node, typeAny) // TODO unwrap proper type
 							}
 						case null:
