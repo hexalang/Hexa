@@ -1414,6 +1414,13 @@ class GenCxx {
 								if toNull == project.typer.typeInt64 {
 									return '(Null$Int64){' + string + ', 1}'
 								}
+								if toNull == project.typer.typeFloat {
+									// TODO isn't it `Null$Float64`?
+									return '(Null$Float){' + string + ', 1}'
+								}
+								if toNull == project.typer.typeFloat32 {
+									return '(Null$Float32){' + string + ', 1}'
+								}
 
 								// TODO more (un)wrapping cases for basic types where needed
 								return string
@@ -1449,6 +1456,12 @@ class GenCxx {
 								if toNull == project.typer.typeInt64 {
 									return '(Null$Int64){0, 0}'
 								}
+								if toNull == project.typer.typeFloat {
+									return '(Null$Float64){0.0, 0}'
+								}
+								if toNull == project.typer.typeFloat32 {
+									return '(Null$Float32){0.0f, 0}'
+								}
 								if toNull == project.typer.typeBool {
 									return '(uint8_t)2'
 								}
@@ -1471,7 +1484,13 @@ class GenCxx {
 									return '(int32_t)(' + string + ')' // Should truncate
 									// TODO Example `return string + '.value_'`
 								}
-								if fromValue == project.typer.typeNullUInt64, to == project.typer.typeUInt64 {
+								if
+									(fromValue == project.typer.typeNullUInt64 and to == project.typer.typeUInt64)
+									or
+									(fromValue == project.typer.typeNullFloat and to == project.typer.typeFloat)
+									or
+									(fromValue == project.typer.typeNullFloat32 and to == project.typer.typeFloat32)
+								{
 									return string + '.value_'
 									// Note: no need to validate `has_` cause `null => has_ == 0 and value == 0`
 								}
@@ -1528,11 +1547,9 @@ class GenCxx {
 									return string // TODO seems like unspecified generic type <T>
 								}
 								return '(/*T = null*/' + stringifyType(to) + ')(' + string + ')'
-								return '%T = null%'
 								}
 							}
 
-							let tot = JSON.stringify(''+to)
 							if to == null {
 								return string
 							}
@@ -1570,7 +1587,6 @@ class GenCxx {
 							}
 
 							return '(' + stringifyType(to) + ')(' + string + ')'
-							return '(/*A = B*/' + '/*\(tot)*/' + stringifyType(to) + ')(' + string + ')'
 					}
 				}
 			}
@@ -1672,6 +1688,9 @@ class GenCxx {
 					}
 					if name == 'double' {
 						return 'Null$Float64'
+					}
+					if name == 'float' {
+						return 'Null$Float32'
 					}
 					if name == 'uint64_t' {
 						return 'Null$UInt64'
@@ -2212,6 +2231,10 @@ class GenCxx {
 						// TODO commutative
 						if let aType = getType(a), aType == project.typer.typeNullUInt64 {
 							return (op == Token.OpNotEq? '!' : '') + 'equalNull$UInt64(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), aType) + ')'
+						}
+
+						if let aType = getType(a), aType == project.typer.typeNullFloat32 {
+							return (op == Token.OpNotEq? '!' : '') + 'equalNull$Float32(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), aType) + ')'
 						}
 					}
 
