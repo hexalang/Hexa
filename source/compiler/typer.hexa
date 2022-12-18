@@ -1596,10 +1596,25 @@ class Typer {
 			}
 		}
 
+		// Infer `var a [T] = []`
+		fun inferEmptyArray(t: Type, e: Node?) {
+			switch e {
+				case Array(el) if el.length == 0 and t != null: {
+					types.set(e, t)
+				}
+				case null: // TODO `case null` should be error for non-nullable expressions
+				case _:
+			}
+		}
+
 		// `var node: NodeType = e`
 		fun mixVarTypes(t: NodeType?, e: Node?, node: Node) {
 			if t != null, e != null {
-				types.set(node, unify(toType(t, node), types.get(e), e))
+				let tType = toType(t, node)
+
+				inferEmptyArray(tType, e)
+
+				types.set(node, unify(tType, types.get(e), e))
 			}
 			if t == null, e != null {
 				types.set(node, types.get(e))
@@ -1997,6 +2012,8 @@ class Typer {
 									fail('Cannot reassign `\(Node.stringify(a))`', a)
 							}
 							// TODO typings for `[]` etc
+							// Infer `[]`
+							inferEmptyArray(types.get(a), b)
 						case Var(name, _, _, const):
 							if const {
 								fail(
@@ -2008,6 +2025,7 @@ class Typer {
 							let typeA = types.get(a)
 							let typeB = types.get(b)
 							inferNullType(typeB, typeA) // `a = null`
+							inferEmptyArray(typeA, b) // `a = []`
 							let newType = unify(typeA, typeB, b)
 							types.set(node, newType)
 
@@ -2112,8 +2130,9 @@ class Typer {
 					allowBreakAndContinue = true
 					switch by {
 						case Block(_):
-						case _:
+						case _: {
 							fail('Loop body must be a `{` block `}`', by)
+						}
 					}
 					fill(by)
 					allowBreakAndContinue = _allowBreakAndContinue
@@ -2567,12 +2586,22 @@ class Typer {
 												return ofType
 											}
 
-											let extractedType = types.get(field) as! Type
+											let extractedType = types.get(field) ?? switch field {
+												// TODO on-demand full class field inference
+												case Var(name, t, e, const):
+													// TODO `if let t = t {`
+													if t != null {
+														toType(t, field)
+													} else {
+														null
+													}
+											}
+
 											// TODO somehow pre-flag (when parsing class fields) it it requires fixup at all
 											types.set(node, genericFixup(extractedType, generic))
 											parents.set(node, field)
 
-											if types.get(field) == null {
+											if extractedType == null {
 												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', type.fieldInitialized[type.fieldNames.indexOf(n)])
 												fail('Type for this field cannot be inferred, try to specify types manually: `' + n + '`', field)
 											}
@@ -2649,7 +2678,7 @@ class Typer {
 							types.set(node, typeAny) // TODO unwrap proper type
 						case Unknown(handle):
 							if let type = handle.value {
-								// TODO
+								types.set(node, type)
 							} else {
 								failNonFatal('Cannot access `.\(n)` due to type of value being unknown, try to specify a proper type (set full type `[T]` if this value coming from array)', node)
 								types.set(node, typeAny) // TODO unwrap proper type
@@ -2901,7 +2930,7 @@ class Typer {
 							let argumentValueType = types.get(el[i])
 							let expectedType = arg
 							// `func(null)`
-							inferNullType(argumentValueType, expectedType)
+							inferNullType(argumentValueType, expectedType, el[i])
 				 			unify(expectedType, argumentValueType, el[i])
 						}
 					}
@@ -2968,6 +2997,9 @@ class Typer {
 
 					let typeA = types.get(a)
 					let typeB = types.get(b)
+
+					inferNullType(typeA, typeB, a)
+					inferNullType(typeB, typeA, b)
 
 					// Anything + String = String
 					if op == Token.OpAdd, typeA == typeString {
@@ -3399,13 +3431,28 @@ class Typer {
 		}
 
 		/// Sets the type of `null` which has `UnknownNullable` be default
-		fun inferNullType(to: Type, fromValue: Type) {
+		fun inferNullType(to: Type, fromValue: Type, node: Node? = null) {
 			switch to {
 				case UnknownNullable(handle):
 					if handle.value == null {
 						handle.value = unwrapUnknownAndNullable(fromValue)
+						if let node = node {
+							types.set(node, asNullable(unwrapUnknownAndNullable(fromValue)))
+						}
 					}
 			}
+		}
+
+		/// `T?`
+		fun isNullable(type: Type): Bool {
+			switch type {
+				case Nullable(_):
+					return true
+				case UnknownNullable(_):
+					return true
+			}
+
+			return false
 		}
 
 		/// `T? => T`
