@@ -87,6 +87,15 @@
 	#endif
 #endif
 
+// DLL precise (unmangled) linking names
+#define HEXA_LINK(name) asm(name)
+#ifndef __GNUC__
+    #ifndef __clang__
+		// Not supported by MSVC
+		#define HEXA_LINK(name)
+	#endif
+#endif
+
 //#define $null ((Any_ *)0)
 //#define $bool uint8_t
 //#define $true 1        // 0b00000001

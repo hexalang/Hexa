@@ -76,10 +76,60 @@ class Normalizer {
 				let initial = []
 				pushScope()
 				for e in file.nodes {
+					let decorators = project.mapDecorators.get(e)
 					switch e {
 						// TODO indent
-								case Function(_):
+								case Function(name, _):
 									if let s = nodeToStatement(e) { // Non-declare ones
+										let link = new NiceLink()
+
+										if let dec = Decorator.getDecorator(decorators, 'linkName') {
+											// TODO ^ rename to `linkAs()`
+											switch dec.values[0] {
+												case String(s):
+													link.linkName = s
+											}
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'linkAsIs') {
+											link.linkName = name
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'customHeader') {
+											switch dec.values[0] {
+												case String(s):
+													link.customHeader = s
+											}
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'dllExport') {
+											// Extract linkName from dllExport(nameHere) (a shortcut for `@linkName("abc") @dllExport`)
+											switch dec.values[0] {
+												case String(s):
+													link.linkName = s
+											}
+											link.dllExport = true
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'dllImport') {
+											// TODO disallow linkName + dllExport(nameHere)
+											// TODO disallow dllImport + dllExport
+											switch dec.values[0] {
+												case String(s):
+													link.linkName = s
+											}
+											link.dllImport = true
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'emitHeader') {
+											// TODO disallow emitHeader(nameHere)
+											// TODO disallow dllImport + dllExport + emitHeader
+											link.emitHeader = true
+										}
+
+										// TODO better idea + avoid unnecessary nice link allocation
+										// TODO linking setting for vars and classes
+										niceProject.globalLink.set(s, link)
 										niceProject.globalFuncs.push(s)
 									}
 								case Var(_):
@@ -122,11 +172,12 @@ class Normalizer {
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
 			niceProject.classes.sort(fun(a, b) {
+				// TODO types of a/b not inferred
 				if a.external == true {
 					return -1
 				}
 
-				if (a.extend == null) {
+				if a.extend == null {
 					return 0
 				}
 

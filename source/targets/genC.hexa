@@ -540,11 +540,41 @@ class GenCxx {
 
 			for g in project.globalFuncs { switch g {
 				case Function(name, expr, args, defaults, funcType, variadic):
+					let link = project.globalLink.get(g) // TODO null guard
+					var shouldEmitHeader = false
+					var customHeader: String? = null
+
+					if let link = link {
+						if link.dllImport {
+							types.push('__declspec(dllimport) ')
+							shouldEmitHeader = true
+						}
+						if link.emitHeader {
+							// TODO seems like it doesn't respects `@rename`
+							shouldEmitHeader = true
+						}
+						if link.customHeader != null {
+							customHeader = link.customHeader
+						}
+						if link.dllExport {
+							types.push('__declspec(dllexport) ')
+						}
+					}
+
+					if let customHeader = customHeader {
+						types.push(customHeader)
+						types.push('\n')
+					} else if expr != null or shouldEmitHeader {
 					types.push(printFunctionReturnType(funcType))
 					types.push(' ' + name + '_')
 					types.push(printFunctionArguments(args, funcType, variadic))
+					if let link = link, let linkName = link.linkName {
+						types.push(' HEXA_LINK("' + linkName + '")')
+					}
 					types.push(';\n')
+					}
 
+					if let expr = expr {
 					out.push(printFunctionReturnType(funcType))
 					out.push(' ' + name + '_')
 					out.push(printFunctionArguments(args, funcType, variadic))
@@ -553,6 +583,7 @@ class GenCxx {
 					currentReturnType = getFunctionReturnType(funcType)
 					out.push(' ' + printBlock(expr) + ';\n\n')
 					currentReturnType = _currentReturnType
+					}
 					//out.push(printFunctionArguments(args, defaults) + ' ' + printBlock(expr) + ';')
 			}}
 
