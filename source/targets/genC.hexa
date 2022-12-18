@@ -327,17 +327,8 @@ class GenCxx {
 								}
 							}
 						}
-						//else
-						//types.push('\n\tAny_* ' + name + '_;')
-						//if (expr != null)
-						//out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
 					case Const(name, expr, type):
-						//if (let t = type)
 						types.push('\n\t\(stringifyType(type)) ' + name + '_;')
-						//else
-						//types.push('\n\tAny_* ' + name + '_;')
-						//if (expr != null) // null if property
-						//out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
 				}
 				}
 
@@ -349,31 +340,18 @@ class GenCxx {
 					case Function(name, expr, args, defaults, funcType):
 						hasToString = hasToString or name == 'toString'
 						if (name == null || name == 'new') {
-							//types.push('\n\t' + c.name + '_() {};') // For placement new
-
-							//types.push('\n\tvoid this_')
-							//types.push(printFunctionArguments(args, funcType, true))
-							//types.push(';')
-							////types.push('\n\tstatic ' + c.name + '_* new_();')
-							//forward.push('\n\tstatic ' + c.name + '_* new_')
-							//forward.push(printFunctionArguments(args, funcType))
-							//forward.push(';')
 							forwardFunctions.push(c.name + '_* ' + c.name + '_$new_')
 							forwardFunctions.push(printFunctionArguments(args, funcType))
 							forwardFunctions.push(';\n')
-
 							// TODO cache printFunctionArguments to local var here
 
 							// Init
-							//out.push('void ' + c.name + '_::this_() {\n')
 							out.push(c.name + '_* ' + c.name + '_$this_')
 							thisArgument = c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
 							out.push(' {\n')
 							// TODO cache own vtable on function enter
-
-							//out.push('\t$this->_ = &' + c.name + '__$;\n')
 
 							// Init fields
 							customThis = '$this'
@@ -1113,13 +1091,27 @@ class GenCxx {
 							case Dot(expr, name, result):
 								let temp = tempId++
 
-								metaBlock.push(stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr))
+								let exprType = getType(expr)
+								let typeString = stringifyType(exprType)
+								let meta = typeString + ' _$\(temp) = ' + printExpression(expr)
+
+								var isStruct = false
+								switch exprType {
+									case ClassInstance(type, params): {
+										let atts = project.mapDecorators.get(type.parent)
+										isStruct = Decorator.getDecorator(atts, 'struct') != null
+									}
+								}
+
+								metaBlock.push(typeString + ' _$\(temp) = ' + printExpression(expr))
+
+								if isStruct {
+									// TODO add `, expects` to other `printCallArgumentsVirtual` calls
+									return omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)
+								}
 
 								return
-									//'{\n' + tabs +
-									//'\t' + stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr) + ';\n' + tabs +
 									'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)// + ';\n' + tabs// +
-									//'}'
 						}
 						//case CallKind.Static: return '*.static'
 						//case CallKind.Function: return '*.function'
