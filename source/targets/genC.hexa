@@ -334,9 +334,11 @@ class GenCxx {
 
 				// Empty struct has size 0 in C, size 1 in C++
 				var nonEmptyTable = false
+				var hasToString = false
 
 				for v in c.methods { switch v {
 					case Function(name, expr, args, defaults, funcType):
+						hasToString = hasToString or name == 'toString'
 						if (name == null || name == 'new') {
 							//types.push('\n\t' + c.name + '_() {};') // For placement new
 
@@ -474,6 +476,12 @@ class GenCxx {
 
 				if nonEmptyTable == false {
 					vtable.push('uint8_t padding_;')
+				}
+
+				if not hasToString {
+					out.push('String_* ' + c.name + '_$toString_(\(c.name)_* this_) { return ')
+					out.push(printExpression(Expression.String('[object Object]')))
+					out.push('; };\n\n')
 				}
 
 				// Static vars before static functions
