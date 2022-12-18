@@ -2313,9 +2313,32 @@ class GenCxx {
 							let temp1 = tempId++
 							let mb = metaBlock
 							metaBlock = []
-							let meta = stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr)
+							let exprType = getType(expr)
+							let typeString = stringifyType(exprType)
+							let meta = typeString + ' _$\(temp) = ' + printExpression(expr)
 
-							let result = '_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+							var isStruct = false
+							switch exprType {
+								case ClassInstance(type, params): {
+									let atts = project.mapDecorators.get(type.parent)
+									isStruct = Decorator.getDecorator(atts, 'struct') != null
+								}
+								// TODO `case ClassInstance(type, _) | Class(type)`
+								// TODO same for statement
+								// TODO this should be a NiceClass actually
+								// TODO seems like `this` gets type of `Class` instead of instance somewhere
+								case Class(type): {
+									let atts = project.mapDecorators.get(type.parent)
+									isStruct = Decorator.getDecorator(atts, 'struct') != null
+								}
+								case _:
+							}
+
+							let result = if isStruct {
+								omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+							} else {
+								'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+							}
 
 							for b in metaBlock {
 								mb.push(b)
