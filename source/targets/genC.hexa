@@ -636,14 +636,48 @@ class GenCxx {
 			}
 
 			for g in project.globalVars {
+				var defaults = true
+				// TODO rename 'default' in JS gen `var default = true`
 				switch g {
 				// TODO maybe use "var"
 				case Var(name, expr, type):
+					switch type {
+						// TODO same for const
+						case ClassInstance(type, generics): {
+							if type.name == 'ArrayByValue' {
+								var arraySize = ''
+								if let count = generics[1] {
+									arraySize = '[' + Type.stringify(count) + ']'
+								} else {
+									arraySize = '[]'
+								}
+
+								globalVariables.push('\(stringifyType(generics[0])) ' + name + '_' + arraySize)
+								if let expr = expr {
+									switch expr {
+										case Array(el):
+											let valueType = generics[0]
+											// TODO reuse same initializer as in expression and use meta-blocks
+											globalVariables.push(' = {' + [for a in el printTypeConverter(printExpression(a), getType(a), valueType)].join(', ') + '}')
+										case _:
+											// TODO more
+											globalVariables.push(' = {0}')
+									}
+								}
+								globalVariables.push(';\n')
+
+								defaults = false
+							}
+						}
+					}
+
+					if defaults {
 					//types.push('void* ' + name + '_;\n')
 					globalVariables.push(stringifyType(type))
 					globalVariables.push(' ' + name + '_;\n')
 					if expr != null {
 						out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
+					}
 					}
 					//out.push('\n\tvar ' + name)
 					//if (expr != null) out.push(' = ' + printExpression(expr))
@@ -1306,7 +1340,6 @@ class GenCxx {
 					return r + '}'
 
 				case _: console.error("Unknown statement kind (GenCxx):", s)
-				console.trace("Here I am!")
 			}
 		}
 
