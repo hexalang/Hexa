@@ -51,7 +51,7 @@ class String {
 		return bytes as! ConstArrayPointer<ClangWideChar>
 	}
 
-	fun utf8(): Buffer {
+	fun utf8copy(): Buffer {
 		// TODO implement!
 		return Buffer.alloc(this.length as! Int)
 	}
@@ -62,7 +62,6 @@ class String {
 	fun includes(str: String): Bool {return false} // TODO
 	fun charAt(index: Int): String {return''} // TODO
 	// TODO `@weak` for other fun
-	static fun fromCharCode(code: Int): String {return''}
 	fun indexOf(@weak str: String, startIndex: Int?): Int {return 0} // TODO
 	fun lastIndexOf(str: String, startIndex: Int?): Int {return 0} // TODO
 	fun split(delimiter: String): [String] {return []} // TODO
@@ -74,12 +73,27 @@ class String {
 
 	fun substring(startIndex: Int, endIndex: Int?): String {return''} // TODO
 
+	// TODO Int or UInt16?
+	static fun fromCharCode(code: Int): String {
+		var bytes: ArrayByValue<UInt16, 2> = [code as! UInt16, 0] // TODO split Int to two shorts
+		return fromUTF16z(bytes.ref as! ConstArrayPointer<UInt16>)
+		// TODO `.constRef` of `ArrayByValue`
+	}
+
 	// TODO overloads
 	// static fun fromCharCode(code: Int, code: Int): String {return''}
 	// static fun fromCharCode(code: Int, code: Int, code: Int): String {return''}
 	// static fun fromCharCode(code: Int, code: Int, code: Int, code: Int): String {return''}
 	// static fun fromCharCode(...codes: Int): String {return''}
-	fun charCodeAt(index: Int): Int? {return 0}
+	fun charCodeAt(index: Int): Int? {
+		if index < 0 or index >= length {
+			return null
+		}
+
+		let result: Int = bytes[index]
+		return result
+		// TODO `return bytes[index]`
+	}
 
 	fun trim(): String {return''} // TODO
 	fun substr(pos: Int, len: Int?): String {return''} // TODO
@@ -101,7 +115,7 @@ class String {
 		let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
 		// TODO test type check that constructor is private
 		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
-		let bytes = malloc(size * 2 + 2) as! ArrayPointer<UInt16>
+		let bytes = malloc(size * 2u64 + 2u64) as! ArrayPointer<UInt16>
 
 		// TODO proper UTF convert
 		// TODO copy 8 bytes at a time
@@ -181,7 +195,7 @@ class String {
 		// Produce new string
 		let result = new String()
 		// TODO allocate 8-byte aligned for 8-byte comparison steps
-		result.bytes = malloc(bytesSize) as! ConstArrayPointer<UInt16>
+		result.bytes = malloc(bytesSize as! UInt64) as! ConstArrayPointer<UInt16>
 		let bytes: ArrayPointer<UInt16> = result.bytes as! ArrayPointer<UInt16>
 		if chars > 0 {
 			// TODO respect `offset` !!!
@@ -210,8 +224,7 @@ class String {
 	// TODO early return if one of strings is empty
 	fun concat(with: String): String {
 		let length = with.length + this.length
-		let bytes = malloc(length * 2 + 2) as! ArrayPointer<UInt16>
-		bytes[length] = 0
+		let bytes = malloc(length * 2u64 + 2u64) as! ArrayPointer<UInt16>
 
 		let left: ArrayPointer<UInt16> = bytes as! ArrayPointer<UInt16>
 		if this.length > 0 {
@@ -223,6 +236,8 @@ class String {
 			memcpy(right as! ArrayPointer<UInt8>, with.bytes as! ConstArrayPointer<UInt8>, with.length * 2)
 		}
 
+		// TODO unit test this carefully
+		bytes[length] = 0
 		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
 	}
 
