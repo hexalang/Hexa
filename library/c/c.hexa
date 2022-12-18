@@ -91,7 +91,9 @@ declare class ByValue<T> {
 
 @struct
 @byValue
+// TODO `size` limited to numbers
 declare class ConstArrayByValue<T, size> {
+	// TODO let size
 }
 
 // TODO declare class ArrayByValue<T, size> extends ConstArrayByValue<T, size> {
@@ -102,6 +104,7 @@ declare class ConstArrayByValue<T, size> {
 declare class ArrayByValue<T, size> {
 	let ref: ArrayPointer<T>
 	let address: UInt64 // TODO UInt32
+	// TODO let size
 }
 
 //declare class ArrayByValuePointer<T> {
@@ -183,10 +186,12 @@ declare class Number {
 }
 
 @final
-//@rename('int32_t')
+// TODO @rename('Bool') ?
 @nativeBasicType
 declare class Bool {
-	fun toZeroOrOne(): UInt8
+	/// Returns `1` for `true` and `0` for `false`
+	/// Allows to avoid unsafe type cast
+	let toZeroOrOne: UInt8
 }
 
 /// Stored as `Int32` on native platforms
@@ -371,8 +376,6 @@ class Embed<T> {}
 //@rename('malloc') declare fun malloc(size: SizeOfPointer): RuntimeAllocated
 //@rename('strlen') declare fun strlen(string: ConstArrayPointer<UInt8>): SizeOfPointer
 //@rename('memcpy') declare fun memcpy(dst: ConstArrayPointer<UInt8>, src: ConstArrayPointer<UInt8>, size: SizeOfPointer): Void
-
-@rename('printInt') declare fun printInt(val: Int): Void
 @rename('malloc') declare fun malloc(size: UInt64): RuntimeAllocated
 // TODO rename to HeapAllocated?
 @rename('free') declare fun free(pointer: RuntimeAllocated): Void
@@ -420,13 +423,45 @@ class Math {
 	static fun exp(v: Float): Float {return 0}
 	static fun floor(v: Float): Int {return 0}
 	static fun log(v: Float): Float {return 0}
-	static fun max(a: Float, b: Float): Float {return 0}
-	static fun min(a: Float, b: Float): Float {return 0}
+	static fun max(a: Float, b: Float): Float {
+		return a > b ? a : b
+	}
+	static fun min(a: Float, b: Float): Float {
+		return a < b ? a : b
+	}
 	static fun pow(v: Float, exp: Float): Float {return 0}
 	static fun random(): Float {return 0}
-	static fun round(v: Float): Int {return 0}
+
+	static fun round(value: Float): Int {
+		return (value >= 0) ? ((value) + 0.5) as! Int : ((value)-0.5) as! Int
+	}
+
 	static fun sin(v: Float): Float {return 0}
-	static fun sqrt(v: Float): Float {return 0}
+
+	static fun sqrt(value: Float): Float {
+		let number: Float32 = value as! Float32 // TODO `Float` version
+		let threehalfs: Float32 = 1.55555f32
+		let threehalfs: Float32 = 1.5f32
+
+		var x2: Float32 = number * 0.5f32
+		var y: Float32 = number
+
+		var y: ArrayByValue<Float32, 1> = [y]
+
+		// Floating point bit level hacking [sic]
+		var i: Int32 = (y as! ArrayPointer<Int32>)[0]
+		i = 0x5f3759df - (i >> 1) // Newton's approximation
+
+		var i: ArrayByValue<Int32, 1> = [i]
+
+		var y = (i as! ArrayPointer<Float32>)[0]
+		y = y * (threehalfs - (x2 * y * y)) // 1st iteration
+		y = y * (threehalfs - (x2 * y * y)) // 2nd iteration
+		y = y * (threehalfs - (x2 * y * y)) // 3rd iteration
+
+		return 1.0f32 / y
+	}
+
 	static fun tan(v: Float): Float {return 0}
 }
 
@@ -521,6 +556,8 @@ class Buffer /*implements ArrayAccess<T>*/ {
 	fun readUInt16LE(offset: Int): Int {return 0}
 	fun writeUInt16LE(value: Int, offset: Int): Int {return 0}
 	fun readUInt32LE(offset: Int): Int {return 0}
+	fun readUInt8(offset: Int): UInt8 {return 0}
+	fun readInt8(offset: Int): Int8 {return 0}
 	fun slice(offset: Int): Buffer // {} // TODO class is abstract due to fields fun not have a body
 	fun toString(encoding: String): String {return 'null'}//: String, start: Int?, end: Int?): String {}
 	static fun fromBytes(data: ArrayPointer<UInt8>, length: Int): Buffer {return null as! Buffer}

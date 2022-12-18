@@ -7671,7 +7671,8 @@
 													this.parents.set(node_4769, field);
 													if (this.types.get(field) == null) {
 														console.log(this.positionOf(node_4769) + ('Note: field fieldInitialized[' + (n) + '] ='), type_4819.fieldInitialized[type_4819.fieldNames.indexOf(n)]);
-														this.fail('Type for this field cannot be inferred, try to specify types manually: ' + n, field);
+														//this.fail('Type for this field cannot be inferred, try to specify types manually: ' + n, field);
+														//this.types.set(node_4769, this.typeAny)
 													};
 												};
 											};

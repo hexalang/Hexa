@@ -76,10 +76,60 @@ class Normalizer {
 				let initial = []
 				pushScope()
 				for e in file.nodes {
+					let decorators = project.mapDecorators.get(e)
 					switch e {
 						// TODO indent
-								case Function(_):
+								case Function(name, _):
 									if let s = nodeToStatement(e) { // Non-declare ones
+										let link = new NiceLink()
+
+										if let dec = Decorator.getDecorator(decorators, 'linkName') {
+											// TODO ^ rename to `linkAs()`
+											switch dec.values[0] {
+												case String(s):
+													link.linkName = s
+											}
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'linkAsIs') {
+											link.linkName = name
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'customHeader') {
+											switch dec.values[0] {
+												case String(s):
+													link.customHeader = s
+											}
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'dllExport') {
+											// Extract linkName from dllExport(nameHere) (a shortcut for `@linkName("abc") @dllExport`)
+											switch dec.values[0] {
+												case String(s):
+													link.linkName = s
+											}
+											link.dllExport = true
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'dllImport') {
+											// TODO disallow linkName + dllExport(nameHere)
+											// TODO disallow dllImport + dllExport
+											switch dec.values[0] {
+												case String(s):
+													link.linkName = s
+											}
+											link.dllImport = true
+										}
+
+										if let dec = Decorator.getDecorator(decorators, 'emitHeader') {
+											// TODO disallow emitHeader(nameHere)
+											// TODO disallow dllImport + dllExport + emitHeader
+											link.emitHeader = true
+										}
+
+										// TODO better idea + avoid unnecessary nice link allocation
+										// TODO linking setting for vars and classes
+										niceProject.globalLink.set(s, link)
 										niceProject.globalFuncs.push(s)
 									}
 								case Var(_):
@@ -122,11 +172,27 @@ class Normalizer {
 			// Sort non-inherited & external classes upfront
 			// TODO backport implementation of dependency tree
 			niceProject.classes.sort(fun(a, b) {
+				// TODO types of a/b not inferred
 				if a.external == true {
 					return -1
 				}
 
-				if (a.extend == null) {
+				if a.extend == null {
+					return 0
+				}
+
+				return 1
+			})
+
+			// Sort forward declarations
+			// Let's hope it is a stable sort
+			niceProject.classes.sort(fun(a, b) {
+				if a.usedByValueDepth > b.usedByValueDepth {
+					// TODO test this properly (nested ByValue)
+					return -1
+				}
+
+				if a.usedByValueDepth == b.usedByValueDepth {
 					return 0
 				}
 
@@ -487,6 +553,22 @@ class Normalizer {
 								return Expression.True
 							}
 							return Expression.False
+					}
+
+					// `null == b`
+					// `== null` optimized to `false` for non-nullable types
+					// TODO meta-block version, cause expr must be evaluated
+					case Null: switch eb {
+						case True: return Expression.False
+						case False: return Expression.False
+						case String(_): return Expression.False
+						case Int(_): return Expression.False
+						case Ident(_, type): switch type {
+							case Nullable(_):
+							case UnknownNullable(_):
+							case Unknown(_):
+							case _: return Expression.False
+						}
 					}
 				}}
 
@@ -970,6 +1052,21 @@ class Normalizer {
 							switch b {
 								case String(s): values.push(Expression.String(s))
 								case Int(s): values.push(Expression.Int(s))
+								case MetaInt(v, meta): values.push(Expression.MetaInt(v, meta, typer.types.get(e)))
+								// TODO ^ typer must ensure same precision/meta for all tags' values
+
+								// `Alias = B`
+								case NodeTypeValue(type): {
+									switch type {
+										case Type(name, path): {
+											values.push(values[names.indexOf(name)])
+										}
+										case _: {
+											console.error("(internal warning) Unknown node alias value kind:", b)
+										}
+									}
+								}
+
 								case _: console.error("(internal warning) Unknown node field value kind:", b)
 							}
 						// Just `ValueName`
@@ -1031,6 +1128,7 @@ class Normalizer {
 						}
 
 						type.template = c.instances != null and c.instances.length > 0
+						type.usedByValueDepth = c.usedByValueDepth
 				}
 
 				for implement in impl { switch implement {
@@ -1267,6 +1365,25 @@ class Normalizer {
 					a.push(nodeToExpression(arg))
 				}
 
+				switch typer.parents.get(e) as! Node {
+					case Function(_, _, vars): {
+						if vars.length > a.length {
+							// Fill default arg values
+							for i in vars.length {
+								if i < a.length {
+									continue
+								}
+
+								switch vars[i] as! Node {
+									case Var(_, _, value): if let value = value {
+										a.push(nodeToExpression(value))
+									} // TODO else `break`? cause not args have values?
+								}
+							}
+						}
+					}
+				}
+
 				var expects = []
 				switch typer.types.get(e) as! Type {
 					case Function(args, _): expects = args
@@ -1314,9 +1431,6 @@ class Normalizer {
 					uname = (name!=null)?(parentNames.get(e) ?? unique(name, e)):null as! String
 				}
 
-				if external {
-					return null
-				}
 				var rettype = rettype
 				let a = []
 				let defaults = []
@@ -1333,6 +1447,10 @@ class Normalizer {
 				}}
 
 				let variadic = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
+
+				if external {
+					return Statement.Function(uname, null, a, defaults, typer.types.get(e), variadic)
+				}
 
 				if name == 'new' {
 					// TODO just keep `new` as name or whatever
@@ -1368,7 +1486,19 @@ class Normalizer {
 					var iteratorOverInt =
 						overType == typer.typeInt
 						or
+						overType == typer.typeInt32
+						or
 						overType == typer.typeUInt32
+						or
+						overType == typer.typeInt8
+						or
+						overType == typer.typeUInt8
+						or
+						overType == typer.typeInt16
+						or
+						overType == typer.typeUInt16
+						or
+						overType == typer.typeInt64
 						or
 						overType == typer.typeUInt64
 						// TODO more
