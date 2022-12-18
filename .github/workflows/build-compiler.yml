@@ -1,0 +1,119 @@
+name: 'Build compiler'
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/**'
+      - 'examples/**'
+      - 'library/**'
+      - 'source/**'
+      - 'test/**'
+  pull_request:
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/**'
+      - 'examples/**'
+      - 'library/**'
+      - 'source/**'
+      - 'test/**'
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build-compiler:
+    name: 'Building'
+
+    strategy:
+      matrix:
+        system:
+          - windows-2019
+          - windows-2022
+          - ubuntu-20.04
+          - ubuntu-22.04
+          - macos-11
+          - macos-12
+        node-version:
+          - 16.x
+
+    runs-on: ${{ matrix.system }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Run Npm
+        run: |
+          npm clean-install
+
+      - name: Build Hexa
+        run: |
+          node --trace-uncaught bootstrap.js --define debug=false hexa.json
+          node --trace-uncaught hexa-node.js --define debug=true --define times=false hexa.json
+          node --trace-uncaught hexa-node.js --define debug=false --define times=false hexa.json
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hexa-node.js-${{ matrix.os }}-${{ github.sha }}
+          path: hexa-node.js
+
+  test-compiler:
+    name: 'Testing'
+
+    needs: build-compiler
+
+    strategy:
+      matrix:
+        system:
+          - windows-2019
+          - windows-2022
+          - ubuntu-20.04
+          - ubuntu-22.04
+          - macos-11
+          - macos-12
+        node-version:
+          - 16.x
+
+    runs-on: ${{ matrix.system }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get Hexa
+        uses: actions/download-artifact@v3
+        with:
+          name: hexa-node.js-${{ matrix.os }}-${{ github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Build tests
+        run: |
+          node --trace-uncaught hexa-node.js test/lts/hello/hexa.json
+          node --trace-uncaught hexa-node.js test/normalizer/hexa.json
+
+      - name: Build examples
+        run: |
+          node --trace-uncaught hexa-node.js examples/html-raytracer/hexa.json
+          node --trace-uncaught hexa-node.js examples/native-posix/hexa.json
+          node --trace-uncaught hexa-node.js examples/native-win32/hexa.json
+          node --trace-uncaught hexa-node.js examples/node-platform/hexa.json
