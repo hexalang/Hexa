@@ -332,7 +332,9 @@ class GenCxx {
 				}
 				}
 
-				//if (c.name == 'String') types.push('String_op')
+				// Empty struct has size 0 in C, size 1 in C++
+				var nonEmptyTable = false
+
 				for v in c.methods { switch v {
 					case Function(name, expr, args, defaults, funcType):
 						if (name == null || name == 'new') {
@@ -420,6 +422,7 @@ class GenCxx {
 							vtable.push(' (*const ' + name + '_) ')
 							vtable.push(printFunctionArguments(args, funcType))
 							vtable.push(';')
+							nonEmptyTable = true
 
 							forwardFunctions.push(printFunctionReturnType(funcType))
 							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
@@ -468,6 +471,10 @@ class GenCxx {
 							currentReturnType = _currentReturnType
 						}
 				}}
+
+				if nonEmptyTable == false {
+					vtable.push('uint8_t padding_;')
+				}
 
 				// Static vars before static functions
 				for v in c.staticVars { switch v {
