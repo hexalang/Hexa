@@ -2,21 +2,35 @@ name: 'Build tools'
 
 on:
   push:
-    branches: [ '**' ]
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/**'
+      - 'tools/**'
   pull_request:
-    branches: [ '**' ]
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/**'
+      - 'tools/**'
+
+defaults:
+  run:
+    shell: pwsh
 
 jobs:
-  build-all:
+  build-libgen:
     name: 'Building'
-
-    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        os: [ windows-2019, windows-2022 ]
+        system:
+          - windows-2019
+          - windows-2022
         architecture:
           - amd64
+
+    runs-on: ${{ matrix.system }}
 
     steps:
       - name: Checkout
@@ -31,10 +45,11 @@ jobs:
 
       - name: Build Library Generator
         run: |
-          cl tools\libgen\main.cpp /Felibgen.exe /Os /INCREMENTAL:NO /nologo
+          cl tools\libgen\main.cpp `
+            /Felibgen.exe /Os /INCREMENTAL:NO /nologo
 
       - name: Upload Library Generator
         uses: actions/upload-artifact@v3
         with:
-          name: libgen-${{ matrix.os }}
+          name: libgen-${{ matrix.os }}-${{ github.sha }}
           path: libgen.exe
