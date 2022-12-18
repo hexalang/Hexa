@@ -1,16 +1,45 @@
 // Include only basic language features
 #ifdef __cplusplus
-#include <new> // Placement new
-#include <functional> // For [&]
 	#define _Static_assert(value, error) static_assert(value, error)
 #else
 	#define nullptr NULL
 	#ifndef _Static_assert
 		#define _Static_assert(value, error)
 	#endif
+	#ifndef true
+		// TODO include std bool when possible
+		#define true 1
+		#define false 0
+		typedef unsigned char bool;
+	#endif
+#endif
+
+#ifdef __BYTE_ORDER__
+	#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+		// Ok
+	#else
+		#error "Unsupported endianness"
+	#endif
+#else
+	#if defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN)
+		#error "Unsupported endianness"
+	#endif
+#endif
+
+#if defined(CHAR_BIT) && (CHAR_BIT != 8)
+	#error "Unsupported char size"
+#endif
+#if defined(__CHAR_BIT__) && (__CHAR_BIT__ != 8)
+	#error "Unsupported char size"
 #endif
 
 #ifndef HEXA_NO_DEFAULT_INCLUDES
+	#ifdef __cplusplus
+		#include <new> // Placement new
+		// TODO include if C++11:
+		// #include <functional> // For [&]
+	#endif
+
 	#include <stdint.h>
 	#include <stdarg.h>
 	#include <stddef.h>
@@ -21,7 +50,9 @@
 	#ifndef UNICODE
 		#define UNICODE
 	#endif
-	#include <windows.h> // TODO
+	#ifdef _WIN32
+		#include <windows.h>
+	#endif
 #endif
 
 #define true_ (uint8_t)1
@@ -346,6 +377,8 @@ struct Null$UInt64 {
 	uint8_t has_;
 };
 typedef struct Null$UInt64 Null$UInt64;
+
+// TODO unit test this carefully
 // TODO move this to `class UInt64`? Or, create new `@keep @struct @byValue class NullUInt64`
 uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
 	// if (a.has_ == 0 && b.has_ == 0) return 1;
@@ -356,6 +389,7 @@ uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
 	if ((a.has_ + b.has_) == 0) return 1;
 	return 0;
 }
+
 // This is done to not evaluate `value` twice (also useful for ABI)
 // TODO consider adding meta-block unroll
 Null$UInt64 toNull$UInt64(uint64_t value) {
@@ -475,13 +509,6 @@ struct Any_* Any_fromInt(const int32_t this_) {
 //	return this_;
 //};
 // End of runtime code under MIT license
-
-#define printf_94_(v) printf("printf: %d\n", v);fflush(0);
-#define printf_102_(v) printf("printf: %d\n", v);fflush(0);
-
-void printInt(int32_t v) {
-	printf("printInt: %d\n", v);fflush(0);
-}
 
 // wchar_t is UTF-16LE with -fshort-wchar
 _Static_assert(sizeof(wchar_t) == 2, "bad wchar_t sizeof");
