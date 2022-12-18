@@ -1220,6 +1220,32 @@ class GenCxx {
 				case Assignop(a, op, value):
 					// TODO rename to AssignOp
 					if getType(a) == project.typer.typeString, op == Token.OpAdd {
+						switch a {
+							case Index(expr, index): {
+								// Cache `index` to not re-evaluate twice
+								let tempIndex = tempId++
+								{
+									let indexType = getType(index)
+									let indexString = stringifyType(indexType)
+									// TODO should be converted to valid index type
+									let metaIndex = indexString + ' _$\(tempIndex) = ' + printExpression(index)
+									metaBlock.push(metaIndex)
+								}
+
+								// Cache storage to not re-evaluate twice
+								let tempStorage = tempId++
+								{
+									let indexType = getType(expr)
+									let indexString = stringifyType(indexType)
+									let metaIndex = indexString + ' _$\(tempStorage) = ' + printExpression(expr)
+									metaBlock.push(metaIndex)
+								}
+
+								// `storage[index] += string`
+								return '_$\(tempStorage)->_->set_(_$\(tempStorage), _$\(tempIndex), String_$combine_(_$\(tempStorage)->_->get_(_$\(tempStorage), _$\(tempIndex)), '
+									+ printTypeConverter(printExpression(value), getType(value), project.typer.typeString) + '))'
+							}
+						}
 						return printExpression(a) + ' = String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(value), getType(value), project.typer.typeString) + ')'
 					}
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
