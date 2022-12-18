@@ -78,6 +78,9 @@
 		#define HEXA_UNREACHABLE(where) {} // TODO
 	#endif
 #endif
+// TODO malloc must be at #ifdef _WIN32 or NOT USED AT ALL, but use HEXA_NEW in code gen
+#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+#define trace(z) wprintf(L"trace: <%s>\n", z)
 
 #ifndef HEXA_FREE
 	#ifdef _WIN32
