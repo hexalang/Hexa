@@ -344,7 +344,7 @@ class Typer {
 
 			if let similarTo = similarTo {
 				let firstLetter = similarTo.charAt(0)
-				names.sort((left, right) => left.startsWith(firstLetter)? -1 : 0)
+				names.sort((left, right) => left.startsWith(firstLetter) or left.includes(similarTo)? -1 : 0)
 			}
 
 			let ten = if names.length > 11 { // Yeah, 11, so it says "more whats" in plural
@@ -365,7 +365,7 @@ class Typer {
 			// TODO for name : index in _ _
 			for name in names {
 				let named = name.toLowerCase()
-				if named.startsWith(subject) || subject.startsWith(named) {
+				if named.startsWith(subject) || subject.startsWith(named) || named.endsWith(subject) {
 					return 'Did you mean `\(name)`?\n\n' + available
 				}
 
@@ -893,6 +893,7 @@ class Typer {
 												// TODO other types
 											}
 											fillExpression(b)
+											// TODO unity to `ClassType` and use separate field for enum constructors, not `fieldNames`
 											type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, type.fieldNames.length - 1)
 									}
 								}
@@ -1098,7 +1099,6 @@ class Typer {
 		private var typeString: Type? = null
 		private var typeIntClass: ClassType = new ClassType()
 		private var typeInt: Type = typeIntClass.instantiate()
-		private var typeFloat: Type? = null
 		private var typeBool: Type? = null
 		private var typeArray: ClassType = new ClassType() // Type instantiators
 		private var typeMap: ClassType = null as! ClassType // Type instantiators
@@ -1120,6 +1120,7 @@ class Typer {
 		private var typeNullUInt64: Type? = null
 		private var typeUInt16: Type? = null
 		private var typeUInt8: Type? = null
+		private var typeFloat: Type? = null
 		private var typeFloat32: Type? = null
 
 		// Stack
@@ -1524,6 +1525,10 @@ class Typer {
 							}
 
 							for name in currentModule.exported.keys() {
+								available.push(name)
+							}
+
+							for name in project.globals.keys() {
 								available.push(name)
 							}
 
@@ -2096,11 +2101,13 @@ class Typer {
 							fail('Range start must be of integer type', over)
 						}
 						if endType != overType {
+							// TODO `finish`/`final` instead of `end`?
 							fail('Range start and end must be of the same type, but got `' + Type.stringify(overType) + '...' + Type.stringify(endType) + '`', over)
 						}
 						types.set(node, overType)
 					}
 					addScope(name, node)
+					// TODO macro `@push allowBreakAndContinue = true` + `@pop allowBreakAndContinue`
 					let _allowBreakAndContinue = allowBreakAndContinue
 					allowBreakAndContinue = true
 					switch by {
@@ -2496,6 +2503,7 @@ class Typer {
 								return
 							}
 							let index = type.fieldNames.indexOf(n)
+							// TODO print `<T>` of class, not just name
 							let named = nameOfModuleItem(type.parent)
 							if index < 0 {
 								fail(
