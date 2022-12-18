@@ -793,6 +793,10 @@ class Typer {
 					}
 
 					// Check for incompatible tag format and fill scopes
+					let numbers: [Int] = []
+					let strings: [String] = []
+					let names: [String] = []
+
 					for field in f {
 						switch field {
 							// `enum E { A }`
@@ -861,6 +865,20 @@ class Typer {
 								if valuesType == null {
 									fail('Cannot use `Value = value` format for complex enum', node)
 								}
+
+								// TODO move elsewhere
+								let numberable = [
+									typeInt,
+									typeInt32,
+									typeInt16,
+									typeInt8,
+									typeInt64,
+									typeUInt32,
+									typeUInt16,
+									typeUInt8,
+									typeUInt64
+								]
+
 								switch a {
 									case NodeTypeValue(t): switch t {
 										case Type(name):
@@ -870,31 +888,70 @@ class Typer {
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 											switch b {
-												case Int(_):
-												if
-													// TODO infer i32/etc from constant
-													type.fieldsTypeSimple != typeInt,
+												case NodeTypeValue(t): switch t {
+													case Type(name):
+														let at = names.indexOf(name)
+														if at == -1 {
+															fail('Value with name `\(name)` not found above current value', b)
+														}
 
-													type.fieldsTypeSimple != typeInt32,
-													type.fieldsTypeSimple != typeInt16,
-													type.fieldsTypeSimple != typeInt8,
-													type.fieldsTypeSimple != typeInt64,
+														// Ok
+														// TODO implement at code gen side
+													case _:
+														fail('Wrong enum constructor format, should be `Name = value`', b)
+												}
 
-													type.fieldsTypeSimple != typeUInt32,
-													type.fieldsTypeSimple != typeUInt16,
-													type.fieldsTypeSimple != typeUInt8,
-													type.fieldsTypeSimple != typeUInt64
-													// TODO ^ this code doesn't validate
+												case MetaInt(number, meta):
+												// TODO infer i32/etc from constant
+												// TODO validate PRECISION compatibility
+												if not numberable.includes(type.fieldsTypeSimple)
 												{
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
-												case String(_): if (type.fieldsTypeSimple != typeString) {
+
+												if let at = strings.indexOf('' + number), at != -1 {
+													let named = names[at]
+													fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
+												}
+
+												// Note: string is used here, cause BigInt not fit into Int
+												strings.push('' + number)
+												names.push(name)
+
+												case Int(number):
+												// TODO infer i32/etc from constant
+												// TODO validate PRECISION compatibility
+												if not numberable.includes(type.fieldsTypeSimple)
+												{
+													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
+												}
+
+												if let at = numbers.indexOf(number), at != -1 {
+													let named = names[at]
+													fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
+												}
+
+												numbers.push(number)
+												names.push(name)
+
+												case String(string):
+												if (type.fieldsTypeSimple != typeString) {
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
 												// TODO non-constant values
 												// TODO other types
+
+												if let at = strings.indexOf(string), at != -1 {
+													let named = names[at]
+													fail('Combination `\(name) = \(string)` already defined as `\(named) = \(string)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
+												}
+
+												strings.push(string)
+												names.push(name)
+
+												case _:
+													fail('Wrong enum constructor format, should be `Name = value`', b)
 											}
-											fillExpression(b)
 											// TODO unity to `ClassType` and use separate field for enum constructors, not `fieldNames`
 											type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, type.fieldNames.length - 1)
 									}
