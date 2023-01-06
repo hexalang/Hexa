@@ -279,7 +279,7 @@ class Typer {
 									}).filter(known => not known.includes(null)).filter((item, pos, self) => indexOf(item, self) == pos)
 
 									for knownParams in genericCache {
-										let known = knownParams //.slice()
+										let known = knownParams
 										let cloned = Node.clone(project, node)
 
 										var type = null as! Type?
@@ -298,6 +298,7 @@ class Typer {
 											// TODO in future, this should be done on demand,
 											// in the instantiation place, due to type inference
 											// of function return types etc
+											// TODO while instantiating, new generic instances may be produced
 											fillModuleTypes(cloned, known, classType)
 											//popScope()
 										}
@@ -501,6 +502,7 @@ class Typer {
 					if let native = DataHelper.getDecorator(atts, 'rename') {
 						// TODO `@asIs` disallows `@rename`
 						if native.values.length != 1 {
+							// TODO wrap `throw` into `fail`
 							throw '@rename takes one string argument'
 						}
 						if native != null { switch native.values[0] {
@@ -803,6 +805,7 @@ class Typer {
 							case NodeTypeValue(t): switch t {
 								case Type(name):
 									if (type.fieldNames.includes(name)) {
+										// TODO `throw fail` makes no sense and must error on throwing `Void`
 										throw fail('Field `\(name)` already exists', node)
 									}
 									type.fieldNames.push(name)
@@ -1782,6 +1785,14 @@ class Typer {
 		fun areComparable(left: Type, right: Type): Bool {
 			if left == typeAny or right == typeAny {
 				return true
+			}
+
+			switch left {
+				case Generic(_): return true
+			}
+
+			switch right {
+				case Generic(_): return true
 			}
 
 			let numerical = [
@@ -3350,6 +3361,7 @@ class Typer {
 
 					if not indexableIsAny {
 					switch iType {
+						case Generic(_): // Ok
 						case ClassInstance(type):
 							if
 								// TODO check actual types
