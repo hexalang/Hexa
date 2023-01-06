@@ -299,6 +299,8 @@ class Typer {
 											// in the instantiation place, due to type inference
 											// of function return types etc
 											// TODO while instantiating, new generic instances may be produced
+											currentlyInstantiatingParams = known
+											currentlyInstantiating = cloned
 											fillModuleTypes(cloned, known, classType)
 											//popScope()
 										}
@@ -1045,6 +1047,20 @@ class Typer {
 		// TODO node: Node = null error
 		fun fail(msg: String, node: Node = null): Void {
 			failNonFatal(msg, node)
+
+			// TODO wrong kind of error for trailing `,` `if let currentlyInstantiating = currentlyInstantiating, {`
+			if let currentlyInstantiating = currentlyInstantiating, let currentlyInstantiatingParams = currentlyInstantiatingParams {
+				let name = DataHelper.nameOf(currentlyInstantiating)
+				let msg =
+					'While instantiating `'
+					+ name
+					+ '<'
+					+ currentlyInstantiatingParams.map(param => Type.stringify(param)).join(', ')
+					+ '>`'
+				failNonFatal(msg, node)
+				failNonFatal('Type `\(name)` is defined here', currentlyInstantiating)
+			}
+
 			let errors = failures.slice()
 			failures = []
 			// TODO failures is `let` not `var`!
@@ -1169,6 +1185,8 @@ class Typer {
 		private var nodeAny: Node? = null
 		private var typeVoid: Type? = null
 		private var namespaces: [String : Node] = [:]
+		private var currentlyInstantiating: Node? = null
+		private var currentlyInstantiatingParams: [Type]? = null
 
 		// Meta
 		// TODO those fields should be public actually
