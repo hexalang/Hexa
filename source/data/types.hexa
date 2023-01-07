@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2018-2020 Oleh Petrenko
+// Copyright (C) 2018-2023 Oleh Petrenko
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -200,6 +200,14 @@ class ClassType {
 			}
 		}
 
+		// TODO clone parent node right here?
+		// TODO should be compatible with native generics and external types
+		// ^ so can do typing as normal by directly referencing parent,
+		// instead of Generic<> fakery
+		// TODO !! clone could unwrap Generic params directly
+		// ^ keep the fact in the type that it's from generic
+		// ^ (set it into a ClassType.static/Typer.non static genericMap as meta data)
+		// TODO remember who did instantiation, for better error messages (as linked lisk to simulate a stack)
 		let result = Type.ClassInstance(this, params)
 		// Save self instance for reuse
 		// TODO also save `new ClassType` for accessing instance fields and methods
@@ -209,6 +217,14 @@ class ClassType {
 			cache.push(param)
 		}
 		genericCache.push(cache)
+		if parent != null { // TODO why it may be null?
+			if let delayedInstance = Typer.delayedInstance {
+				// TODO ^ support syntax `if let Typer.delayedInstance`? meh weird hard to read and guess var name
+				// TODO well seems like type is not inferred `delayedInstance(this, false)`
+				delayedInstance(parent, params, this)
+				// TODO `params.slice()`?
+			}
+		}
 		return result
 	}
 }
