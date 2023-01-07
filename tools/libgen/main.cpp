@@ -367,8 +367,10 @@ char* UnDecorateFunction(char *pFunctionName, DWORD *pLength)
 	DWORD Length;
 	char *pDecoratedFunctionName;
 
-	Length = strlen(pFunctionName) + 1;
-	pDecoratedFunctionName = (char*)malloc(Length + 1);
+	// Original: Length = strlen(pFunctionName) + 1;
+	Length = strlen(pFunctionName) + 0;
+	// Original: pDecoratedFunctionName = (char*)malloc(Length + 1);
+	pDecoratedFunctionName = (char*)malloc(Length + 0);
 
 	strcpy(pDecoratedFunctionName, "");
 	strcat(pDecoratedFunctionName, pFunctionName);
