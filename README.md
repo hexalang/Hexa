@@ -20,8 +20,9 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 [![Try Hexa online without installation](preview.png?raw=true)](https://hexalang.github.io/try/)
 
 [![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg?logo=Arch-Linux)](https://aur.archlinux.org/packages/hexa-git)
-[![Donate](https://img.shields.io/badge/donate-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
+[![GitHub Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/PeyTy)
 [![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
+[![Donate](https://img.shields.io/badge/Sponsor-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
 [![Discord](https://img.shields.io/badge/Discord-join-758EDC.svg?logo=discord)](https://discord.gg/SsAWf9M)
 
 ## Key features of Hexa
