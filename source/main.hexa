@@ -20,37 +20,39 @@ let version = selfVersion
 // Contents of hexa.json
 // TODO all fields nullable cause it's .json
 declare class Package {
-		let name: String
-		let version: String
-		let description: String
-		let author: String
-		let license: String
-		var addLicenseNoticeToOutput: Bool
-		let randomSeed: Int?
-		let define: Any
-		let noLib: Bool
-		// TODO allow libs as @roots
-		let roots: [String]
-		var global: [String]
-		var entry: String
-		let root: String
-		// TODO error on duplicates
-		var files: [String]
-		let targets: [{
-			name: String,
-			generator: String,
-			options: [String],
-			// TODO remove duplicates if multiple targets as the same time?
-			files: [String],
-			output: String
-			// TODO defines per tagret to override global ones
-		}]
+	let name: String
+	let version: String
+	let description: String
+	let author: String
+	let license: String
+	var addLicenseNoticeToOutput: Bool
+	let randomSeed: Int?
+	let define: Any
+	let noLib: Bool
+	// TODO allow libs as @roots
+	let roots: [String]
+	var global: [String]
+	var entry: String
+	let root: String
+	// TODO error on duplicates
+	var files: [String]
+	let targets: [{
+		name: String,
+		generator: String,
+		options: [String],
+		/// Additional files for this target
+		// TODO remove duplicates if multiple targets as the same time?
+		files: [String],
+		output: String
+		// TODO defines per target to override global ones
+	}]
 }
 
 class Main {
 	var lines = 0
 	var targetName = 'default'
 	var targetIndex = 0
+	var outputFolder: String? = null
 
 	// Parses a file
 	fun processFile(target: String, project: Project): [Node] {
@@ -458,6 +460,11 @@ class Main {
 		}
 	}
 
+	/// Parse arguments in any order
+	fun parseArguments() {
+
+	}
+
 	/// Default actions
 	fun perform(noWrite: Bool = false): String? {
 		// Debug information
@@ -472,6 +479,13 @@ class Main {
 		if Process.argv[0] == "--alt-error-format" {
 			alternativeErrorFormat = true
 			Process.argv.shift()
+		}
+
+
+		// Support `--output-folder path`
+		if Process.argv[0] == "--output-folder" {
+			Process.argv.shift()
+			outputFolder = Process.argv.shift()
 		}
 
 		// Gather defines `--define name=value`
@@ -704,8 +718,21 @@ class Main {
 		if let generatorName = input.targets[targetIndex].generator {
 			if let generatorSpawner = generators.get(generatorName) {
 				let generator = generatorSpawner()
+
+				// TODO outdated
 				let target = packageFolder + Path.sep + Path.parse(input.targets[targetIndex].output).name + generator.extension
-				let target = Path.join(packageFolder, input.targets[targetIndex].output)
+
+				var target = Path.join(packageFolder, input.targets[targetIndex].output)
+				if let outputFolder = outputFolder {
+					if Path.isAbsolute(outputFolder) {
+						target = outputFolder
+					} else {
+						target = Path.join(packageFolder, outputFolder)
+					}
+
+					target = Path.join(target, input.targets[targetIndex].output)
+				}
+
 				normalizer.keywords = generator.reserved
 				normalizer.collected = files
 				normalizer.nativeEnums = generator.nativeEnums
