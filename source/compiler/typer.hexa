@@ -2694,9 +2694,11 @@ class Typer {
 							// TODO print `<T>` of class, not just name
 							let named = nameOfModuleItem(type.parent)
 							if index < 0 {
+								// TODO should be `failInfo` as in vscode PROBLEMS tab
+								// TODO ^ `you have errors in` also change `hints in`
+								failNonFatal('Type `\(type.name)` is defined here', type.parent)
 								fail(
 									'Class `\(named)` has no field `.\(n)`\n'
-									+ positionOf(type.parent) + '`\(named)` is defined here\n'
 									+ proposeSimilar(type.fieldNames, n, 'fields'), e ?? node)
 							}
 							if type.fieldStatic[index] == true {
@@ -2887,25 +2889,36 @@ class Typer {
 					fillExpression(e)
 					switch types.get(e) as! Type {
 						case EnumInstance(type):
-							fail('Enum instance has no field `.\(n)`', node)
+							failNonFatal('Type `\(type.name)` is defined here', type.parent)
+							// TODO why the heck `.Vname` here gives Ln1, Col 12???
+							// type.V here is ok, but is in the string interpolator
+							// Note: `proposeSimilar` is useless for DotUpper over instances
+							fail('Enum `\(type.name)` instance has no field `.\(n)`', node)
 						case ClassInstance(type):
-							fail('Class has no field `.\(n)`', node)
+							failNonFatal('Type `\(type.name)` is defined here', type.parent)
+							// Note: `proposeSimilar` is useless for DotUpper over instances
+							fail('Class `\(type.name)` has no field `.\(n)`\n\nNote that you are trying to access plain `class` instance and not `enum`', node)
 						case Class(type):
-							fail('Class has no field `.\(n)`', node)
+							failNonFatal('Type `\(type.name)` is defined here', type.parent)
+							// Note: `proposeSimilar` is useless for DotUpper over classes
+							fail('Class `\(type.name)` has no field `.\(n)`\n\nNote that you are trying to access `class` and not `enum`', node)
 						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							// TODO `@lazy let enumName = getName(type.name)` so no need to place in every failing `if`
 							if index < 0 {
-								fail('Enum has no value constructor `.\(n)`\n' + proposeSimilar(type.fieldNames.filter((element, index) => type.fieldEnumConstructor[index]), n, 'constructors'), node)
+								failNonFatal('Type `\(type.name)` is defined here', type.parent)
+								// Note: `proposeSimilar` but only constructors (if any)
+								fail('Enum `\(type.name)` has no value constructor `.\(n)`\n' + proposeSimilar(type.fieldNames.filter((element, index) => type.fieldEnumConstructor[index]), n, 'constructors'), node)
 							}
 							if type.fieldEnumConstructor[index] != true {
-								fail('Enum field `.\(n)` is not a value constructor', node)
+								// Note: this case is probably impossible, i.e. .N *not* being constructor (than what?)
+								fail('Enum `\(type.name)` field `.\(n)` is not a value constructor', node)
 							}
 							if let fieldType = type.fieldType[index] {
 								types.set(node, fieldType)
 							} else {
-								fail('Enum field type is null for `\(Node.stringify(node))`', node)
 								// TODO wrap into common `failInternal`
+								fail('Enum `\(type.name)` field type is null for `\(Node.stringify(node))`', node)
 							}
 						case null:
 							fail('Accessing non-existing field `.\(n)` of `\(Node.stringify(e))`', node)
