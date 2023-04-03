@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2021-2022 Oleh Petrenko
+// Copyright (C) 2021-2023 Oleh Petrenko
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -1030,19 +1030,19 @@
 
 		fun getType(e: Expression): Type {
 			switch e {
-			case NiceExpression.True(_): return project.typer.typeBool
-			case NiceExpression.False(_): return project.typer.typeBool
-			case NiceExpression.Ident(_, type): return type
-			case NiceExpression.Parenthesis(expr): return getType(expr)
-			case NiceExpression.Call(_, _, type): return type
-			//case NiceExpression.If(_): return project.typer.typeAny
-			case NiceExpression.Binop(_, _, _, type): return type
-			case NiceExpression.Dot(_, _, type): return type
-			case NiceExpression.This(type): return type
-			case NiceExpression.Null(_): return Type.UnknownNullable({value: null})
 			case Int(_): return project.typer.typeInt
 			case Float(_): return project.typer.typeFloat
 			case String(_): return project.typer.typeString
+			case True(_): return project.typer.typeBool
+			case False(_): return project.typer.typeBool
+			case Ident(_, type): return type
+			case Parenthesis(expr): return getType(expr)
+			case Call(_, _, type): return type
+			//case If(_): return project.typer.typeAny
+			case Binop(_, _, _, type): return type
+			case Dot(_, _, type): return type
+			case This(type): return type
+			case Null(_): return Type.UnknownNullable({value: null})
 			case UnsafeBitCast(_, to): return to
 			case _:
 			return project.typer.typeAny
@@ -1051,10 +1051,10 @@
 
 		fun isPrimitive(e: Expression): Bool {
 			switch e {
-			case NiceExpression.String(_): return true
-			case NiceExpression.Ident(_, type): return true
-			case NiceExpression.This(type): return true
-			case NiceExpression.Null(_): return true
+			case String(_): return true
+			case Ident(_, type): return true
+			case This(type): return true
+			case Null(_): return true
 			case Int(_): return true
 			case Float(_): return true
 			case True(_): return true
@@ -1152,6 +1152,7 @@
 					case _:
 						return printExpression(expr) + '->' + name + '_'
 				}
+
 				case Call(e, args, type, kind):
 					// Avoid undefined behavior
 					let arguments: [String] = []
@@ -1215,8 +1216,8 @@
 					return Token.stringify(op) + printExpression(e)
 				case Elvis(nullable, othewise):
 					return '((' + printExpression(nullable) + ')||(' + printExpression(othewise) + '))'
-				case NiceExpression.Parenthesis(e): return '(' + printExpression(e) + ')'
-				case NiceExpression.Binop(a, op, b):
+				case Parenthesis(e): return '(' + printExpression(e) + ')'
+				case Binop(a, op, b):
 					if (op == Token.OpAdd) {
 							return 'String_opAdd(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), project.typer.typeString) + ')'
 						if (getType(b) == project.typer.typeString)
@@ -1230,9 +1231,9 @@
 
 					let ops = op == Token.OpIntDiv? '/' : Token.stringify(op)
 					return printExpression(a) + ' ' + ops + ' ' + printExpression(b)
-				case NiceExpression.Index(expr, index):
 					return  printExpression(expr) + '->get_(' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ')'
-				case NiceExpression.If(econd, eif, eelse):
+				case Index(expr, index):
+				case If(econd, eif, eelse):
 					var r = ''
 					try {
 						r += '(' + printExpression(econd) + ')?'
@@ -1241,37 +1242,37 @@
 						return r
 					} catch error: Any {
 						console.log('If =>', e, error)
-						return r + '<!-- If => error -->'
+						return r + '<!--If => error-->'
 					}
-				case NiceExpression.EnumTag(expr):
+				case EnumTag(expr):
 					let e = printExpression(expr)
 					return '(' + e + ' == ((Any_ *)0)? -1 : ' + e + '->is_)'
-				case NiceExpression.Object(names, el):
+				case Object(names, el):
 					return 'Object_from(' + [for i in el.length {
 						((names[i]) + ', ' + printExpression(el[i]))
 					}].join(', ') + ')'
-				case NiceExpression.Map(keys, values):
+				case Map(keys, values):
 					if (keys.length == 0) {
 						return 'Map_::new_()'
 					}
 					return 'Map_from(' +
 					[for i in keys.length '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')
 					+ ')'
-				case NiceExpression.Assignop(a, op, value):
+				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
-				case NiceExpression.NativeOperator(kind, args, s): switch (kind) {
-					case NativeOperatorKind.Infix: return '((' + printExpression(args[0]) + ')' + s + '(' + printExpression(args[1]) + '))'
-					case NativeOperatorKind.Function: return s + printCallArguments(args)
-					case NativeOperatorKind.Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
-					case NativeOperatorKind.Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
+				case NativeOperator(kind, args, s): switch kind {
+					case Infix: return '((' + printExpression(args[0]) + ')' + s + '(' + printExpression(args[1]) + '))'
+					case Function: return s + printCallArguments(args)
+					case Prefix: return '(' + s + '(' + printExpression(args[0]) + '))'
+					case Postfix: return '((' + printExpression(args[1]) + ')' + s + ')'
 				}
-				case NiceExpression.UnsafeBitCast(e, to):
+				case UnsafeBitCast(e, to):
 					return printTypeConverter(printExpression(e), getType(e), to)
-				case NiceExpression.Enum(typeName, tagName, tag, args):
+				case Enum(typeName, tagName, tag, args):
 					return '' + typeName + '_$' + tagName + '_(' + [for a in args printExpression(a)].join(', ') + ')'
-				case NiceExpression.EnumParameter(expr, index):
+				case EnumParameter(expr, index):
 					return printExpression(expr) + '->enum_[' + index + ']'
-				case _: console.error("Unknown expression kind:", e) return '<!-- ' + ((e as! [Any])??[])[0] + ' -->'
+				case _: console.error("Unknown expression kind:", e) return '<!--' + ((e as! [Any])??[])[0] + '-->'
 			}
 		}
 }
