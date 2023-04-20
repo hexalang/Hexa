@@ -38,6 +38,18 @@
 		#include <new> // Placement new
 		// TODO include if C++11:
 		// #include <functional> // For [&]
+		#ifdef __GNUC__
+			#define restrict __restrict__
+		#else
+			#if defined(_MSC_VER) || defined(__clang__)
+				#define restrict __restrict
+			#else
+				#define restrict
+			#endif
+		#endif
+	#else
+		// TODO include if C11:
+		#include <stdbool.h>
 	#endif
 
 	#include <stdint.h>
@@ -62,6 +74,11 @@
 	#define HEXA_MAIN main
 #endif
 
+#ifdef __cplusplus
+	extern "C"
+#endif
+int HEXA_MAIN(int, char **);
+
 #ifndef HEXA_NEW
 	#ifdef _WIN32
 		#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
@@ -83,6 +100,7 @@
 #endif
 
 // DLL precise (unmangled) linking names
+// Note: requires -std=gnu17 in C mode
 #define HEXA_LINK(name) asm(name)
 #ifndef __GNUC__
     #ifndef __clang__
@@ -382,6 +400,7 @@ struct Null$Float32 {
 };
 typedef struct Null$Float32 Null$Float32;
 
+// TODO static + att visibility(hidden)
 uint8_t equalNull$Float32(Null$Float32 a, Null$Float32 b) {
 	if (a.has_ && b.has_ && a.value_ == b.value_) return 1;
 	if ((a.has_ + b.has_) == 0) return 1;
