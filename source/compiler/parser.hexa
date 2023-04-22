@@ -125,7 +125,18 @@ class Parser {
 					var t = null
 					if tok() == Token.Colon {
 						i++
+						// TODO colon-less
 						t = parseType()
+					} else {
+						let token = tok()
+						if
+							token == Token.BkOpen or
+							token == Token.BrOpen or
+							token == Token.LUpper or
+							token == Token.POpen
+						{
+							t = parseType()
+						}
 					}
 					if tok() == Token.OpAssign {
 						i++
@@ -325,6 +336,7 @@ class Parser {
 		}
 	}
 
+	// TODO `failAt(message, i)` where `i` saved token indes
 	fun fail(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
@@ -412,7 +424,7 @@ class Parser {
 					result = parseFunction(false, external: true)
 				case KVar | KLet:
 					let parsed = parseVar(external: true)
-					if (parsed.length > 1) {
+					if parsed.length > 1 {
 					} else {
 						result = parsed[0]
 					}
@@ -656,7 +668,10 @@ class Parser {
 				// (a, ...) =>
 				(tok() == Token.LLower && offset(1) == Token.Comma) ||
 				// (a: ...) =>
+				// TODO colon-less
 				(tok() == Token.LLower && offset(1) == Token.Colon) ||
+				// (a T) =>
+				(tok() == Token.LLower && offset(1) == Token.LUpper) ||
 				// (a) =>
 				(tok() == Token.LLower && offset(1) == Token.PClose && offset(2) == Token.OpArrow)
 			) {
@@ -665,15 +680,19 @@ class Parser {
 				var values = []
 				while tok() != Token.PClose {
 					vars.push(getgo(Token.LLower))
-					if (tok() == Token.Colon) {
+					if tok() == Token.Colon {
+						// TODO colon-less
 						i++
 						types.push(parseType())
 					}
-					if (tok() == Token.OpAssign) {
+					if tok() == Token.LUpper {
+						types.push(parseType())
+					}
+					if tok() == Token.OpAssign {
 						i++
 						values.push(parseExpr())
 					}
-					if (tok() == Token.Comma) {
+					if tok() == Token.Comma {
 						i++
 					}
 				}
@@ -868,12 +887,15 @@ class Parser {
 		case KVar:
 			var parsed = parseVar()
 			if parsed.length > 1 {
+				// TODO old code `result = Node.Vars(parsed)`
+				// ^ make just single-var parser
 			} else {
 				result = parsed[0]
 			}
 		case KLet:
 			var parsed = parseVar()
 			if parsed.length > 1 {
+				// TODO old code `result = Node.Vars(parsed)`
 			} else {
 				result = parsed[0]
 			}
@@ -898,6 +920,7 @@ class Parser {
 				step(Token.KCatch)
 				let name = getgo(Token.LLower)
 				vars.push(name)
+				// TODO colon-less
 				step(Token.Colon)
 				let type = parseType()
 				t.push(type)
@@ -979,12 +1002,13 @@ class Parser {
 			i++
 			var t = parseType()
 			var valuesType = null
-			if (tok() == Token.Colon) {
+			if tok() == Token.Colon {
 				i++
+				// TODO colon-less
 				valuesType = parseType()
 			}
 			var extend = null
-			if (tok() == Token.KExtends) {
+			if tok() == Token.KExtends {
 				i++
 				extend = parseType()
 			}
@@ -1589,9 +1613,10 @@ class Parser {
 		i++
 		var vars: [Node] = []
 
-		if (tok() == Token.Query) {
+		/// Disallows `var $name`
+		if tok() == Token.Query {
 			i++
-			let name = if (tok() == Token.LLower) {
+			let name = if tok() == Token.LLower {
 				print()
 			} else {
 				'name'
@@ -1601,13 +1626,59 @@ class Parser {
 		}
 
 		fun parseSingleVar(): Node {
-			var varname = getgo(Token.LLower)
-			if (varname.endsWith("___")) {
+			// TODO proper error if LUpper `var cannot start with upper case letter`
+			// ^ same for fun args
+			let varName = getgo(Token.LLower)
+			// TODO document this and actually use, beginning underscores too?
+			if varName.endsWith("___") {
 				fail("Variables can't end with `___`, it is reserved.")
 			}
-			var type = null if (tok() == Token.Colon) { i++ type = parseType() }
-			var expr = null if (tok() == Token.OpAssign) { i++ expr = parseExpr() }
-			return Node.Var(varname, type, expr, const, external ?? false)
+
+			// TODO disallow `expr if` cause it looks python-ysh and confusing as heck
+			// ^ `var type = null if tok() == Token.Colon { i++ type = parseType() }`
+			var type = null
+
+			if tok() == Token.Colon {
+				// TODO helpful hint for Token.Colon that it should be dropped (soft parsing error)
+				i++
+			}
+
+			let token = tok()
+
+			// TODO drop support for type-level decorators
+			if token == Token.At {
+				// TODO soft parsing error
+				i++
+				let name = print() // TODO `getgo(Token.LLower)`
+				// TODO `failHintAt` but consume decorator first with `parserDec` cause may have parameters
+				i--
+				// TODO should know if it `var`, `let` or function argument
+				fail("Decorators should be placed at variable's declaration like `@\(name) var \(varName)` instead of their type.")
+				// TODO it may happen that decorator is applied to next var if current is type-less
+				// ^ recommend `///` to split exprerssions
+			}
+
+			// TODO reuse in inline function `fun isStartOfType(token)`
+			// ^ to be used in [[parseFunction]]
+			if
+			//	token == Token.Colon or // `: T`
+				token == Token.BkOpen or // `[T]` TODO rename `B?Open` to `ArrayOpen`
+				token == Token.BrOpen or // `{v:T}` TODO `interface {v:T}` or disallow entirely?
+				// TODO rename `B?Open` to `BlockOpen` `BodyOpen` `GroupOpen`
+				token == Token.LUpper or // `T` TODO rename `LUpper` to `TitleCase`, `LLower` to `CamelCase`
+				token == Token.POpen // `()=>T` TODO rename `POpen` to `CallOpen`
+			{
+				type = parseType()
+			}
+
+			var expr = null
+
+			if tok() == Token.OpAssign {
+				i++
+				expr = parseExpr()
+			}
+
+			return Node.Var(varName, type, expr, const, external ?? false)
 		}
 
 		fun parseSingleBinding(): Node {
@@ -1643,13 +1714,13 @@ class Parser {
 
 			var expr = parseExpr()
 			return Node.EnumExtract(path, bind, expr)
-			//fail("parseSingleBinding " + path + ' ' + bind + ' ' + expr)
 		}
 
 				vars.push(parseSingleVar())
 
 		return vars
 
+		// TODO this code is not used
 		var const = tok() == Token.KLet
 		i++
 		var vars: [Node] = []
@@ -1745,6 +1816,7 @@ class Parser {
 		step(Token.POpen)
 		{
 			if tok() != Token.PClose {
+				// TODO indent properly
 				while true {
 				let decorators: [Decorator] = []
 
@@ -1759,11 +1831,39 @@ class Parser {
 					i++
 				}
 				pos.push({ line: lex.line[i], column: lex.column[i] })
-				var name = getgo(Token.LLower)
+				let name = getgo(Token.LLower)
 				if tok() == Token.Colon {
+					// TODO no colon
 					i++
+					// TODO decorator before argument name like at [[parseVar.parseSingleVar]]
+					// TODO ^ vs hexa [[navigation]] on ctrl-click and hover over comment
+					// ^ make it fuzzy so no need for full [[path.path.path]]
+					// ^ RMB or DnD from Outline to code to make link
+				}
+
+				// TODO well `tok()` could be just `@inline let token { get }` or something
+				if tok() == Token.At {
+					i++
+					let decName = print() // TODO `getgo(Token.LLower)` + `failHintAt`
+					i--
+					fail("Decorators should be placed at argument's declaration like `@\(decName) \(name)` instead of their type.")
+				}
+
+				let token = tok()
+
+				if
+					// Note: don't do it like that! Some type syntax uses lowercases
+					//tok() != Token.OpAssign and
+					//tok() != Token.PClose and
+					//tok() != Token.Comma
+					token == Token.BkOpen or
+					token == Token.BrOpen or
+					token == Token.LUpper or
+					token == Token.POpen
+				{
 					t = parseType()
 				}
+
 				if tok() == Token.OpAssign {
 					i++
 					expr = parseExpr()
@@ -1783,10 +1883,22 @@ class Parser {
 			}}
 			step(Token.PClose)
 		}
+		// TODO `retType`
 		var rettype = null
 		if tok() == Token.Colon {
+			// TODO colon-less
 			i++
 			rettype = parseType()
+		} else {
+			let token = tok()
+			if
+				token == Token.BkOpen or
+				// TODO `{` conflicts with no-retType `token == Token.BrOpen or`
+				token == Token.LUpper or
+				token == Token.POpen
+			{
+				rettype = parseType()
+			}
 		}
 
 		if parseBody { switch tok() {
@@ -1992,8 +2104,8 @@ class Parser {
 
 	fun parseDecorator() {
 		i++
-		var name = getgo(Token.LLower)
-		var values = []
+		let name = getgo(Token.LLower)
+		let values = []
 		if tok() == Token.POpen {
 			i++
 			if tok() != Token.PClose { while true {
@@ -2207,7 +2319,10 @@ class Parser {
 			while tok() != Token.PClose {
 				if tok() == Token.LLower {
 					step(Token.LLower)
-					step(Token.Colon)
+					if tok() == Token.Colon {
+						// TODO colon-less
+						i++
+					}
 				}
 				args.push(parseType())
 				if tok() == Token.Comma {
