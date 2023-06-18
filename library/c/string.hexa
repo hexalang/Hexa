@@ -138,9 +138,25 @@ class String {
 		// TODO `length` must be immutable after construction
 	}
 
+	static fun countUTF8zUpTo(string: ConstArrayPointer<UInt8>, limit: Int): Int {
+		// TODO stop at UINT32_MAX or define MAX_STRING_LENGTH
+		// var size = 1u32 // TODO starts from 1? Nope, fromUTF16 adds own `\0`
+		var i = 0
+		// TODO scan 8 bytes at a time
+		while string[i] != 0 and i < limit {
+			i++
+		}
+		return i
+	}
+
+	static fun countUTF8z(string: ConstArrayPointer<UInt8>): Int {
+		return countUTF8zUpTo(string, defaultLimit)
+	}
+
 	static fun fromUTF8z(string: ConstArrayPointer<UInt8>): String {
+		// TODO Note: must use own string length impl cause incompatible with freestanding targets
 		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
-		let size: Int = strlen(string as! ConstArrayPointer<ClangChar>)
+		let size: Int = countUTF8z(string)
 		// TODO test type check that constructor is private
 		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
 		let bytes = malloc(size * 2u64 + 2u64) as! ArrayPointer<UInt16>
