@@ -384,7 +384,6 @@ class Embed<T> {}
 @rename('malloc') declare fun malloc(size: UInt64): RuntimeAllocated
 // TODO rename to HeapAllocated?
 @rename('free') declare fun free(pointer: RuntimeAllocated): Void
-@rename('strlen') declare fun strlen(string: ConstArrayPointer<UInt8>): Int // TODO Ain't ClangChar?
 @rename('wcslen') declare fun wcslen(string: ConstArrayPointer<UInt16>): Int
 @rename('memcpy') declare fun memcpy(dst: ArrayPointer<UInt8>, src: ConstArrayPointer<UInt8>, size: Int): Void
 
@@ -554,10 +553,15 @@ let __dirname: String = '.'
 declare let __filename: String
 
 class Buffer /*implements ArrayAccess<T>*/ {
-	static fun alloc/*<T>*/(size: Int): Buffer {return null as! Buffer} // TODO handle `as!` in gen/typer
+	static fun alloc/*<T>*/(size: Int): Buffer {
+		let result Buffer = new Buffer()
+		result.length = size
+		result.bytes = malloc(size + 0u64) as! ArrayPointer<UInt8>
+		return result
+	} // TODO handle `as!` in gen/typer
 	var length: Int
 	var bytes: ArrayPointer<UInt8>
-	private new (bufsize: Int) {}//{return null} // TODO `new` cannot return value
+	private new (/*bufsize: Int*/) {}//{return null} // TODO `new` cannot return value
 	fun readUInt16LE(offset: Int): Int {return 0}
 	fun writeUInt16LE(value: Int, offset: Int): Int {return 0}
 	fun readUInt32LE(offset: Int): Int {return 0}
