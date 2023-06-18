@@ -784,6 +784,10 @@ class GenCxx {
 				Fs.writeFileSync(target + '.dllExport.txt', dllExports.join(' '))
 			}
 
+			// TODO instead of + + + use [String].join() as a rope
+			// ^ also header/etc concat to others instead of .join('\n')
+			// ^ \n can be placed at the header.push() lines or all.push('\n')
+			// ^ allocate `all [String]` with known capacity to avoid relocations
 			return (
 				header.join('\n')
 				+ '\n// Forward\n' +
@@ -810,6 +814,7 @@ class GenCxx {
 
 				+ '// Statements\n' +
 				// TODO Boi, dat weird
+				// ^ can be a call into `static void hexaInitStrings()` which also calls runtime string-init fun if required
 				out.join('').split('%%%HEXA_STRINGS@@@').join(strings.join(''))
 			).split('\n').join('\r\n')
 
@@ -1037,6 +1042,9 @@ class GenCxx {
 								}
 							}
 						case _:
+							// TODO r could be a rope/join
+							// ^ interesting idea is rope-promotion,
+							// cause r never leaves owning block (in js too)
 							r += '\n' + tabs + printMetaBlock(e) + ';'
 					}}
 
@@ -1266,7 +1274,7 @@ class GenCxx {
 					return '_throw(' + printExpression(e) + ')'
 
 				case For(name, over, by):
-					return 'for (struct Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
+					return 'for (FIXME TODO struct Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
 
 				case Increment(e):
 					return printExpression(e) + '++'
@@ -2475,11 +2483,11 @@ class GenCxx {
 								if shouldInit {
 									if args.length > 0 {
 										// TODO should not wrap into ( )
-										return name + '$this_((\(name)*)malloc(sizeof(\(name))), ' + printCallArguments(args) + ')'
+										return name + '$this_((\(name)*)HEXA_NEW(sizeof(\(name))), ' + printCallArguments(args) + ')'
 									}
-									return name + '$this_((\(name)*)malloc(sizeof(\(name))))'
+									return name + '$this_((\(name)*)HEXA_NEW(sizeof(\(name))))'
 								}
-								return '(\(name)*)malloc(sizeof(\(name)))'
+								return '(\(name)*)HEXA_NEW(sizeof(\(name)))'
 							}
 						}
 					}
