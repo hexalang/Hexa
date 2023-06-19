@@ -56,14 +56,20 @@
 	#include <stdarg.h>
 	#include <stddef.h>
 
-	#include <stdio.h> // printf
-	#include <stdlib.h> // malloc
-	#include <string.h> // strlen
-	#ifndef UNICODE
-		#define UNICODE
-	#endif
-	#ifdef _WIN32
-		#include <windows.h>
+	#ifndef HEXA_NO_PLATFORM_INCLUDES
+		// TODO don't include any at all,
+		// just let module bindings import them
+		#include <stdio.h> // printf
+		#include <stdlib.h> // malloc
+		// #include <string.h> // strlen
+
+		// TODO defines before includes
+		#ifndef UNICODE
+			#define UNICODE
+		#endif
+		#ifdef _WIN32
+			#include <windows.h>
+		#endif
 	#endif
 #endif
 
@@ -80,16 +86,28 @@
 int HEXA_MAIN(int, char **);
 
 #ifndef HEXA_NEW
-	#ifdef _WIN32
-		#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+	#ifndef HEXA_NO_PLATFORM_INCLUDES
+		#ifdef _WIN32
+			// TODO cache GetProcessHeap !
+			#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+			#define HEXA_UNREACHABLE_PRESENT 1
+			static void HEXA_UNREACHABLE(uint32_t where);
+		#else
+			#define HEXA_NEW(z) malloc(z)
+			#define HEXA_UNREACHABLE(where) {}
+			// TODO ^
+		#endif
 	#else
 		#define HEXA_NEW(z) malloc(z)
-		#define HEXA_UNREACHABLE(where) {} // TODO
+		#define HEXA_UNREACHABLE_PRESENT 0
+		#define HEXA_UNREACHABLE(where) {}
+		// TODO ^
 	#endif
 #endif
 // TODO malloc must be at #ifdef _WIN32 or NOT USED AT ALL, but use HEXA_NEW in code gen
-#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
-#define trace(z) wprintf(L"trace: <%s>\n", z)
+#ifdef _WIN32
+	#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+#endif
 
 #ifndef HEXA_FREE
 	#ifdef _WIN32
