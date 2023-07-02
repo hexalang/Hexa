@@ -31,9 +31,9 @@ DisableWelcomePage=no
 DisableReadyPage=yes
 
 [Files]
-Source: "..\..\..\..\greentea-dev\Teapot\node-v18.1.0-win-x64\node.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\..\Teapot\node-v18.1.0-win-x64\node.exe"; DestName: "hexa-node.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\hexa.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\innoHexa.cmd"; DestDir: "{app}"; DestName: "hexa.cmd"; Flags: ignoreversion
 Source: "..\..\hexa-node.js"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\repl.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\repl.hexa"; DestDir: "{app}"; Flags: ignoreversion
