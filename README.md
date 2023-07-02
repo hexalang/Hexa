@@ -33,7 +33,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Fast compilation
 - Compiles to JavaScript, WebAssembly, [osdev](https://github.com/GreenteaOS/Tofita), LLVM, C, C++, ObjC, ... you name it! **(WIP)**
 - Transpilation to almost anything: Lua, AutoCAD Lisp, C#, PHP, etc **(WIP)**
-- Transpilation produce human-readable code for all targets
+- Produces human-readable code for all targets
 - Null safety, crash resistance, pattern matching, classes **(WIP)**
 - Real multithreading, parallelism, async\await, no GC **(WIP)**
 - Smart type inference makes other typed languages look boring
@@ -42,13 +42,14 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - REPL (enable with just `hexa` command)
 - Metaprogramming with syntax-tree, generics and contracts **(WIP)**
 - Completely cross-platform
+- We are working on optional memory ownership model (similar to borrow checker) and side effects system **(WIP)**
 
 > **WIP — Work in progress, coming soon**
 
 ## Download
 
 - [`kawaii`](https://github.com/hexalang/hexa/tree/kawaii) is the development branch and accepts pull requests
-- [`artifacts`](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts) are built from each kawaii commit *and* pull requests
+- [`artifacts`](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts) are built from each *kawaii* branch commit
 
 ### Stable
 
@@ -81,25 +82,21 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 ## Build
 
-You need to download latest long-term [Node.js LTS](https://nodejs.org/).
+You need to download latest long-term [Node.js LTS](https://nodejs.org/en/download/).
 The Hexa Compiler is written in Hexa itself. Pre-built compiler (bootstrapper) already included in the repo.
 
 ```sh
-git clone --recursive --depth 100 https://github.com/hexalang/hexa.git
-cd hexa
+git clone --recursive --depth 100 https://github.com/hexalang/Hexa.git
+cd Hexa
 node bootstrap.js hexa.json
+node hexa-node.js hexa.json
 # This results in a `hexa-node.js` file in the root of the repo
 # Call `node hexa-node.js project.json` to build your projects
 ```
 
-Optionally to build .exe and add icon:
+You may now add the folder into your PATH.
 
-```sh
-npm i -g nexe
-nexe-build.bat
-```
-
-[Learn more about compiler development](https://hexalang.github.io/hexa/)
+[Learn more about compiler development](https://hexalang.github.io/book/lexer)
 
 ## License
 
