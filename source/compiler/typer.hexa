@@ -15,11 +15,14 @@
 
 /// Analyzes and transforms untyped syntax tree from parser into typed syntax tree, and sends into normalizer
 @final
-// TODO class Typer extends TyperData {
+// TODO class Typer extends TyperData/TyperState {
 class Typer {
 	// Note that we use new instance for each build to avoid collisions with unit tests
 	// and to support parallel compilation in future
 	var project: Project
+
+	/// Workaround for language server
+	var onlyTypeCheck = false
 
 	// TODO move all variables here
 	let expectedArrowType: [Node : Type] = [:]
@@ -345,9 +348,13 @@ class Typer {
 												currentlyInstantiating = _currentlyInstantiating
 											}
 
-											delayedInstance = delayed
-
-											fillModuleTypes(cloned, known, classType)
+											// TODO wrong scope (module) while instantiation
+											if not onlyTypeCheck {
+												delayedInstance = delayed
+												fillModuleTypes(cloned, known, classType)
+											} else {
+												delayedInstance = null
+											}
 											//popScope()
 										}
 									}
@@ -840,6 +847,7 @@ class Typer {
 
 					if f.length == 0, extend == null {
 						fail('Enum `\(type.name)` must have at least one value `enum \(type.name) { Value }`', node)
+						// TODO autocomplete and hint `{ TODO }` for placeholder tag
 					}
 
 					// Check for incompatible tag format and fill scopes
@@ -918,6 +926,10 @@ class Typer {
 								}
 
 								// TODO move elsewhere
+								// TODO for constants, compatibility factors
+								// (like `42` being compatible with `i16` and `i8` and `u16` etc)
+								// can be pre-calculated in the Parser
+								// (would require some Node tags to be private and build-able only with special methods)
 								let numberable = [
 									typeInt,
 									typeInt32,
@@ -3365,7 +3377,7 @@ class Typer {
 					if op == Token.OpNot, !postfix {
 						let type = types.get(e)
 						if not booleanable(type) {
-							fail('Operator `!value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
+							fail('Operator `not value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
 						}
 						types.set(node, typeBool)
 						return
