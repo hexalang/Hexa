@@ -1755,7 +1755,7 @@ class Typer {
 				case Optional(t):
 					return asNullable(toType(t, node))
 				case Function(args, ret):
-					return Type.Function([for arg in args toType(arg, node)], toType(ret, node))
+					return Type.Function([for arg in args new FunctionArgument(toType(arg, node))], toType(ret, node))
 				case Object(names, el):
 					let els = [for e in el toType(e, node)]
 					return Type.Struct(names, els)
@@ -1927,16 +1927,17 @@ class Typer {
 		}
 
 		// Used only for function arguments
-		fun varTypes(vars: [Node]): [Type] {
-			let varTypes: [Type] = []
+		fun varTypes(vars: [Node]): [FunctionArgument] {
+			let varTypes: [FunctionArgument] = []
 
 			for v in vars {
 				switch v {
 					case Var(_, t):
 						if let t = t {
-							varTypes.push(toType(t, v))
+							// TODO optional etc
+							varTypes.push(new FunctionArgument(toType(t, v)))
 						} else {
-							varTypes.push(Type.Unknown({ value: null }))
+							varTypes.push(new FunctionArgument(Type.Unknown({ value: null })))
 						}
 				}
 			}
@@ -1956,7 +1957,7 @@ class Typer {
 			var expectedArrow: [Type] = []
 			if let expectedArrowSignature = expectedArrowType.get(node) {
 				switch expectedArrowSignature {
-					case Function(args, rets): expectedArrow = args
+					case Function(args, rets): expectedArrow = args.map(arg => arg.type)
 				}
 			}
 
@@ -2076,7 +2077,7 @@ class Typer {
 			functionActuallyReturns = _functionActuallyReturns
 
 			// Set function type
-			types.set(node, Type.Function(args: [for v in vars types.get(v)], returns: ret))
+			types.set(node, Type.Function(args: [for v in vars new FunctionArgument(types.get(v))], returns: ret))
 		}
 
 		private fun fillModuleTypes(node: Node, params: [Type]?, instanceOf: ClassType?): Void {
@@ -2770,11 +2771,11 @@ class Typer {
 														changed = fixedReturns != returns
 														returns = fixedReturns
 
-														var reArgs: [Type] = []
+														var reArgs: [FunctionArgument] = []
 														for arg in args {
-															let fixedArg = genericFixup(arg, generic)
-															changed = changed or (fixedArg != arg)
-															reArgs.push(fixedArg)
+															let fixedArg = genericFixup(arg.type, generic)
+															changed = changed or (fixedArg != arg.type)
+															reArgs.push(new FunctionArgument(fixedArg))
 														}
 
 														if changed {
@@ -3185,7 +3186,7 @@ class Typer {
 
 				 	switch eType {
 				 		case Function(args, returns):
-							evaluateArguments(el, args)
+							evaluateArguments(el, args.map(arg => arg.type))
 /*
 				 			for i in el.length { if let arg = args[i] {
 								let argumentValueType = types.get(el[i])
