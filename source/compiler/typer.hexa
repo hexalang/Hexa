@@ -871,6 +871,7 @@ class Typer {
 									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									type.tagBindVars[type.fieldNames.length - 1] = []
 									type.tagBindVarsNames[type.fieldNames.length - 1] = []
+									type.tagBindVarsTypes[type.fieldNames.length - 1] = []
 									type.fieldType[type.fieldNames.length - 1] = Type.EnumInstance(type, type.fieldNames.length - 1)
 								case _:
 									fail('Wrong enum constructor format, should be `Name`', node)
@@ -892,9 +893,12 @@ class Typer {
 											type.fieldType[type.fieldNames.length - 1] = Type.EnumConstructor(type, type.fieldNames.length - 1)
 											// TODO disallow just `= []`
 											let tagBindVars = []
-											let tagBindVarsNames = []
 											type.tagBindVars[type.fieldNames.length - 1] = tagBindVars
+											let tagBindVarsTypes: [Type] = []
+											type.tagBindVarsTypes[type.fieldNames.length - 1] = tagBindVarsTypes
+											let tagBindVarsNames: [String] = []
 											type.tagBindVarsNames[type.fieldNames.length - 1] = tagBindVarsNames
+											type.tagBindVarsNodes[type.fieldNames.length - 1] = args
 
 											if args.length == 0 {
 												// TODO fix this `: ` and other messages
@@ -905,7 +909,11 @@ class Typer {
 												if argNames[i] == null {
 													fail('Enum constructor arguments should have names `E(name1: T, name2: T)', args[i])
 												}
-													tagBindVars[i] = nodeToNodeType(args[i])
+
+												let nodeType = nodeToNodeType(args[i])
+												tagBindVars[i] = nodeType
+												// TODO late-binding
+												// tagBindVarsTypes[i] = toType(nodeType, args[i])
 
 												if tagBindVarsNames.includes(argNames[i]) {
 													fail('Enum constructor argument `\(argNames[i])` already exists', args[i])
@@ -2126,7 +2134,8 @@ class Typer {
 					}
 
 					let type: Type? = findActualType(name)
-					types.set(node, Type.Alias(type))
+					let alias = new AliasType(type)
+					types.set(node, Type.Alias(alias))
 					addScope(nameOfModuleItem(node), node)
 					// TODO
 					// fail('Defining types within blocks not allowed', node)
@@ -3195,8 +3204,6 @@ class Typer {
 				 			// TODO is const exprs >= 3 then require second names
 				 			// "This function call is hard to read.\Replace this code: ... with this one: ..."
 				 		case EnumConstructor(type, tag):
-							evaluateArguments(el, [])
-
 				 			let name = type.fieldNames[tag]
 
 				 			if el.length < type.tagBindVars[tag].length {
@@ -3212,8 +3219,8 @@ class Typer {
 				 				fail('Use syntax without empty `()`', node)
 							}
 
+							evaluateArguments(el, typesOfTagArguments(type, tag))
 				 			types.set(node, Type.EnumInstance(type, tag))
-				 			// TODO check arg types
 				 		case null:
 							evaluateArguments(el, [])
 
@@ -3967,7 +3974,11 @@ class Typer {
 											if indexOf == -1 {
 												fail('currentType.fieldNames.indexOf == -1', e)
 											}
-											let type = currentType.tagBindVars[indexOf][currentTagBind]
+
+											let type =
+												currentType.tagBindVarsTypes[indexOf][currentTagBind]
+												??
+												typesOfTagArguments(currentType, indexOf)[currentTagBind]
 											let name = currentType.tagBindVarsNames[indexOf][currentTagBind]
 
 											if name == null {
@@ -3979,7 +3990,7 @@ class Typer {
 											}
 
 											if type != null {
-												types.set(e, toType(type, e))
+												types.set(e, type)
 											} else {
 												fail('Internal error: tagBindVars has no type for ' + name, e)
 											}
@@ -4032,5 +4043,23 @@ class Typer {
 						i++
 					}
 			}
+	}
+
+	fun typesOfTagArguments(type: EnumType, tag: Int): [Type] {
+		var types = type.tagBindVarsTypes[tag]
+		let nodeTypes = type.tagBindVars[tag]
+		let nodes = type.tagBindVarsNodes[tag]
+
+		if types.length == nodeTypes.length {
+			return types
 		}
+
+		types = nodeTypes.map(
+			(nodeType, i) => toType(nodeType, nodes[i])
+		)
+
+		type.tagBindVarsTypes[tag] = types
+
+		return types
+	}
 }
