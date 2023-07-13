@@ -324,6 +324,7 @@ class Typer {
 												parents.set(cloned, cloned)
 
 												// Save
+												// TODO could be effect @mustRestoreXXX
 												let _currentlyInstantiatingParams = currentlyInstantiatingParams
 												let _currentlyInstantiating = currentlyInstantiating
 												currentlyInstantiatingParams = known
@@ -649,14 +650,14 @@ class Typer {
 									}
 								case Static(f): switch f {
 									case Function(name, _):
-										if (type.fieldNames.includes(name)) {
+										if type.fieldNames.includes(name) {
 											fail('Field `\(name)` already exists', field)
 										}
 										type.fieldNames.push(name)
 										type.fieldStatic[type.fieldNames.length - 1] = true
 										addScope(name, field)
 									case Var(name, _):
-										if (type.fieldNames.includes(name)) {
+										if type.fieldNames.includes(name) {
 											fail('Field `\(name)` already exists', field)
 										}
 										type.fieldNames.push(name)
@@ -700,11 +701,11 @@ class Typer {
 						for field in f { switch field {
 							// Instance method
 							case Function(name, expr, vars, rettype):
-								if (name == 'new') {
+								if name == 'new' {
 									type.constructor = type.fieldNames.length - 1
 								}
 								if external, expr != null {
-									if (name == 'new') {
+									if name == 'new' {
 										fail('External class constructor `new()` cannot have a body `{}`', field)
 									} else {
 										fail('External class method `function \(name)` cannot have a body `{}`', field)
@@ -866,6 +867,7 @@ class Typer {
 									}
 									type.fieldNames.push(name)
 									// TODO refactor `length - 1`
+									// TODO combine arrays into single `[class EnumConstructorField]`
 									type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 									type.tagBindVars[type.fieldNames.length - 1] = []
 									type.tagBindVarsNames[type.fieldNames.length - 1] = []
@@ -876,39 +878,40 @@ class Typer {
 
 							// `enum E { A(b: C) }`
 							case Call(e, args, argNames):
-								if (valuesType != null) {
+								if valuesType != null {
 									throw fail('Cannot use `Value(args)` format for simple enum', node)
 								}
 								switch e {
 									case NodeTypeValue(t): switch t {
 										case Type(name):
-											if (type.fieldNames.includes(name)) {
+											if type.fieldNames.includes(name) {
 												throw fail('Field `\(name)` already exists', e)
 											}
 											type.fieldNames.push(name)
 											type.fieldEnumConstructor[type.fieldNames.length - 1] = true
 											type.fieldType[type.fieldNames.length - 1] = Type.EnumConstructor(type, type.fieldNames.length - 1)
+											// TODO disallow just `= []`
 											let tagBindVars = []
 											let tagBindVarsNames = []
 											type.tagBindVars[type.fieldNames.length - 1] = tagBindVars
 											type.tagBindVarsNames[type.fieldNames.length - 1] = tagBindVarsNames
 
-											if (args.length == 0) {
+											if args.length == 0 {
 												// TODO fix this `: ` and other messages
 												fail('Enum constructor expects more than zero arguments `(value: Type)`', e)
 											}
 
 											for i in args.length {
-												if (argNames[i] == null) {
+												if argNames[i] == null {
 													fail('Enum constructor arguments should have names `E(name1: T, name2: T)', args[i])
 												}
 													tagBindVars[i] = nodeToNodeType(args[i])
 
-													if (tagBindVarsNames.includes(argNames[i])) {
-														fail('Enum constructor argument `\(argNames[i])` already exists', args[i])
-													}
+												if tagBindVarsNames.includes(argNames[i]) {
+													fail('Enum constructor argument `\(argNames[i])` already exists', args[i])
+												}
 
-													tagBindVarsNames[i] = argNames[i]
+												tagBindVarsNames[i] = argNames[i]
 											}
 										case _:
 											fail('Wrong enum constructor format, should be `Name(value: T)`', e)
@@ -984,8 +987,7 @@ class Typer {
 												case Int(number):
 												// TODO infer i32/etc from constant
 												// TODO validate PRECISION compatibility
-												if not numberable.includes(type.fieldsTypeSimple)
-												{
+												if not numberable.includes(type.fieldsTypeSimple) {
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
 
@@ -998,7 +1000,7 @@ class Typer {
 												names.push(name)
 
 												case String(string):
-												if (type.fieldsTypeSimple != typeString) {
+												if type.fieldsTypeSimple != typeString {
 													fail('`\(name) = value` expects constant value of type `\(Type.stringify(type.fieldsTypeSimple))`', b)
 												}
 												// TODO non-constant values
@@ -1146,6 +1148,7 @@ class Typer {
 			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
 		}
 
+		/// Produces type `[T]` from same looking node, and other cases
 		static fun nodeToNodeType(node: Node): NodeType { switch node {
 			case Array(el):
 				if el.length > 1 {
@@ -2096,8 +2099,9 @@ class Typer {
 		// Syntax tree traverse
 		private fun fill(node: Node): Void {
 			switch node {
-
+				//
 				// Types
+				//
 
 				case Class(_):
 					fail('Defining classes within blocks not allowed', node)
@@ -2120,15 +2124,16 @@ class Typer {
 							// TODO `throw` ie must break this expression
 							''
 					}
+
 					let type: Type? = findActualType(name)
 					types.set(node, Type.Alias(type))
 					addScope(nameOfModuleItem(node), node)
 					// TODO
 					// fail('Defining types within blocks not allowed', node)
 
-				// Statements do not return value
-
-				// `var a = e, b: T, c`
+				//
+				// Statements do not return a value
+				//
 
 				// `{...}`
 				case Block(el):
@@ -2534,7 +2539,7 @@ class Typer {
 					insideFunction = _insideFunction
 				}
 
-				// `function name(vars): rettype {expr}`
+				// `fun name(vars) rettype {expr}`
 				case Function(name, expr, vars, rettype, external):
 					if external {
 						fail('External function `declare fun \(name)` cannot be taken as a value', node)
@@ -3652,57 +3657,57 @@ class Typer {
 				case _:
 					fail('Unknown node expression kind to type ' + node + never, node)
 			}
+	}
+
+	let nullables: [Type : Type] = [:]
+	fun asNullable(type: Type): Type {
+		if let has = nullables.get(type) {
+			return has
 		}
 
-		let nullables: [Type : Type] = [:]
-		fun asNullable(type: Type): Type {
-			if let has = nullables.get(type) {
-				return has
-			}
+		let spawned = Type.Nullable(type)
+		nullables.set(type, spawned)
+		return spawned
+	}
 
-			let spawned = Type.Nullable(type)
-			nullables.set(type, spawned)
-			return spawned
-		}
-
-		/// Sets the type of `null` which has `UnknownNullable` be default
-		fun inferNullType(to: Type, fromValue: Type, node: Node? = null) {
-			switch to {
-				case UnknownNullable(handle):
-					if handle.value == null {
-						handle.value = unwrapUnknownAndNullable(fromValue)
-						if let node = node {
-							types.set(node, asNullable(unwrapUnknownAndNullable(fromValue)))
-						}
+	/// Sets the type of `null` which has `UnknownNullable` be default
+	fun inferNullType(to: Type, fromValue: Type, node: Node? = null) {
+		switch to {
+			case UnknownNullable(handle):
+				if handle.value == null {
+					handle.value = unwrapUnknownAndNullable(fromValue)
+					if let node = node {
+						types.set(node, asNullable(unwrapUnknownAndNullable(fromValue)))
 					}
-			}
+				}
+		}
+	}
+
+	/// `T?`
+	fun isNullable(type: Type): Bool {
+		switch type {
+			case Nullable(_):
+				return true
+			case UnknownNullable(_):
+				return true
 		}
 
-		/// `T?`
-		fun isNullable(type: Type): Bool {
-			switch type {
-				case Nullable(_):
-					return true
-				case UnknownNullable(_):
-					return true
-			}
+		return false
+	}
 
-			return false
+	/// `T? => T`
+	fun unwrapUnknownAndNullable(type: Type?): Type? {
+		switch type {
+			case null: return null
+			case Nullable(type): return unwrapUnknownAndNullable(type)
+			case Unknown(type): return unwrapUnknownAndNullable(type.value)
+			case UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
 		}
 
-		/// `T? => T`
-		fun unwrapUnknownAndNullable(type: Type?): Type? {
-			switch type {
-				case null: return null
-				case Nullable(type): return unwrapUnknownAndNullable(type)
-				case Unknown(type): return unwrapUnknownAndNullable(type.value)
-				case UnknownNullable(type): return unwrapUnknownAndNullable(type.value)
-			}
+		return type
+	}
 
-			return type
-		}
-
-		fun fillSwitch(node: Node, value: Bool) {
+	fun fillSwitch(node: Node, value: Bool) {
 			switch node {
 				// TODO extracting like this is weird, Just pass arguments to fillSwitch
 				case Switch(exprs, conds, guards, cases):
@@ -3928,6 +3933,7 @@ class Typer {
 									shortHandSyntax = true
 									switch t {
 										case Type(name):
+											// TODO `enumType ?? earlyTyping`
 											if let enumType = enumType {
 												if let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true {
 													currentType = enumType
@@ -3950,8 +3956,9 @@ class Typer {
 
 								case Ident(name): // Bind (var)
 								{
-									if (name.charAt(0) == name.charAt(0).toUpperCase()) {fill(e)}
-									else {
+									if name.charAt(0) == name.charAt(0).toUpperCase() {
+										fill(e)
+									} else {
 										addScope(name, e)
 
 										// Find tag bind var and set it's type:
@@ -3962,6 +3969,7 @@ class Typer {
 											}
 											let type = currentType.tagBindVars[indexOf][currentTagBind]
 											let name = currentType.tagBindVarsNames[indexOf][currentTagBind]
+
 											if name == null {
 												let available = currentType.tagBindVarsNames[indexOf].join(', ')
 												if available.length == 0 {
@@ -3969,13 +3977,14 @@ class Typer {
 												}
 												fail('Too many bindings requested for `\(currentTag)`, available are: ' + available, e)
 											}
+
 											if type != null {
 												types.set(e, toType(type, e))
 											} else {
-												fail('tagBindVars no type for ' + name, e)
+												fail('Internal error: tagBindVars has no type for ' + name, e)
 											}
 										} else {
-											fail('No currentType for '+name, e)
+											fail('No currentType for ' + name, e)
 										}
 									}
 								}
