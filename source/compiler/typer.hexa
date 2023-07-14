@@ -1092,10 +1092,10 @@ class Typer {
 
 								// This weird hack, because of race condition
 								// if function called within self
-									types.set(f, Type.Function([], toType(rettype, f)))
 								if let rettype = rettype {
+									types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
 								} else {
-									types.set(f, Type.Function([], typeVoid))
+									types.set(f, Type.Function(varTypes(vars), typeVoid, variadic))
 								}
 								types.set(field, types.get(f))
 
@@ -1956,12 +1956,19 @@ class Typer {
 
 			for v in vars {
 				switch v {
-					case Var(_, t):
+					// TODO names really must be same as in declaration cause I did:
+					// case Var(expr, t): misused `expr != null` but by reading `name`
+					case Var(name, t, expr):
+						// TODO different logic, cause does `types.get(v)`
 						if let t = t {
 							// TODO optional etc
-							varTypes.push(new FunctionArgument(toType(t, v)))
+							let arg = new FunctionArgument(types.get(v) ?? toType(t, v))
+							arg.optional = expr != null
+							arg.name = name
+							varTypes.push(arg)
 						} else {
-							varTypes.push(new FunctionArgument(Type.Unknown({ value: null })))
+							// TODO same
+							varTypes.push(new FunctionArgument(types.get(v) ?? Type.Unknown({ value: null })))
 						}
 				}
 			}
@@ -2804,7 +2811,10 @@ class Typer {
 														for arg in args {
 															let fixedArg = genericFixup(arg.type, generic)
 															changed = changed or (fixedArg != arg.type)
-															reArgs.push(new FunctionArgument(fixedArg))
+															let reArg = new FunctionArgument(fixedArg)
+															reArg.optional = arg.optional
+															reArg.name = arg.name
+															reArgs.push(reArg)
 														}
 
 														if changed {
@@ -3177,11 +3187,12 @@ class Typer {
 				 	}
 
 					fun evaluateArguments(el: [Node], expected: [Type]) {
+						var arg = expected[0]
 						for i in el.length {
 							let e = el[i]
-							let arg = expected[i]
 
 							switch e {
+								// TODO write tests
 								case Arrow(_): {
 									expectedArrowType.set(e, arg)
 								}
@@ -3193,6 +3204,9 @@ class Typer {
 							// `func(null)`
 							inferNullType(argumentValueType, expectedType, el[i])
 				 			unify(expectedType, argumentValueType, el[i])
+
+							// Take the latest arg type in case of ...variadic
+							arg = expected[i + 1] ?? arg
 						}
 					}
 
@@ -3214,7 +3228,39 @@ class Typer {
 					let eType = types.get(e) ?? obviousTyping(parents.get(e) ?? e)
 
 				 	switch eType {
-				 		case Function(args, returns):
+				 		case Function(args, returns, variadic):
+							let provided = el.length
+							// TODO actually those things must be a part of function type itself
+							var expectedAtMax = args.length
+							var expectedAtLeast = 0
+							// TODO check that variadic is zero-or-many on all targets
+							let variadicLimit = 255 // TODO actual limit - `this` arg
+
+							// TODO test ...rest to be at the latest position
+							// TODO test optional=default to be at the latest positions
+							for arg in args {
+								expectedAtLeast++
+								if arg.optional {
+									expectedAtLeast--
+								}
+							}
+
+							if variadic {
+								expectedAtMax = variadicLimit
+								expectedAtLeast--
+							}
+
+							if provided < expectedAtLeast {
+								// TODO `fun name` and args names too
+								// TODO `fun is defined here`
+								fail('Not enough function arguments, required \(expectedAtLeast) but got only \(provided)', node)
+							}
+
+							if provided > expectedAtMax {
+								// TODO `fun name` and args names too
+								fail('Too many function arguments, expected only \(expectedAtMax) but got \(provided)', node)
+							}
+
 							evaluateArguments(el, args.map(arg => arg.type))
 							/*
 				 			for i in el.length { if let arg = args[i] {
