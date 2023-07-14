@@ -174,10 +174,13 @@ class Typer {
 								case TypeAlias(_):
 									parents.set(node, e)
 									fillModuleTypes(node)
-								case Function(name, expr, vars, rettype):
+								case Function(name, expr, vars, rettype, _, variadic):
 									if let rettype = rettype {
 										pushFuncParamsIfRequired(node)
-										types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
+										types.set(
+											node,
+											Type.Function(varTypes(vars), toType(rettype, node), variadic)
+										)
 										popFuncParamsIfRequired(node)
 									}
 								case Var(name, t, e, const):
@@ -678,15 +681,18 @@ class Typer {
 									types.set(field, toType(t, field))
 								}
 							// `function a(args with known types or no args): known ret type`
-							case Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype, _, variadic):
 								if let rettype = rettype {
-									types.set(field, Type.Function(varTypes(vars), toType(rettype, field)))
+									types.set(
+										field,
+										Type.Function(varTypes(vars), toType(rettype, field), variadic)
+									)
 								}
 
 							case Static(f): switch f {
-								case Function(name, expr, vars, rettype):
+								case Function(name, expr, vars, rettype, _, variadic):
 									if let rettype = rettype {
-										types.set(f, Type.Function(varTypes(vars), toType(rettype, f)))
+										types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
 										types.set(field, types.get(f))
 									}
 								case Var(name, t, e, const):
@@ -700,7 +706,7 @@ class Typer {
 						// Fill expressions
 						for field in f { switch field {
 							// Instance method
-							case Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype, _, variadic):
 								if name == 'new' {
 									type.constructor = type.fieldNames.length - 1
 								}
@@ -723,7 +729,14 @@ class Typer {
 								}
 
 								if external, types.get(field) == null {
-									types.set(field, Type.Function(varTypes(vars), rettype!=null? toType(rettype, field) : typeVoid))
+									types.set(
+										field,
+										Type.Function(
+											varTypes(vars),
+											rettype!=null? toType(rettype, field) : typeVoid,
+											variadic
+										)
+									)
 								}
 
 								insideClassMethod = _insideClassMethod
@@ -769,7 +782,7 @@ class Typer {
 
 							// `static f`
 							case Static(f): switch f {
-								case Function(name, expr, vars, rettype):
+								case Function(name, expr, vars, rettype, _, variadic):
 									if external, expr != null {
 										fail('External class field `static fun \(name)` cannot have a body', field)
 									}
@@ -779,7 +792,7 @@ class Typer {
 										fillFunction(f, expr, vars, rettype)
 									}
 									if external {
-										types.set(f, Type.Function(varTypes(vars), rettype!=null? toType(rettype, f) : typeVoid))
+										types.set(f, Type.Function(varTypes(vars), rettype!=null? toType(rettype, f) : typeVoid, variadic))
 									}
 									insideClassMethod = _insideClassMethod
 									if types.get(f) == null {
@@ -1069,11 +1082,11 @@ class Typer {
 
 					// Fill expressions
 					for field in f { switch field {
-						case Function(name, expr, vars, rettype):
+						case Function(name, expr, vars, rettype, _, variadic):
 							fillFunction(field, expr, vars, rettype)
 						case Var(name, _):
 						case Static(f): switch f {
-							case Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype, _, variadic):
 								let _insideClassMethod = insideClassMethod
 								insideClassMethod = false
 
@@ -1760,7 +1773,13 @@ class Typer {
 				case Optional(t):
 					return asNullable(toType(t, node))
 				case Function(args, ret):
-					return Type.Function([for arg in args new FunctionArgument(toType(arg, node))], toType(ret, node))
+					let variadic = false // TODO
+					return Type.Function(
+						// TODO varTypes
+						[for arg in args new FunctionArgument(toType(arg, node))],
+						toType(ret, node),
+						variadic
+					)
 				case Object(names, el):
 					let els = [for e in el toType(e, node)]
 					return Type.Struct(names, els)
@@ -2009,8 +2028,11 @@ class Typer {
 				}
 			}
 
+			var variadic = false
 			switch node {
-				case Function(_):
+				// TODO `(variadic, ...)`
+				case Function(_, _, _, _, _, isVariadic):
+					variadic = isVariadic
 				// var x: [] = [] // TODO invalid!!!
 					if let params = project.mapFuncParams.get(node) as! [NodeType] {
 						for genericParam in params {
@@ -2082,7 +2104,7 @@ class Typer {
 			functionActuallyReturns = _functionActuallyReturns
 
 			// Set function type
-			types.set(node, Type.Function(args: [for v in vars new FunctionArgument(types.get(v))], returns: ret))
+			types.set(node, Type.Function(args: varTypes(vars), returns: ret, variadic))
 		}
 
 		private fun fillModuleTypes(node: Node, params: [Type]? = null, instanceOf: ClassType? = null): Void {
@@ -2771,7 +2793,7 @@ class Typer {
 													// `: T?`
 													case Nullable(type):
 														return asNullable(genericFixup(type, generic))
-													case Function(args, returns):
+													case Function(args, returns, variadic):
 														var returns = returns
 														var changed = false
 														let fixedReturns = genericFixup(returns, generic)
@@ -2786,7 +2808,7 @@ class Typer {
 														}
 
 														if changed {
-															return Type.Function(reArgs, returns)
+															return Type.Function(reArgs, returns, variadic)
 														}
 													case _:
 														// TODO handle more types
@@ -3177,12 +3199,12 @@ class Typer {
 					@noCapture // TODO cause I wrote `return types.get(e)` not `return types.get(node)`
 					fun obviousTyping(node: Node): Type {
 						switch node {
-							case Function(name, expr, vars, rettype):
+							case Function(name, expr, vars, rettype, _, variadic):
 								pushFuncParamsIfRequired(node)
 								if let rettype = rettype {
-									types.set(node, Type.Function(varTypes(vars), toType(rettype, node)))
+									types.set(node, Type.Function(varTypes(vars), toType(rettype, node), variadic))
 								} else {
-									types.set(node, Type.Function(varTypes(vars), Type.Unknown({handle: null})))
+									types.set(node, Type.Function(varTypes(vars), Type.Unknown({handle: null}), variadic))
 								}
 								popFuncParamsIfRequired(node)
 						}
