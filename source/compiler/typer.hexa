@@ -394,7 +394,7 @@ class Typer {
 
 		// Generates `Did you mean xxx?`
 		// TODO use this for other errors
-		fun proposeSimilar(names: [String], subject: String, what: String, similarTo: String?): String {
+		fun proposeSimilar(names: [String], subject: String, what: String, similarTo: String? = null): String {
 			if names.length == 0 {
 				return 'No \(what) available for access'
 			}
@@ -450,7 +450,7 @@ class Typer {
 			return available
 		}
 
-		fun registerClassType(node: Node, callback: Any, params: [Type]?, instanceOf: ClassType?): ClassType {
+		fun registerClassType(node: Node, callback: Any? = null, params: [Type]? = null, instanceOf: ClassType? = null): ClassType {
 			let mod = currentModule
 			currentModule = project.mapModules.get(node) ?? mod
 			let registered = registerClassTypeWrapped(node, callback, params, instanceOf)
@@ -459,7 +459,7 @@ class Typer {
 		}
 
 		// `class T {}`
-		fun registerClassTypeWrapped(node: Node, callback: Any, knownParams: [Type]?, instanceOf: ClassType?): ClassType {
+		fun registerClassTypeWrapped(node: Node, callback: Any? = null, knownParams: [Type]?, instanceOf: ClassType?): ClassType {
 			if let type = types.get(node) {
 				switch type as! Type {
 					// Avoid typing if already typed
@@ -704,6 +704,7 @@ class Typer {
 								if name == 'new' {
 									type.constructor = type.fieldNames.length - 1
 								}
+
 								if external, expr != null {
 									if name == 'new' {
 										fail('External class constructor `new()` cannot have a body `{}`', field)
@@ -711,16 +712,20 @@ class Typer {
 										fail('External class method `function \(name)` cannot have a body `{}`', field)
 									}
 								}
+
 								let _insideClassMethod = insideClassMethod
 								let _allowSuper = allowSuper
 								insideClassMethod = true
 								allowSuper = (extend != null)
-								if !external {
+
+								if not external {
 									fillFunction(field, expr, vars, rettype)
 								}
+
 								if external, types.get(field) == null {
 									types.set(field, Type.Function(varTypes(vars), rettype!=null? toType(rettype, field) : typeVoid))
 								}
+
 								insideClassMethod = _insideClassMethod
 								allowSuper = _allowSuper
 
@@ -1074,8 +1079,8 @@ class Typer {
 
 								// This weird hack, because of race condition
 								// if function called within self
-								if rettype != null {
 									types.set(f, Type.Function([], toType(rettype, f)))
+								if let rettype = rettype {
 								} else {
 									types.set(f, Type.Function([], typeVoid))
 								}
@@ -1801,7 +1806,7 @@ class Typer {
 		}
 
 		// `var left = right`
-		fun areCovariant(left: Type?, right: Type?, strictNull: Bool): Bool {
+		fun areCovariant(left: Type?, right: Type?, strictNull: Bool = false): Bool {
 			if left == right {
 				return true
 			}
@@ -2062,13 +2067,13 @@ class Typer {
 					unify(types.get(expr), ret, expr)
 				}
 			} else {
-			if (ret == null) {
-				ret = typeVoid
-			}
-			if ret != typeVoid, expr != null, functionActuallyReturns == false {
-				// To handle arrow
-				fail('Function expects result of `\(Type.stringify(ret))` but never does `return value`', node)
-			}
+				if ret == null {
+					ret = typeVoid
+				}
+				if ret != typeVoid, expr != null, functionActuallyReturns == false {
+					// To handle arrow
+					fail('Function expects result of `\(Type.stringify(ret))` but never does `return value`', node)
+				}
 			}
 
 			// Restore stack
@@ -2080,7 +2085,7 @@ class Typer {
 			types.set(node, Type.Function(args: [for v in vars new FunctionArgument(types.get(v))], returns: ret))
 		}
 
-		private fun fillModuleTypes(node: Node, params: [Type]?, instanceOf: ClassType?): Void {
+		private fun fillModuleTypes(node: Node, params: [Type]? = null, instanceOf: ClassType? = null): Void {
 			switch node {
 				// `class T {}`
 				case Class(t, extend, implement, f, external):
@@ -2730,7 +2735,9 @@ class Typer {
 								failNonFatal('Type `\(type.name)` is defined here', type.parent)
 								fail(
 									'Class `\(named)` has no field `.\(n)`\n'
-									+ proposeSimilar(type.fieldNames, n, 'fields'), e ?? node)
+									+ proposeSimilar(type.fieldNames, n, 'fields'),
+									e ?? node
+								)
 							}
 							if type.fieldStatic[index] == true {
 								fail('Class `\(named)` field `.\(n)` is static', node)
@@ -3187,7 +3194,7 @@ class Typer {
 				 	switch eType {
 				 		case Function(args, returns):
 							evaluateArguments(el, args.map(arg => arg.type))
-/*
+							/*
 				 			for i in el.length { if let arg = args[i] {
 								let argumentValueType = types.get(el[i])
 								let expectedType = arg
@@ -3202,6 +3209,10 @@ class Typer {
 				 			// TODO ...rest
 				 			// TODO optional args
 				 			// TODO default args expressions+typing to use in normalization
+							// TODO require names: if types of parameters the same too much
+							// (bmp, 100, 200) ok
+							// (bmp, 100, 200, 300, 400) not ok
+							// (bmp, 100, 200, 300u16, 400u16) ok
 				 			// TODO is const exprs >= 3 then require second names
 				 			// "This function call is hard to read.\Replace this code: ... with this one: ..."
 				 		case EnumConstructor(type, tag):
