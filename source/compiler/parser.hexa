@@ -437,6 +437,7 @@ class Parser {
 					let value = parseType()
 					result = Node.TypeAlias(alias, value)
 				case _:
+					// TODO `declare enum`
 					fail('Wrong `declare` format, got `\(Token.stringify(tok()))`')
 			}
 /*
@@ -1019,8 +1020,51 @@ class Parser {
 				while tok() == Token.At {
 					atts.push(parseDecorator())
 				}
+
+				// TODO implement decorators transfer
 				atts = []
-				names.push(parseExpr())
+
+				switch tok() {
+					case LUpper:
+						let pos = new NodeData(lex.line[i], lex.column[i], lex.fileName)
+						var tag = Node.NodeTypeValue(NodeType.Type(getgo(Token.LUpper), null))
+						if tok() == Token.POpen {
+							i++
+							// TODO `let args [] = []` causes no error and `let args [test] = []` too
+							let args: [Node] = []
+							let argNames: [String] = []
+							while true {
+								argNames.push(getgo(Token.LLower))
+
+								// TODO drop
+								if tok() == Token.Colon {
+									i++
+								}
+
+								args.push(
+									Node.NodeTypeValue(parseType())
+								)
+
+								if tok() == Token.Comma {
+									i++
+								} else {
+									break
+								}
+							}
+							step(Token.PClose)
+							project.data.set(tag, pos)
+							tag = Node.Call(tag, args, argNames)
+						} else if tok() == Token.OpAssign {
+							i++
+							project.data.set(tag, pos)
+							tag = Node.Binop(tag, Token.OpAssign, parseExpr())
+						}
+
+						project.data.set(tag, pos)
+						names.push(tag)
+					case _:
+						names.push(parseExpr())
+				}
 			}
 			step(Token.BrClose)
 			result = Node.Enum(t, names, valuesType, extend)
@@ -1043,21 +1087,21 @@ class Parser {
 			var isMap = false
 
 			if tok() != Token.BkClose { while true {
-				if (tok() == Token.Colon) { // [:]
+				if tok() == Token.Colon { // [:]
 					isMap = true
 					next()
 					break
 				}
 				el.push(parseExpr())
-				if (tok() == Token.Colon) { // [k:v]
+				if tok() == Token.Colon { // [k:v]
 					i++
 					values.push(parseExpr())
 					isMap = true
 				}
-				if (tok() == Token.Comma) {
+				if tok() == Token.Comma {
 					i++
 					// Trailing comma [a,]
-					if (tok() == Token.BkClose) {
+					if tok() == Token.BkClose {
 						fail('Unexpected `]`, remove trailing comma `,` before `]` or add a value after `,` if required')
 					}
 				} else {
