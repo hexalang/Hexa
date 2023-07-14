@@ -24,6 +24,7 @@ class Normalizer {
 	var reservedGlobals: [String] = []
 	var collected: [[Node]] = []
 	var nativeEnums = false
+	var nativeIterators = true
 	var globalAccessor = '<!--global-->'
 	var typer: Typer
 	var package: Package
@@ -1559,6 +1560,7 @@ class Normalizer {
 						])
 					}
 				}}
+
 				if let range = range {
 					/*
 						let i = 0
@@ -1590,6 +1592,59 @@ class Normalizer {
 							true)
 					])
 				}
+
+				// TODO limit current implementation not only to arrays
+				// TODO support optional native iterators per-type if supported by target
+				if not nativeIterators {
+					let overType = typer.types.get(over)
+					switch overType {
+						case ClassInstance(type, generic) if type.name == 'Array': {
+							let i = unique(name, e)
+							let it = unique('it')
+							let finish = unique('at')
+							let storage = unique('over')
+
+							return Statement.Block([
+								// `var over = ...expression...`
+								Statement.Var(storage, nodeToExpression(over), overType),
+								// `var it = 0`
+								Statement.Var(it, Expression.Int(0), typer.typeInt),
+								// `var at = over.length`
+								Statement.Var(
+									finish,
+									Expression.Dot(
+										Expression.Ident(storage, overType),
+										'length',
+										typer.typeInt
+									),
+									typer.typeInt
+								),
+								Statement.While(
+									// `while it < at`
+									Expression.Binop(Expression.Ident(it, typer.typeInt), Token.OpLt, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+									// `{`
+									Statement.Block([
+										// `var name = over[it]` TODO `name` must be nullable
+										Statement.Var(
+											i,
+											Expression.Index(
+												Expression.Ident(storage, overType),
+												Expression.Ident(it, typer.typeInt),
+												generic[0]
+											),
+											generic[0]
+										),
+										// `it++`
+										Statement.Increment(Expression.Ident(it, typer.typeInt)),
+										// `by }`
+										nodeToStatement(by)
+									]),
+									true)
+							])
+						}
+					}
+				}
+
 				return Statement.For(name, nodeToExpression(over), nodeToStatement(by))
 
 				case Return(e):
