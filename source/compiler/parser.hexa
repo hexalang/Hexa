@@ -119,9 +119,9 @@ class Parser {
 				var vars: [String] = []
 				var types = []
 				var values = []
-				step(Token.POpen)
-				if tok() != Token.PClose { while true {
-					vars.push(getgo(Token.LLower))
+				step(Token.CallOpen)
+				if tok() != Token.CallClose { while true {
+					vars.push(getgo(Token.Identifier))
 					var expr = null
 					var t = null
 					if tok() == Token.Colon {
@@ -666,16 +666,16 @@ class Parser {
 			next()
 			if (
 				// () =>
-				(tok() == Token.PClose && offset(1) == Token.OpArrow) ||
+				(tok() == Token.CallClose && offset(1) == Token.RightArrow) ||
 				// (a, ...) =>
 				(tok() == Token.Identifier && offset(1) == Token.Comma) ||
 				// (a: ...) =>
 				// TODO colon-less
 				(tok() == Token.Identifier && offset(1) == Token.Colon) ||
 				// (a T) =>
-				(tok() == Token.LLower && offset(1) == Token.LUpper) ||
+				(tok() == Token.Identifier && offset(1) == Token.Title) ||
 				// (a) =>
-				(tok() == Token.LLower && offset(1) == Token.PClose && offset(2) == Token.OpArrow)
+				(tok() == Token.Identifier && offset(1) == Token.CallClose && offset(2) == Token.RightArrow)
 			) {
 				var vars: [String] = []
 				var types = []
@@ -778,7 +778,7 @@ class Parser {
 		case FloatingPoint:
 			// TODO handle Meta
 			let meta = lex.meta[i]
-			result = Node.Float(parseFloat(getgo(Token.LFloat)), meta)
+			result = Node.Float(parseFloat(getgo(Token.FloatingPoint)), meta)
 		case Integer:
 			let meta = lex.meta[i]
 			let value = getgo(Token.Integer)
@@ -865,10 +865,10 @@ class Parser {
 			} else {
 				result = Node.Ident(name, null)
 			}
-		case LBacktick:
-			result = Node.String(getgo(Token.LBacktick))
-		case LString:
-			let str = getgo(Token.LString)
+		case Backtick:
+			result = Node.String(getgo(Token.Backtick))
+		case QuotedString:
+			let str = getgo(Token.QuotedString)
 			// TODO Check have interpolations in string
 			if hasInterpolation(str) {
 				result = Node.Parenthesis(parseInterpolations(str))
@@ -920,7 +920,7 @@ class Parser {
 			var catches = []
 			while tok() == Token.KCatch {
 				step(Token.KCatch)
-				let name = getgo(Token.LLower)
+				let name = getgo(Token.Identifier)
 				vars.push(name)
 				// TODO colon-less
 				step(Token.Colon)
@@ -949,8 +949,8 @@ class Parser {
 		case KImport:
 			i++
 
-			if (tok() == Token.LString) {
-				result = Node.Import([], getgo(Token.LString))
+			if (tok() == Token.QuotedString) {
+				result = Node.Import([], getgo(Token.QuotedString))
 				project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 				return result
 			}
@@ -959,24 +959,24 @@ class Parser {
 
 			while true {
 				// TODO pos
-				if tok() == Token.LLower {
-					el.push(ImportNode.Lower(getgo(Token.LLower)))
-				} else if (tok() == Token.LUpper) {
-					el.push(ImportNode.Upper(getgo(Token.LUpper)))
-				} else if (tok() == Token.OpMult) {
+				if tok() == Token.Identifier {
+					el.push(ImportNode.Lower(getgo(Token.Identifier)))
+				} else if (tok() == Token.Title) {
+					el.push(ImportNode.Upper(getgo(Token.Title)))
+				} else if (tok() == Token.Multiply) {
 					i++
 					step(Token.KAs)
-					el.push(ImportNode.As(ImportNode.AllTheThings, ImportNode.Lower(getgo(Token.LLower))))
+					el.push(ImportNode.As(ImportNode.AllTheThings, ImportNode.Lower(getgo(Token.Identifier))))
 				} else {
 					fail('Incorrect `import` syntax')
 				}
 
 				if (tok() == Token.KAs) {
 					i++
-					if (tok() == Token.LLower) {
-						el.push(ImportNode.As(el.pop(), ImportNode.Lower(getgo(Token.LLower))))
-					} else if (tok() == Token.LUpper) {
-						el.push(ImportNode.As(el.pop(), ImportNode.Upper(getgo(Token.LUpper))))
+					if (tok() == Token.Identifier) {
+						el.push(ImportNode.As(el.pop(), ImportNode.Lower(getgo(Token.Identifier))))
+					} else if (tok() == Token.Title) {
+						el.push(ImportNode.As(el.pop(), ImportNode.Upper(getgo(Token.Title))))
 					} else {
 						fail('Incorrect `import x as y` syntax')
 					}
@@ -992,7 +992,7 @@ class Parser {
 			step(Token.KIn)
 
 
-			result = Node.Import(el, getgo(Token.LString))
+			result = Node.Import(el, getgo(Token.QuotedString))
 			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 			return result
 
@@ -1080,7 +1080,7 @@ class Parser {
 			result = me
 		case KFun:
 			result = parseFunction()
-		case BkOpen: // [a, b, c]
+		case IndexOpen: // [a, b, c]
 			i++
 			var el = []
 			var values = []
@@ -1201,7 +1201,7 @@ class Parser {
 				step(Token.Colon)
 				var exs = []
 				// TODO , instead of &&
-				while tok()!=Token.KCase && tok()!=Token.BrClose {
+				while tok()!=Token.KCase && tok()!=Token.BlockClose {
 					exs.push(parseExpr())
 				}
 				cases.push(Node.Block(exs))
@@ -1616,7 +1616,7 @@ class Parser {
 		if tok() == Token.BlockClose { // Empty block {}
 			i++
 			return Node.Block([])
-		} else if (tok() == Token.LLower && offset(1) == Token.Colon) { // Object { k:v }
+		} else if (tok() == Token.Identifier && offset(1) == Token.Colon) { // Object { k:v }
 			var names: [String] = []
 			var el: [Node] = []
 			while true {
@@ -1705,11 +1705,11 @@ class Parser {
 			// ^ to be used in [[parseFunction]]
 			if
 			//	token == Token.Colon or // `: T`
-				token == Token.BkOpen or // `[T]` TODO rename `B?Open` to `ArrayOpen`
-				token == Token.BrOpen or // `{v:T}` TODO `interface {v:T}` or disallow entirely?
+				token == Token.IndexOpen or // `[T]` TODO rename `B?Open` to `ArrayOpen`
+				token == Token.BlockOpen or // `{v:T}` TODO `interface {v:T}` or disallow entirely?
 				// TODO rename `B?Open` to `BlockOpen` `BodyOpen` `GroupOpen`
-				token == Token.LUpper or // `T` TODO rename `LUpper` to `TitleCase`, `LLower` to `CamelCase`
-				token == Token.POpen // `()=>T` TODO rename `POpen` to `CallOpen`
+				token == Token.Title or // `T` TODO rename `Title` to `TitleCase`, `Identifier` to `CamelCase`
+				token == Token.CallOpen // `()=>T` TODO rename `CallOpen` to `CallOpen`
 			{
 				type = parseType()
 			}
@@ -1727,8 +1727,8 @@ class Parser {
 		fun parseSingleBinding(): Node {
 			var path = []
 			// Path let path.path.path.
-			while tok() == Token.LLower && offset(1) == Token.Dot {
-				path.push(getgo(Token.LLower))
+			while tok() == Token.Identifier && offset(1) == Token.Dot {
+				path.push(getgo(Token.Identifier))
 				i++
 			}
 			// Enum type
@@ -1782,7 +1782,7 @@ class Parser {
 					var expr = null if (tok() == Token.Assign) { i++ expr = parseExpr() }
 					vars.push(Node.Var(varname, type, expr, const, external))
 
-					if (tok() == Token.Comma && offset(1) == Token.LLower && (offset(2) == Token.OpAssign || offset(2) == Token.Colon)) {
+					if (tok() == Token.Comma && offset(1) == Token.Identifier && (offset(2) == Token.Assign || offset(2) == Token.Colon)) {
 						i++
 					} else {
 						break
@@ -1804,12 +1804,12 @@ class Parser {
 					switch tok() {
 						case CallOpen:
 							var args: [String] = []
-							while tok() != Token.PClose {
-								args.push(getgo(Token.LLower))
+							while tok() != Token.CallClose {
+								args.push(getgo(Token.Identifier))
 							}
-							step(Token.OpAssign)
-							var varname = getgo(Token.LLower)
-						case OpAssign:
+							step(Token.Assign)
+							var varname = getgo(Token.Identifier)
+						case Assign:
 							//warning Extracting empty enum
 						case _:
 							fail("Wrong syntax")
@@ -2232,8 +2232,8 @@ class Parser {
 
 		// Types
 
-		let path: String? = if (tok() == Token.LLower && offset(1) == Token.Dot) {
-			let result = getgo(Token.LLower)
+		let path: String? = if (tok() == Token.Identifier && offset(1) == Token.Dot) {
+			let result = getgo(Token.Identifier)
 			i++
 			result
 		} else {
@@ -2243,13 +2243,13 @@ class Parser {
 
 		var result: NodeType? = null
 		switch tok() {
-		case LUpper:
-			var name = getgo(Token.LUpper)
+		case Title:
+			var name = getgo(Token.Title)
 			while tok() == Token.Dot {
 				i++
-				getgo(Token.LUpper)
+				getgo(Token.Title)
 			}
-			var sresult = if tok() == Token.OpLt {
+			var sresult = if tok() == Token.Less {
 				i++
 				parametricTypeNesting++
 				var params: [NodeType] = [parseType()]
@@ -2333,8 +2333,8 @@ class Parser {
 			} else {
 				var names: [String] = []
 				var types: [NodeType] = []
-				while tok() != Token.BrClose {
-					names.push(getgo(Token.LLower))
+				while tok() != Token.BlockClose {
+					names.push(getgo(Token.Identifier))
 					if (tok() == Token.Colon) {
 						i++
 						types.push(parseType())
@@ -2418,28 +2418,28 @@ class Parser {
 		let left = 100
 		let right = 0
 		switch op {
-			case OpMod: return 0 + left
-			case OpMult: return 1 + left
-			case OpDiv: return 1 + left
-			case OpIntDiv: return 1 + left
-			case OpAdd: return 2 + left
-			case OpSub: return 2 + left
-			case OpShl: return 3 + left
-			case OpShr: return 3 + left
-			case OpUShr: return 3 + left
-			case OpOr: return 4 + left
-			case OpAnd: return 4 + left
-			case OpXor: return 4 + left
-			case OpEq: return 5 + left
-			case OpNotEq: return 5 + left
-			case OpGt: return 5 + left
-			case OpLt: return 5 + left
-			case OpGte: return 5 + left
-			case OpLte: return 5 + left
-			case OpBoolAnd: return 7 + left
-			case OpBoolOr: return 8 + left
-			case OpAssign: return 10 + right
+			case Remainder: return 0 + left
+			case Multiply: return 1 + left
+			case Divide: return 1 + left
+			case IntegerDivide: return 1 + left
+			case Add: return 2 + left
 			//case Question: return 100 + right
+			case Subtract: return 2 + left
+			case BitwiseLeftShift: return 3 + left
+			case BitwiseRightShift: return 3 + left
+			case UnsignedRightShift: return 3 + left
+			case BitwiseOr: return 4 + left
+			case BitwiseAnd: return 4 + left
+			case BitwiseXor: return 4 + left
+			case Equal: return 5 + left
+			case Unequal: return 5 + left
+			case Greater: return 5 + left
+			case Less: return 5 + left
+			case GreaterOrEqual: return 5 + left
+			case LessOrEqual: return 5 + left
+			case LogicalAnd: return 7 + left
+			case LogicalOr: return 8 + left
+			case Assign: return 10 + right
 			case _: // TODO proper message, this is internal error
 				fail("No precedence for " + Token.stringify(op))
 		}
@@ -2447,28 +2447,28 @@ class Parser {
 
 	static fun isBinop(t: Token): Bool {
 		switch t {
-		case OpAdd: return true
-		case OpMult: return true
-		case OpDiv: return true
-		case OpIntDiv: return true
-		case OpSub: return true
-		case OpAssign: return true
-		case OpEq: return true
-		case OpNotEq: return true
-		case OpGt: return true
-		case OpGte: return true
-		case OpLt: return true
-		case OpLte: return true
-		case OpAnd: return true
-		case OpOr: return true
-		case OpXor: return true
-		case OpBoolAnd: return true
-		case OpBoolOr: return true
-		case OpShl: return true
-		case OpShr: return true
-		case OpUShr: return true
-		case OpMod: return true
 		//case Question: return true
+		case Add: return true
+		case Multiply: return true
+		case Divide: return true
+		case IntegerDivide: return true
+		case Subtract: return true
+		case Assign: return true
+		case Equal: return true
+		case Unequal: return true
+		case Greater: return true
+		case GreaterOrEqual: return true
+		case Less: return true
+		case LessOrEqual: return true
+		case BitwiseAnd: return true
+		case BitwiseOr: return true
+		case BitwiseXor: return true
+		case LogicalAnd: return true
+		case LogicalOr: return true
+		case BitwiseLeftShift: return true
+		case BitwiseRightShift: return true
+		case UnsignedRightShift: return true
+		case Remainder: return true
 		case _: return false
 		}
 	}
