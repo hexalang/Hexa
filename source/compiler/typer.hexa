@@ -947,7 +947,7 @@ class Typer {
 							// `enum E { A = b }`
 							// TODO allow BigInt as possible enum value type?
 							case Binop(a, op, b):
-								if op != Token.OpAssign {
+								if op != Token.Assign {
 									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
 								}
 								if valuesType == null {
@@ -2225,7 +2225,7 @@ class Typer {
 					var parent: Node = parents.get(a)
 					// `a = b`
 					// TODO separate assign node? or just nested pattern...
-					if op == Token.OpAssign { switch parent {
+					if op == Token.Assign { switch parent {
 						case null:
 							switch a {
 								case Ident(_): // Ok
@@ -2437,8 +2437,7 @@ class Typer {
 
 									switch e {
 										case Binop(a, op, b):
-											// TODO rename OpEq to Equal, also confusion with OpAssign
-											if op == Token.OpAssign {
+											if op == Token.Assign {
 												fail('Probably change `=` to `==` here. `if value` expects `value` only of type `Bool`, but got `' + Type.stringify(type) + '`', e)
 											}
 									}
@@ -2531,7 +2530,7 @@ class Typer {
 		}
 
 		// Expressions return values
-		fun fillExpression(node: Node) {
+		fun fillExpression(node Node) {
 			switch node {
 				// Just `name`
 				case Ident(name, params):
@@ -3329,13 +3328,13 @@ class Typer {
 					inferNullType(typeB, typeA, b)
 
 					// Anything + String = String
-					if op == Token.OpAdd, typeA == typeString {
+					if op == Token.Add, typeA == typeString {
 						types.set(node, typeString)
 					} else
 					if (
-						op == Token.OpBoolAnd or op == Token.OpBoolOr
+						op == Token.LogicalAnd or op == Token.LogicalOr
 					) {
-						let token = op == Token.OpBoolAnd? 'and' : 'or'
+						let token = op == Token.LogicalAnd? 'and' : 'or'
 						if not booleanable(typeA) {
 							fail('Operator `a \(token) b` takes `a` of type `Bool` only, but got `\(Type.stringify(typeA))`', a)
 						}
@@ -3347,14 +3346,14 @@ class Typer {
 					} else
 					// Always provides boolean result
 					if (typeA == typeB) and (typeA == typeString) and (
-						(op == Token.OpGte) ||
-						(op == Token.OpGt) ||
-						(op == Token.OpLte) ||
-						(op == Token.OpLt)
+						(op == Token.GreaterOrEqual) ||
+						(op == Token.Greater) ||
+						(op == Token.LessOrEqual) ||
+						(op == Token.Less)
 					) {
 						types.set(node, typeBool)
 					} else
-					if op == Token.OpEq or op == Token.OpNotEq {
+					if op == Token.Equal or op == Token.Unequal {
 						let booleans = (typeA == typeB) and (typeA == typeBool)
 						let comparable = areComparable(typeA, typeB)
 						let covariant = areCovariant(typeA, typeB)
@@ -3408,12 +3407,12 @@ class Typer {
 						types.set(node, typeBool)
 					} else
 					if (
-						(op == Token.OpGte) ||
-						(op == Token.OpGt) ||
-						(op == Token.OpLte) ||
-						(op == Token.OpLt) ||
-						(op == Token.OpEq) ||
-						(op == Token.OpNotEq)
+						(op == Token.GreaterOrEqual) ||
+						(op == Token.Greater) ||
+						(op == Token.LessOrEqual) ||
+						(op == Token.Less) ||
+						(op == Token.Equal) ||
+						(op == Token.Unequal)
 					) {
 						let comparable = areComparable(typeA, typeB)
 
@@ -3467,7 +3466,7 @@ class Typer {
 					fillExpression(e)
 
 					// Always provides boolean result
-					if op == Token.OpNot, !postfix {
+					if op == Token.KNot, !postfix {
 						let type = types.get(e)
 						if not booleanable(type) {
 							fail('Operator `not value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
@@ -3478,7 +3477,7 @@ class Typer {
 
 					types.set(node, types.get(e))
 
-					let mutates = op == Token.OpIncrement || op == Token.OpDecrement
+					let mutates = op == Token.Increment || op == Token.Decrement
 					// TODO ^ must allow only integer ++/--
 					if not mutates { return }
 					var parent: Node = parents.get(e)
@@ -3516,7 +3515,7 @@ class Typer {
 									// TODO maybe require `a[i] == a[i] ?? n + 1` instead?
 									// cause also string/etc arrays...
 								case _:
-									let ops = Token.OpIncrement? 'increment `++`' : 'decrement `--`'
+									let ops = Token.Increment? 'increment `++`' : 'decrement `--`'
 									fail('You can \(ops) only a variable, .field or array element', node)
 									// TODO `x={i:123} x.i++` <- by type and const factor
 							}
@@ -3609,11 +3608,11 @@ class Typer {
 				// `a op= b`
 				case AssignOp(a, op, b):
 					// `===`
-					if op == Token.OpEq {
+					if op == Token.Equal {
 						fail('`===` not supported, use `strictEqual`', node)
 					}
 					// `!==`
-					if op == Token.OpEq {
+					if op == Token.Equal {
 						fail('`!==` not supported, use `strictNotEqual`', node)
 					}
 
@@ -4081,7 +4080,7 @@ class Typer {
 									}
 								}
 								case Binop(a, op, b):
-									if op == Token.OpOr {
+									if op == Token.BitwiseOr {
 										follow(a)
 										follow(b)
 									} else {

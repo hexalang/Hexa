@@ -493,7 +493,7 @@ class Normalizer {
 				let eb = nodeToExpression(b)
 
 				// TODO refactor `if op` to `switch op`
-				if op == Token.OpAdd { switch ea {
+				if op == Token.Add { switch ea {
 					case String(sa): switch eb {
 						// `"abc" + "dce" = "abcdce"`
 						case String(sb): return Expression.String(sa + sb)
@@ -519,7 +519,7 @@ class Normalizer {
 
 				// TODO use nested pattern matching here
 				// `case ea, op, eb:`
-				if op == Token.OpBoolOr { switch ea {
+				if op == Token.LogicalOr { switch ea {
 					case True: switch eb {
 						// `true || false = true`
 						case False: return Expression.True
@@ -534,7 +534,7 @@ class Normalizer {
 					}
 				}}
 
-				if op == Token.OpBoolAnd {
+				if op == Token.LogicalAnd {
 					switch ea {
 					case True: switch eb {
 						// `true && false = false`
@@ -551,7 +551,7 @@ class Normalizer {
 				}}
 
 				// `a == b`
-				if op == Token.OpEq {
+				if op == Token.Equal {
 					switch ea {
 					case True: switch eb {
 						// `true == false = false`
@@ -600,7 +600,7 @@ class Normalizer {
 				}}
 
 				// `a != b`
-				if op == Token.OpNotEq {
+				if op == Token.Unequal {
 					switch ea {
 					case True: switch eb {
 						// `true != false = true`
@@ -735,8 +735,8 @@ class Normalizer {
 							block.push(Statement.Const(i, Expression.Int(-1), typer.typeInt))
 							block.push(Statement.While(
 								Expression.Binop(
-									Expression.Parenthesis(Expression.Binop(Expression.Ident(i, typer.typeInt), Token.OpAdd, Expression.Int(1), typer.typeInt)),
-									Token.OpLt,
+									Expression.Parenthesis(Expression.Binop(Expression.Ident(i, typer.typeInt), Token.Add, Expression.Int(1), typer.typeInt)),
+									Token.Less,
 									Expression.Ident(value, valueType),
 									typer.typeBool),
 								Statement.Block([
@@ -776,7 +776,7 @@ class Normalizer {
 					let resultType = typer.types.get(nullable)
 					return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block([
 						Statement.Const(result, nodeToExpression(nullable), resultType),
-						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.OpNotEq, Expression.Null(resultType), typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
+						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.Unequal, Expression.Null(resultType), typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
 						Statement.Return(nodeToExpression(otherwise))
 						]), [], [], Type.Function([], typer.types.get(otherwise), false))), [], typer.types.get(otherwise),
 						CallKind.Function
@@ -785,7 +785,7 @@ class Normalizer {
 
 				case Unop(op, postfix, e):
 					switch op {
-						case OpIncrement | OpDecrement:
+						case Increment | Decrement:
 							var source: Node? = typer.parents.get(e)
 							if let source = source {
 								switch source {
@@ -797,7 +797,7 @@ class Normalizer {
 
 					let expression = nodeToExpression(e)
 					switch op {
-						case OpNot:
+						case KNot:
 							switch expression {
 								// `not true = false`
 								case True: return Expression.False
@@ -849,7 +849,7 @@ class Normalizer {
 					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
 					while i < econd.length {
-						parens = Expression.Binop(parens, Token.OpBoolAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
+						parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
 					return Expression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
@@ -863,7 +863,7 @@ class Normalizer {
 				case As(e, kind, t): switch kind {
 					case Question:
 						console.log('`as?` is not yet supported by normalizer, only `as!`')
-					case OpNot:
+					case KNot:
 						return Expression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
 					case _:
 						console.log('`as` is not yet supported by normalizer, only `as!`')
@@ -1070,7 +1070,7 @@ class Normalizer {
 					let values = []
 					for f in fields { switch f {
 						// `ValueName = b`
-						case Binop(a, op, b): // op == OpAssign
+						case Binop(a, op, b): // op == Assign
 							switch a {
 								case NodeTypeValue(t): switch t {
 									case Type(name):
@@ -1122,7 +1122,7 @@ class Normalizer {
 									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if expr != null {
+										if (expr != null) {
 											defaults.push(nodeToExpression(expr))
 										} else {
 											defaults.push(null)
@@ -1274,7 +1274,7 @@ class Normalizer {
 									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if (expr != null) {
+										if expr != null {
 											defaults.push(nodeToExpression(expr))
 										} else {
 											defaults.push(null)
@@ -1504,7 +1504,7 @@ class Normalizer {
 						Statement.Var(i, Expression.Int(0), typer.typeInt),
 						Statement.Var(it, Expression.Int(0), typer.typeInt),
 						Statement.While(
-							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.OpLt, Expression.Int(s), typer.typeBool),
+							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Int(s), typer.typeBool),
 							Statement.Block([
 								Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
 								Statement.Increment(Expression.Ident(it, typer.typeInt)),
@@ -1547,7 +1547,7 @@ class Normalizer {
 							Statement.While(
 								Expression.Binop(
 									Expression.Ident(it, overType),
-									Token.OpLt,
+									Token.Less,
 									Expression.Ident(finish, overType),
 									typer.typeBool
 								),
@@ -1583,7 +1583,7 @@ class Normalizer {
 						Statement.Var(it, nodeToExpression(over), typer.typeInt),
 						Statement.Var(finish, nodeToExpression(range), typer.typeInt),
 						Statement.While(
-							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.OpLt, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Ident(finish, typer.typeInt), typer.typeBool),
 							Statement.Block([
 								Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
 								Statement.Increment(Expression.Ident(it, typer.typeInt)),
@@ -1621,7 +1621,7 @@ class Normalizer {
 								),
 								Statement.While(
 									// `while it < at`
-									Expression.Binop(Expression.Ident(it, typer.typeInt), Token.OpLt, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+									Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Ident(finish, typer.typeInt), typer.typeBool),
 									// `{`
 									Statement.Block([
 										// `var name = over[it]` TODO `name` must be nullable
@@ -1688,7 +1688,7 @@ class Normalizer {
 					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
 					while i < econd.length {
-						parens = Expression.Binop(parens, Token.OpBoolAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
+						parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
 					return Statement.If(parens, nodeToStatement(eif), nodeToStatement(eelse))
@@ -1719,9 +1719,9 @@ class Normalizer {
 					block.push(Statement.Var(name, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
 					block.push(Statement.If(
 						Expression.Binop(
-							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(current + 0), typer.typeBool),
-							Token.OpBoolAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
+							Token.LogicalAnd,
+							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
@@ -1737,9 +1737,9 @@ class Normalizer {
 					block.push(Statement.Var(next, Expression.Null(nextType), nextType))
 					block.push(Statement.If(
 						Expression.Binop(
-							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(current + 0), typer.typeBool),
-							Token.OpBoolAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
+							Token.LogicalAnd,
+							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
@@ -1754,16 +1754,16 @@ class Normalizer {
 				// Last step
 				block.push(Statement.If(
 					Expression.Binop(
-						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(econd.length - 1), typer.typeBool),
-						Token.OpBoolAnd,
-						Expression.Binop(Expression.Ident(last, lastType), Token.OpNotEq, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
+						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
+						Token.LogicalAnd,
+						Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
 						typer.typeBool
 					),
 					Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(econd.length), null), null))
 
 				// if (step == steps)
 				block.push(Statement.If(
-					Expression.Binop(Expression.Ident(step, typer.typeInt), Token.OpEq, Expression.Int(econd.length), typer.typeBool),
+					Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length), typer.typeBool),
 					nodeToStatement(eif), nodeToStatement(eelse)))
 
 				return Statement.Block(block)
@@ -1800,7 +1800,7 @@ class Normalizer {
 
 				case Binop(a, op, b):
 				switch op {
-					case OpAssign:
+					case Assign:
 						var source: Node? = typer.parents.get(a)
 						if let source = source {
 							switch source {
@@ -1829,7 +1829,7 @@ class Normalizer {
 
 				case Unop(op, postfix, e):
 					switch op {
-						case OpIncrement | OpDecrement:
+						case Increment | Decrement:
 							var source: Node? = typer.parents.get(e)
 							if let source = source {
 								switch source {
@@ -1839,8 +1839,8 @@ class Normalizer {
 							}
 					}
 					switch op {
-						case OpIncrement: return Statement.Increment(nodeToExpression(e))
-						case OpDecrement: return Statement.Decrement(nodeToExpression(e))
+						case Increment: return Statement.Increment(nodeToExpression(e))
+						case Decrement: return Statement.Decrement(nodeToExpression(e))
 						case _: // Optimize away
 					}
 				case Parenthesis(inner):
@@ -1872,7 +1872,7 @@ class Normalizer {
 							case Dot(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
 							case DotUpper(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
 							case Binop(a, op, b): switch op {
-							case OpOr: return Expression.Binop(toCase(a), Token.OpOr, toCase(b), null)
+							case BitwiseOr: return Expression.Binop(toCase(a), Token.BitwiseOr, toCase(b), null)
 								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
 							}
 							case Call(e, args, argNames): switch e {
@@ -1979,7 +1979,7 @@ class Normalizer {
 							cx.push(getTag(typer.parents.get(expr), name))
 						case Binop(a, op, b):
 						switch op {
-							case OpOr:
+							case BitwiseOr:
 							addTag(a)
 							addTag(b)
 							case _: console.error('(internal warning) Unknown case binop kind:', e, typer.parents.get(e))

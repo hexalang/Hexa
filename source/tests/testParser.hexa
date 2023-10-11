@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// TODO include into project only when target is debug one in hexa.json
 class TestParser {
 	static fun test() {
-			console.log("TestParser begin")
+		console.log("TestParser begin")
 
-			// Basics and indentaion
-			shouldAllEqual([
+		// Basics and indentation
+		shouldAllEqual([
 				''			 : '<!--null-->',
 				'  '		 : '<!--null-->',
 				'	'		 : '<!--null-->',
@@ -48,7 +49,7 @@ class TestParser {
 
 				"'s'"		 : 'String(s)',
 				"\"s\"" 	 : 'String(s)'
-			])
+		])
 
 //			shouldAllEqual([
 //				'1 2 3 trace("Hello!", "World!") + 5 * 6 / 3':
@@ -131,12 +132,12 @@ class TestParser {
 
 			shouldAllError([
 				'import',
-				//'import ""',
-				'import hehe',
+				// TODO 'import ""',
+				'import test',
 				'import _ as B in "test"',
 				'import * in "test"',
 				'import * as B in "test"'
-			//	'import a as B in ""'
+				// TODO 'import a as B in ""'
 			])
 
 			// Types parsing in expressions
@@ -180,8 +181,8 @@ class TestParser {
 				'class A {} var a = new A { } ()' : "Block([Class(Type(A),null,[],[],false),Var(a,null,New([],Type(A),[],[],[],[]),false,false)])",
 				'class A { var field: String } var a = new A { field: "Value" } ()' :
 					"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false)],false),Var(a,null,New([],Type(A),[],[field],[String(Value)],[]),false,false)])",
-				'class A { var field: String var otherfield: Int } var a = new A { field: "Value", otherfield: 25 } ()' :
-					"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false),Var(otherfield,Type(Int),null,false,false)],false),Var(a,null,New([],Type(A),[],[field,otherfield],[String(Value),Int(25)],[]),false,false)])"
+				'class A { var field: String var otherField: Int } var a = new A { field: "Value", otherField: 25 } ()' :
+					"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false),Var(otherField,Type(Int),null,false,false)],false),Var(a,null,New([],Type(A),[],[field,otherField],[String(Value),Int(25)],[]),false,false)])"
 			])
 
 			// Functions
@@ -271,21 +272,21 @@ class TestParser {
 				'declare A = B' : 'TypeAlias(Type(A),Type(B))'
 			])
 
-			shouldAllError([
+		shouldAllError([
 				"declare var a, b, c",
 				"declare anything"
-			])
+		])
 
-			// Array and map
-			shouldAllEqual([
+		// Array and map
+		shouldAllEqual([
 				'push([:])' : 'Call(Ident(push),[Map([],[])])',
 				'push([])' : 'Call(Ident(push),[Array([])])',
 				'[].length' : 'Dot(Array([]),length)',
 				'[:].length' : 'Dot(Map([],[]),length)',
 				'[[:]]': 'Array([Map([],[])])'
-			])
+		])
 
-			console.log("TestParser done \(Math.round((passed/overall)*100))% (\(passed)/\(overall))")
+		console.log("TestParser done \(Math.round((passed/overall)*100))% (\(passed)/\(overall))")
 	}
 
 	static var passed = 0
@@ -294,6 +295,7 @@ class TestParser {
 	//
 	// Helpers
 	//
+	// TODO #region Helpers + require #end_region? or implicitly start next region
 
 	/// Parses `input` into AST and stringifies, checks by trimmed `test`
 	static fun shouldEqual(input: String, test: String) {
@@ -304,9 +306,9 @@ class TestParser {
 	/// Same as `shouldEqual`, but does no trimming of `test`
 	static fun shouldEqualWithoutTrim(input: String, test: String) {
 		overall++
-		var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
+		var lexed = Lexer.tokenize(Buffer.from(input), "TEST")
 		try {
-			var parsed = Parser.toNode(Parser.parseNodes(lexe, new Project()))
+			var parsed = Parser.toNode(Parser.parseNodes(lexed, new Project()))
 			var res = stringify(parsed)
 			if test != res {
 				throw 'TestParser test fail: `\(input)`\n\nExpect: `\(test)`\n\nParsed: `\(res)`\n\nRaw: `\(parsed)`'
@@ -334,11 +336,12 @@ class TestParser {
 		}
 	}
 
+	/// Input should fail to parse
 	static fun shouldError(input: String) {
 		overall++
 		try {
-			var lexe = Lexer.tokenize(Buffer.from(input), "TEST")
-			var parser = Parser.toNode(Parser.parseNodes(lexe, new Project()))
+			var lexed = Lexer.tokenize(Buffer.from(input), "TEST")
+			var parser = Parser.toNode(Parser.parseNodes(lexed, new Project()))
 		}
 		catch e: Any {
 			passed++
@@ -347,6 +350,7 @@ class TestParser {
 		throw 'TestParser test fail: `\(input)` did not throw exception.'
 	}
 
+	/// Every input should fail to parse
 	static fun shouldAllError(input: [String]) {
 		for str in input {
 			shouldError(str)
@@ -355,6 +359,7 @@ class TestParser {
 
 	/// Removes all internal and trailing whitespace and newlines
 	static fun deepTrim(s: String) {
+		// TODO String.replaceAll
 		return s.split('\n').join('').split('\r').join('').split('\t').join('').split(' ').join('')
 	}
 
@@ -386,15 +391,15 @@ class TestParser {
 			"," + ((expr != null) ? stringify(expr) : "null") +',\(const),\(external))'
 			//case Vars(vars): return 'Vars(' + stringifyNodeArray(vars) + ")"
 
-			case Function(name, expr, vars, rettype, external):
+			case Function(name, expr, vars, retType, external):
 				return 'Function(\(name),'
 				+ (expr == null ? "null" : stringify(expr))
-				+ "," + stringifyNodeArray(vars) + ',' + ((rettype != null) ? stringifyType(rettype) : "null") + ",\(external))"
+				+ "," + stringifyNodeArray(vars) + ',' + ((retType != null) ? stringifyType(retType) : "null") + ",\(external))"
 
-			case Arrow(expr, vars, rettype):
+			case Arrow(expr, vars, retType):
 				return 'Arrow('
 				+ (expr == null ? "null" : stringify(expr))
-				+ "," + stringifyNodeArray(vars) + ',' + ((rettype != null) ? stringifyType(rettype) : "null") + ")"
+				+ "," + stringifyNodeArray(vars) + ',' + ((retType != null) ? stringifyType(retType) : "null") + ")"
 
 			case Call(e, el, argNames):
 				var res = 'Call(' + stringify(e) + ',['
@@ -441,15 +446,17 @@ class TestParser {
 			case DotUpper(l, r): return "DotUpper(" + stringify(l) + "," + r + ")"
 
 			case Private(expr): return 'Private(' + stringify(expr) + ')'
-			case If(econd, eif, eelse):
-				return 'If(' + stringifyNodeArray(econd) + ',' + stringify(eif) + ',' + stringify(eelse) + ')'
+			case If(eCond, eif, eElse):
+				return 'If(' + stringifyNodeArray(eCond) + ',' + stringify(eif) + ',' + stringify(eElse) + ')'
 			case Array(el): return 'Array(' + stringifyNodeArray(el) + ')'
 			case Unop(op, postfix, e): return 'Unop(' + Token.stringify(op) + ',' + postfix + ',' + stringify(e) + ')'
+			// TODO exhaustive switch
 			case _: throw '<!--' + node + '-->'
 		}
 	}
 
 	static fun stringifyArray(nodes: [Node]): String {
+		// TODO drop `[for in]` syntax
 		return [for node in nodes stringify(node)].join(',')
 	}
 
@@ -461,12 +468,12 @@ class TestParser {
 		return "[" + [for e in arr stringifyType(e)].join(',') + "]"
 	}
 
-	// Creates a testable consistent string representation of type
+	/// Creates a testable consistent string representation of type
 	static fun stringifyType(node: NodeType): String {
 		switch node {
 			case Type(s): return 'Type(\(s))'
 			case ParametricType(name, params): return 'ParametricType(\(name),[' + [for p in params stringifyType(p)].join(',') + "])"
-			case Function(args, rettype): return 'Function([' + [for e in args stringifyType(e)].join(',') + "]," + stringifyType(rettype) + ')'
+			case Function(args, retType): return 'Function([' + [for e in args stringifyType(e)].join(',') + "]," + stringifyType(retType) + ')'
 			case Object(names, types): return 'Object([' + names.join(',') + "],[" + [for e in types stringifyType(e)].join(',') +"])"
 			case Optional(type): return 'Optional(' + stringifyType(type) + ')'
 			case _: throw '<!--' + node + '-->'

@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2021-2022 Oleh Petrenko
+// Copyright (C) 2021-2023 Oleh Petrenko
 // Copyright (C) 2018 Bogdan Danylchenko
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,9 +22,9 @@ class TestLexer {
 		compare("#!/bin", [], [])
 		compare("#!/bin\n", [], [])
 		compare("#!/bin\n//", [], [])
-		compare("#!/bin\r\n123", [Token.LInt], ["123"]) // May not work on Linux because of \r if no `bin\r` file exist
-		compare("#!/bin\n\r123", [Token.LInt], ["123"]) // \r is completely ignored by lexer
-		compare("#!/bin\n123", [Token.LInt], ["123"])
+		compare("#!/bin\r\n123", [Token.Integer], ["123"]) // May not work on Linux because of \r if no `bin\r` file exist
+		compare("#!/bin\n\r123", [Token.Integer], ["123"]) // \r is completely ignored by lexer
+		compare("#!/bin\n123", [Token.Integer], ["123"])
 
 		// Empty (whitespace, comments)
 		compare("", [], [])
@@ -43,76 +43,76 @@ class TestLexer {
 		compare("//\n", [], [])
 
 		// Int
-		compare("123", [Token.LInt], ["123"])
-		compare(" 0 ", [Token.LInt], ["0"])
-		compare("0", [Token.LInt], ["0"])
-		compare("1 2 3", [Token.LInt, Token.LInt, Token.LInt], ["1", "2", "3"])
-		compare("0x1", [Token.LInt], ["0x1"])
-		compare("0x0", [Token.LInt], ["0x0"])
-		compare("0xF", [Token.LInt], ["0xF"])
-		compare("0xFA", [Token.LInt], ["0xFA"])
-		compare("0xFABCDEF", [Token.LInt], ["0xFABCDEF"])
-		compare("0x1F2A3B4C5D6E7F0", [Token.LInt], ["0x1F2A3B4C5D6E7F0"])
-		compare("-123", [Token.OpSub, Token.LInt], ["-", "123"])
-		compare("+123", [Token.OpAdd, Token.LInt], ["+", "123"])
+		compare("123", [Token.Integer], ["123"])
+		compare(" 0 ", [Token.Integer], ["0"])
+		compare("0", [Token.Integer], ["0"])
+		compare("1 2 3", [Token.Integer, Token.Integer, Token.Integer], ["1", "2", "3"])
+		compare("0x1", [Token.Integer], ["0x1"])
+		compare("0x0", [Token.Integer], ["0x0"])
+		compare("0xF", [Token.Integer], ["0xF"])
+		compare("0xFA", [Token.Integer], ["0xFA"])
+		compare("0xFABCDEF", [Token.Integer], ["0xFABCDEF"])
+		compare("0x1F2A3B4C5D6E7F0", [Token.Integer], ["0x1F2A3B4C5D6E7F0"])
+		compare("-123", [Token.Subtract, Token.Integer], ["-", "123"])
+		compare("+123", [Token.Add, Token.Integer], ["+", "123"])
 
 		// Float
-		compare("0.123", [Token.LFloat], ["0.123"])
-		compare("0.0", [Token.LFloat], ["0.0"])
-		compare("0.0e+1", [Token.LFloat], ["0.0e+1"])
-		compare("0.0E-1", [Token.LFloat], ["0.0E-1"])
-		compare("0E-123", [Token.LFloat], ["0E-123"])
-		compare("123e123", [Token.LFloat], ["123e123"])
-		compare("1 2.0 3", [Token.LInt, Token.LFloat, Token.LInt], ["1", "2.0", "3"])
+		compare("0.123", [Token.FloatingPoint], ["0.123"])
+		compare("0.0", [Token.FloatingPoint], ["0.0"])
+		compare("0.0e+1", [Token.FloatingPoint], ["0.0e+1"])
+		compare("0.0E-1", [Token.FloatingPoint], ["0.0E-1"])
+		compare("0E-123", [Token.FloatingPoint], ["0E-123"])
+		compare("123e123", [Token.FloatingPoint], ["123e123"])
+		compare("1 2.0 3", [Token.Integer, Token.FloatingPoint, Token.Integer], ["1", "2.0", "3"])
 
 		// String
-		compare("'s'", [Token.LString], ["'s'"])
-		compare('"s"', [Token.LString], ["'s'"]) // TODO Quotes `"` and `'` should be differentiated for pretty printing
-		compare("\"s\"", [Token.LString], ["'s'"]) // TODO All `\*` should be kept for pretty printing
-		compare("`s`", [Token.LBacktick], ["`s`"])
-		compare("`aaa bbb``ccc` `ddd`", [Token.LBacktick, Token.LBacktick], ["`aaa bbbccc`", "`ddd`"])
-		compare("````````", [Token.LBacktick], ["``"])
-		compare("``", [Token.LBacktick], ["``"])
-		compare("``\n", [Token.LBacktick], ["``"])
-		compare("``\n``", [Token.LBacktick, Token.LBacktick], ["``", "``"])
+		compare("'s'", [Token.QuotedString], ["'s'"])
+		compare('"s"', [Token.QuotedString], ["'s'"]) // TODO Quotes `"` and `'` should be differentiated for pretty printing
+		compare("\"s\"", [Token.QuotedString], ["'s'"]) // TODO All `\*` should be kept for pretty printing
+		compare("`s`", [Token.Backtick], ["`s`"])
+		compare("`aaa bbb``ccc` `ddd`", [Token.Backtick, Token.Backtick], ["`aaa bbbccc`", "`ddd`"])
+		compare("````````", [Token.Backtick], ["``"])
+		compare("``", [Token.Backtick], ["``"])
+		compare("``\n", [Token.Backtick], ["``"])
+		compare("``\n``", [Token.Backtick, Token.Backtick], ["``", "``"])
 
 		// String consistency - repair \r\n to \n for non-raw ones
-		compare("'s\n'", [Token.LString], ["'s\n'"]) // '
-		compare("'s\r\n'", [Token.LString], ["'s\n'"]) // '
+		compare("'s\n'", [Token.QuotedString], ["'s\n'"]) // '
+		compare("'s\r\n'", [Token.QuotedString], ["'s\n'"]) // '
 		compare("'s
-			s'", [Token.LString], ["'s\n\t\t\ts'"]) // Test on actual code
-		compare('"s\n"', [Token.LString], ["'s\n'"]) // "
-		compare('"s\r\n"', [Token.LString], ["'s\n'"]) // "
-		compare('"\r\ns\r\n"', [Token.LString], ["'\ns\n'"]) // "
-		compare("`s\n`", [Token.LBacktick], ["`s\n`"]) // `
-		compare("`s\r\n`", [Token.LBacktick], ["`s\n`"]) // `
-		compare("`s\r`", [Token.LBacktick], ["`s\r`"]) // `
-		compare("`s\\r`", [Token.LBacktick], ["`s\\r`"]) // `
+			s'", [Token.QuotedString], ["'s\n\t\t\ts'"]) // Test on actual code
+		compare('"s\n"', [Token.QuotedString], ["'s\n'"]) // "
+		compare('"s\r\n"', [Token.QuotedString], ["'s\n'"]) // "
+		compare('"\r\ns\r\n"', [Token.QuotedString], ["'\ns\n'"]) // "
+		compare("`s\n`", [Token.Backtick], ["`s\n`"]) // `
+		compare("`s\r\n`", [Token.Backtick], ["`s\n`"]) // `
+		compare("`s\r`", [Token.Backtick], ["`s\r`"]) // `
+		compare("`s\\r`", [Token.Backtick], ["`s\\r`"]) // `
 
 		// Identifiers
-		compare("T", [Token.LUpper], ["T"])
-		compare("T val", [Token.LUpper, Token.LLower], ["T", "val"])
-		compare("T val Type", [Token.LUpper, Token.LLower, Token.LUpper], ["T", "val", "Type"])
-		compare("_T", [Token.LLower], ["_T"])
-		compare("v", [Token.LLower], ["v"])
-		compare("_v", [Token.LLower], ["_v"])
-		compare("_123", [Token.LLower], ["_123"])
+		compare("T", [Token.Title], ["T"])
+		compare("T val", [Token.Title, Token.Identifier], ["T", "val"])
+		compare("T val Type", [Token.Title, Token.Identifier, Token.Title], ["T", "val", "Type"])
+		compare("_T", [Token.Identifier], ["_T"])
+		compare("v", [Token.Identifier], ["v"])
+		compare("_v", [Token.Identifier], ["_v"])
+		compare("_123", [Token.Identifier], ["_123"])
 
 		// Multichar tokens
-		compare(" } ", [Token.BrClose], ["}"])
-		compare("==", [Token.OpEq], ["=="])
-		compare("===", [Token.OpEq, Token.OpAssign], ["==", "="])
-		compare("== =", [Token.OpEq, Token.OpAssign], ["==", "="])
-		compare("= ==", [Token.OpAssign, Token.OpEq], ["=", "=="])
-		compare("=====", [Token.OpEq, Token.OpEq, Token.OpAssign], ["==", "==", "="])
+		compare(" } ", [Token.BlockClose], ["}"])
+		compare("==", [Token.Equal], ["=="])
+		compare("===", [Token.Equal, Token.Assign], ["==", "="])
+		compare("== =", [Token.Equal, Token.Assign], ["==", "="])
+		compare("= ==", [Token.Assign, Token.Equal], ["=", "=="])
+		compare("=====", [Token.Equal, Token.Equal, Token.Assign], ["==", "==", "="])
 		compare(
 			"> >> >>> . .. ...",
-			[Token.OpGt, Token.OpShr, Token.OpUShr, Token.Dot, Token.Dot, Token.Dot, Token.Interval],
+			[Token.Greater, Token.BitwiseRightShift, Token.UnsignedRightShift, Token.Dot, Token.Dot, Token.Dot, Token.Interval],
 			[">", ">>", ">>>", ".", ".", ".", "..."]
 		)
 		compare(
 			">>>>>>.......",
-			[Token.OpUShr, Token.OpUShr, Token.Interval, Token.Interval, Token.Dot],
+			[Token.UnsignedRightShift, Token.UnsignedRightShift, Token.Interval, Token.Interval, Token.Dot],
 			[">>>", ">>>", "...", "...", "."]
 		)
 
