@@ -85,8 +85,8 @@ class Lexer {
 			add(t)
 		}
 
-		// Add parametrized token with meta
-		@inline fun addm(t: Token, p: String, m: Meta) {
+		/// Add parametrized token with meta data
+		@inline fun addMeta(t: Token, param: String, m: Meta) {
 			// TODO if (#ignore > 0 || ignore_comments) { return }
 			// TODO if (!keep_string_quote_style) push(inQuoted)
 			params[to] = param
@@ -229,19 +229,29 @@ class Lexer {
 				// Note: non-ascii identifiers are NOT allowed
 				// TODO describe the 95 trick
 				if ((_8 & 95) >= 65 && (_8 & 95) <= 90) or (_8 == 95) {
-					let title = _8
-					p = position + 1
-					_8 = get_8(p)
-					while p < len && isIdentifier[_8] != 0 {
-						_8 = get_8(++p)
-					}
-					s = bytes.toString('ascii', position, p)
+					let title = _8 <= 90
+					var allLowercase = true
+					var p = position
+
+					// TODO is table lookup really faster than conditions? Bit mask possible>
+					do {
+						// Note: underscore is inside keyword map
+						// This excludes numbers
+						allLowercase = allLowercase and (_8 >= 95) // TODO `'_'.charCodeAt(0)`
+						p++
+						_8 = get_8(p)
+					} while p < len and isIdentifier[_8] != 0
+
+					// TODO could be keyword table lookup to avoid string allocation
+					let s = bytes.toString('ascii', position, p)
 					// TODO s.length > 1 < maxN then kwd.get(s)
-					let t: Token? = ((_16 & 0xFF) <= 90) ? null : kwd.get(s)
+					// TODO why `_16`: `let t: Token? = ((_16 & 0xFF) <= 90) ? null : kwd.get(s)`
+					let t: Token? = allLowercase ? kwd.get(s) : null
 					if let t = t {
 						add(t)
 					} else {
-						if title >= 65 && title <= 90 {
+						// Always >= 65
+						if title {
 							addWith(Token.Title, s)
 						} else {
 							// TODO test for `kwd` only here!
