@@ -19,9 +19,11 @@ enum Token : Int {
 	// Default
 	Eof          = 0
 	Default      = 123 // Simplifies some parsing
+	// TODO why all those manual `= N`? `Default` could be just the latest in the list
+	// TODO describe why limit is 127, UTF-8 related, make some validation like `@maxAllowed(127) enum`
 
 	// Keywords
-	// Order makes no sense
+	// Order has no special sense
 	KBreak       = 3
 	KCase        = 4
 	KCatch       = 6
@@ -56,156 +58,159 @@ enum Token : Int {
 	KIs			 = 57
 	KAs          = 58
 	KSuper       = 59
+	KNot         = 89
 
 	// Literals
-	LFloat       = 60 // 0.123
-	LUpper       = 61 // Word
-	LLower       = 62 // word
-	LInt         = 63 // 123
-	LString      = 64 // "", ''
-	LDoc         = 65 // /** doc **/
-	LBacktick    = 66 // ``
+	FloatingPoint = 60 // 0.123
+	Title         = 61 // Word
+	Identifier    = 62 // word
+	Integer       = 63 // 123
+	QuotedString  = 64 // "" and ''
+	Documentation = 65 // /// doc
+	Backtick      = 66 // ``
 
 	// Symbols
-	Underscore   = 1
+	Underscore   = 1  // _
 	At           = 70 // @
-	BkClose      = 71 // ]
-	BkOpen       = 72 // [
-	BrClose      = 73 // }
-	BrOpen       = 74 // {
+	IndexClose   = 71 // ]
+	IndexOpen    = 72 // [
+	BlockClose   = 73 // }
+	BlockOpen    = 74 // {
 	Comma        = 75 // ,
 	Colon        = 76 // :
 	Dot          = 77 // .
 	Sharp        = 78 // #
-	PClose       = 79 // )
-	POpen        = 80 // (
+	CallClose    = 79 // )
+	CallOpen     = 80 // (
 	Question     = 81 // ?
 	Semicolon    = 82 // ;
 	Query        = 83 // $
 	Interval     = 98 // ...
+	// Exclamation  = 89 // ! TODO extra !. single operator, ! to be postfix
+	// TODO ^ also consider Unary.UnwrapOptional name
 
 	// Unary
-	OpDecrement  = 86 // --
-	OpIncrement  = 87 // ++
-	OpNegBits    = 88 // ~
-	OpNot        = 89 // !
+	Decrement  = 86 // -- TODO rename to UnaryDecrement or Decrement
+	Increment  = 87 // ++
+	BitwiseNot = 88 // ~
 
 	// Binary
-	OpArrow      = 90 // =>
-	OpAssign     = 91 // =
-	OpBoolAnd    = 92 // &&
-	OpBoolOr     = 93 // ||
-	OpDiv        = 94 // /
-	OpEq         = 95 // == TODO // com as /// doc for all values
-	OpGt         = 96 // >
-	OpGte        = 97 // >=
-	OpLt         = 99 // <
-	OpLte       = 100 // <=
-	OpMod       = 101 // %
-	OpMult      = 102 // `*`
-	OpNotEq     = 103 // !=
+	RightArrow         = 90 // =>
+	Assign             = 91 // =
+	LogicalAnd         = 92 // &&
+	LogicalOr          = 93 // ||
+	Divide             = 94 // /
+	Equal              = 95 // == TODO // com as /// doc for all values
+	Greater            = 96 // >
+	GreaterOrEqual     = 97 // >=
+	Less               = 99 // <
+	LessOrEqual        = 100 // <=
+	Remainder          = 101 // %
+	Multiply           = 102 // `*`
+	Unequal            = 103 // !=
 	// TODO consider creating += -= >>>= tokens
 	// ^ not, to use in parser, there should be a way
 	// to get >>> from >>>= by doing token - offset or something
-	OpOr        = 104 // |
-	OpShl       = 105 // <<
-	OpShr       = 106 // >>
-	OpSub       = 107 // -
-	OpUShr      = 108 // >>>
-	OpXor       = 109 // ^
-	OpIntDiv    = 110 // \
-	OpAdd       = 111 // +
-	OpAnd       = 112 // &
-	OpChain     = 113 // ?.
+	BitwiseOr          = 104 // |
+	BitwiseLeftShift   = 105 // <<
+	BitwiseRightShift  = 106 // >>
+	Subtract           = 107 // -
+	UnsignedRightShift = 108 // >>>
+	BitwiseXor         = 109 // ^
+	IntegerDivide      = 110 // \
+	Add                = 111 // +
+	BitwiseAnd         = 112 // &
+	OptionalChain      = 113 // ?.
 
 	static fun stringify(token: Token, param: String? = null): String {
+		// TODO should be `return switch` cause *no* final return (must be detected for non-exhaustive cases)
 		switch token {
-		case At: return "@"
-		case Query: return "$"
-		case Sharp: return "#"
-		case BkClose: return "]"
-		case BkOpen: return "["
-		case BrClose: return "}"
-		case BrOpen: return "{"
-		case Colon: return ":"
-		case Comma: return ","
-		case Default: return "<!--empty-->"
-		case Dot: return "."
-		case Eof: return "<!--end-->"
-		case Interval: return "..."
-		case KAs: return "as"
-		case KBreak: return "break"
-		case KCase: return "case"
-		case KCatch: return "catch"
-		case KClass: return "class"
-		case KContinue: return "continue"
-		case KDo: return "do"
-		case KElse: return "else"
-		case KEnum: return "enum"
-		case KExtends: return "extends"
-		case KDeclare: return "declare"
-		case KFalse: return "false"
-		case KFor: return "for"
-		case KFun: return "fun"
-		case KIf: return "if"
-		case KImplements: return "implements"
-		case KImport: return "import"
-		case KIn: return "in"
-		case KInterface: return "interface"
-		case KLet: return "let"
-		case KNew: return "new"
-		case KNull: return "null"
-		case KPrivate: return "private"
-		case KReturn: return "return"
-		case KStatic: return "static"
-		case KSuper: return "super"
-		case KSwitch: return "switch"
-		case KThis: return "this"
-		case KThrow: return "throw"
-		case KTrue: return "true"
-		case KTry: return "try"
-		case KVar: return "var"
-		case KWhile: return "while"
-		case OpAdd: return "+"
-		case OpAnd: return "&"
-		case OpArrow: return "=>"
-		case OpAssign: return "="
-		case OpBoolAnd: return "&&" // We keep it like this (not `and`) to simplify JavaScript generation
-		case OpBoolOr: return "||"
-		case OpDecrement: return "--"
-		case OpDiv: return "/"
-		case OpEq: return "=="
-		case OpGt: return ">"
-		case OpGte: return ">="
-		case OpIncrement: return "++"
-		case OpIntDiv: return "\\"
-		case OpLt: return "<"
-		case OpLte: return "<="
-		case OpMod: return "%"
-		case OpMult: return "*"
-		case OpNegBits: return "~"
-		case OpNot: return "!"
-		case OpNotEq: return "!="
-		case OpOr: return "|"
-		case OpShl: return "<<"
-		case OpShr: return ">>"
-		case OpSub: return "-"
-		case OpUShr: return ">>>"
-		case OpXor: return "^"
-		case OpChain: return "?."
-		case PClose: return ")"
-		case POpen: return "("
-		case Question: return "?"
-		case Semicolon: return ";"
-		case Underscore: return "_"
-		case LUpper: return (param == null)? 'TitleCase' : param
-		case LString: return (param == null)? 'string' : '\'\(param)\''
-		case LBacktick: return (param == null)? 'backtick' : '`\(param)`'
-		case LLower: return (param == null)? 'identifier' : param
-		case LInt: return (param == null)? 'integer' : param
-		case LFloat: return (param == null)? 'float' : param
-		case LDoc: return '///\(param)'
-		case KIs: return "is"
+			case At: return "@"
+			case Query: return "$"
+			case Sharp: return "#"
+			case BkClose: return "]"
+			case BkOpen: return "["
+			case BrClose: return "}"
+			case BrOpen: return "{"
+			case Colon: return ":"
+			case Comma: return ","
+			case Default: return "<!--empty-->"
+			case Dot: return "."
+			case Eof: return "<!--end-->"
+			case Interval: return "..."
+			case KAs: return "as"
+			case KBreak: return "break"
+			case KCase: return "case"
+			case KCatch: return "catch"
+			case KClass: return "class"
+			case KContinue: return "continue"
+			case KDo: return "do"
+			case KElse: return "else"
+			case KEnum: return "enum"
+			case KExtends: return "extends"
+			case KDeclare: return "declare"
+			case KFalse: return "false"
+			case KFor: return "for"
+			case KFun: return "fun"
+			case KIf: return "if"
+			case KImplements: return "implements"
+			case KImport: return "import"
+			case KIn: return "in"
+			case KInterface: return "interface"
+			case KLet: return "let"
+			case KNew: return "new"
+			case KNull: return "null"
+			case KPrivate: return "private"
+			case KReturn: return "return"
+			case KStatic: return "static"
+			case KSuper: return "super"
+			case KSwitch: return "switch"
+			case KThis: return "this"
+			case KThrow: return "throw"
+			case KTrue: return "true"
+			case KTry: return "try"
+			case KVar: return "var"
+			case KWhile: return "while"
+			case OpAdd: return "+"
+			case OpAnd: return "&"
+			case OpArrow: return "=>"
+			case OpAssign: return "="
+			case OpBoolAnd: return "&&" // We keep it like this (not `and`) to simplify JavaScript generation
+			case OpBoolOr: return "||"
+			case OpDecrement: return "--"
+			case OpDiv: return "/"
+			case OpEq: return "=="
+			case OpGt: return ">"
+			case OpGte: return ">="
+			case OpIncrement: return "++"
+			case OpIntDiv: return "\\"
+			case OpLt: return "<"
+			case OpLte: return "<="
+			case OpMod: return "%"
+			case OpMult: return "*"
+			case OpNegBits: return "~"
+			case OpNot: return "!"
+			case OpNotEq: return "!="
+			case OpOr: return "|"
+			case OpShl: return "<<"
+			case OpShr: return ">>"
+			case OpSub: return "-"
+			case OpUShr: return ">>>"
+			case OpXor: return "^"
+			case OpChain: return "?."
+			case PClose: return ")"
+			case POpen: return "("
+			case Question: return "?"
+			case Semicolon: return ";"
+			case Underscore: return "_"
+			case LUpper: return (param == null)? 'TitleCase' : param
+			case LString: return (param == null)? 'string' : '\'\(param)\''
+			case LBacktick: return (param == null)? 'backtick' : '`\(param)`'
+			case LLower: return (param == null)? 'identifier' : param
+			case LInt: return (param == null)? 'integer' : param
+			case LFloat: return (param == null)? 'float' : param
+			case LDoc: return '///\(param)'
+			case KIs: return "is"
 		}
 	}
 }
@@ -243,7 +248,7 @@ enum Meta : #if native UInt8 #else Int #end {
 			case UInt8: return 'UInt8'
 			case Float32: return 'Float32'
 		}
-		// TODO this code is unreachable, infer this in typer/nornalizer somehow
+		// TODO this code is unreachable, infer this in typer/normalizer somehow
 		// (mark switch as exhaustive + all cases returning/exiting?)
 	}
 }

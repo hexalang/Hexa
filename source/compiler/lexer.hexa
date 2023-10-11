@@ -173,6 +173,8 @@ class Lexer {
 						}
 						continue
 					}
+
+					// TODO `/// Doc`
 					// `/** Doc **/`
 					if (_16 == 10799 && get_8(position + 2) == "*".charCodeAt(0)) {
 						position += 3
@@ -190,7 +192,8 @@ class Lexer {
 						position += 3
 						continue
 					}
-					// /* Comment */
+
+					// `/* Comment */`
 					if _16 == 10799 {
 						var pos = position + 2
 						p = 0 // Nesting level
@@ -211,10 +214,10 @@ class Lexer {
 				// Identifiers and keywords
 				// A-z _
 				if ((_8 & 95) >= 65 && (_8 & 95) <= 90) or (_8 == 95) {
-					let titlechar = _8
+					let title = _8
 					p = position + 1
 					_8 = get_8(p)
-					while p < len && isident[_8] != 0 {
+					while p < len && isIdentifier[_8] != 0 {
 						_8 = get_8(++p)
 					}
 					s = bytes.toString('ascii', position, p)
@@ -223,7 +226,7 @@ class Lexer {
 					if let t = t {
 						add(t)
 					} else {
-						if titlechar >= 65 && titlechar <= 90 {
+						if title >= 65 && title <= 90 {
 							addn(Token.LUpper, s)
 						}
 						else {
@@ -284,7 +287,7 @@ class Lexer {
 				// 16 bit ops
 				// Verify & extract
 				// TODO parse `if`/etc as 16-bit op? *before a-z
-				let hash = simplehash(_16)
+				let hash = simpleHash(_16)
 				if _16 == op16token.readUInt16LE(hash * 2) {
 					add(op16token[hash + 512] as! Token)
 					position += 2
@@ -552,7 +555,9 @@ class Lexer {
 				if position >= len {
 					break
 				}
+
 				throw fail('Unexpected character ' + String.fromCharCode(_8))
+				// TODO detect useless `break` after `throw`
 				break
 			}
 			add(Token.Eof) // Helps parser error reporting
@@ -560,27 +565,15 @@ class Lexer {
 	}
 
 	static fun init() {
-		// Aplhanumeric _
+		// Alphanumeric _
 		for _8 in 256 {
-			isident[_8] =
+			isIdentifier[_8] =
 				((_8 >= 65 && _8 <= 90) // A...Z
 					||
 					(_8 >= 48 && _8 <= 57) // 0...9
 					||
 					(_8 >= 97 && _8 <= 122) // a...z
-					|| _8 == 95) ? 128 : 0
-					// _
-		}
-
-		// Aplhanumeric _
-		for _8 in 256 {
-			isident[_8] =
-				((_8 >= 65 && _8 <= 90) // A...Z
-					||
-					(_8 >= 48 && _8 <= 57) // 0...9
-					||
-					(_8 >= 97 && _8 <= 122) // a...z
-					|| _8 == 95) ? 128 : 0
+					|| _8 == 95) ? 1 : 0
 					// _
 		}
 
@@ -634,7 +627,7 @@ class Lexer {
 				"@".charCodeAt(0)  : Token.At,
 				"$".charCodeAt(0)  : Token.Query,
 				"#".charCodeAt(0)  : Token.Sharp,
-				"!".charCodeAt(0)  : Token.OpNot,
+				"!".charCodeAt(0)  : Token.OpNot, // TODO
 				"%".charCodeAt(0)  : Token.OpMod,
 				"&".charCodeAt(0)  : Token.OpAnd,
 				"(".charCodeAt(0)  : Token.POpen,
@@ -665,8 +658,9 @@ class Lexer {
 			ops8a[key] = ops8.get(key)
 		}
 
-		// 2-byte op
-		// Hash = charCodeAt(0) + charCodeAt(1)*256
+		// 2-byte token hashes
+		// TODO automate as macro
+		// `Hash = charCodeAt(0) + charCodeAt(1)*256`
 		let ops16: [Int : Token] =
 			[
 				11051 : Token.OpIncrement, // ++
@@ -680,47 +674,50 @@ class Lexer {
 				31868 : Token.OpBoolOr,    // ||
 				9766  : Token.OpBoolAnd,   // &&
 				15933 : Token.OpArrow,     // =>
-				11839 : Token.OpChain     // ?.
+				11839 : Token.OpChain      // ?.
 			]
 
+		// TODO automate as macro
 		for key1 in ops16.keys() {
 			for key2 in ops16.keys() {
-				if (key1 != key2 && simplehash(key1) == simplehash(key2)) {
+				if (key1 != key2 && simpleHash(key1) == simpleHash(key2)) {
 					throw new CompilerError(Fail.LexerError, "2-byte op hash collision: " + key1 + " " + key2, 0, 0, "INTERNAL")
 				}
 			}
 		}
 
 		for key in ops16.keys() {
-			let hash = simplehash(key)
+			let hash = simpleHash(key)
 			// Verify
 			op16token.writeUInt16LE(key, hash * 2)
 			// Tokens
 			op16token[hash + 512] = ops16.get(key)
 		}
+
+		// TODO detect this useless `return`
 		return
 	}
 
-	// Free of collisions for current set
-	@inline static fun simplehash(val: Int): Int {
+	/// Free of collisions for the current set
+	@inline static fun simpleHash(val: Int): Int {
 		return ((val & 0xff) + (((val >> (8 * 1)) & 0xff) << 3)) & 0xEF
 	}
 
-	// Pre-calculated array of is byte in A-z 0-9 _
-	static let isident: Buffer = Buffer.alloc(256)
+	/// Pre-calculated array of is byte in A-z 0-9 _
+	static let isIdentifier: Buffer = Buffer.alloc(256)
 
-	// Pre-calculated array of is byte in A-Z
+	/// Pre-calculated array of is byte in A-Z
 	static let isUpper: Buffer = Buffer.alloc(256)
 
-	//// TODO Pre-calculated array of is byte in a-z
+	// TODO Pre-calculated array of is byte in a-z
 	// TODO static var isLower: Buffer<Int>
 
-	// Single-byte operators and symbols
+	/// Single-byte operators and symbols
 	static let ops8a: Buffer = Buffer.alloc(256)
 
-	// Double-byte operators and symbols
+	/// Double-byte operators and symbols
 	static let op16token: Buffer = Buffer.alloc(768)
 
-	// Keywords
+	/// Keywords
 	static var kwd: [String : Token]
 }
