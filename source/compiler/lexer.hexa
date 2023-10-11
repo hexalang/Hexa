@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// Array of resulting tokens
+/// Array of resulting tokens
 // TODO handle @final properly
 @final
 class Tokens {
@@ -40,16 +40,15 @@ class Tokens {
 	}
 }
 
-// Takes UTF-8 text and returns tokens
+/// Takes UTF-8 text and returns tokens
 @final
 class Lexer {
+	// TODO make a .collect-like: Tokens function for backwards compatibility for now
 	static fun tokenize(bytes: Buffer, fileName: String): Tokens {
 		// Variables
 		var position = 0
 		let len = bytes.length
 		var to = 0
-		var s = ""
-		var p = 0
 		var line = 1
 		var columnBase = 0
 
@@ -57,7 +56,7 @@ class Lexer {
 		let params = []
 		let meta: [Meta] = []
 		// ^ try the compressed idea for meta's at least TODO
-		// TODO no zeroeing of this buffer when parser is LALR(0)
+		// TODO no zeroing of this buffer when parser is *non*-look-ahead
 		let tokens = Buffer.alloc(len + 1) // Note: 1 extra space for Token.Eof
 		// TODO ensure optimizer/typer infers `Array<T>` properly
 		var lines = []
@@ -68,7 +67,7 @@ class Lexer {
 		// Just add plain token
 		@inline fun add(t: Token) {
 			// TODO if (#ignore > 0 || ignore_comments) { return }
-			// TODO if (!keep_string_quote_style) push(inquoted)
+			// TODO if (!keep_string_quote_style) push(inQuoted)
 			// TODO `[i] = value` not type checked properly, i.e. `Int[i] = Token`
 			tokens[to++] = t
 			// TODO Is `lines.push` required in other `addn` `addm`?
@@ -76,19 +75,21 @@ class Lexer {
 			columns.push(position - columnBase - 1)
 		}
 
-		// Add parametrized token
-		@inline fun addn(t: Token, p: String) {
+		/// Add parametrized token
+		@inline fun addWith(t: Token, param: String) {
 			// TODO if (#ignore > 0 || ignore_comments) { return }
-			// TODO if (!keep_string_quote_style) push(inquoted)
-			params[to] = p
+			// TODO if (!keep_string_quote_style) push(inQuoted)
+			params[to] = param
+			// TODO when parser is *non*-look-ahead, do separate counter like `to` for `params`
+			// to avoid at least some reallocations
 			add(t)
 		}
 
 		// Add parametrized token with meta
 		@inline fun addm(t: Token, p: String, m: Meta) {
 			// TODO if (#ignore > 0 || ignore_comments) { return }
-			// TODO if (!keep_string_quote_style) push(inquoted)
-			params[to] = p
+			// TODO if (!keep_string_quote_style) push(inQuoted)
+			params[to] = param
 			meta[to] = m
 			add(t)
 		}
@@ -97,27 +98,28 @@ class Lexer {
 			return position - columnBase - 1
 		}
 
-		// Getting bytes
+		/// Getting one byte
 		@inline fun get_8(pos) {
 			return bytes[pos]
 		}
 
-		// Not out of length
-		@inline fun not_eof(): Bool {
+		/// Not out of length test
+		@inline fun notEof(): Bool {
 			return position < len
 		}
 
-		// Lines
-		@inline fun new_line() {
+		/// Lines carriage return
+		@inline fun newLine() {
 			line++
 			columnBase = position
 		}
 
-		@inline fun fail(message: String, erline: Int? = null, column: Int? = null, filename: String? = null) {
-			var erline = erline != null ? erline : line
-			var column = column != null ? column : curPos()
-			var filename = filename != null ? filename : fileName
-			return new CompilerErrors([new CompilerError(Fail.LexerError, message, erline, column, filename)])
+		// TODO seems like arguments never used here
+		@inline fun fail(message: String, atLine: Int? = null, column: Int? = null, filename: String? = null) {
+			let atLine = atLine != null ? atLine : line
+			let column = column != null ? column : curPos()
+			let filename = filename != null ? filename : fileName
+			return new CompilerErrors([new CompilerError(Fail.LexerError, message, atLine, column, filename)])
 		}
 
 		// UTF-8 with BOM
@@ -153,22 +155,25 @@ class Lexer {
 					// \r\n case works fine, but we don't support \r-only case!
 					_8 = get_8(position)
 					if _8 == /*"\n".charCodeAt(0)*/10 {
-						new_line()
+						newLine()
 					}
 					//position++
 				} while _8 <= 32 && (++position < len)
 
-				if not not_eof() { break }
+				// Basically `if eof {`
+				if not notEof() {
+					break
+				}
 
 				// Current two-byte value
-				var _16 = (len - position) > 1 ? _8 | (get_8(position + 1) << 8) : _8
+				let _16 = (len - position) > 1 ? _8 | (get_8(position + 1) << 8) : _8
 
 				// Comments
 				if _8 == "/".charCodeAt(0) {
 					// `// Comment`
 					if _16 == 0x2f2f {
 						var pos = position + 2
-						while get_8(position) != /*"\n".charCodeAt(0)*/10 && not_eof() {
+						while get_8(position) != /*"\n".charCodeAt(0)*/10 && notEof() {
 							position++
 						}
 						continue
@@ -176,19 +181,25 @@ class Lexer {
 
 					// TODO `/// Doc`
 					// `/** Doc **/`
-					if (_16 == 10799 && get_8(position + 2) == "*".charCodeAt(0)) {
+					if _16 == 10799 && get_8(position + 2) == "*".charCodeAt(0) {
 						position += 3
-						p = position
-						while not_eof() {
+						let p = position
+						while notEof() {
 							var _32 = (len - position) > 3 ? bytes.readUInt32LE(position) : get_8(position)
-							if ((_32 & 0xFF) == /*"\n".charCodeAt(0)*/10) {new_line()}
-							else if ((_32 & 0xFFFFFF) == 3090986) {break}
+							if (_32 & 0xFF) == /*"\n".charCodeAt(0)*/10 {
+								newLine()
+							} else if (_32 & 0xFFFFFF) == 3090986 {
+								break
+							}
 							position++
 						}
-						if not not_eof() {
+
+						if not notEof() {
+							// TODO may be useless for ///
 							throw fail("Unclosed doc-comment")
 						}
-						addn(Token.LDoc, bytes.toString('utf8', p, position))
+
+						addWith(Token.Documentation, bytes.toString('utf8', p, position))
 						position += 3
 						continue
 					}
@@ -196,16 +207,18 @@ class Lexer {
 					// `/* Comment */`
 					if _16 == 10799 {
 						var pos = position + 2
-						p = 0 // Nesting level
+						var p = 0 // Nesting level
 						position += 2
-						while not_eof() {
-							_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
-							if ((_16 & 0xFF) == /*"\n".charCodeAt(0)*/10) { new_line() }
+						while notEof() {
+							let _16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
+							if ((_16 & 0xFF) == /* TODO "\n".charCodeAt(0)*/10) { newLine() }
+							// TODO describe those magic values
 							else if (_16 == 12074 && p > 0) { p-- }
 							else if (_16 == 10799) { p++ }
 							else if (_16 == 12074 && p == 0) { break }
 							position++
 						}
+
 						position += 2
 						continue
 					}
@@ -213,6 +226,8 @@ class Lexer {
 
 				// Identifiers and keywords
 				// A-z _
+				// Note: non-ascii identifiers are NOT allowed
+				// TODO describe the 95 trick
 				if ((_8 & 95) >= 65 && (_8 & 95) <= 90) or (_8 == 95) {
 					let title = _8
 					p = position + 1
@@ -227,12 +242,13 @@ class Lexer {
 						add(t)
 					} else {
 						if title >= 65 && title <= 90 {
-							addn(Token.LUpper, s)
-						}
-						else {
-							addn(Token.LLower, s)
+							addWith(Token.Title, s)
+						} else {
+							// TODO test for `kwd` only here!
+							addWith(Token.Identifier, s)
 						}
 					}
+
 					position = p
 					continue
 				}
@@ -241,7 +257,7 @@ class Lexer {
 				if _8 == 96 {
 					position++
 					let pos = position
-					while not_eof() {
+					while notEof() {
 						if get_8(position) == 96, get_8(position + 1) == 96 {
 							position++
 							position++
@@ -253,23 +269,26 @@ class Lexer {
 						}
 
 						if get_8(position) == 10 {
-							new_line()
+							newLine()
 						}
 
 						position++
 					}
+
 					var result = bytes.toString('utf8', pos, position)
 					// Removes double backticks
 					if result.indexOf('``') != -1 {
 						result = result.split('``').join('')
 					}
-					addn(Token.LBacktick, result.replaceAll('\r\n', '\n'))
+
+					addWith(Token.Backtick, result.replaceAll('\r\n', '\n'))
 					position++
 					continue
 				}
 
 				// ...
 				// TODO this may be done in parser
+				// ^ streamed lexer faster than params.push() here
 				if _16 == 11822 and (get_8(position + 2) == ".".charCodeAt(0)) {
 					add(Token.Interval)
 					position += 3
@@ -279,7 +298,7 @@ class Lexer {
 				// >>>
 				// TODO this may be done in parser
 				if _16 == 15934 and (get_8(position + 2) == ">".charCodeAt(0)) {
-					add(Token.OpUShr)
+					add(Token.UnsignedRightShift)
 					position += 3
 					continue
 				}
@@ -296,7 +315,8 @@ class Lexer {
 
 				// 8 bit ops
 				// TODO we can keep _8 as Token, if say '+' == ASCII code of '+'
-				// and avoid using ops8a
+				// and avoid using ops8a entirely
+				// by excluding numbers by bit mask and test for `"` and `'`
 				let found = ops8a[_8] as! Token
 				if found != Token.Eof {
 					add(found)
@@ -307,29 +327,32 @@ class Lexer {
 				// Strings
 				// "" and ''
 				if _8 < 40 {
-					p = _8 // Remember, if double/singlequoted
+					let p = _8 // Remember, if double/single-quoted
 					position++
 					let pos = position
 
 					// We don't do string \() interpolation here,
 					// coz pretty printer
-					while get_8(position) != p && not_eof() {
+					while get_8(position) != p && notEof() {
 						if get_8(position) == /*"\n".charCodeAt(0)*/10 {
-							new_line()
+							newLine()
 						}
+
 						if get_8(position) == '\\'.charCodeAt(0) {
 							position += 2
 							continue
 						}
-						_16 = (len - position) > 1 ? bytes.readUInt16LE(position) : get_8(position)
+
 						position++
 					}
+
 					var result = bytes.toString('utf8', pos, position)
 					// Convert `\r\n` to `\n`
 					if result.indexOf('\r\n') != -1 {
 						result = result.replaceAll('\r\n', '\n')
 					}
-					addn(Token.LString, result)
+
+					addWith(Token.QuotedString, result)
 					position++
 					continue
 				}
@@ -337,7 +360,7 @@ class Lexer {
 				// Int Bin 0b01
 				// `'0'.charCodeAt(0) + 'b'.charCodeAt(0) * 256`
 				if _16 == 25136 {
-					p = position
+					var p = position
 					p += 2
 					_8 = get_8(position)
 
@@ -390,7 +413,7 @@ class Lexer {
 					}
 
 					let string = parseInt(bytes.toString('ascii', position + 2, p), 2).toString()
-					addm(Token.LInt, string, m)
+					addMeta(Token.Integer, string, m)
 					position = p + offset
 
 					continue
@@ -398,7 +421,7 @@ class Lexer {
 
 				// Int Hex 0x123ABC
 				if _16 == 30768 {
-					p = position
+					var p = position
 					p += 2
 					_8 = get_8(position)
 
@@ -455,7 +478,7 @@ class Lexer {
 						}
 					}
 
-					addm(Token.LInt, bytes.toString('ascii', position, p), m)
+					addMeta(Token.Integer, bytes.toString('ascii', position, p), m)
 					position = p + offset
 
 					continue
@@ -463,7 +486,7 @@ class Lexer {
 
 				// Float & Int
 				if (_8 < 58) {
-					p = position
+					var p = position
 					_8 = get_8(p)
 					var found: Token = Token.LInt
 					while
@@ -546,7 +569,7 @@ class Lexer {
 						}
 					}
 
-					addm(found, bytes.toString('ascii', position, p), m)
+					addMeta(found, bytes.toString('ascii', position, p), m)
 					position = p + offset
 					continue
 				}
@@ -560,6 +583,7 @@ class Lexer {
 				// TODO detect useless `break` after `throw`
 				break
 			}
+
 			add(Token.Eof) // Helps parser error reporting
 			return new Tokens(tokens, to, params, lines, columns, fileName, meta)
 	}
@@ -660,7 +684,7 @@ class Lexer {
 
 		// 2-byte token hashes
 		// TODO automate as macro
-		// `Hash = charCodeAt(0) + charCodeAt(1)*256`
+		// `Hash = charCodeAt(0) + charCodeAt(1) * 256`
 		let ops16: [Int : Token] =
 			[
 				11051 : Token.OpIncrement, // ++
@@ -680,7 +704,7 @@ class Lexer {
 		// TODO automate as macro
 		for key1 in ops16.keys() {
 			for key2 in ops16.keys() {
-				if (key1 != key2 && simpleHash(key1) == simpleHash(key2)) {
+				if key1 != key2 && simpleHash(key1) == simpleHash(key2) {
 					throw new CompilerError(Fail.LexerError, "2-byte op hash collision: " + key1 + " " + key2, 0, 0, "INTERNAL")
 				}
 			}
