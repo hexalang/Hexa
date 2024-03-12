@@ -12,6 +12,8 @@
 
 #define PREDEFINED_SYMBOLS_COUNT		3
 
+#define free(ptr) {}
+
 //..........................................................................................
 
 struct FILE_INFO
@@ -1482,7 +1484,7 @@ void WriteImportLibraryFunction(SYMBOL_INFO *pSymbolInfo)
 void WriteFileHeader(FILE_INFO *pFileInfo, char *pString, BOOLEAN b, LONGLONG Id, DWORD a, DWORD BodyLength)
 {
 	FILE_HEADER FileHeader;
-	DWORD StringLength;
+	DWORD StringLength = 0;
 
 	StringLength = strlen(pString);
 
@@ -1550,8 +1552,9 @@ int main(int argc, char* argv[])
 	//AddFunction(pSymbolList, "fibonacci_index", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
 
 	WriteImportLibrary(fileName, pName, ".dll", pSymbolList);
+	fflush(0);
 
-	DestroySymbolList(pSymbolList);
+	//DestroySymbolList(pSymbolList);
 
 	return 0;
 }
