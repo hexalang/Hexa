@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2021-2023 Oleh Petrenko
+// Copyright (C) 2021-2024 Oleh Petrenko
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -29,8 +29,9 @@ class GenCxx {
 	// TODO no body no error: fun x()
 	// fun()
 
-	fun perform(normalizer, target: String): String {
+	fun perform(normalizer, target: String, options: [String]): String {
 		project = normalizer
+		extraUnderscore = options.includes('extraUnderscore')
 		return stringify(target)
 	}
 
@@ -54,10 +55,14 @@ class GenCxx {
 	let globalFunctions: [String] = []
 	let types: [String] = []
 	let dllExports: [String] = []
+	// TODO Docs
+	/// Sets `__link` prefix for `_link` names
+	/// Workaround for LLVM 32-bit linker
+	var extraUnderscore = false
 
 	fun stringify(target: String) {
 		// Configure
-		if project.memory == Memory.Modern64  {
+		if project.memory == Memory.Modern64 {
 			// No space
 			defaultCallingConvention = ''
 		} else {
@@ -577,6 +582,7 @@ class GenCxx {
 					var customHeader: String? = null
 					var spec = ''
 					var name = name + '_'
+					var exports = false
 
 					if let link = link {
 						switch link.convention {
@@ -609,6 +615,7 @@ class GenCxx {
 
 						if link.dllExport {
 							spec += '__declspec(dllexport) '
+							exports = true
 							dllExports.push(link.linkName ?? name)
 						}
 					} else {
@@ -625,7 +632,14 @@ class GenCxx {
 						types.push(' ' + name)
 						types.push(printFunctionArguments(args, funcType, variadic))
 						if let link = link, let linkName = link.linkName {
-							types.push(' HEXA_LINK("' + linkName + '")')
+							if exports and extraUnderscore and linkName.startsWith('_') {
+								types.push(' HEXA_LINK("_')
+							} else {
+								types.push(' HEXA_LINK("')
+							}
+
+							types.push(linkName)
+							types.push('")')
 						}
 						types.push(';\n')
 					}
