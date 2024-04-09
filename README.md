@@ -70,6 +70,10 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - [Atom](https://atom.io/packages/hexa) — [hexalang/hexa-atom-bundle](https://github.com/hexalang/hexa-atom-bundle)
 - [Package manager](https://hexalang.github.io/book/package-manager) — [hexalang/packages](https://github.com/hexalang/packages)
 
+#### AI Autocomplete
+
+Install [Codeium](https://marketplace.visualstudio.com/items?itemName=Codeium.codeium) then open `.hexa` file and confirm experimental Hexa support.
+
 ## Study
 
 - [Follow progress](https://github.com/hexalang/hexa/issues)
