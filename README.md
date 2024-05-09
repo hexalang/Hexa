@@ -17,7 +17,7 @@
 
 Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps
 
-[![Try Hexa online without installation](preview.png?raw=true)](https://hexalang.github.io/try/)
+[![Try Hexa online without installation](preview.svg?raw=true)](https://hexalang.github.io/try/)
 
 [![GitHub Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/PeyTy)
 [![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
