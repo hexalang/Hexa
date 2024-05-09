@@ -8,22 +8,21 @@
 
 `Her name is [Geksa]`
 
-[![Telegram chatroom](https://img.shields.io/badge/chat-on%20telegram-blue.svg?logo=telegram)](https://t.me/hexalang)
-[![Telegram feed](https://img.shields.io/badge/news-on%20telegram-blue.svg?logo=telegram)](https://t.me/s/hexalang_news)
-[![GitHub Feed](https://img.shields.io/badge/github-feed-green.svg?logo=GitHub)](https://t.me/hexalang_github)
-[![Blog](https://img.shields.io/badge/read-blog-CC317C.svg)](https://hexalang.github.io/book/hexa-compiles-itself)
-[![Book](https://img.shields.io/badge/learn-book-5F5FFB.svg)](https://hexalang.github.io/book/)
-[![Website](https://img.shields.io/badge/web-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
+[![Telegram Chat](https://img.shields.io/badge/Chat-on%20Telegram-blue.svg?logo=telegram)](https://t.me/hexalang)
+[![Discord](https://img.shields.io/badge/Discord-Join-758EDC.svg?logo=discord)](https://discord.gg/SsAWf9M)
+[![GitHub Feed](https://img.shields.io/badge/GitHub-Feed-green.svg?logo=GitHub)](https://t.me/hexalang_github)
+[![Blog](https://img.shields.io/badge/Read-Blog-CC317C.svg)](https://hexalang.github.io/book/hexa-compiles-itself)
+[![Book](https://img.shields.io/badge/Learn-Book-5F5FFB.svg)](https://hexalang.github.io/book/)
+[![Website](https://img.shields.io/badge/Web-hexalang.github.io-3fa5bf.svg)](https://hexalang.github.io)
 
 Hexa is a high level, strictly typed programming language that compiles to JavaScript and native apps
 
 [![Try Hexa online without installation](preview.png?raw=true)](https://hexalang.github.io/try/)
 
-[![AUR GIT](https://img.shields.io/badge/archlinux--aur-hexa--git-0088CC.svg?logo=Arch-Linux)](https://aur.archlinux.org/packages/hexa-git)
 [![GitHub Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/PeyTy)
 [![Patreon](https://img.shields.io/badge/Patreon-become%20a%20patron-F86753.svg)](https://www.patreon.com/PeyTy)
 [![Donate](https://img.shields.io/badge/Sponsor-crypto%20and%20$-gold.svg)](https://hexalang.github.io/donate/)
-[![Discord](https://img.shields.io/badge/Discord-join-758EDC.svg?logo=discord)](https://discord.gg/SsAWf9M)
+[![Telegram feed](https://img.shields.io/badge/News-on%20Telegram-blue.svg?logo=telegram)](https://t.me/s/hexalang_news)
 
 ## Key features of Hexa
 
