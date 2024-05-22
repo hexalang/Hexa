@@ -3,7 +3,40 @@ Hexa Programming Language Specification
 
 This file is kept in sync with the compiler.
 
-# Grammar Legend
+# Introduction
+
+Hexa is a high-level, strictly typed programming language designed to provide seamless compilation to both JavaScript and native applications. It aims to combine the flexibility and performance needed for modern software development with the robustness of strict typing.
+
+# Example Code
+
+Below is a sample code snippet written in Hexa:
+
+```hexa
+class PlatformDetector {
+    static fun detect() {
+        switch process.platform {
+            case 'win32': return 'Windows'
+            case 'darwin': return 'macOS'
+            case 'linux': return 'Linux'
+            case _: return 'Platform: \(process.platform)'
+        }
+    }
+}
+
+let supported = ['Windows', 'macOS', 'Linux']
+
+if let yours = PlatformDetector.detect(), supported.includes(yours) {
+    console.log('Yes, your platform \(yours) is supported!')
+}
+```
+
+This example demonstrates a simple platform detection class and checks if the detected platform is supported. The language syntax is designed to be clear and concise, promoting readability and maintainability.
+
+# Grammar
+
+Here is a simplified grammar overview in a normalized (Backus–Naur) form. Compiler follows this rules list exactly, where possible, but may unify or split some elements to ease parsing. Use it to make your own parsers, syntax highlighters, macro preprocessors or compilers.
+
+## Grammar Legend
 
 Syntax tree formal language.
 
@@ -50,7 +83,7 @@ Node = `@` ~ Pattern
 Node = /[a-z]/
 ```
 
-# Grammar
+## Grammar
 
 Syntax tree definition.
 
@@ -63,6 +96,7 @@ Camel = /[a-z_][a-Z_0-9]*/
 Decorator = `@` ~ Camel ~ DecoratorParameters?
 DecoratorParameter = (Camel `:`)? Expression
 DecoratorParameters = `(` (DecoratorParameter `,`)+ | DecoratorParameter `)`
+Decorators = Decorator*
 
 // Expressions example(123)
 Expression = Camel | Case
