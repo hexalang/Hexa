@@ -44,9 +44,16 @@ CRLF aka `\r\n` line ending format is considered to be valid.
 
 Having a semicolon `;` is always syntax error.
 
+Shebang example:
+
+```sh
+#!/shebang
+... code ...
+```
+
 # Grammar
 
-Here is a simplified grammar overview in a normalized (Backus–Naur) form. Compiler follows this rules list exactly, where possible, but may unify or split some elements to ease parsing. Use it to make your own parsers, syntax highlighters, macro preprocessors or compilers.
+Here is a simplified grammar overview in a normalized form. Compiler follows this rules list exactly, where possible, but may unify or split some elements to ease parsing. Use it to make your own parsers, syntax highlighters, macro preprocessor or compilers.
 
 ## Keywords
 
@@ -103,22 +110,54 @@ Node = /[a-z]/
 
 ## Grammar
 
+### Module
+
 Module is defined as follows:
 
-```ts
-Module = `\239\187\191`? (`#!shebang` ~ `\r`? ~ `\n`? )? (Expression | Comment)*
+```js
+Module = `\239\187\191`? (`#!shebang` ~ `\r`? ~ `\n`? )? (TopLevel | Expression)*
 ```
 
-Syntax tree definition:
+### Top-Level Patterns
+
+Those patterns may be present at any token boundary.
+
+```js
+TopLevel = (IfDef | Comment)*
+```
+
+#### Conditional Compilation
+
+Operates at the token level and may split expressions.
+
+```js
+Tokens = TopLevel? ...
+IfDef = `#if` Condition Tokens ElseIf* ElseDef? End
+ElseDef = `#else` Tokens
+ElseIf = `#elseif` Condition Tokens
+End = `#end`
+```
+
+#### Comments
+
+Its assumed that subset of Markdown format is used within comment bodies, but not enforced by the compiler.
 
 ```js
 // Comments
-Documentation = `///` ~ /.*/? ~ `\n`
+Markdown = /.*/
+Documentation = `///` ~ Markdown? ~ `\n`
 Comment = CommentLine | CommentNestable
-CommentLine = `//` ~ /.*/? ~ `\n`
+CommentLine = `//` ~ Markdown? ~ `\n`
 // Nested multiline comments /* /* nested */ */
-CommentNestable = `/*` ~ (/.*/ | CommentNestable | `\n`)* ~ `*/`
+CommentNestable = `/*` ~ (Markdown | CommentNestable | `\n`)* ~ `*/`
+```
 
+### Abstract Syntax Tree
+
+Syntax tree definition:
+
+
+```js
 // Literals
 Title = /[A-Z][a-Z_0-9]*/
 Camel = /[a-z_][a-Z_0-9]*/
