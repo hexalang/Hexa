@@ -738,16 +738,24 @@ class GenCxx {
 					}
 
 					if defaults {
-					//types.push('void* ' + name + '_;\n')
-					globalVariables.push(stringifyType(type))
-					globalVariables.push(' ' + name + '_;\n')
-					if expr != null {
-						out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
-					}
+						//types.push('void* ' + name + '_;\n')
+						globalVariables.push(stringifyType(type))
+						globalVariables.push(' ' + name + '_;\n')
+						if expr != null {
+							let value String = printExpression(expr)
+
+							// Printing zero global integers causes bug in Hexa runtime code
+							// due to assignment of heap offset of zero after strings allocation
+							// Also in C global values are guaranteed to be initialized to 0
+							// TODO check for `project.typer.typeInt` and other integer types
+							if value != '(int32_t)0' {
+								out.push('\t' + name + '_ = ' + value + ';\n')
+							}
+						}
 					}
 					//out.push('\n\tvar ' + name)
 					//if (expr != null) out.push(' = ' + printExpression(expr))
-					// TODO meybe not useful
+					// TODO maybe not useful
 					//else out.push(' = null')
 				case Const(name, expr, type):
 					globalVariables.push(stringifyType(type))
