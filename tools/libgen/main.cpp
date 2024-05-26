@@ -615,10 +615,12 @@ void DestroySymbolList(SYMBOL_INFO *pSymbolList)
 	}
 }
 
+HANDLE MappingHandle;
+
 FILE_INFO* CreateMappedFile(char *pFileName, DWORD MaxSize)
 {
 	FILE_INFO *pFileInfo;
-	HANDLE MappingHandle;
+	//HANDLE MappingHandle;
 	DWORD FileNameLength;
 
 	pFileInfo = (FILE_INFO*)malloc(sizeof(FILE_INFO));
@@ -629,13 +631,15 @@ FILE_INFO* CreateMappedFile(char *pFileName, DWORD MaxSize)
 
 	MappingHandle = CreateFileMappingW(pFileInfo->Handle, NULL, 4, 0, MaxSize, NULL);
 
-	pFileInfo->pAddress = (UCHAR*)VirtualAlloc(NULL, MaxSize, 0x102000, 4);
+	//pFileInfo->pAddress = (UCHAR*)VirtualAlloc(NULL, MaxSize, 0x102000, 4);
 
-	VirtualFree(pFileInfo->pAddress, 0, 0x8000);
+	//VirtualFree(pFileInfo->pAddress, 0, 0x8000);
 
-	MapViewOfFileEx(MappingHandle, 0xF001F, 0, 0, MaxSize, pFileInfo->pAddress);
+	//MapViewOfFileEx(MappingHandle, 0xF001F, 0, 0, MaxSize, pFileInfo->pAddress);
 
-	CloseHandle(MappingHandle);
+	pFileInfo->pAddress = (UCHAR *)MapViewOfFileEx(MappingHandle, 0xF001F, 0, 0, MaxSize, 0);
+
+	//CloseHandle(MappingHandle);
 
 	pFileInfo->MaxSize = MaxSize;
 	pFileInfo->Offset = 0;
@@ -646,6 +650,8 @@ FILE_INFO* CreateMappedFile(char *pFileName, DWORD MaxSize)
 void DestroyMappedFile(FILE_INFO *pFileInfo)
 {
 	UnmapViewOfFile(pFileInfo->pAddress);
+
+	CloseHandle(MappingHandle);
 
 	SetFilePointer(pFileInfo->Handle, pFileInfo->Offset, NULL, 0);
 
@@ -1552,6 +1558,7 @@ int main(int argc, char* argv[])
 	//AddFunction(pSymbolList, "fibonacci_index", 0, 0, CALLING_CONVENTION_STDCALL, IMPORT_BY_DECORATED_NAME);
 
 	WriteImportLibrary(fileName, pName, ".dll", pSymbolList);
+	printf("");
 	fflush(0);
 
 	//DestroySymbolList(pSymbolList);
