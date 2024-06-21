@@ -249,9 +249,103 @@ class Server {
 											let typecheckProject: Project = main.typecheckProject
 
 											for mod in typecheckProject.moduleInfo {
-
 												if mod.file != fsPath {
 													continue
+												}
+
+												var nearest: Node? = null // mod.nodes[0]
+
+												// TODO not object, just args
+												fun checkSpan(span Any, node Node) {
+													if
+														// TODO this is rectangle, is it okay?
+														line >= span.y,
+														character >= span.x,
+														line <= span.yy, // TODO <
+														character < span.xx
+													{
+														nearest = node
+													}
+												}
+
+												fun checkNode(node Node) {
+													switch node {
+														case Class(className, extend, implement, fields, external, kind):
+															var width = 'class '.length + NodeType.stringify(className).length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}
+
+															for field in fields {
+																checkNode(field)
+															}
+
+														case Var(name, _, initializer, _):
+															var width = 'var '.length + name.length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}
+
+															if let initializer = initializer {
+																checkNode(initializer)
+															}
+
+														case Return(initializer):
+															var width = 'return '.length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}
+
+															if let initializer = initializer {
+																checkNode(initializer)
+															}
+
+														/*case Bool(value): TODO
+															var width = (value + '').length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}*/
+
+														case Function(name, body):
+															// TODO `declare fun` + doc what `declare` means
+															// TODO `private fun` + doc what `private` means
+															var width = 'fun '.length + (name ?? '').length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}
+
+															if let initializer = body {
+																checkNode(initializer)
+															}
+
+														case Block(el):
+															var width = 2 //'fun '.length + (name ?? '').length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}
+
+															for e in el {
+																checkNode(e)
+															}
+
+														case _:
+															var width = Node.stringify(node).length
+															let data: NodeData? = typecheckProject.data.get(node)
+															if let data = data {
+																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
+															}
+													}
+												}
+
+												for node in mod.nodes {
+													checkNode(node)
+													// TODO break when last span yy > line
 												}
 												var nearest: Node? = null // mod.nodes[0]
 												for node in mod.nodes {
@@ -276,19 +370,89 @@ class Server {
 													}
 												}
 
+												// TODO support hover over decorators
 												if let nearest = nearest {
 													var code = ''
 													var doc = ''
+													var typeHeader = '// Type of expression'
+
+													var typeOf Node? = nearest
 
 													switch nearest {
 														case Class(t, _):
+															// TODO docs etc
 															let name = NodeType.stringify(t)
 															code = 'class ' + name
+															// TODO only of classes with `new`
+															// ^ also interface etc distinguish
+															typeHeader = '// Type of class instance'
 														case Enum(t, _):
+															// TODO docs etc
 															let name = NodeType.stringify(t)
 															code = 'enum ' + name
+														case Var(name, _):
+															// TODO docs etc
+															code = 'var ' + name
+														case Ident(name, params /* TODO */):
+															if let parent = main.typecheckProjectTyper.parents.get(nearest) {
+																switch parent {
+																	case Var(name, _, _, const):
+																		let kind = const? 'let' : 'var'
+																		code = kind + ' ' + name + ' ' + Type.stringify(main.typecheckProjectTyper.types.get(parent))
+																		let line = typecheckProject.data.get(parent).line
+																		doc =
+																		// TODO class vars
+																		// TODO idents of function args
+																		// TODO /// docs
+																		// TODO localize
+																		// TODO '`\(kind)` here refers to a *local* \(const? 'constant' : 'variable') at line [' +
+																		// TODO '`\(kind)` here refers to a *local* \(const? "constant" : "variable") at line [' +
+																		'`\(kind)` here refers to a *local* ' + (const? "constant" : "variable") + ' at line [' +
+																		line
+																		// TODO fix link
+																		+ '](:' + line + ')'
+																		typeOf = null
+																}
+															}
+														case Bool(value):
+															// TODO BOOl doc
+															code = '// Boolean logical value\n' + value + ` Bool`
+														case Function(name):
+															// TODO class method
+															// TODO class static method
+															// TODO class private method
+															// TODO global/local function, private to module
+															// TODO throws, return value
+															if name == null {
+																// TODO arguments!
+																// TODO Anonymous?
+																code = '// Unnamed function\nfun'
+															} else {
+																code = `fun ` + name
+															}
+
+															code += '()'
+															// TODO better wording
+															typeHeader = '// Type of delegate'
+															doc = '`fun` keyword defines a function'
+														case Return(value):
+															typeOf = value
+															code = 'return // Void\nreturn value'
+															doc = '`return` keyword exits current function and sets result value if any'
+														case _:
+															// TODO more
+															code = Node.stringify(nearest)
 													}
 
+													if let of = typeOf, let type = main.typecheckProjectTyper.types.get(of) {
+														code += '\n\n' + typeHeader + '\n' + Type.stringify(type)
+													}
+
+													if doc != null {
+														doc = '\n---\n' + doc
+													}
+
+													// TODO `--- exceptions thrown`
 													response.push({
 														code: code,
 														markdown: doc
@@ -297,6 +461,7 @@ class Server {
 												}
 											}
 
+											// TODO conditional on fail only
 											response.push({
 												markdown: 'Hover information not available for ' + fsPath
 											})
