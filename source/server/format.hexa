@@ -18,12 +18,85 @@ fun autoFormatWholeFile(file: String): String {
 	let content = Buffer.from(file)
 	try {
 		let tokens = Lexer.tokenize(content, 'hexa.hexa')
-		try {
-			let nodes = Parser.parseNodes(tokens, project, lint: true)
-			return file
-		} catch e: CompilerErrors {
-			return file
+		let count = tokens.line.length - 1
+		let result = ['']
+		var lastLine = 1
+		var lastToken = Token.Eof
+		// TODO comments as tokens
+
+		var tabs = ''
+		var tabStack = ['']
+		var tabCase = false
+
+		fun pushTab() {
+			tabStack.push('\t')
+			tabs += '\t'
 		}
+
+		fun popTab() {
+			tabStack.pop()
+			tabs = tabStack.join('')
+		}
+
+		for i in count {
+			let token = tokens.token[i] as! Token
+
+			var shouldSpace = true
+			let line = tokens.line[i]
+			if line != lastLine {
+				result.push('\n')
+				// Handle double \n\n
+				let lineDiff = line - lastLine
+				if lineDiff > 1 {
+					result.push('\n')
+				}
+
+				if (token == Token.KCase or token == Token.BlockClose) and tabCase {
+					tabCase = false
+					tabs = tabStack.join('')
+				}
+
+				if token == Token.BlockClose {
+					popTab()
+				}
+
+				result.push(tabs)
+				shouldSpace = false
+			}
+			lastLine = line
+
+			if
+				lastToken == Token.Dot or
+				token == Token.Dot or
+				lastToken == Token.CallOpen or
+				token == Token.CallOpen or
+				token == Token.CallClose or
+				token == Token.KNot or
+				token == Token.Comma or
+				token == Token.Colon
+			{
+				shouldSpace = false
+			}
+
+			if shouldSpace {
+				result.push(' ')
+			}
+
+			// TODO preserve string double/single quotes
+			result.push(Token.stringify(token, tokens.value[i]))
+			lastToken = token
+
+			switch token {
+				case BlockOpen:
+					pushTab()
+				case BlockClose:
+				case KCase:
+					tabs += '\t'
+					tabCase = true
+			}
+		}
+
+		return result.join('')
 	} catch e: CompilerErrors {
 		return file
 	}
