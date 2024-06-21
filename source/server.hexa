@@ -268,11 +268,10 @@ class Server {
 													}
 												}
 
-												// TODO cache access to `typecheckProject.data`
 												fun checkNode(node Node) {
 													switch node {
 														case Class(className, extend, implement, fields, external, kind):
-															// TODO instead of slow `NodeType.stringify` just extact string value of name
+															// TODO instead of slow `NodeType.stringify` just extract string value of name
 															var width = 'class '.length + NodeType.stringify(className).length
 															let data: NodeData? = typecheckProject.data.get(node)
 															if let data = data {
@@ -325,6 +324,40 @@ class Server {
 																checkNode(initializer)
 															}
 
+														case While(reason, e, pre):
+															checkNode(reason)
+															checkNode(e)
+
+														case If(condition, then, otherwise, ternary):
+															// TODO
+															if let initializer = condition[0] {
+																checkNode(initializer)
+															}
+															checkNode(then)
+															if let initializer = otherwise {
+																checkNode(initializer)
+															}
+
+														case For(iterator, over, statement, range):
+															checkNode(over)
+															checkNode(statement)
+															if let initializer = range {
+																checkNode(initializer)
+															}
+
+														case Call(e, args, argNames):
+															// TODO hover on ()
+															checkNode(e)
+															for arg in args {
+																// TODO argNames too
+																checkNode(arg)
+															}
+
+														case Binop(left, op, right):
+															// TODO hover on op (span is between left.xy and right.xy)
+															checkNode(left)
+															checkNode(right)
+
 														case Block(el):
 															var width = '{}'.length
 															let data: NodeData? = typecheckProject.data.get(node)
@@ -336,8 +369,14 @@ class Server {
 																checkNode(e)
 															}
 
+														case Switch(inputs, expressions, guards, patterns):
+															for e in patterns {
+																checkNode(e)
+															}
+
 														case _:
 															var width = Node.stringify(node).length
+															// TODO use Map syntax `data[node]`
 															let data: NodeData? = typecheckProject.data.get(node)
 															if let data = data {
 																checkSpan({y:data.line,x:data.column,xx:data.column + width,yy:data.line}, node)
@@ -374,6 +413,8 @@ class Server {
 															// TODO docs etc
 															code = 'var ' + name
 														case Ident(name, params /* TODO */):
+															// TODO
+															code = Node.stringify(nearest)
 															if let parent = main.typecheckProjectTyper.parents.get(nearest) {
 																switch parent {
 																	case Var(name, _, _, const):
@@ -393,6 +434,9 @@ class Server {
 																		+ '](:' + line + ')'
 																		typeOf = null
 																}
+															} else {
+																// TODO
+																code = Node.stringify(nearest)
 															}
 														case Bool(value):
 															// TODO BOOl doc
