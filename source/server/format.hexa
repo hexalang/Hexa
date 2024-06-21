@@ -26,20 +26,48 @@ fun autoFormatWholeFile(file: String): String {
 
 		var tabs = ''
 		var tabStack = ['']
-		var tabCase = false
+		var tabCase = [false]
+		var depth = 0
+
+		fun updateTab() {
+			tabs = tabStack.slice(0, depth + 1).join('')
+		}
 
 		fun pushTab() {
-			tabStack.push('\t')
-			tabs += '\t'
+			depth++
+			tabStack[depth] = '\t'
+			updateTab()
 		}
 
 		fun popTab() {
-			tabStack.pop()
-			tabs = tabStack.join('')
+			depth--
+			if depth < 0 {
+				depth = 0
+			}
+			updateTab()
+		}
+
+		fun appendTab() {
+			// TODO array[]op= should work at least for strings (and Numbers?)
+			tabStack[depth] += '\t'
+			updateTab()
+		}
+
+		fun resetTab() {
+			tabStack[depth] = '\t'
+			updateTab()
 		}
 
 		for i in count {
 			let token = tokens.token[i] as! Token
+
+			if token == Token.BlockClose {
+				popTab()
+			}
+
+			if token == Token.KCase {
+				resetTab()
+			}
 
 			var shouldSpace = true
 			let line = tokens.line[i]
@@ -51,13 +79,11 @@ fun autoFormatWholeFile(file: String): String {
 					result.push('\n')
 				}
 
-				if (token == Token.KCase or token == Token.BlockClose) and tabCase {
-					tabCase = false
-					tabs = tabStack.join('')
+				// TODO if bool? of array[i] not valid
+				if (token == Token.KCase or token == Token.BlockClose) and tabCase[depth] == true {
 				}
 
 				if token == Token.BlockClose {
-					popTab()
 				}
 
 				result.push(tabs)
@@ -66,6 +92,7 @@ fun autoFormatWholeFile(file: String): String {
 			lastLine = line
 
 			if
+				lastToken == Token.Eof or
 				lastToken == Token.Dot or
 				token == Token.Dot or
 				lastToken == Token.CallOpen or
@@ -82,7 +109,7 @@ fun autoFormatWholeFile(file: String): String {
 				result.push(' ')
 			}
 
-			// TODO preserve string double/single quotes
+			// TODO preserve string double/single quotes as Meta
 			result.push(Token.stringify(token, tokens.value[i]))
 			lastToken = token
 
@@ -91,11 +118,11 @@ fun autoFormatWholeFile(file: String): String {
 					pushTab()
 				case BlockClose:
 				case KCase:
-					tabs += '\t'
-					tabCase = true
+					appendTab()
 			}
 		}
 
+		// TODO extra line
 		return result.join('')
 	} catch e: CompilerErrors {
 		return file
