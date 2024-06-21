@@ -28,6 +28,7 @@ fun autoFormatWholeFile(file: String): String {
 		var tabStack = ['']
 		var tabCase = [false]
 		var depth = 0
+		let assignOp = [Token.Add, Token.Multiply, Token.Subtract]
 
 		fun updateTab() {
 			tabs = tabStack.slice(0, depth + 1).join('')
@@ -89,15 +90,40 @@ fun autoFormatWholeFile(file: String): String {
 				result.push(tabs)
 				shouldSpace = false
 			}
+
 			lastLine = line
 
 			if
+				// TODO #if
+				// TODO @dec
+				// TODO (\nargs\n)
+				// TODO if\nconds\n{}
 				lastToken == Token.Eof or
 				lastToken == Token.Dot or
 				token == Token.Dot or
+
+				(token == Token.Assign and assignOp.includes(lastToken)) or
+
 				lastToken == Token.CallOpen or
-				token == Token.CallOpen or
+				(
+					token == Token.CallOpen and
+					(
+						lastToken != Token.KIf and
+						lastToken != Token.Assign
+					)
+				) or
 				token == Token.CallClose or
+
+				lastToken == Token.IndexOpen or
+				(
+					token == Token.IndexOpen and
+					(
+						lastToken == Token.Identifier or
+						lastToken == Token.IndexClose
+					)
+				) or
+				token == Token.IndexClose or
+
 				token == Token.KNot or
 				token == Token.Comma or
 				token == Token.Colon
@@ -110,7 +136,12 @@ fun autoFormatWholeFile(file: String): String {
 			}
 
 			// TODO preserve string double/single quotes as Meta
-			result.push(Token.stringify(token, tokens.value[i]))
+			switch token {
+				case LogicalAnd: result.push('and')
+				case LogicalOr: result.push('or')
+				case _: result.push(Token.stringify(token, tokens.value[i]))
+			}
+
 			lastToken = token
 
 			switch token {
@@ -119,6 +150,8 @@ fun autoFormatWholeFile(file: String): String {
 				case BlockClose:
 				case KCase:
 					appendTab()
+				case KIf:
+					// TODO appendTab()
 			}
 		}
 
