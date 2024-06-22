@@ -23,7 +23,7 @@ fun autoFormatWholeFile(file: String): String {
 		let result = ['']
 		var lastLine = 1
 		var lastToken = Token.Eof
-		// TODO comments as tokens
+		var lastLastToken = Token.Eof
 
 		var tabs = ''
 		var tabStack = ['']
@@ -127,6 +127,12 @@ fun autoFormatWholeFile(file: String): String {
 					(
 						lastToken == Token.Identifier or
 						lastToken == Token.IndexClose
+					) and (
+						// TODO same for ()=>
+						lastLastToken != Token.KVar and
+						lastLastToken != Token.CallOpen and
+						lastLastToken != Token.Comma and
+						lastLastToken != Token.KLet
 					)
 				) or
 				token == Token.IndexClose or
@@ -144,7 +150,6 @@ fun autoFormatWholeFile(file: String): String {
 					)
 				) or
 
-				token == Token.KNot or
 				token == Token.Comma or
 				token == Token.Colon
 			{
@@ -156,8 +161,12 @@ fun autoFormatWholeFile(file: String): String {
 			}
 
 			switch token {
+				case Comment: result.push(`/*` + tokens.value[i] + `*/`)
+				case CommentLine: result.push('//' + tokens.value[i])
 				case LogicalAnd: result.push('and')
 				case LogicalOr: result.push('or')
+				// TODO Separate exclamation mark
+				case KNot: result.push('not')
 				case QuotedString: switch tokens.meta[i] {
 					case SingleQuote: result.push(`'` + tokens.value[i] + `'`)
 					case DoubleQuote: result.push(`"` + tokens.value[i] + `"`)
@@ -165,6 +174,7 @@ fun autoFormatWholeFile(file: String): String {
 				case _: result.push(Token.stringify(token, tokens.value[i]))
 			}
 
+			lastLastToken = lastToken
 			lastToken = token
 
 			switch token {
@@ -178,8 +188,8 @@ fun autoFormatWholeFile(file: String): String {
 			}
 		}
 
-		// TODO extra line
-		return result.join('')
+		// TODO (when) use CRLF? or it seems vscode fixes it on its own
+		return result.join('') + '\n'
 	} catch e: CompilerErrors {
 		return file
 	}
