@@ -18,7 +18,7 @@ fun autoFormatWholeFile(file: String): String {
 	let project = new Project()
 	let content = Buffer.from(file)
 	try {
-		let tokens = Lexer.tokenize(content, 'hexa.hexa')
+		let tokens = Lexer.tokenize(content, 'hexa.hexa', format: true)
 		let count = tokens.line.length - 1
 		let result = ['']
 		var lastLine = 1
@@ -95,8 +95,11 @@ fun autoFormatWholeFile(file: String): String {
 			lastLine = line
 
 			if
-				// TODO #if
+				// `#if`
+				lastToken == Token.Sharp or
+
 				// TODO (\nargs\n)
+				// TODO [\n]
 				// TODO if\nconds\n{}
 				lastToken == Token.Eof or
 				lastToken == Token.Dot or
@@ -109,6 +112,9 @@ fun autoFormatWholeFile(file: String): String {
 					token == Token.CallOpen and
 					(
 						lastToken != Token.KIf and
+						lastToken != Token.KNew and
+						lastToken != Token.LogicalAnd and
+						lastToken != Token.LogicalOr and
 						lastToken != Token.KNew and
 						lastToken != Token.Assign
 					)
@@ -128,6 +134,16 @@ fun autoFormatWholeFile(file: String): String {
 				// `@at`
 				(token == Token.Identifier and lastToken == Token.At) or
 
+				(
+					token == Token.Question and
+					(
+						// `??`
+						lastToken == Token.Question or
+						// `Type?`
+						lastToken == Token.Title
+					)
+				) or
+
 				token == Token.KNot or
 				token == Token.Comma or
 				token == Token.Colon
@@ -139,10 +155,13 @@ fun autoFormatWholeFile(file: String): String {
 				result.push(' ')
 			}
 
-			// TODO preserve string double/single quotes as Meta
 			switch token {
 				case LogicalAnd: result.push('and')
 				case LogicalOr: result.push('or')
+				case QuotedString: switch tokens.meta[i] {
+					case SingleQuote: result.push(`'` + tokens.value[i] + `'`)
+					case DoubleQuote: result.push(`"` + tokens.value[i] + `"`)
+				}
 				case _: result.push(Token.stringify(token, tokens.value[i]))
 			}
 
