@@ -30,6 +30,7 @@ fun autoFormatWholeFile(file: String): String {
 		var tabCase = [false]
 		var depth = 0
 		let assignOp = [Token.Add, Token.Multiply, Token.Subtract]
+		var parenthesis = -1000000
 
 		fun updateTab() {
 			tabs = tabStack.slice(0, depth + 1).join('')
@@ -68,6 +69,12 @@ fun autoFormatWholeFile(file: String): String {
 				token == Token.CallClose or
 				token == Token.IndexClose
 			{
+				parenthesis--
+				popTab()
+			}
+
+			if token == Token.BlockOpen and parenthesis == 0 {
+				parenthesis = -1000000
 				popTab()
 			}
 
@@ -87,9 +94,8 @@ fun autoFormatWholeFile(file: String): String {
 
 				// TODO if bool? of array[i] not valid
 				if (token == Token.KCase or token == Token.BlockClose) and tabCase[depth] == true {
-				}
-
-				if token == Token.BlockClose {
+					//	tabCase[depth] = false
+					//	tabs = tabStack.join('')
 				}
 
 				result.push(tabs)
@@ -102,8 +108,6 @@ fun autoFormatWholeFile(file: String): String {
 				// `#if`
 				lastToken == Token.Sharp or
 
-				// TODO (\nargs\n)
-				// TODO [\n]
 				// TODO if\nconds\n{}
 				lastToken == Token.Eof or
 				lastToken == Token.Dot or
@@ -184,14 +188,21 @@ fun autoFormatWholeFile(file: String): String {
 			switch token {
 				case BlockOpen:
 					pushTab()
+					if parenthesis > 0 {
+						parenthesis++
+					}
 				case CallOpen:
 					pushTab()
+					parenthesis++
 				case IndexOpen:
 					pushTab()
+					parenthesis++
 				case KCase:
 					appendTab()
 				case KIf:
 					// TODO appendTab()
+					pushTab()
+					parenthesis = 0
 			}
 		}
 
