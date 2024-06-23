@@ -24,6 +24,7 @@ fun autoFormatWholeFile(file: String): String {
 		var lastLine = 1
 		var lastToken = Token.Eof
 		var lastLastToken = Token.Eof
+		var lastLastGeneric = false
 
 		var tabs = ''
 		var tabStack = ['']
@@ -96,9 +97,13 @@ fun autoFormatWholeFile(file: String): String {
 				if (token == Token.KCase or token == Token.BlockClose) and tabCase[depth] == true {
 					//	tabCase[depth] = false
 					//	tabs = tabStack.join('')
+				result.push(tabs)
+
+				// `=\nvalue`
+				if lastToken == Token.Assign {
+					result.push('\t')
 				}
 
-				result.push(tabs)
 				shouldSpace = false
 			}
 
@@ -119,6 +124,10 @@ fun autoFormatWholeFile(file: String): String {
 				(
 					token == Token.CallOpen and
 					(
+						lastToken != Token.KIn and
+						lastToken != Token.Add and
+						lastToken != Token.Subtract and
+						lastToken != Token.KReturn and
 						lastToken != Token.KIf and
 						lastToken != Token.KNew and
 						lastToken != Token.LogicalAnd and
@@ -192,11 +201,36 @@ fun autoFormatWholeFile(file: String): String {
 					)
 				) or
 
+				// `demo<T>`
+				(
+					token == Token.Less and (
+						(
+							lastToken == Token.Identifier or lastToken == Token.Title
+						) and (
+							tokens.column[i] == tokens.value[i - 1].length + tokens.column[i - 1]
+						)
+					)
+				) or
+				lastLastGeneric or
+				// `T>`
+				// `T>>`
+				(
+					(token == Token.Greater or token == Token.BitwiseRightShift) and (
+						(
+							lastToken == Token.Identifier or lastToken == Token.Title
+						) and (
+							tokens.column[i] == tokens.value[i - 1].length + tokens.column[i - 1]
+						)
+					)
+				) or
+
 				token == Token.Comma or
 				token == Token.Colon
 			{
 				shouldSpace = false
 			}
+
+			lastLastGeneric = token == Token.Less and not shouldSpace
 
 			if shouldSpace {
 				result.push(' ')
@@ -221,8 +255,12 @@ fun autoFormatWholeFile(file: String): String {
 				case _: result.push(Token.stringify(token, tokens.value[i], tokens.meta[i]))
 			}
 
-			lastLastToken = lastToken
-			lastToken = token
+			// Ignore comments
+			// TODO same value and meta same way into variables
+			if token != Token.CommentLine {
+				lastLastToken = lastToken
+				lastToken = token
+			}
 
 			switch token {
 				case BlockOpen:
