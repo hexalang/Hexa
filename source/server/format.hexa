@@ -65,9 +65,16 @@ fun autoFormatWholeFile(file: String): String {
 		for i in count {
 			let token = tokens.token[i] as! Token
 
+			if lastToken == Token.Sharp {
+				result.push(Token.stringify(token, tokens.value[i], tokens.meta[i]))
+				lastToken = token
+				continue
+			}
+
 			if
 				token == Token.BlockClose or
 				token == Token.CallClose or
+				(token == Token.Sharp and tokens.token[i + 1] as! Token != Token.KIf) or
 				token == Token.IndexClose
 			{
 				parenthesis--
@@ -93,10 +100,10 @@ fun autoFormatWholeFile(file: String): String {
 					result.push('\n')
 				}
 
-				// TODO if bool? of array[i] not valid, require == true
 				if (token == Token.KCase or token == Token.BlockClose) and tabCase[depth] == true {
 					//	tabCase[depth] = false
 					//	tabs = tabStack.join('')
+				// TODO if bool? of array[i] not valid `if tabCase[depth] {}`, require == true
 				result.push(tabs)
 
 				// `=\nvalue`
@@ -129,7 +136,7 @@ fun autoFormatWholeFile(file: String): String {
 						lastToken != Token.Subtract and
 						lastToken != Token.KReturn and
 						lastToken != Token.KIf and
-						lastToken != Token.KNew and
+						lastToken != Token.KFun and
 						lastToken != Token.LogicalAnd and
 						lastToken != Token.LogicalOr and
 						lastToken != Token.KNew and
@@ -238,7 +245,9 @@ fun autoFormatWholeFile(file: String): String {
 
 			switch token {
 				case Comment: result.push(`/*` + tokens.value[i] + `*/`)
-				case CommentLine: result.push('//' + tokens.value[i])
+				case CommentLine:
+					// TODO Doc comments parse separately in tokens
+					result.push(((tokens.value[i].startsWith('/') ? '//': '// ') + tokens.value[i].trim()).trim())
 				case LogicalAnd: result.push('and')
 				case LogicalOr: result.push('or')
 				case KNot:
@@ -274,6 +283,12 @@ fun autoFormatWholeFile(file: String): String {
 				case IndexOpen:
 					pushTab()
 					parenthesis++
+				case Sharp:
+					// `#if` `#else`
+					if tokens.value[i + 1] == null {
+						pushTab()
+						parenthesis++
+					}
 				case KCase:
 					appendTab()
 				case KIf:
