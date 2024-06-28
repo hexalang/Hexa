@@ -36,11 +36,11 @@ class Typer {
 		// Globals already pre-filled in package loader
 		// so we do not fill them here
 		fun checkOverrides(info: Module, name: String, e: Node) {
-			if (info.exported.has(name)) {
+			if info.exported.has(name) {
 				fail('Module `\(info.path)` already exports name `\(name)`', e)
 			}
 
-			if (info.imported.has(name)) {
+			if info.imported.has(name) {
 				fail('Module `\(info.path)` already imports name `\(name)`', e)
 			}
 		}
@@ -395,7 +395,7 @@ class Typer {
 			return subj
 		}
 
-		// Generates `Did you mean xxx?`
+		/// Generates `Did you mean xxx?`
 		// TODO use this for other errors
 		fun proposeSimilar(names: [String], subject: String, what: String, similarTo: String? = null): String {
 			if names.length == 0 {
@@ -645,7 +645,7 @@ class Typer {
 								case Property(field, _, _):
 									switch field {
 										case Var(name, _):
-											if (type.fieldNames.includes(name)) {
+											if type.fieldNames.includes(name) {
 												fail('Field `\(name)` already exists', field)
 											}
 											type.fieldNames.push(name)
@@ -680,6 +680,7 @@ class Typer {
 								if let t = t {
 									types.set(field, toType(t, field))
 								}
+
 							// `function a(args with known types or no args): known ret type`
 							case Function(name, expr, vars, rettype, _, variadic):
 								if let rettype = rettype {
@@ -695,6 +696,7 @@ class Typer {
 										types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
 										types.set(field, types.get(f))
 									}
+
 								case Var(name, t, e, const):
 									if let t = t {
 										types.set(f, toType(t, f))
@@ -733,7 +735,8 @@ class Typer {
 										field,
 										Type.Function(
 											varTypes(vars),
-											rettype!=null? toType(rettype, field) : typeVoid,
+											// TODO is `rettype == null` valid for externals?
+											rettype != null? toType(rettype, field) : typeVoid,
 											variadic
 										)
 									)
@@ -2054,6 +2057,7 @@ class Typer {
 			if let rt = rettype {
 				ret = toType(rt, node)
 			}
+
 			functionReturnsAType = ret
 			functionActuallyReturns = false
 
@@ -3032,6 +3036,7 @@ class Typer {
 				}
 
 				// `new T {names: values} ()`
+				// TODO `new T () {names: values}`
 				case New(path, t, el, names, values):
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
@@ -3039,9 +3044,10 @@ class Typer {
 					for e in el {
 						fillExpression(e)
 					}
+
 					switch type {
 						case ClassInstance(type):
-							if (type.constructor == -1) {
+							if type.constructor == -1 {
 								fail('Cannot construct class without `new () {}` constructor', node)
 							}
 							type.useless = false
