@@ -690,6 +690,14 @@ class Typer {
 									)
 								}
 
+								// TODO ensure in parser `new` has no return type
+								if name == 'new-TODO#' {
+									types.set(
+										field,
+										Type.Function(varTypes(vars), toType(t, field), variadic)
+									)
+								}
+
 							case Static(f): switch f {
 								case Function(name, expr, vars, rettype, _, variadic):
 									if let rettype = rettype {
@@ -710,7 +718,8 @@ class Typer {
 							// Instance method
 							case Function(name, expr, vars, rettype, _, variadic):
 								if name == 'new' {
-									type.constructor = type.fieldNames.length - 1
+									// TODO this is wrong
+									// type.constructor = type.fieldNames.length - 1
 								}
 
 								if external, expr != null {
@@ -727,6 +736,7 @@ class Typer {
 								allowSuper = (extend != null)
 
 								if not external {
+									let rettype = name == 'new'? t : rettype
 									fillFunction(field, expr, vars, rettype)
 								}
 
@@ -2039,10 +2049,12 @@ class Typer {
 			}
 
 			var variadic = false
+			var constructor = false
 			switch node {
 				// TODO `(variadic, ...)`
-				case Function(_, _, _, _, _, isVariadic):
+				case Function(name, _, _, _, _, isVariadic):
 					variadic = isVariadic
+					constructor = name == 'new'
 				// var x: [] = [] // TODO invalid!!!
 					if let params = project.mapFuncParams.get(node) as! [NodeType] {
 						for genericParam in params {
@@ -2059,7 +2071,7 @@ class Typer {
 			}
 
 			functionReturnsAType = ret
-			functionActuallyReturns = false
+			functionActuallyReturns = constructor
 
 			let atts = project.mapDecorators.get(node)
 
@@ -2534,7 +2546,7 @@ class Typer {
 		}
 
 		// Expressions return values
-		fun fillExpression(node Node) {
+		fun fillExpression(node Node, asValue Bool = true) {
 			switch node {
 				// Just `name`
 				case Ident(name, params):
@@ -2748,6 +2760,10 @@ class Typer {
 							if not allowSuper {
 								fail('Cannot access `super` here', node)
 							}
+
+						case NodeTypeValue(_):
+							fillExpression(e, false)
+
 						case _:
 							fillExpression(e)
 					}
@@ -2958,8 +2974,14 @@ class Typer {
 					switch e {
 						case Super:
 							fail('Cannot access `super` here', node)
+
+						case NodeTypeValue(_):
+							fillExpression(e, asValue: false)
+
+						case _:
+							fillExpression(e)
 					}
-					fillExpression(e)
+
 					switch types.get(e) as! Type {
 						case EnumInstance(type):
 							failNonFatal('Type `\(type.name)` is defined here', type.parent)
@@ -3002,6 +3024,9 @@ class Typer {
 				// `T` or `T<G>`
 				case NodeTypeValue(t): switch t {
 					case Type(name):
+						if asValue {
+							fail('Cannot use type `\(name)` as a value, use `\(name)()` to call constructor', node)
+						}
 						let subj = find(name)
 						if subj == null {
 							fail('Cannot find type with name `\(name)`', node)
@@ -3037,6 +3062,7 @@ class Typer {
 
 				// `new T {names: values} ()`
 				// TODO `new T () {names: values}`
+				// TODO remove
 				case New(path, t, el, names, values):
 					let type = toType(t, node)
 					let subj = find(DataHelper.extractTypeName(t))
@@ -3182,11 +3208,38 @@ class Typer {
 				case Call(e, el, elNames):
 					// TODO validate `elNames`
 					// JavaScript evaluates arguments first
+					var constructor Type? = null
 					switch e {
 						case Super:
 							if not allowSuper {
 								fail('Cannot access `super` here', node)
 							}
+
+						case NodeTypeValue(t):
+							// Constructor
+							// TODO handle `<T>`
+							let type = toType(t, e)
+							// TODO better idea
+							let subj = find(DataHelper.extractTypeName(t))
+							parents.set(node, subj)
+
+							switch type {
+								case ClassInstance(type):
+									if type.constructor == -1 {
+										fail('Cannot construct class without `new () {}` constructor', node)
+									}
+
+									switch type.parent {
+										case Class(t, extend, implement, f, external, kind):
+											constructor = types.get(f[type.constructor])
+									}
+
+									type.useless = false
+								case _:
+									// TODO
+									fail('Constructor may instantiate only classes', node)
+							}
+
 						case _:
 				 			fillExpression(e)
 				 	}
@@ -3230,7 +3283,7 @@ class Typer {
 						return types.get(node)
 					}
 
-					let eType = types.get(e) ?? obviousTyping(parents.get(e) ?? e)
+					let eType = constructor ?? types.get(e) ?? obviousTyping(parents.get(e) ?? e)
 
 				 	switch eType {
 				 		case Function(args, returns, variadic):

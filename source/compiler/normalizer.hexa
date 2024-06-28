@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2021-2023 Oleh Petrenko
+// Copyright (C) 2021-2024 Oleh Petrenko
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -377,6 +377,18 @@ class Normalizer {
 
 				case Call(expr, args, argNames):
 
+				// Constructor
+				switch expr {
+					case NodeTypeValue(t):
+						let v = Expression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
+						let a = []
+						for arg in args {
+							// TODO generate default arg values
+							a.push(nodeToExpression(arg))
+						}
+						return Expression.New(v, a, typer.types.get(e))
+				}
+
 				// Optimize `'String'.charCodeAt(0)`
 				if args.length == 1 { switch expr {
 					case Dot(expr, name): if name == 'charCodeAt' { switch expr {
@@ -636,6 +648,7 @@ class Normalizer {
 				let v = Expression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
 				for arg in args {
+					// TODO generate default arg values
 					a.push(nodeToExpression(arg))
 				}
 				return Expression.New(v, a, typer.types.get(e))
@@ -1364,7 +1377,8 @@ class Normalizer {
 
 				// Expressions
 				case New(path, t, args, fields, values, _):
-				return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
+					// Create temporal variable to store constructed value
+					return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 
 				// TODO just use `Expression.Call`, cause doesn't fills defaults etc
 				case Call(e, args, argNames):
