@@ -1,0 +1,226 @@
+// The Hexa Compiler
+// Copyright (C) 2024 Oleh Petrenko
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, version 3 of the License.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// TODO some C++
+// TODO rename reserved keywords like `fun`
+// TODO header-only mode to produce .hexa bindings
+/// Actual code generator used by toHexa/Clang
+class ClangGenerator {
+	new (project ClangProject) {
+		for file in project.files {
+			if not file.generate {
+				continue
+			}
+
+			let node ClangNode = JSON.parse(Fs.readFileSync(file.input).toString())
+			console.log('Found ' + node.inner.length + ' root syntax nodes.')
+
+			let result [Node] = node.inner.filter(root => root.kind != null).map(root => nodeToNode(root)).filter(node => node != null)
+
+			// TODO Would be much better just be allowed to `node.stringify()` static call where `fun stringify(node /*infer*/ = this)` thus allowing non-vTable @struct methods too!
+			let string = result.map(node => stringify(node)).join('\n\n')
+			// TODO run autoformat over the result
+			// TODO comment header
+			Fs.writeFileSync(file.output, string)
+		}
+	}
+
+	fun toCamelCase(text: String): String {
+		if text.length == 1 {
+			return text.toLowerCase()
+		}
+
+		return text.substr(0, 1).toLowerCase() + text.substr(1)
+	}
+
+	fun toPascalCase(text: String): String {
+		if text.length == 1 {
+			return text.toUpperCase()
+		}
+
+		return text.substr(0, 1).toUpperCase() + text.substr(1)
+	}
+
+	fun typeOfReturn(of ClangType) ClangType {
+		return {
+			qualType: of.qualType.split(' (')[0]
+		}
+	}
+
+	fun typeToType(of ClangType) NodeType {
+		return NodeType.Type(toPascalCase(of.qualType), null)
+	}
+
+	fun nodeToNode(node ClangNode) Node? {
+		switch node.kind {
+			// Roots
+			case VarDecl: {
+					let name = toCamelCase(node.name)
+					let varType = typeToType(node.type)
+					var initializer Node? = null
+
+					if let inner = node.inner, let value = inner[0] {
+						initializer = nodeToNode(value)
+					}
+
+					return Node.Var(name, varType, initializer, false, false)
+				}
+			case RecordDecl:
+			case TypedefDecl:
+			case FunctionDecl: {
+					let name = toCamelCase(node.name)
+					let args [Node] = []
+					var returnType NodeType = [] // TODO why [] is okay here
+					var returnType NodeType = typeToType(typeOfReturn(node.type))
+					var body Node? = null
+					// TODO FORMAT
+					let nodes = node.inner ??([] as! [ClangNode] /*TODO*/)
+
+					for functionDecl in nodes {
+						switch functionDecl.kind {
+							case ParmVarDecl:
+								args.push(Node.Var(toCamelCase(functionDecl.name), typeToType(functionDecl.type), null /*TODO*/, false, false))
+						}
+					}
+
+					for functionDecl in nodes {
+						switch functionDecl.kind {
+							case CompoundStmt:
+								body = nodeToNode(functionDecl)
+								// TODO CompoundStmt happens once?
+							case ParmVarDecl: // Ok
+							case _: // TODO
+						}
+					}
+
+					return Node.Function(name, body, args, returnType, false /*TODO*/, false /*TODO*/)
+				}
+
+			case IfStmt:
+			case DeclStmt:
+			case FieldDecl:
+			case BinaryOperator:
+			case CompoundAssignOperator:
+			case IntegerLiteral:
+			case WhileStmt:
+			case DoStmt:
+			case ForStmt:
+			case SEHTryStmt:
+			case SwitchStmt:
+			case CaseStmt:
+			case DefaultStmt:
+			case BreakStmt:
+			case GCCAsmStmt:
+			case NullStmt:
+			case ContinueStmt:
+			case UnaryOperator:
+			case ReturnStmt:
+			case CallExpr:
+			case ArraySubscriptExpr:
+			case CompoundStmt:
+			case UnaryExprOrTypeTraitExpr:
+			case CharacterLiteral:
+			case OffsetOfExpr:
+			case AtomicExpr:
+			case VAArgExpr:
+			case InitListExpr:
+			case CompoundLiteralExpr:
+			case ImplicitCastExpr:
+			case StringLiteral:
+			case ConstantExpr:
+			case CStyleCastExpr:
+			case DeclRefExpr:
+			case ParenExpr:
+			case ConditionalOperator:
+			case FloatingLiteral:
+			case MemberExpr:
+			case ParmVarDecl:
+			case TextComment:
+			case ParagraphComment:
+			case BlockCommandComment:
+			case ParamCommandComment:
+			case FullComment:
+			case BuiltinType:
+			case SEHExceptStmt:
+			case EnumDecl:
+			case EmptyDecl: return null // ;
+			case GotoStmt:
+			case LabelStmt:
+			case PredefinedExpr:
+
+			case null: return null // Never happens
+		}
+
+		return Node.String("// Unknown Clang node kind: " + node.kind)
+	}
+
+	static fun stringify(node Node?) String {
+		switch node {
+			case String(s): return "'\(s)'"
+			case Ident(name): return name
+			case Bool(b): return b? "true" : "false"
+			case Int(s): return s.toString()
+			case Float(s): return s.toString()
+			case Null: return "null"
+			case This: return "this"
+			case Parenthesis(expr): return "(" + stringify(expr) + ")"
+			case Index(expr, index): return stringify(expr) + '[' + stringify(index) + ']'
+			case Dot(expr, name): return stringify(expr) + '.' + name
+			case DotUpper(expr, name): return stringify(expr) + '.' + name
+			case Call(e, args, argNames):
+				let arg = []
+				for i in args.length {
+					if let name = argNames[i] {
+						arg.push(name + ': ' + stringify(args[i]))
+					} else {
+						arg.push(stringify(args[i]))
+					}
+				}
+				return stringify(e) + '(' + arg.join(', ') + ')'
+			case Array(elements): return '[' + [for el in elements stringify(el)].join(', ') + ']'
+			case Binop(a, op, b): return stringify(a) + ' ' + Token.stringify(op) + ' ' + stringify(b)
+			case Object(names, el):
+				return '{' + [for i in el.length names[i] + ': ' + stringify(el[i])].join(', ') + '}'
+			case NodeTypeValue(t):
+				return DataHelper.extractTypeName(t)
+			case Static(f): return 'static ' + stringify(f)
+			case Var(name, t, expr, const, external): {
+				var body = ''
+				if let expr = expr {
+					body = ' = ' + stringify(expr)
+				}
+				return
+					(external? 'declare ' : '') +
+					(const? 'let ' : 'var ') + name + ' ' + NodeType.stringify(t) + body
+			}
+			case Function(name, body, vars, returnType, external, variadic):
+				if name == null {
+					// TODO `// Anonymous`
+					return `fun`
+				}
+
+				return 'fun ' + name + `(` + vars.map(v => switch v {
+					case Var(name, t, expr, const, external):
+						name + ' ' + NodeType.stringify(t)
+				}).join(', ')  + `) ` + NodeType.stringify(returnType) + ' ' + stringify(body)
+			case null:
+				return ''
+			case _:
+				// TODO exhaustive
+				console.error('Cannot stringify', node)
+				return "..."
+		}
+	}
+}
