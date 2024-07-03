@@ -110,7 +110,11 @@ class ClangGenerator {
 
 					return Node.Function(name, body, args, returnType, false /*TODO*/, false /*TODO*/)
 				}
-
+			case CompoundStmt:
+				let statements [ClangNode] = node.inner ?? []
+				// TODO `.map(nodeToNode)` loses `this`, should .bind
+				// return Node.Block(statements.map(nodeToNode).filter(s => s != null))
+				return Node.Block(statements.map(node => nodeToNode(node)).filter(s => s != null))
 			case IfStmt:
 				let hasElse = node.hasElse
 				var value = nodeToNode(node.inner[0])
@@ -169,14 +173,15 @@ class ClangGenerator {
 			case CaseStmt:
 			case DefaultStmt:
 			case BreakStmt:
+				return Node.Break
 			case GCCAsmStmt:
 			case NullStmt:
 			case ContinueStmt:
+				return Node.Continue
 			case UnaryOperator:
 			case ReturnStmt:
 			case CallExpr:
 			case ArraySubscriptExpr:
-			case CompoundStmt:
 			case UnaryExprOrTypeTraitExpr:
 			case CharacterLiteral:
 			case OffsetOfExpr:
