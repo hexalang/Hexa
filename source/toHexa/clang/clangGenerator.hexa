@@ -231,7 +231,7 @@ class ClangGenerator {
 			case BuiltinType:
 			case SEHExceptStmt:
 			case EnumDecl:
-			case EmptyDecl: return null // ;
+			case EmptyDecl: return null // Extra `;` like `hello;;`
 			case GotoStmt:
 			case LabelStmt:
 			case PredefinedExpr:
@@ -245,8 +245,13 @@ class ClangGenerator {
 	static fun stringify(node Node?) String {
 		switch node {
 			case String(s): return "'\(s)'"
-			case Ident(name): return name
 			case Bool(b): return b? "true" : "false"
+			case Ident(name, params):
+				// TODO generate in parser `if let x {}` form bruh
+				if let params = params {
+					return name + '<' + params.map(t => NodeType.stringify(t)) + '>'
+				}
+				return name
 			case Int(s): return s.toString()
 			case Float(s): return s.toString()
 			case Null: return "null"
@@ -255,6 +260,8 @@ class ClangGenerator {
 			case Index(expr, index): return stringify(expr) + '[' + stringify(index) + ']'
 			case Dot(expr, name): return stringify(expr) + '.' + name
 			case DotUpper(expr, name): return stringify(expr) + '.' + name
+			case Block(e):
+				return '{\n\t' + e.map(stringify).join('\n\t') + '\n}'
 			case Call(e, args, argNames):
 				let arg = []
 				for i in args.length {
@@ -267,6 +274,7 @@ class ClangGenerator {
 				return stringify(e) + '(' + arg.join(', ') + ')'
 			case Array(elements): return '[' + [for el in elements stringify(el)].join(', ') + ']'
 			case Binop(a, op, b): return stringify(a) + ' ' + Token.stringify(op) + ' ' + stringify(b)
+			case AssignOp(a, op, b): return stringify(a) + ' ' + Token.stringify(op) + '= ' + stringify(b)
 			case Object(names, el):
 				return '{' + [for i in el.length names[i] + ': ' + stringify(el[i])].join(', ') + '}'
 			case NodeTypeValue(t):
@@ -281,6 +289,9 @@ class ClangGenerator {
 					(external? 'declare ' : '') +
 					(const? 'let ' : 'var ') + name + ' ' + NodeType.stringify(t) + body
 			}
+			case If(value, body, elseClause, _):
+				// TODO FORMAT
+				return `if ` + stringify(value [0]) + stringify(body) + (elseClause != null ? ' else ': '') + stringify(elseClause)
 			case Function(name, body, vars, returnType, external, variadic):
 				if name == null {
 					// TODO `// Anonymous`
@@ -291,6 +302,8 @@ class ClangGenerator {
 					case Var(name, t, expr, const, external):
 						name + ' ' + NodeType.stringify(t)
 				}).join(', ')  + `) ` + NodeType.stringify(returnType) + ' ' + stringify(body)
+			case Return(value):
+				return 'return ' + stringify(value)
 			case null:
 				return ''
 			case _:
