@@ -45,7 +45,21 @@ class ClangGenerator {
 			return text.toLowerCase()
 		}
 
-		return text.substr(0, 1).toLowerCase() + text.substr(1)
+		// `XXXyyy` to `xxxyyy`
+		let split = text.split('')
+		var at = 0
+		for char in split {
+			let lower = char.toLowerCase()
+			if lower != char {
+				at++
+			} else {
+				break
+			}
+		}
+
+		let final = text.substr(0, at).toLowerCase() + text.substr(at)
+
+		return reserved.includes(final)? final + 'Ref' : final
 	}
 
 	fun toPascalCase(text: String): String {
@@ -58,27 +72,65 @@ class ClangGenerator {
 
 	fun typeOfReturn(of ClangType) ClangType {
 		return {
-			qualType: of.qualType.split(' (')[0]
+			qualType: of.qualType.split('(') [0].trim()
 		}
 	}
 
-	fun typeToNodeType(qualType String) NodeType {
+	static let primitive = [
+		'Int8',
+		'Int16',
+		'Int32',
+		'Int64',
+
+		'UInt8',
+		'UInt16',
+		'UInt32',
+		'UInt64',
+
+		'Void'
+		// TODO
+	]
+
+	fun desugarKnownType(qualType String) String {
 		let qualType = desugarQualType.get(qualType) ?? qualType
 		let qualType = qualTypeToHexaType.get(qualType) ?? qualType
+		return qualType
+	}
+
+	fun typeToNodeType(qualType String) NodeType {
+		let qualType = desugarKnownType(qualType)
 
 		if qualType.startsWith('const ') and qualType.endsWith(' *') {
 			let clear = qualType.substring('const '.length, qualType.length - 1).trim()
-			return NodeType.ParametricType('ConstArrayPointer', [typeToNodeType(clear)], null)
-		}
+			let clear = desugarKnownType(clear)
 
-		if qualType.endsWith(' *') {
-			let clear = qualType.substring(0, qualType.length - 1).trim()
-			return NodeType.ParametricType('ArrayPointer', [typeToNodeType(clear)], null)
+			if not primitive.includes(clear) {
+				return NodeType.Type(toPascalCase(clear), null)
+			}
+
+			return NodeType.ParametricType('ConstArrayPointer', [typeToNodeType(clear)], null)
 		}
 
 		if qualType.startsWith('struct ') and qualType.endsWith(' *') {
 			let clear = qualType.substring('struct '.length, qualType.length - 1).trim()
-			return NodeType.Type(toPascalCase(qualType), null)
+			let clear = desugarKnownType(clear)
+			return NodeType.Type(toPascalCase(clear), null)
+		}
+
+		if qualType.endsWith(' *') {
+			let clear = qualType.substring(0, qualType.length - 1).trim()
+			let clear = desugarKnownType(clear)
+
+			if not primitive.includes(clear) {
+				return NodeType.Type(toPascalCase(clear), null)
+			}
+
+			return NodeType.ParametricType('ArrayPointer', [typeToNodeType(clear)], null)
+		}
+
+		if qualType.startsWith('const enum ') {
+			let clear = qualType.substring('const enum '.length, qualType.length - 0).trim()
+			return typeToNodeType(clear)
 		}
 
 		if qualType.startsWith('struct ') {
@@ -90,7 +142,7 @@ class ClangGenerator {
 	}
 
 	fun desugarType(of ClangType) String {
-		let name = of.desugaredQualType ?? of.qualType
+		let name = desugarQualType.get(of.qualType) ?? of.desugaredQualType ?? of.qualType
 
 		if name.endsWith('const') {
 			return name.substr(0, name.length - 'const'.length)
@@ -483,7 +535,11 @@ class ClangGenerator {
 					return name + '<' + params.map(t => NodeType.stringify(t)) + '>'
 				}
 				return name
-			case Int(s): return s.toString()
+			case Int(s):
+				if s > 2147483647 {
+					return s.toString() + 'u32'
+				}
+				return s.toString()
 			case Float(s): return s.toString()
 			case As(expr, kind, toType):
 				return `(` + stringify(expr) + ` as` + Token.stringify(kind) + ` ` + NodeType.stringify(toType) + `)`
