@@ -222,23 +222,32 @@ class ClangGenerator {
 
 				for inner in node.inner[1].inner {
 					switch inner.kind {
-						case CaseStmt:
+						case CaseStmt | DefaultStmt:
 							i++
 							currentBlock = []
 							patterns[i] = Node.Block(currentBlock)
-							expressions[i] = nodeToNode(inner.inner.shift())
-							inner.inner
-							.filter(node => node.kind != ClangKind.BreakStmt)
-							.map(node => currentBlock.push(nodeToNode(node)))
-						case DefaultStmt:
-							i++
-							currentBlock = []
-							patterns[i] = Node.Block(currentBlock)
-							expressions[i] = Node.Underscore
-							inner.inner
-							// TODO must filter deeper
-							.filter(node => node.kind != ClangKind.BreakStmt)
-							.map(node => currentBlock.push(nodeToNode(node)))
+							var expression = Node.Underscore
+
+							// TODO short syntax `.CaseStmt` absolutely needed for sure
+							if inner.kind == ClangKind.CaseStmt {
+								expression = nodeToNode(inner.inner.shift())
+							}
+
+							fun nestedCases(inner ClangNode) {
+								for node in inner.inner {
+									switch node.kind {
+										case CaseStmt:
+											expression = Node.Binop(expression, Token.BitwiseOr, nodeToNode(node.inner.shift()))
+											nestedCases(node)
+										case _:
+											currentBlock.push(nodeToNode(node))
+									}
+								}
+							}
+
+							nestedCases(inner)
+							expressions[i] = expression
+						case BreakStmt:
 						case _:
 							// TODO early-break on BreakStmt or something
 							currentBlock.push(nodeToNode(inner))
@@ -310,7 +319,7 @@ class ClangGenerator {
 				if node.value.startsWith('L"') {
 					return Node.String(node.value.substr(2, node.value.length - 3))
 				}
-				return Node.String(node.value.substr(1, node.value.length - 3))
+				return Node.String(node.value.substr(1, node.value.length - 2))
 			case ConstantExpr:
 				// TODO cast
 				return nodeToNode(node.inner[0])
@@ -398,13 +407,23 @@ class ClangGenerator {
 				} else {
 					return 'while ' + stringify(reason) + ' ' + stringify(e)
 				}
+			case InlineStatements(e):
+				return e.map(stringify).join('\n\t')
 			case Block(e):
 				if e.length == 1 {
 					switch e[0] {
 						case Block(_): return stringify(e [0])
 					}
 				}
-				return '{\n\t' + e.map(stringify).join('\n\t') + '\n}'
+				return '{\n\t' + e.map(fun (expr Node, index Int) {
+						var extra = ''
+						switch expr {
+							case If(_): if index > 0 { extra = '\n\t' }
+							case While(_): if index > 0 { extra = '\n\t' }
+						}
+						return extra + stringify(expr)
+					}
+				).join('\n\t') + '\n}'
 			case Call(e, args, argNames):
 				let arg = []
 				for i in args.length {
