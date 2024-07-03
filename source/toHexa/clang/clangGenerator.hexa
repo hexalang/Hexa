@@ -112,11 +112,55 @@ class ClangGenerator {
 				}
 
 			case IfStmt:
+				let hasElse = node.hasElse
+				var value = nodeToNode(node.inner[0])
+				let body [Node] = []
+				// var elseClause Node? = [] // TODO wtf
+				var elseClause Node? = null
+
+				var i = 1
+				// TODO FORMAT `while(i`
+				while i < node.inner.length - (hasElse ? 1: 0) {
+					let ex = node.inner[i++]
+					body.push(nodeToNode(ex))
+				}
+
+				if hasElse {
+					let ex = node.inner[node.inner.length - 1]
+					elseClause = nodeToNode(ex)
+				}
+
+				let block = body.length > 1 ? Node.Block(body): switch body[0] {
+					case Block(_): body[0]
+					case _: Node.Block(body)
+				}
+
+				elseClause = switch elseClause {
+					case Block(_): elseClause
+					case null: null
+					case _: Node.Block([elseClause])
+				}
+
+				value = switch value {
+					case Parenthesis(v): v
+					case _: value
+				}
+
+				return Node.If([value], block, elseClause, false)
 			case DeclStmt:
 			case FieldDecl:
 			case BinaryOperator:
+				// TODO better idea
+				var op = Lexer.tokenize(Buffer.from(node.opcode), "TEST").token[0] as! Token
+				// TODO if (s.opcode == '&&') s.opcode = 'and'
+				// TODO if (s.opcode == '||') s.opcode = 'or'
+				return Node.Binop(nodeToNode(node.inner[0]), op, nodeToNode(node.inner[1]))
 			case CompoundAssignOperator:
+				var op = Lexer.tokenize(Buffer.from(node.opcode), "TEST").token[0] as! Token
+				return Node.AssignOp(nodeToNode(node.inner[0]), op, nodeToNode(node.inner[1]))
 			case IntegerLiteral:
+				// TODO type
+				return Node.Int(parseInt(node.value))
 			case WhileStmt:
 			case DoStmt:
 			case ForStmt:
