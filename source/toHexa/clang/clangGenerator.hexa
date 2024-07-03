@@ -253,19 +253,29 @@ class ClangGenerator {
 			case VAArgExpr:
 			case InitListExpr:
 			case CompoundLiteralExpr:
+				// TODO cast
+				return nodeToNode(node.inner[0])
 			case ImplicitCastExpr:
 				// TODO cast
 				return nodeToNode(node.inner[0])
 			case StringLiteral:
+				// TODO "castKind": "ArrayToPointerDecay"
+				if node.value.startsWith('L"') {
+					return Node.String(node.value.substr(2, node.value.length - 3))
+				}
+				return Node.String(node.value.substr(1, node.value.length - 3))
 			case ConstantExpr:
+				// TODO cast
+				return nodeToNode(node.inner[0])
 			case CStyleCastExpr:
+				// TODO "castKind": "BitCast"
+				return Node.As(nodeToNode(node.inner[0]), Token.KNot, typeToType(node.type))
 			case DeclRefExpr:
 				if let referencedDecl = node.referencedDecl {
 					return Node.Ident(toCamelCase(referencedDecl.name), null)
 				}
 			case ParenExpr:
 				return Node.Parenthesis(nodeToNode(node.inner[0]))
-			case ConditionalOperator:
 			case FloatingLiteral:
 				// TODO type
 				return Node.Float(parseFloat(node.value), Meta.Default)
