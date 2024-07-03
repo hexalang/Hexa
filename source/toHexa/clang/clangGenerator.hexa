@@ -342,12 +342,11 @@ class ClangGenerator {
 					let counter = node.inner[0], counter.kind != null,
 					let condition = node.inner[2], condition.kind != null
 				{
-					return Node.Block([
+					return Node.InlineStatements([
 							nodeToNode(counter),
 							Node.While(nodeToNode(condition), Node.Block([nodeToNode(body), nodeToNode(counting)]), false)
 						])
 				}
-			case SEHTryStmt:
 			case SwitchStmt:
 				var lastWasCase = false
 				let inputs [Node] = [nodeToNode(node.inner[0])]
@@ -362,7 +361,7 @@ class ClangGenerator {
 						case CaseStmt | DefaultStmt:
 							i++
 							currentBlock = []
-							patterns[i] = Node.Block(currentBlock)
+							patterns[i] = Node.InlineStatements(currentBlock)
 							var expression = Node.Underscore
 
 							// TODO short syntax `.CaseStmt` absolutely needed for sure
@@ -490,15 +489,27 @@ class ClangGenerator {
 
 				return Node.Dot(nodeToNode(node.inner[0]), name)
 			case ParmVarDecl:
+				// TODO
 			case TextComment:
+				// TODO
 			case ParagraphComment:
+				// TODO
 			case BlockCommandComment:
+				// TODO
 			case ParamCommandComment:
+				// TODO
 			case FullComment:
+				// TODO
 			case BuiltinType:
+				// TODO
 			case SEHExceptStmt:
+				// TODO
+			case SEHTryStmt:
+				// TODO
 			case EnumDecl:
-			case EmptyDecl: return null // Extra `;` like `hello;;`
+				// TODO
+			case EmptyDecl:
+				return null // Extra `;` like `hello;;`
 			case GotoStmt:
 				// TODO undefined
 				// const namedAs = labels.get(CompoundStmt.targetLabelDeclId)
@@ -508,8 +519,8 @@ class ClangGenerator {
 				return Node.String("@label " + node.name + " " + node.declId)
 			case PredefinedExpr:
 				return Node.Dot(Node.Ident('meta', null), node.name)
-
-			case null: return null // Never happens
+			case null:
+				return null // Never happens
 		}
 
 		return Node.String("// Unknown Clang node kind: " + node.kind)
@@ -571,13 +582,19 @@ class ClangGenerator {
 						case Block(_): return stringify(e [0])
 					}
 				}
+
+				var prev = ''
 				return '{\n\t' + e.map(fun (expr Node, index Int) {
 						var extra = ''
 						switch expr {
 							case If(_): if index > 0 { extra = '\n\t' }
 							case While(_): if index > 0 { extra = '\n\t' }
+								// TODO case _ if prev.endsWith('}'): extra = '\n\t'
+							case _: if prev.endsWith('}') { extra = '\n\t' }
 						}
-						return extra + stringify(expr)
+
+						prev = stringify(expr)
+						return extra + prev
 					}
 				).join('\n\t') + '\n}'
 			case Call(e, args, argNames):
