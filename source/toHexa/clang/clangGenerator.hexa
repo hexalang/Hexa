@@ -66,6 +66,9 @@ class ClangGenerator {
 		return NodeType.Type(toPascalCase(of.qualType), null)
 	}
 
+	var previousRecordDecl ClangNode? = null
+	let mapDecorators: [Node: [Decorator]] = [:]
+
 	fun nodeToNode(node ClangNode) Node? {
 		switch node.kind {
 			// Roots
@@ -81,7 +84,33 @@ class ClangGenerator {
 					return Node.Var(name, varType, initializer, false, false)
 				}
 			case RecordDecl:
+				previousRecordDecl = node
+				return null
 			case TypedefDecl:
+				if let decl = previousRecordDecl {
+					previousRecordDecl = null
+
+					let className = NodeType.Type(node.name, null)
+					let extend NodeType? = null
+					let implement [NodeType] = []
+					let kind = ClassKind.Class
+					let fields [Node] = []
+
+					let result = Node.Class(className, extend, implement, fields, external: false, kind)
+
+					for field in decl.inner {
+						switch field.kind {
+							case FieldDecl:
+								fields.push(Node.Var(toCamelCase(field.name), typeToType(field.type), null /*TODO*/, false, false))
+						}
+					}
+
+					if decl.tagUsed == 'struct' {
+						mapDecorators.set(result, [new Decorator('struct', [])])
+					}
+
+					return result
+				}
 			case FunctionDecl: {
 					let name = toCamelCase(node.name)
 					let args [Node] = []
@@ -170,6 +199,23 @@ class ClangGenerator {
 
 				return Node.If([value], block, elseClause, false)
 			case DeclStmt:
+				var results [Node] = []
+				for decl in node.inner {
+					switch decl.kind {
+						case VarDecl:
+							// TODO isUsed
+							let name = toCamelCase(decl.name)
+							let varType = typeToType(decl.type)
+							var initializer Node? = null
+
+							if let inner = decl.inner, let value = inner[0] {
+								initializer = nodeToNode(value)
+							}
+
+							results.push(Node.Var(name, varType, initializer, false, false))
+					}
+				}
+				return Node.InlineStatements(results)
 			case FieldDecl:
 			case BinaryOperator:
 				// TODO better idea
@@ -253,6 +299,8 @@ class ClangGenerator {
 							currentBlock.push(nodeToNode(inner))
 					}
 
+				}
+
 				// TODO `case a:` right after `case b:` should become `case a or b:`
 				return Node.Switch(inputs, expressions, guards, patterns)
 			case CaseStmt: // Never happens
@@ -308,6 +356,9 @@ class ClangGenerator {
 			case AtomicExpr:
 			case VAArgExpr:
 			case InitListExpr:
+				// TODO cast
+				// TODO arr = @byValue []
+				return Node.Array(node.inner.map(node => nodeToNode(node)))
 			case CompoundLiteralExpr:
 				// TODO cast
 				return nodeToNode(node.inner[0])
@@ -477,6 +528,9 @@ class ClangGenerator {
 				}).join(', ')  + `) ` + NodeType.stringify(returnType) + ' ' + stringify(body)
 			case Return(value):
 				return 'return ' + stringify(value)
+			case Class(className, extend, implement, fields, external, kind):
+				return 'class ' + NodeType.stringify(className) + '{\n\t' + fields.map(stringify).join('\n\t') + '\n}'
+
 			case null:
 				return ''
 			case _:
