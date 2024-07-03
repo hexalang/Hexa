@@ -424,7 +424,17 @@ class ClangGenerator {
 		return Node.String("// Unknown Clang node kind: " + node.kind)
 	}
 
-	static fun stringify(node Node?) String {
+	fun stringify(node Node?) String {
+		// TODO bug: mapDecorators was available from `static fun` and crashed
+		if let decs = mapDecorators.get(node) {
+			// TODO @(params)
+			return decs.map(dec => '@' + dec.name).join('\n') + '\n' + stringifyWithoutDecorators(node)
+		}
+
+		return stringifyWithoutDecorators(node)
+	}
+
+	fun stringifyWithoutDecorators(node Node?) String {
 		switch node {
 			case Bool(b): return b? "true" : "false"
 			case String(s): return JSON.stringify(s)
@@ -459,7 +469,7 @@ class ClangGenerator {
 					return 'while ' + stringify(reason) + ' ' + stringify(e)
 				}
 			case InlineStatements(e):
-				return e.map(stringify).join('\n\t')
+				return e.map(el => stringify(el)).join('\n\t')
 			case Block(e):
 				if e.length == 1 {
 					switch e[0] {
@@ -529,7 +539,7 @@ class ClangGenerator {
 			case Return(value):
 				return 'return ' + stringify(value)
 			case Class(className, extend, implement, fields, external, kind):
-				return 'class ' + NodeType.stringify(className) + '{\n\t' + fields.map(stringify).join('\n\t') + '\n}'
+				return 'class ' + NodeType.stringify(className) + '{\n\t' + fields.map(f => stringify(f)).join('\n\t') + '\n}'
 
 			case null:
 				return ''
