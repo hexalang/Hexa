@@ -222,6 +222,19 @@ class ClangGenerator {
 			case ContinueStmt:
 				return Node.Continue
 			case UnaryOperator:
+				// TODO "isPostfix": false
+				// TODO no need for & for @struct
+				// TODO detect !=0 and !=null and !!
+				let expr = nodeToNode(node.inner[0])
+				switch node.opcode {
+					case '~': return Node.Unop(Token.BitwiseNot, postfix: false, expr)
+					case '-': return Node.Unop(Token.Subtract, postfix: false, expr)
+					case '++': return Node.Unop(Token.Increment, postfix: true, expr)
+					case '--': return Node.Unop(Token.Decrement, postfix: true, expr)
+					case '*': return Node.Index(expr, Node.Int(0))
+					case '!': return Node.Unop(Token.KNot, postfix: false, expr)
+					case '&': return expr
+				}
 			case ReturnStmt:
 				if let inner = node.inner, let value = inner[0] {
 					return Node.Return(nodeToNode(value))
@@ -240,7 +253,7 @@ class ClangGenerator {
 						return Node.Call(Node.Ident('sizeOf', [
 									typeToType(node.type)
 								]), [], [])
-						// TODO FORMAT
+						// TODO FORMAT could "cut" a tab from already printed line
 				}
 			case CharacterLiteral:
 				// TODO meta
@@ -302,8 +315,14 @@ class ClangGenerator {
 			case EnumDecl:
 			case EmptyDecl: return null // Extra `;` like `hello;;`
 			case GotoStmt:
+				// TODO undefined
+				// const namedAs = labels.get(CompoundStmt.targetLabelDeclId)
+				return Node.String("@goto " + node.targetLabelDeclId)
 			case LabelStmt:
+				// TODO convert to defer when possible?
+				return Node.String("@label " + node.name + " " + node.declId)
 			case PredefinedExpr:
+				return Node.Dot(Node.Ident('meta', null), node.name)
 
 			case null: return null // Never happens
 		}
