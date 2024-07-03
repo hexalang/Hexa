@@ -212,6 +212,40 @@ class ClangGenerator {
 				}
 			case SEHTryStmt:
 			case SwitchStmt:
+				var lastWasCase = false
+				let inputs [Node] = [nodeToNode(node.inner[0])]
+				let expressions [Node] = []
+				let guards [Node] = [] // Always empty
+				let patterns [Node] = []
+				var currentBlock [Node] = []
+				var i = -1
+
+				for inner in node.inner[1].inner {
+					switch inner.kind {
+						case CaseStmt:
+							i++
+							currentBlock = []
+							patterns[i] = Node.Block(currentBlock)
+							expressions[i] = nodeToNode(inner.inner.shift())
+							inner.inner
+							.filter(node => node.kind != ClangKind.BreakStmt)
+							.map(node => currentBlock.push(nodeToNode(node)))
+						case DefaultStmt:
+							i++
+							currentBlock = []
+							patterns[i] = Node.Block(currentBlock)
+							expressions[i] = Node.Underscore
+							inner.inner
+							// TODO must filter deeper
+							.filter(node => node.kind != ClangKind.BreakStmt)
+							.map(node => currentBlock.push(nodeToNode(node)))
+						case _:
+							// TODO early-break on BreakStmt or something
+							currentBlock.push(nodeToNode(inner))
+					}
+
+				// TODO `case a:` right after `case b:` should become `case a or b:`
+				return Node.Switch(inputs, expressions, guards, patterns)
 			case CaseStmt: // Never happens
 			case DefaultStmt: // Never happens
 			case BreakStmt:
