@@ -184,16 +184,41 @@ class ClangGenerator {
 				// TODO type
 				return Node.Int(parseInt(node.value))
 			case WhileStmt:
+				return Node.While(nodeToNode(node.inner[0]), nodeToNode(node.inner[1]), false)
 			case DoStmt:
+				return Node.While(nodeToNode(node.inner[1]), nodeToNode(node.inner[0]), true)
 			case ForStmt:
+				if node.inner[0].kind == null {
+					let block = [nodeToNode(node.inner[4])]
+
+					if let counting = node.inner[3], counting.kind != null {
+						block.push(nodeToNode(counting))
+					}
+
+					return Node.While(Node.Bool(true), Node.Block(block), false)
+				}
+
+				// TODO inner[1]
+				if
+					let counting = node.inner[3], counting.kind != null,
+					let body = node.inner[4], body.kind != null,
+					let counter = node.inner[0], counter.kind != null,
+					let condition = node.inner[2], condition.kind != null
+				{
+					return Node.Block([
+							nodeToNode(counter),
+							Node.While(nodeToNode(condition), Node.Block([nodeToNode(body), nodeToNode(counting)]), false)
+						])
+				}
 			case SEHTryStmt:
 			case SwitchStmt:
-			case CaseStmt:
-			case DefaultStmt:
+			case CaseStmt: // Never happens
+			case DefaultStmt: // Never happens
 			case BreakStmt:
 				return Node.Break
 			case GCCAsmStmt:
 			case NullStmt:
+				return Node.Block([])
 			case ContinueStmt:
 				return Node.Continue
 			case UnaryOperator:
