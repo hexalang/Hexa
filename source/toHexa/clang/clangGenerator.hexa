@@ -114,7 +114,25 @@ class ClangGenerator {
 				let statements [ClangNode] = node.inner ?? []
 				// TODO `.map(nodeToNode)` loses `this`, should .bind
 				// return Node.Block(statements.map(nodeToNode).filter(s => s != null))
-				return Node.Block(statements.map(node => nodeToNode(node)).filter(s => s != null))
+				let result [Node] = []
+
+				// TODO add Node.InlineStatements([])
+				for node in statements {
+					switch node.kind {
+						case LabelStmt:
+							result.push(nodeToNode(node))
+							result.push(nodeToNode(node.inner[0]))
+						case _:
+							result.push(nodeToNode(node))
+					}
+				}
+
+				// TODO .filterNonNull/.filterNulls -> makes [T?] into [T]
+				return Node.Block(result.filter(s => s != null))
+				// return Node.Block(statements.map(node => nodeToNode(node)).filter(s => s != null))
+			case ConditionalOperator:
+				// TODO int != 0
+				return Node.If([nodeToNode(node.inner[0])], nodeToNode(node.inner[1]), nodeToNode(node.inner[2]), true)
 			case IfStmt:
 				let hasElse = node.hasElse
 				var value = nodeToNode(node.inner[0])
