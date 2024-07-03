@@ -62,8 +62,45 @@ class ClangGenerator {
 		}
 	}
 
+	fun typeToNodeType(qualType String) NodeType {
+		let qualType = desugarQualType.get(qualType) ?? qualType
+		let qualType = qualTypeToHexaType.get(qualType) ?? qualType
+
+		if qualType.startsWith('const ') and qualType.endsWith(' *') {
+			let clear = qualType.substring('const '.length, qualType.length - 1).trim()
+			return NodeType.ParametricType('ConstArrayPointer', [typeToNodeType(clear)], null)
+		}
+
+		if qualType.endsWith(' *') {
+			let clear = qualType.substring(0, qualType.length - 1).trim()
+			return NodeType.ParametricType('ArrayPointer', [typeToNodeType(clear)], null)
+		}
+
+		if qualType.startsWith('struct ') and qualType.endsWith(' *') {
+			let clear = qualType.substring('struct '.length, qualType.length - 1).trim()
+			return NodeType.Type(toPascalCase(qualType), null)
+		}
+
+		if qualType.startsWith('struct ') {
+			let clear = qualType.substring('struct '.length, qualType.length - 0).trim()
+			return NodeType.ParametricType('ByValue', [typeToNodeType(clear)], null)
+		}
+
+		return NodeType.Type(toPascalCase(qualType), null)
+	}
+
+	fun desugarType(of ClangType) String {
+		let name = of.desugaredQualType ?? of.qualType
+
+		if name.endsWith('const') {
+			return name.substr(0, name.length - 'const'.length)
+		}
+
+		return name
+	}
+
 	fun typeToType(of ClangType) NodeType {
-		return NodeType.Type(toPascalCase(of.qualType), null)
+		return typeToNodeType(desugarType(of))
 	}
 
 	var previousRecordDecl ClangNode? = null
@@ -74,6 +111,8 @@ class ClangGenerator {
 			// Roots
 			case VarDecl: {
 					let name = toCamelCase(node.name)
+					// TODO let readonly = node.type!.qualType.endsWith('const')
+					let readonly = (node.type as! ClangType).qualType.endsWith('const')
 					let varType = typeToType(node.type)
 					var initializer Node? = null
 
@@ -81,7 +120,7 @@ class ClangGenerator {
 						initializer = nodeToNode(value)
 					}
 
-					return Node.Var(name, varType, initializer, false, false)
+					return Node.Var(name, varType, initializer, readonly, false)
 				}
 			case RecordDecl:
 				previousRecordDecl = node
@@ -540,7 +579,6 @@ class ClangGenerator {
 				return 'return ' + stringify(value)
 			case Class(className, extend, implement, fields, external, kind):
 				return 'class ' + NodeType.stringify(className) + '{\n\t' + fields.map(f => stringify(f)).join('\n\t') + '\n}'
-
 			case null:
 				return ''
 			case _:
