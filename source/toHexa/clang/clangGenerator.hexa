@@ -332,8 +332,8 @@ class ClangGenerator {
 
 	static fun stringify(node Node?) String {
 		switch node {
-			case String(s): return "'\(s)'"
 			case Bool(b): return b? "true" : "false"
+			case String(s): return JSON.stringify(s)
 			case Ident(name, params):
 				// TODO generate in parser `if let x {}` form bruh
 				if let params = params {
@@ -342,13 +342,34 @@ class ClangGenerator {
 				return name
 			case Int(s): return s.toString()
 			case Float(s): return s.toString()
+			case As(expr, kind, toType):
+				return `(` + stringify(expr) + ` as` + Token.stringify(kind) + ` ` + NodeType.stringify(toType) + `)`
 			case Null: return "null"
 			case This: return "this"
+			case Continue: return "continue"
+			case Break: return "break"
+			case Underscore: return "_"
+			case Unop(op, postfix, e):
+				if postfix {
+					return stringify(e) + Token.stringify(op)
+				}
+				return Token.stringify(op) + stringify(e)
 			case Parenthesis(expr): return "(" + stringify(expr) + ")"
 			case Index(expr, index): return stringify(expr) + '[' + stringify(index) + ']'
 			case Dot(expr, name): return stringify(expr) + '.' + name
 			case DotUpper(expr, name): return stringify(expr) + '.' + name
+			case While(reason, e, pre):
+				if pre {
+					return 'do ' + stringify(e) + ' while ' + stringify(reason)
+				} else {
+					return 'while ' + stringify(reason) + ' ' + stringify(e)
+				}
 			case Block(e):
+				if e.length == 1 {
+					switch e[0] {
+						case Block(_): return stringify(e [0])
+					}
+				}
 				return '{\n\t' + e.map(stringify).join('\n\t') + '\n}'
 			case Call(e, args, argNames):
 				let arg = []
@@ -369,17 +390,28 @@ class ClangGenerator {
 				return DataHelper.extractTypeName(t)
 			case Static(f): return 'static ' + stringify(f)
 			case Var(name, t, expr, const, external): {
-				var body = ''
-				if let expr = expr {
-					body = ' = ' + stringify(expr)
+					var body = ''
+					if let expr = expr {
+						body = ' = ' + stringify(expr)
+					}
+					return
+					(external ? 'declare ': '') +
+					(const ? 'let ': 'var ') + name + ' ' + NodeType.stringify(t) + body
 				}
-				return
-					(external? 'declare ' : '') +
-					(const? 'let ' : 'var ') + name + ' ' + NodeType.stringify(t) + body
-			}
-			case If(value, body, elseClause, _):
+			case If(value, body, elseClause, infix):
+				if infix {
+					return `( ` + stringify(value [0]) + ' ) ? ' + stringify(body) + ' : ' + stringify(elseClause)
+				}
 				// TODO FORMAT
 				return `if ` + stringify(value [0]) + stringify(body) + (elseClause != null ? ' else ': '') + stringify(elseClause)
+			case Switch(inputs, expressions, guards, patterns):
+				var body = ''
+				for i in expressions.length {
+					body += '\n\tcase ' + stringify(expressions [i]) + ':\n\t'
+					body += stringify(patterns [i])
+				}
+
+				return `switch ` + stringify(inputs [0]) + ' {' + body + '\n}'
 			case Function(name, body, vars, returnType, external, variadic):
 				if name == null {
 					// TODO `// Anonymous`
