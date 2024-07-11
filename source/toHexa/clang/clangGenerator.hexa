@@ -197,6 +197,15 @@ class ClangGenerator {
 	let mapDecorators: [Node: [Decorator]] = [:]
 	let typeDecorators: [NodeType: [Decorator]] = [:]
 
+	fun wrapToBlockIfNone(node Node?) Node {
+		switch node {
+			case null: return Node.Block([])
+			case Block: return node
+		}
+
+		return Node.Block([node])
+	}
+
 	fun nodeToNode(node ClangNode) Node? {
 		switch node.kind {
 			// Roots
@@ -308,7 +317,7 @@ class ClangGenerator {
 
 				if hasElse {
 					let ex = node.inner[node.inner.length - 1]
-					elseClause = nodeToNode(ex)
+					elseClause = wrapToBlockIfNone(nodeToNode(ex))
 				}
 
 				let block = body.length > 1 ? Node.Block(body): switch body[0] {
@@ -361,9 +370,9 @@ class ClangGenerator {
 				// TODO type
 				return Node.Int(parseInt(node.value))
 			case WhileStmt:
-				return Node.While(nodeToNode(node.inner[0]), nodeToNode(node.inner[1]), false)
+				return Node.While(nodeToNode(node.inner[0]), wrapToBlockIfNone(nodeToNode(node.inner[1])), false)
 			case DoStmt:
-				return Node.While(nodeToNode(node.inner[1]), nodeToNode(node.inner[0]), true)
+				return Node.While(nodeToNode(node.inner[1]), wrapToBlockIfNone(nodeToNode(node.inner[0])), true)
 			case ForStmt:
 				if node.inner[0].kind == null {
 					let block = [nodeToNode(node.inner[4])]
