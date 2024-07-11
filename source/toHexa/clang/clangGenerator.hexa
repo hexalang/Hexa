@@ -59,7 +59,7 @@ class ClangGenerator {
 
 		let final = text.substr(0, at).toLowerCase() + text.substr(at)
 
-		return reserved.includes(final)? final + 'Ref' : final
+		return reserved.includes(final) ? final + 'Ref': final
 	}
 
 	fun toPascalCase(text: String): String {
@@ -576,6 +576,16 @@ class ClangGenerator {
 		return stringifyWithoutDecorators(node)
 	}
 
+	fun stringifyType(nodeType NodeType) String {
+		var result = NodeType.stringify(nodeType)
+
+		if let decorators = typeDecorators.get(nodeType) {
+			result = decorators.map(dec => '@' + dec.name + ' ').join('') + result
+		}
+
+		return result
+	}
+
 	fun stringifyWithoutDecorators(node Node?) String {
 		switch node {
 			case Bool(b): return b? "true" : "false"
@@ -583,7 +593,7 @@ class ClangGenerator {
 			case Ident(name, params):
 				// TODO generate in parser `if let x {}` form bruh
 				if let params = params {
-					return name + '<' + params.map(t => NodeType.stringify(t)) + '>'
+					return name + '<' + params.map(t => stringifyType(t)) + '>'
 				}
 				return name
 			case Int(s):
@@ -593,7 +603,7 @@ class ClangGenerator {
 				return s.toString()
 			case Float(s): return s.toString()
 			case As(expr, kind, toType):
-				return `(` + stringify(expr) + ` as` + Token.stringify(kind) + ` ` + NodeType.stringify(toType) + `)`
+				return `(` + stringify(expr) + ` as` + Token.stringify(kind) + ` ` + stringifyType(toType) + `)`
 			case Null: return "null"
 			case This: return "this"
 			case Continue: return "continue"
@@ -662,7 +672,7 @@ class ClangGenerator {
 					}
 					return
 					(external ? 'declare ': '') +
-					(const ? 'let ': 'var ') + name + ' ' + NodeType.stringify(t) + body
+					(const ? 'let ': 'var ') + name + ' ' + stringifyType(t) + body
 				}
 			case If(value, body, elseClause, infix):
 				if infix {
@@ -685,9 +695,9 @@ class ClangGenerator {
 				}
 
 				return 'fun ' + name + `(` + vars.map(v => switch v {
-					case Var(name, t, expr, const, external):
-						name + ' ' + NodeType.stringify(t)
-				}).join(', ')  + `) ` + NodeType.stringify(returnType) + ' ' + stringify(body)
+						case Var(name, t, expr, const, external):
+							name + ' ' + stringifyType(t)
+					}).join(', ') + `) ` + stringifyType(returnType) + ' ' + stringify(body)
 			case Return(value):
 				return 'return ' + stringify(value)
 			case Class(className, extend, implement, fields, external, kind):
