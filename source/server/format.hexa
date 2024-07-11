@@ -14,10 +14,12 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 /// Formatting preserves user personal style
+// TODO hexa format cli .hexa .json
 fun autoFormatWholeFile(file: String): String {
 	let project = new Project()
 	let content = Buffer.from(file)
 	try {
+		// TODO range formatter
 		let tokens = Lexer.tokenize(content, 'hexa.hexa', format: true)
 		let count = tokens.line.length - 1
 		let result = ['']
@@ -124,7 +126,9 @@ fun autoFormatWholeFile(file: String): String {
 
 				(token == Token.Assign and assignOp.includes(lastToken)) or
 
+				// `(something`
 				lastToken == Token.CallOpen or
+				// `(`
 				(
 					token == Token.CallOpen and
 					(
@@ -137,11 +141,24 @@ fun autoFormatWholeFile(file: String): String {
 						lastToken != Token.LogicalAnd and
 						lastToken != Token.LogicalOr and
 						lastToken != Token.KNew and
-						lastToken != Token.Assign
+						lastToken != Token.KNot and
+						lastToken != Token.KSwitch and
+						lastToken != Token.Assign and
+
+						// `@demo()` but not `@demo ()`
+						not (
+							(
+								lastToken == Token.Identifier
+							) and (
+								(lastLastToken == Token.At and tokens.column[i] != tokens.value[i - 1].length + tokens.column[i - 1])
+							)
+						)
 					)
 				) or
+				// @sds() TODO error () no args not allowed
 				token == Token.CallClose or
 
+				// `[]`
 				lastToken == Token.IndexOpen or
 				(
 					token == Token.IndexOpen and
@@ -205,7 +222,7 @@ fun autoFormatWholeFile(file: String): String {
 					)
 				) or
 
-				// `demo<T>`
+				// `demo<T>` but not `demo <T>`
 				(
 					token == Token.Less and (
 						(
