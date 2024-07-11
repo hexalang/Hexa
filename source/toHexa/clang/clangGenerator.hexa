@@ -114,6 +114,30 @@ class ClangGenerator {
 	fun typeToNodeType(qualType String) NodeType {
 		let qualType = desugarKnownType(qualType)
 
+		// Function calling convention
+		if qualType.endsWith(' __attribute__((stdcall))') {
+			let clear = qualType.substr(0, qualType.length - ' __attribute__((stdcall))'.length).trim()
+
+			let type = typeToNodeType(clear)
+			typeDecorators.get(type).push(new Decorator('stdcall', []))
+			return type
+		}
+
+		// Function pointer type
+		if qualType.includes('(*)') {
+			let parts = qualType.split('(*)')
+			let returns = typeToNodeType(parts[0])
+
+			// Now remove ( )
+			let clear = parts[1].substr(1, parts[1].length - 2).split(', ')
+			// TODO Hexa: syntax like `let args = NodeType []`
+			let args = clear.map(part => typeToNodeType(part))
+			let result = NodeType.Function(args, returns)
+			typeDecorators.set(result, [new Decorator('noCapture', [])])
+
+			return result
+		}
+
 		if qualType.startsWith('const ') and qualType.endsWith(' *') {
 			let clear = qualType.substring('const '.length, qualType.length - 1).trim()
 			let clear = desugarKnownType(clear)
@@ -171,6 +195,7 @@ class ClangGenerator {
 
 	var previousRecordDecl ClangNode? = null
 	let mapDecorators: [Node: [Decorator]] = [:]
+	let typeDecorators: [NodeType: [Decorator]] = [:]
 
 	fun nodeToNode(node ClangNode) Node? {
 		switch node.kind {
