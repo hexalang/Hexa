@@ -248,6 +248,26 @@ class ClangGenerator {
 		return Node.Int(0)
 	}
 
+	fun getAssumedValueType(node ClangNode) String? {
+		switch node.kind {
+			// TODO bug `case ImplicitCastExpr: return getAssumedValueType` fun type accepted as String!
+			case ImplicitCastExpr: return getAssumedValueType(node.inner[0])
+			case MemberExpr: return getAssumedValueType(node.inner[0])
+			case DeclRefExpr: return node.type.qualType
+		}
+
+		return null
+	}
+
+	fun getAssumedField(node ClangNode) String? {
+		switch node.kind {
+			case ImplicitCastExpr: return getAssumedField(node.inner[0])
+			case MemberExpr: return node.name
+		}
+
+		return null
+	}
+
 	fun nodeToNode(node ClangNode) Node? {
 		switch node.kind {
 			// Roots
@@ -408,7 +428,38 @@ class ClangGenerator {
 				let op = Lexer.tokenize(Buffer.from(node.opcode), "CLANG").token[0] as! Token
 				// TODO if (s.opcode == '&&') s.opcode = 'and'
 				// TODO if (s.opcode == '||') s.opcode = 'or'
-				return Node.Binop(nodeToNode(node.inner[0]), op, nodeToNode(node.inner[1]))
+				let left = nodeToNode(node.inner[0])
+				var right = nodeToNode(node.inner[1])
+
+				if op == Token.Equal or op == Token.Assign {
+					// Restore constants into literals
+					// TODO same for `(argHere)` calls
+					// TODO same for `case here:` switches
+
+					{
+						// TODO cover with tests
+						// [123] = [123]
+					}
+
+					if
+						let ofType = getAssumedValueType(node.inner[0]),
+						let ofField = getAssumedField(node.inner[0]),
+						let ofReplacedType = literalsMapping.get(ofType),
+						let ofReplacedField = ofReplacedType.get(ofField),
+						let ofReplacedValue = ofReplacedField.get(Node.stringify(right))
+					{
+						if ofReplacedValue.includes('.') {
+							// Assume enum
+							let parts = ofReplacedValue.split('.')
+							right = Node.DotUpper(
+								Node.NodeTypeValue(NodeType.Type(parts [0], null)),
+								parts [1]
+							)
+						}
+					}
+				}
+
+				return Node.Binop(left, op, right)
 			case CompoundAssignOperator:
 				var op = Lexer.tokenize(Buffer.from(node.opcode), "CLANG").token[0] as! Token
 				return Node.AssignOp(nodeToNode(node.inner[0]), op, nodeToNode(node.inner[1]))
