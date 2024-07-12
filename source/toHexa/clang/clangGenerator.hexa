@@ -70,10 +70,14 @@ class ClangGenerator {
 		return text.substr(0, 1).toUpperCase() + text.substr(1)
 	}
 
-	fun typeOfReturn(of ClangType) ClangType {
+	fun typeAsType(of String) ClangType {
 		return {
-			qualType: of.qualType.split('(') [0].trim()
+			qualType: of
 		}
+	}
+
+	fun typeOfReturn(of ClangType) ClangType {
+		return typeAsType(of.qualType.split('(') [0].trim())
 	}
 
 	static let primitive = [
@@ -126,7 +130,7 @@ class ClangGenerator {
 		// Function pointer type
 		if qualType.includes('(*)') {
 			let parts = qualType.split('(*)')
-			let returns = typeToNodeType(parts[0])
+			let returns = typeToNodeType(parts [0].trim())
 
 			// Now remove ( )
 			let clear = parts[1].substr(1, parts[1].length - 2).split(', ')
@@ -214,6 +218,36 @@ class ClangGenerator {
 		return nodeToNode(node)
 	}
 
+	let zeroInitialize = [
+		'Int',
+
+		'UInt32',
+		'Int32',
+		'UInt32',
+		'Int32',
+		'UInt16',
+		'UInt32',
+		'UInt32',
+		'UInt16',
+		'UInt8',
+		'Int8',
+		'Int8'
+	]
+
+	fun zeroValue(varType NodeType) Node {
+		let str = NodeType.stringify(varType)
+
+		if str.startsWith('ByValue<') {
+			return Node.Call(Node.NodeTypeValue(varType), [], [])
+		}
+
+		if not zeroInitialize.includes(str) {
+			return Node.Null
+		}
+
+		return Node.Int(0)
+	}
+
 	fun nodeToNode(node ClangNode) Node? {
 		switch node.kind {
 			// Roots
@@ -226,6 +260,8 @@ class ClangGenerator {
 
 					if let inner = node.inner, let value = inner[0] {
 						initializer = nodeToNode(value)
+					} else {
+						initializer = zeroValue(varType)
 					}
 
 					return Node.Var(name, varType, initializer, readonly, false)
@@ -357,6 +393,8 @@ class ClangGenerator {
 
 							if let inner = decl.inner, let value = inner[0] {
 								initializer = nodeToNode(value)
+							} else {
+								initializer = zeroValue(varType)
 							}
 
 							results.push(Node.Var(name, varType, initializer, false, false))
