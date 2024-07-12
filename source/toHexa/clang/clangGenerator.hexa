@@ -612,7 +612,7 @@ class ClangGenerator {
 				return nodeToNode(node.inner[0])
 			case CStyleCastExpr:
 				// TODO "castKind": "BitCast"
-				return Node.As(nodeToNode(node.inner[0]), Token.KNot, typeToType(node.type))
+				return Node.Parenthesis(Node.As(nodeToNode(node.inner[0]), Token.KNot, typeToType(node.type)))
 			case DeclRefExpr:
 				if let referencedDecl = node.referencedDecl {
 					return Node.Ident(toCamelCase(referencedDecl.name), null)
@@ -709,7 +709,7 @@ class ClangGenerator {
 				return s.toString()
 			case Float(s): return s.toString()
 			case As(expr, kind, toType):
-				return `(` + stringify(expr) + ` as` + Token.stringify(kind) + ` ` + stringifyType(toType) + `)`
+				return stringify(expr) + ` as` + Token.stringify(kind) + ` ` + stringifyType(toType)
 			case Null: return "null"
 			case This: return "this"
 			case Continue: return "continue"
@@ -720,7 +720,12 @@ class ClangGenerator {
 					return stringify(e) + Token.stringify(op)
 				}
 				return Token.stringify(op) + stringify(e)
-			case Parenthesis(expr): return "(" + stringify(expr) + ")"
+			case Parenthesis(expr):
+				switch expr {
+					case Parenthesis(expr): return "(" + stringify(expr) + ")"
+				}
+
+				return "(" + stringify(expr) + ")"
 			case Index(expr, index): return stringify(expr) + '[' + stringify(index) + ']'
 			case Dot(expr, name): return stringify(expr) + '.' + name
 			case DotUpper(expr, name): return stringify(expr) + '.' + name
@@ -755,16 +760,24 @@ class ClangGenerator {
 				).join('\n\t') + '\n}'
 			case Call(e, args, argNames):
 				let arg = []
-				for i in args.length {
-					if let name = argNames[i] {
-						arg.push(name + ': ' + stringify(args[i]))
-					} else {
-						arg.push(stringify(args[i]))
+				for i in args {
+					switch i {
+						case Parenthesis(expr): arg.push(stringify(expr))
+						case _: arg.push(stringify(i))
 					}
 				}
 				return stringify(e) + '(' + arg.join(', ') + ')'
 			case Array(elements): return '[' + [for el in elements stringify(el)].join(', ') + ']'
-			case Binop(a, op, b): return stringify(a) + ' ' + Token.stringify(op) + ' ' + stringify(b)
+			case Binop(a, op, b):
+				let right = switch b {
+					case Parenthesis(expr): if op == Token.Assign {
+							stringify(expr)
+						} else {
+							stringify(b)
+						}
+					case _: stringify(b)
+				}
+				return stringify(a) + ' ' + Token.stringify(op) + ' ' + right
 			case AssignOp(a, op, b): return stringify(a) + ' ' + Token.stringify(op) + '= ' + stringify(b)
 			case Object(names, el):
 				return '{' + [for i in el.length names[i] + ': ' + stringify(el[i])].join(', ') + '}'
