@@ -23,6 +23,7 @@ class Tokens {
 	// TODO var kind: Buffer // let = new.
 	// Values of an unique lexemes, like integers and strings
 	var value: [String]
+	// TODO would be faster for both native and js to store all into array of structures
 	var meta: [Meta]
 	var length: Int
 	var line: [Int]
@@ -92,6 +93,15 @@ class Lexer {
 			params[to] = param
 			meta[to] = m
 			add(t)
+		}
+
+		/// Add parametrized token that can cover multiple lines
+		@inline fun addMultiline(t: Token, param: String, m: Meta, line: Int, column: Int) {
+			params[to] = param
+			meta[to] = m
+			tokens[to++] = t
+			lines.push(line)
+			columns.push(column)
 		}
 
 		@inline fun curPos() {
@@ -349,6 +359,8 @@ class Lexer {
 					let p = _8 // Remember, if double/single-quoted
 					position++
 					let pos = position
+					let column = position - columnBase - 1
+					let line = line // TODO same for /* comments */
 
 					// We don't do string \() interpolation here,
 					// coz pretty printer
@@ -372,9 +384,10 @@ class Lexer {
 					}
 
 					if format {
-						addMeta(Token.QuotedString, result, p as! Meta)
+						addMultiline(Token.QuotedString, result, p as! Meta, line, column)
 					} else {
-						addWith(Token.QuotedString, result)
+						addMultiline(Token.QuotedString, result, p as! Meta, line, column)
+						// TODO short path really needed? addWith(Token.QuotedString, result)
 					}
 					position++
 					continue
