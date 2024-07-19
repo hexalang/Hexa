@@ -21,6 +21,22 @@ class ClangGenerator {
 	new (project ClangProject) {
 		Lexer.init()
 
+		for key in Reflect.ownKeys(project.typeReplace) {
+			desugarQualType.set(key, project.typeReplace[key])
+		}
+
+		for keyType in Reflect.ownKeys(project.literalsMapping) {
+			let ofType [String: [String: String]] = [:]
+			literalsMapping.set(keyType, ofType)
+			for keyField in Reflect.ownKeys(project.literalsMapping[keyType]) {
+				let ofField [String: String] = [:]
+				ofType.set(keyField, ofField)
+				for keyValue in Reflect.ownKeys(project.literalsMapping[keyType][keyField]) {
+					ofField.set(keyValue, project.literalsMapping[keyType][keyField][keyValue])
+				}
+			}
+		}
+
 		for file in project.files {
 			if not file.generate {
 				continue
@@ -39,6 +55,12 @@ class ClangGenerator {
 			Fs.writeFileSync(file.output, good)
 		}
 	}
+
+	let literalsMapping [String: [String: [String: String]]] = [
+		:
+	]
+
+	let desugarQualType [String: String] = [:]
 
 	fun toCamelCase(text: String): String {
 		if text.length == 1 {
