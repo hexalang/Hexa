@@ -140,6 +140,16 @@ class ClangGenerator {
 	fun typeToNodeType(qualType String) NodeType {
 		let qualType = desugarKnownType(qualType)
 
+		// Array
+		if qualType.endsWith(']') {
+			let parts = qualType.replace(']', '').split('[')
+
+			return NodeType.ParametricType(
+				'ArrayByValue', [typeToNodeType(parts [0]), NodeType.Int(parseInt(parts [1]))],
+				null
+			)
+		}
+
 		// Function calling convention
 		if qualType.endsWith(' __attribute__((stdcall))') {
 			let clear = qualType.substr(0, qualType.length - ' __attribute__((stdcall))'.length).trim()
@@ -272,6 +282,10 @@ class ClangGenerator {
 			return Node.Call(Node.NodeTypeValue(varType), [], [])
 		}
 
+		if str.startsWith('ArrayByValue<') {
+			return Node.Array([Node.Int(0)])
+		}
+
 		if not zeroInitialize.includes(str) {
 			return Node.Null
 		}
@@ -324,7 +338,7 @@ class ClangGenerator {
 				if let decl = previousRecordDecl {
 					previousRecordDecl = null
 
-					let className = NodeType.Type(node.name, null)
+					let className = NodeType.Type(desugarQualType.get(node.name) ?? node.name, null)
 					let extend NodeType? = null
 					let implement [NodeType] = []
 					let kind = ClassKind.Class
@@ -352,7 +366,7 @@ class ClangGenerator {
 					var returnType NodeType = typeToType(typeOfReturn(node.type))
 					var body Node? = null
 					// TODO FORMAT
-					let nodes = node.inner ??([] as! [ClangNode] /*TODO*/)
+					let nodes = node.inner ?? ([] as! [ClangNode] /*TODO*/)
 
 					for functionDecl in nodes {
 						switch functionDecl.kind {
@@ -504,8 +518,8 @@ class ClangGenerator {
 
 				switch condition {
 					case Int(value): if value == 0 {
-						return Node.Block([])
-					}
+							return Node.Block([])
+						}
 				}
 
 				return Node.While(condition, wrapToBlockIfNone(nodeToNode(node.inner[0])), true)
@@ -789,7 +803,9 @@ class ClangGenerator {
 				// TODO `case`-body still contains empty blocks
 				fun noEmptyBlocks(expr Node) Bool {
 					switch expr {
-						case Block(e) if e.length == 0: return false
+						// TODO format bug
+						// case Block(e) if e.length == 0: return false
+						case Block(e): if e.length == 0 { return false }
 					}
 
 					return true
