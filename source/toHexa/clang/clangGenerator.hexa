@@ -232,6 +232,15 @@ class ClangGenerator {
 		return Node.Block([node])
 	}
 
+	fun unwrapParenthesis(node Node?) Node? {
+		switch node {
+			case null: return null
+			case Parenthesis(node): return unwrapParenthesis(node)
+		}
+
+		return node
+	}
+
 	fun nodeToStatementNode(node ClangNode) Node? {
 		switch node.kind {
 			case ParenExpr:
@@ -434,7 +443,7 @@ class ClangGenerator {
 							var initializer Node? = null
 
 							if let inner = decl.inner, let value = inner[0] {
-								initializer = nodeToNode(value)
+								initializer = unwrapParenthesis(nodeToNode(value))
 							} else {
 								initializer = zeroValue(varType)
 							}
@@ -475,7 +484,7 @@ class ClangGenerator {
 							let parts = ofReplacedValue.split('.')
 							right = Node.DotUpper(
 								Node.NodeTypeValue(NodeType.Type(parts [0], null)),
-								parts [1]
+								parts[1]
 							)
 						}
 					}
@@ -528,7 +537,7 @@ class ClangGenerator {
 				}
 			case SwitchStmt:
 				var lastWasCase = false
-				let inputs [Node] = [nodeToNode(node.inner[0])]
+				let inputs [Node] = [unwrapParenthesis(nodeToNode(node.inner[0]))]
 				let expressions [Node] = []
 				let guards [Node] = [] // Always empty
 				let patterns [Node] = []
@@ -597,14 +606,14 @@ class ClangGenerator {
 				}
 			case ReturnStmt:
 				if let inner = node.inner, let value = inner[0] {
-					return Node.Return(nodeToNode(value))
+					return Node.Return(unwrapParenthesis(nodeToNode(value)))
 				}
 				return Node.Return(null)
 			case CallExpr:
 				// TODO Hexa: for () @isFirst {} also case CallExpr [value, ...arguments]
 				// result.push(tabs + resolve(CompoundStmt.inner.shift()) + '(' + (CompoundStmt.inner.map(resolve).join(', ')) + ')\n')
 				let value = node.inner.shift()
-				return Node.Call(nodeToNode(value), node.inner.map(node => nodeToNode(node)), [])
+				return Node.Call(nodeToNode(value), node.inner.map(node => unwrapParenthesis(nodeToNode(node))), [])
 			case ArraySubscriptExpr:
 				return Node.Index(nodeToNode(node.inner[0]), nodeToNode(node.inner[1]))
 			case UnaryExprOrTypeTraitExpr:
