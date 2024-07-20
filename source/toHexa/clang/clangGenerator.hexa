@@ -668,7 +668,21 @@ class ClangGenerator {
 				return nodeToNode(node.inner[0])
 			case CStyleCastExpr:
 				// TODO "castKind": "BitCast"
-				return Node.Parenthesis(Node.As(nodeToNode(node.inner[0]), Token.KNot, typeToType(node.type)))
+				let e = nodeToNode(node.inner[0])
+				let to = typeToType(node.type)
+
+				switch e {
+					case Int(value): if value == 0 {
+							switch to {
+								case ParametricType(name, params):
+									if name == 'ArrayPointer' {
+										return Node.Null
+									}
+							}
+						}
+				}
+
+				return Node.Parenthesis(Node.As(e, Token.KNot, to))
 			case DeclRefExpr:
 				if let referencedDecl = node.referencedDecl {
 					return Node.Ident(toCamelCase(referencedDecl.name), null)
@@ -750,7 +764,7 @@ class ClangGenerator {
 
 	fun stringifyWithoutDecorators(node Node?) String {
 		switch node {
-			case Bool(b): return b? "true" : "false"
+			case Bool(b): return b ? "true": "false"
 			case String(s): return JSON.stringify(s)
 			case Ident(name, params):
 				// TODO generate in parser `if let x {}` form bruh
