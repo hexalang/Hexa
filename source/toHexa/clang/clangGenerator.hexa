@@ -251,6 +251,33 @@ class ClangGenerator {
 		return node
 	}
 
+	fun noEmptyBlocks(expr Node) Bool {
+		switch expr {
+			// TODO format bug
+			// case Block(e) if e.length == 0: return false
+			case Block(e): if e.length == 0 { return false }
+		}
+
+		return true
+	}
+
+	var mutatedArguments [String] = []
+	var localArguments [String] = []
+
+	fun mutated(varName String) {
+		if localArguments.includes(varName) and not mutatedArguments.includes(varName) {
+			mutatedArguments.push(varName)
+		}
+	}
+
+	fun mutatedNode(node Node) {
+		switch node {
+			// TODO Bug: should require (, params) pattern here
+			case Ident(name):
+				mutated(name)
+		}
+	}
+
 	fun nodeToStatementNode(node ClangNode) Node? {
 		switch node.kind {
 			case ParenExpr:
@@ -612,8 +639,12 @@ class ClangGenerator {
 				switch node.opcode {
 					case '~': return Node.Unop(Token.BitwiseNot, postfix: false, expr)
 					case '-': return Node.Unop(Token.Subtract, postfix: false, expr)
-					case '++': return Node.Unop(Token.Increment, postfix: true, expr)
-					case '--': return Node.Unop(Token.Decrement, postfix: true, expr)
+					case '++':
+						// TODO mutatedNode(expr)
+						return Node.Unop(Token.Increment, postfix: true, expr)
+					case '--':
+						// TODO mutatedNode(expr)
+						return Node.Unop(Token.Decrement, postfix: true, expr)
 					case '*': return Node.Index(expr, Node.Int(0))
 					case '!': return Node.Unop(Token.KNot, postfix: false, expr)
 					case '&': return expr
@@ -852,10 +883,16 @@ class ClangGenerator {
 			case Break: return "break"
 			case Underscore: return "_"
 			case Unop(op, postfix, e):
-				if postfix {
-					return stringify(e) + Token.stringify(op)
+				let expr = stringify(e)
+				switch op {
+					case Increment | Decrement:
+						mutated(expr)
 				}
-				return Token.stringify(op) + stringify(e)
+
+				if postfix {
+					return expr + Token.stringify(op)
+				}
+				return Token.stringify(op) + expr
 			case Parenthesis(expr):
 				switch expr {
 					case Parenthesis(expr): return "(" + stringify(expr) + ")"
@@ -881,18 +918,9 @@ class ClangGenerator {
 				}
 
 				// TODO `case`-body still contains empty blocks
-				fun noEmptyBlocks(expr Node) Bool {
-					switch expr {
-						// TODO format bug
-						// case Block(e) if e.length == 0: return false
-						case Block(e): if e.length == 0 { return false }
-					}
-
-					return true
-				}
-
 				var prev = ''
-				return '{\n\t' + e.filter(noEmptyBlocks).map(fun (expr Node, index Int) {
+				// TODO e.filter(noEmptyBlocks) auto .bind()
+				return '{\n\t' + e.filter(b => noEmptyBlocks(b)).map(fun (expr Node, index Int) {
 						var extra = ''
 						switch expr {
 							case If(_): if index > 0 { extra = '\n\t' }
@@ -924,8 +952,15 @@ class ClangGenerator {
 						}
 					case _: stringify(b)
 				}
-				return stringify(a) + ' ' + Token.stringify(op) + ' ' + right
-			case AssignOp(a, op, b): return stringify(a) + ' ' + Token.stringify(op) + '= ' + stringify(b)
+				let left = stringify(a)
+				if op == Token.Assign {
+					mutated(left)
+				}
+				return left + ' ' + Token.stringify(op) + ' ' + right
+			case AssignOp(a, op, b):
+				let left = stringify(a)
+				mutated(left)
+				return left + ' ' + Token.stringify(op) + '= ' + stringify(b)
 			case Object(names, el):
 				return '{' + [for i in el.length names[i] + ': ' + stringify(el[i])].join(', ') + '}'
 			case NodeTypeValue(t):
@@ -963,11 +998,18 @@ class ClangGenerator {
 				let separator = vars.length > 3 ? ',\n\t': ', '
 				let begin = vars.length > 3 ? '(\n\t': '('
 				let end = vars.length > 3 ? '\n) ': ') '
+				localArguments = []
+				mutatedArguments = []
 
-				return 'fun ' + name + begin + vars.map(v => switch v {
+				let result = 'fun ' + name + begin + vars.map(v => switch v {
 						case Var(name, t, expr, const, external):
+							localArguments.push(name)
 							name + ' ' + stringifyType(t)
-					}).join(separator) + end + stringifyType(returnType) + ' ' + stringify(body)
+					}).join(separator) + end + stringifyType(returnType) + ' '
+
+				let bodyString = stringify(body).substr(1) // Remove leading `{`
+
+				return result + `{` + mutatedArguments.map(name => '\nvar ' + name + ' = ' + name) + bodyString
 			case Return(value):
 				return 'return ' + stringify(value)
 			case Class(className, extend, implement, fields, external, kind):
