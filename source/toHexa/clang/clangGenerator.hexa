@@ -340,6 +340,53 @@ class ClangGenerator {
 		return null
 	}
 
+	fun nodeToBoolean(node ClangNode) Node? {
+		var result = nodeToNode(node)
+
+		switch unwrapParenthesis(result) {
+			// TODO bug: must require (value)
+			// case Int: if true {}
+			case Int(value): if value == 0 {
+					return Node.Bool(false)
+				}
+			case Unop(op, _):
+				switch op {
+					case KNot: return result
+				}
+			case Binop(_, op, _):
+				switch op {
+					case Equal: return result
+					case Unequal: return result
+					case Greater: return result
+					case GreaterOrEqual: return result
+					case Less: return result
+					case LessOrEqual: return result
+					case LogicalAnd: return result
+					case LogicalOr: return result
+				}
+		}
+
+		let qualType = node.type.qualType
+
+		// TODO native `bool` and `BOOLEAN`
+		if qualType == "BOOL" {
+			result = Node.Binop(result, Token.Equal, Node.Ident('Bool32.True', null))
+		} else
+
+		if [
+				// Also assumes `INT`, `unsigned` and others
+				"int", "long", "short"
+				// TODO format
+			].includes(qualType.toLowerCase().replace('unsigned ', '')) {
+			result = Node.Binop(result, Token.Unequal, Node.Int(0))
+		}
+
+		// TODO `!= null`
+		// TODO `char` and `wchar_t`
+
+		return result
+	}
+
 	fun nodeToNode(node ClangNode) Node? {
 		switch node.kind {
 			// Roots
@@ -439,7 +486,7 @@ class ClangGenerator {
 				return Node.If([nodeToNode(node.inner[0])], nodeToNode(node.inner[1]), nodeToNode(node.inner[2]), true)
 			case IfStmt:
 				let hasElse = node.hasElse
-				var value = nodeToNode(node.inner[0])
+				var value = nodeToBoolean(node.inner[0])
 				let body [Node] = []
 				// var elseClause Node? = [] // TODO wtf
 				var elseClause Node? = null
@@ -500,7 +547,7 @@ class ClangGenerator {
 				let op = Lexer.tokenize(Buffer.from(node.opcode), "CLANG").token[0] as! Token
 				// TODO if (s.opcode == '&&') s.opcode = 'and'
 				// TODO if (s.opcode == '||') s.opcode = 'or'
-				let left = nodeToNode(node.inner[0])
+				var left = nodeToNode(node.inner[0])
 				var right = nodeToNode(node.inner[1])
 
 				if op == Token.Equal or op == Token.Assign {
@@ -531,6 +578,11 @@ class ClangGenerator {
 					}
 				}
 
+				if op == Token.LogicalAnd or op == Token.LogicalOr {
+					left = nodeToBoolean(node.inner[0])
+					right = nodeToBoolean(node.inner[1])
+				}
+
 				return Node.Binop(left, op, right)
 			case CompoundAssignOperator:
 				var op = Lexer.tokenize(Buffer.from(node.opcode), "CLANG").token[0] as! Token
@@ -539,12 +591,15 @@ class ClangGenerator {
 				// TODO type
 				return Node.Int(parseInt(node.value))
 			case WhileStmt:
-				return Node.While(nodeToNode(node.inner[0]), wrapToBlockIfNone(nodeToNode(node.inner[1])), false)
+				return Node.While(nodeToBoolean(node.inner[0]), wrapToBlockIfNone(nodeToNode(node.inner[1])), false)
 			case DoStmt:
-				let condition = nodeToNode(node.inner[1])
+				let condition = nodeToBoolean(node.inner[1])
 
 				switch condition {
 					case Int(value): if value == 0 {
+							return Node.Block([])
+						}
+					case Bool(value): if value == false {
 							return Node.Block([])
 						}
 				}
@@ -657,8 +712,9 @@ class ClangGenerator {
 			case CallExpr:
 				// TODO Hexa: for () @isFirst {} also case CallExpr [value, ...arguments]
 				// result.push(tabs + resolve(CompoundStmt.inner.shift()) + '(' + (CompoundStmt.inner.map(resolve).join(', ')) + ')\n')
-				let value = node.inner.shift()
-				return Node.Call(nodeToNode(value), node.inner.map(node => unwrapParenthesis(nodeToNode(node))), [])
+				let inner = node.inner.clone()
+				let value = inner.shift()
+				return Node.Call(nodeToNode(value), inner.map(node => unwrapParenthesis(nodeToNode(node))), [])
 			case ArraySubscriptExpr:
 				return Node.Index(nodeToNode(node.inner[0]), nodeToNode(node.inner[1]))
 			case UnaryExprOrTypeTraitExpr:
