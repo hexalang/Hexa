@@ -340,32 +340,33 @@ class ClangGenerator {
 		return null
 	}
 
-	fun nodeToBoolean(node ClangNode) Node? {
+	fun nodeToBoolean(node ClangNode, inverse Bool = false) Node? {
 		var result = nodeToNode(node)
+		let inverted = inverse ? Node.Unop(Token.KNot, false, result): result
 
 		switch unwrapParenthesis(result) {
 			// TODO bug: must require (value)
 			// case Int: if true {}
 			case Int(value): if value == 0 {
-					return Node.Bool(false)
+					return Node.Bool(inverse)
 				}
 				if value == 1 {
-					return Node.Bool(true)
+					return Node.Bool(not inverse)
 				}
 			case Unop(op, _):
 				switch op {
-					case KNot: return result
+					case KNot: return inverted
 				}
 			case Binop(_, op, _):
 				switch op {
-					case Equal: return result
-					case Unequal: return result
-					case Greater: return result
-					case GreaterOrEqual: return result
-					case Less: return result
-					case LessOrEqual: return result
-					case LogicalAnd: return result
-					case LogicalOr: return result
+					case Equal: return inverted
+					case Unequal: return inverted
+					case Greater: return inverted
+					case GreaterOrEqual: return inverted
+					case Less: return inverted
+					case LessOrEqual: return inverted
+					case LogicalAnd: return inverted
+					case LogicalOr: return inverted
 				}
 		}
 
@@ -378,7 +379,8 @@ class ClangGenerator {
 
 		// TODO native `bool` and `BOOLEAN`
 		if qualType == "BOOL" {
-			result = Node.Binop(result, Token.Equal, Node.Ident('Bool32.True', null))
+			// TODO maybe type is more vague and should be `!= False` instead of `== True`
+			result = Node.Binop(result, Token.Equal, Node.Ident(inverse ? 'Bool32.False': 'Bool32.True', null))
 		} else
 
 		if
@@ -386,12 +388,12 @@ class ClangGenerator {
 			or
 			primitives.includes(desugaredQualType.toLowerCase().replace('unsigned ', '').replace('const ', ''))
 		{
-			result = Node.Binop(result, Token.Unequal, Node.Int(0))
+			result = Node.Binop(result, inverse ? Token.Equal: Token.Unequal, Node.Int(0))
 		} else
 
 		// `!= null`
 		{
-			result = Node.Binop(result, Token.Unequal, Node.Null)
+			result = Node.Binop(result, inverse ? Token.Equal: Token.Unequal, Node.Null)
 		}
 
 		// TODO `char` and `wchar_t`
@@ -704,8 +706,7 @@ class ClangGenerator {
 				// TODO detect !=0 and !=null and !!
 				// Logical
 				if node.opcode == '!' {
-					// TODO `not != 0` to `== 0`
-					return Node.Unop(Token.KNot, postfix: false, nodeToBoolean(node.inner[0]))
+					return nodeToBoolean(node.inner[0], inverse: true)
 				}
 
 				let expr = nodeToNode(node.inner[0])
