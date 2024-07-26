@@ -655,8 +655,71 @@ class ClangGenerator {
 				// TODO cast
 				return nodeToNode(node.inner[0])
 			case ImplicitCastExpr:
-				// TODO cast
-				return nodeToNode(node.inner[0])
+				// TODO `return 1` to `return Bool32.True` same `result.dialogEx = 1`
+				// TODO "castKind": "BitCast"
+
+				if node.inner[0].type.qualType == 'BOOL' {
+					// TODO `== Bool32.True` return nodeToNode(node.inner[0])
+				}
+
+				// Same type
+				if node.inner[0].type.qualType == node.type.qualType {
+					return nodeToNode(node.inner[0])
+				}
+
+				// Seems to be useless
+				if node.castKind == "FunctionToPointerDecay" {
+					return nodeToNode(node.inner[0])
+				}
+
+				// Literally
+				if node.castKind == "NoOp" {
+					return nodeToNode(node.inner[0])
+				}
+
+				let e = nodeToNode(node.inner[0])
+				let to = typeToType(node.type)
+
+				switch unwrapParenthesis(e) {
+					case Int(value):
+						if value == 0 {
+
+							/*switch to { TODO format bug: adds \n here ^
+								case ParametricType(name, params):
+									if name == 'ArrayPointer' {
+										return Node.Null
+									}
+							}*/
+							let str = NodeType.stringify(to)
+							if not zeroInitialize.includes(str) {
+								return Node.Null
+							}
+
+							// Just `0`
+							return e
+						}
+
+						switch to {
+							case Type(name): switch name {
+									case 'UInt8': return Node.MetaInt(toBigInt(value), Meta.UInt8)
+									case 'UInt16': return Node.MetaInt(toBigInt(value), Meta.UInt16)
+									case 'UInt32': return Node.MetaInt(toBigInt(value), Meta.UInt32)
+									case 'UInt64': return Node.MetaInt(toBigInt(value), Meta.UInt64)
+
+									case 'Int8': return Node.MetaInt(toBigInt(value), Meta.Int8)
+									case 'Int16': return Node.MetaInt(toBigInt(value), Meta.Int16)
+									case 'Int32': return Node.MetaInt(toBigInt(value), Meta.Int32)
+									case 'Int64': return Node.MetaInt(toBigInt(value), Meta.Int64)
+								}
+						}
+					case String(value):
+						// Strings are casted by code gen
+						return e
+					case Null:
+						return e
+				}
+
+				return Node.Parenthesis(Node.As(e, Token.KNot, to))
 			case StringLiteral:
 				// TODO "castKind": "ArrayToPointerDecay"
 				if node.value.startsWith('L"') {
@@ -668,6 +731,10 @@ class ClangGenerator {
 				return nodeToNode(node.inner[0])
 			case CStyleCastExpr:
 				// TODO "castKind": "BitCast"
+				if node.inner[0].type.qualType == node.type.qualType {
+					return nodeToNode(node.inner[0])
+				}
+
 				let e = nodeToNode(node.inner[0])
 				let to = typeToType(node.type)
 
@@ -773,10 +840,9 @@ class ClangGenerator {
 				}
 				return name
 			case Int(s):
-				if s > 2147483647 {
-					return s.toString() + 'u32'
-				}
 				return s.toString()
+			case MetaInt(number, meta):
+				return number.toString() + Meta.stringifyPostfix(meta)
 			case Float(s): return s.toString()
 			case As(expr, kind, toType):
 				return stringify(expr) + ` as` + Token.stringify(kind) + ` ` + stringifyType(toType)
