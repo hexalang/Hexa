@@ -593,6 +593,11 @@ class ClangGenerator {
 					}
 				}
 
+				if node.type.qualType.endsWith('*') and op == Token.Add {
+					// Pointer math
+					return Node.Call(Node.Dot(left, 'offsetItems'), [right], [])
+				}
+
 				if op == Token.LogicalAnd or op == Token.LogicalOr {
 					left = nodeToBoolean(node.inner[0])
 					right = nodeToBoolean(node.inner[1])
@@ -601,6 +606,13 @@ class ClangGenerator {
 				return Node.Binop(left, op, right)
 			case CompoundAssignOperator:
 				var op = Lexer.tokenize(Buffer.from(node.opcode), "CLANG").token[0] as! Token
+				if node.type.qualType.endsWith('*') and op == Token.Add {
+					// Pointer math
+					let left = nodeToNode(node.inner[0])
+					let right = nodeToNode(node.inner[1])
+					return Node.Binop(left, Token.Assign, Node.Call(Node.Dot(left, 'offsetItems'), [right], []))
+				}
+
 				return Node.AssignOp(nodeToNode(node.inner[0]), op, nodeToNode(node.inner[1]))
 			case IntegerLiteral:
 				// TODO type
@@ -716,9 +728,19 @@ class ClangGenerator {
 					case '-': return Node.Unop(Token.Subtract, postfix: false, expr)
 					case '++':
 						// TODO mutatedNode(expr)
+						if node.type.qualType.endsWith('*') {
+							// Pointer math
+							return Node.Binop(expr, Token.Assign, Node.Call(Node.Dot(expr, 'offsetItems'), [Node.Int(1)], []))
+						}
+
 						return Node.Unop(Token.Increment, postfix: true, expr)
 					case '--':
 						// TODO mutatedNode(expr)
+						if node.type.qualType.endsWith('*') {
+							// Pointer math
+							return Node.Binop(expr, Token.Assign, Node.Call(Node.Dot(expr, 'offsetItemsBack'), [Node.Int(-1)], []))
+						}
+
 						return Node.Unop(Token.Decrement, postfix: true, expr)
 					case '*': return Node.Index(expr, Node.Int(0))
 					case '&': return expr
@@ -847,6 +869,11 @@ class ClangGenerator {
 			case CStyleCastExpr:
 				// TODO "castKind": "BitCast"
 				if node.inner[0].type.qualType == node.type.qualType {
+					return nodeToNode(node.inner[0])
+				}
+
+				// Literally
+				if node.castKind == "NoOp" {
 					return nodeToNode(node.inner[0])
 				}
 
@@ -1019,6 +1046,8 @@ class ClangGenerator {
 					case Parenthesis(value):
 						switch value {
 							case Ident(_): value
+							case Call(_): value
+							case Dot(_): value
 							case _: expr
 						}
 					case _: expr
