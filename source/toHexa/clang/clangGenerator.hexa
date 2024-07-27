@@ -289,12 +289,13 @@ class ClangGenerator {
 	let zeroInitialize = [
 		'Int',
 
+		// TODO Hexa: detect duplicates
 		'UInt32',
 		'Int32',
-		'UInt32',
-		'Int32',
+		'UInt64',
+		'Int64',
 		'UInt16',
-		'UInt32',
+		'Int16',
 		'UInt32',
 		'UInt16',
 		'UInt8',
@@ -772,6 +773,15 @@ class ClangGenerator {
 					return nodeToNode(node.inner[0])
 				}
 
+				// Same type essentially
+				if let desugaredQualType = node.inner[0].type.desugaredQualType,
+					desugaredQualType.includes(node.type.desugaredQualType),
+					let typeAliasDeclId = node.inner[0].type.typeAliasDeclId,
+					typeAliasDeclId == node.type.typeAliasDeclId
+				{
+					return nodeToNode(node.inner[0])
+				}
+
 				// Seems to be useless
 				if node.castKind == "FunctionToPointerDecay" {
 					return nodeToNode(node.inner[0])
@@ -851,6 +861,23 @@ class ClangGenerator {
 										return Node.Null
 									}
 							}
+						}
+
+						switch to {
+							case Type(name): switch name {
+									case 'UInt8': return Node.MetaInt(toBigInt(value), Meta.UInt8)
+									case 'UInt16': return Node.MetaInt(toBigInt(value), Meta.UInt16)
+									case 'UInt32': return Node.MetaInt(toBigInt(value), Meta.UInt32)
+									case 'UInt64': return Node.MetaInt(toBigInt(value), Meta.UInt64)
+
+									case 'Int8': return Node.MetaInt(toBigInt(value), Meta.Int8)
+									case 'Int16': return Node.MetaInt(toBigInt(value), Meta.Int16)
+									case 'Int32':
+										if value <= 2147483647 {
+											return Node.MetaInt(toBigInt(value), Meta.Int32)
+										}
+									case 'Int64': return Node.MetaInt(toBigInt(value), Meta.Int64)
+								}
 						}
 				}
 
@@ -945,12 +972,26 @@ class ClangGenerator {
 				}
 				return name
 			case Int(s):
+				if s > 2147483647 {
+					return s.toString() + 'u32'
+				}
 				return s.toString()
 			case MetaInt(number, meta):
 				return number.toString() + Meta.stringifyPostfix(meta)
 			case Float(s): return s.toString()
 			case As(expr, kind, toType):
-				return stringify(expr) + ` as` + Token.stringify(kind) + ` ` + stringifyType(toType)
+				let left = switch expr {
+					case Parenthesis(value):
+						switch value {
+							case Ident(_): value
+							case Index(_): value
+							case Int(_): value
+							case MetaInt(_): value
+							case _: expr
+						}
+					case _: expr
+				}
+				return stringify(left) + ` as` + Token.stringify(kind) + ` ` + stringifyType(toType)
 			case Null: return "null"
 			case This: return "this"
 			case Continue: return "continue"
@@ -973,7 +1014,16 @@ class ClangGenerator {
 				}
 
 				return "(" + stringify(expr) + ")"
-			case Index(expr, index): return stringify(expr) + '[' + stringify(index) + ']'
+			case Index(expr, index):
+				let left = switch expr {
+					case Parenthesis(value):
+						switch value {
+							case Ident(_): value
+							case _: expr
+						}
+					case _: expr
+				}
+				return stringify(left) + '[' + stringify(index) + ']'
 			case Dot(expr, name): return stringify(expr) + '.' + name
 			case DotUpper(expr, name): return stringify(expr) + '.' + name
 			case While(reason, e, pre):
