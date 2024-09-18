@@ -712,11 +712,18 @@ class GenCxx {
 				// TODO maybe use "var"
 				case Var(name, expr, type):
 					let link = project.globalLink.get(g)
+					var exports = false
 
 					if let link = link {
 						if let aligned = link.aligned {
 							globalVariables.push('__attribute__((aligned(\(aligned)))) ')
 							// TODO sublime bad hl for \()
+						}
+
+						if link.dllExport {
+							globalVariables.push('__declspec(dllexport) ')
+							exports = true
+							dllExports.push(link.linkName ?? name)
 						}
 					}
 
@@ -732,6 +739,18 @@ class GenCxx {
 								}
 
 								globalVariables.push('\(stringifyType(generics[0])) ' + name + '_' + arraySize)
+
+								if let link = link, let linkName = link.linkName {
+									if exports and extraUnderscore and linkName.startsWith('_') {
+										globalVariables.push(' HEXA_LINK("_')
+									} else {
+										globalVariables.push(' HEXA_LINK("')
+									}
+
+									globalVariables.push(linkName)
+									globalVariables.push('")')
+								}
+
 								if let expr = expr {
 									switch expr {
 										case Array(el):
