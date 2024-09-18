@@ -52,6 +52,7 @@ class Typer {
 				let nodes = info.nodes
 
 				for e in nodes {
+					// TODO just use `case ... or ...:`
 					var named = true
 					switch e {
 						case Var(_):
@@ -1517,6 +1518,31 @@ class Typer {
 					return typeInt32 // More specific
 				}
 
+				// TODO should check for 32-bits limit for 32-bit platforms?
+				if to == typeSignedSizeOfPointer,
+					fromValue == typeInt
+					or fromValue == typeInt64
+					or fromValue == typeInt32
+					or fromValue == typeInt16
+					or fromValue == typeInt8
+					or fromValue == typeUInt32
+					or fromValue == typeUInt16
+					or fromValue == typeUInt8
+					// NOTE not u64
+				{
+					return to // Safe to do so
+				}
+
+				if to == typeSizeOfPointer,
+					fromValue == typeUInt64
+					or fromValue == typeUInt32
+					or fromValue == typeUInt16
+					or fromValue == typeUInt8
+				{
+					return to // Safe to do so
+				}
+
+				// Here we try to infer type of a constant expression
 				switch node {
 					case Int(value):
 						if value == 0 && [
@@ -1551,6 +1577,15 @@ class Typer {
 						}
 
 						if to == typeUInt64, value >= 0, value < 18446744073709551616n {
+							return to
+						}
+
+						// TODO should check for 32-bits limit for 32-bit platforms?
+						if to == typeSizeOfPointer, value >= 0 {
+							return to
+						}
+
+						if to == typeSignedSizeOfPointer {
 							return to
 						}
 				}
@@ -1930,7 +1965,11 @@ class Typer {
 				case Generic(_): return true
 			}
 
+			// TODO check that `unsigned < -10` makes no sense
 			let numerical = [
+				typeSignedSizeOfPointer,
+				typeSizeOfPointer,
+
 				typeInt,
 				typeFloat,
 
@@ -3029,7 +3068,9 @@ class Typer {
 					}// else TODO fail('Got node without type `\(e)`' + never, node)
 
 				// `T` or `T<G>`
-				case NodeTypeValue(t): switch t {
+				case NodeTypeValue(t):
+				switch t {
+					// TODO `case Type(name) or ParametricType(name, _):` or just unify all to `Type(name, null)`
 					case Type(name):
 						if asValue {
 							fail('Cannot use type `\(name)` as a value, use `\(name)()` to call constructor', node)
