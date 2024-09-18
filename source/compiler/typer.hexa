@@ -2240,14 +2240,15 @@ class Typer {
 
 					addScope(name, node)
 
-				// `a op b` like `a + b`
+				// `a = b` as a statement
 				case Binop(a, op, b):
 					fillExpression(node)
 
 					var parent: Node = parents.get(a)
 					// `a = b`
 					// TODO separate assign node? or just nested pattern...
-					if op == Token.Assign { switch parent {
+					if op == Token.Assign {
+						switch parent {
 						case null:
 							switch a {
 								case Ident(_): // Ok
@@ -2994,26 +2995,26 @@ class Typer {
 							// TODO why the heck `.Vname` here gives Ln1, Col 12???
 							// type.V here is ok, but is in the string interpolator
 							// ^ should be possible to set starting col/line in Lexer
-							// Note: `proposeSimilar` is useless for DotUpper over instances
+							// NOTE `proposeSimilar` is useless for DotUpper over instances
 							fail('Enum `\(type.name)` instance has no field `.\(n)`', node)
 						case ClassInstance(type):
 							failNonFatal('Type `\(type.name)` is defined here', type.parent)
-							// Note: `proposeSimilar` is useless for DotUpper over instances
+							// NOTE `proposeSimilar` is useless for DotUpper over instances
 							fail('Class `\(type.name)` has no field `.\(n)`\n\nNote that you are trying to access plain `class` instance and not `enum`', node)
 						case Class(type):
 							failNonFatal('Type `\(type.name)` is defined here', type.parent)
-							// Note: `proposeSimilar` is useless for DotUpper over classes
+							// NOTE `proposeSimilar` is useless for DotUpper over classes
 							fail('Class `\(type.name)` has no field `.\(n)`\n\nNote that you are trying to access `class` and not `enum`', node)
 						case Enum(type):
 							let index = type.fieldNames.indexOf(n)
 							// TODO `@lazy let enumName = getName(type.name)` so no need to place in every failing `if`
 							if index < 0 {
 								failNonFatal('Type `\(type.name)` is defined here', type.parent)
-								// Note: `proposeSimilar` but only constructors (if any)
+								// NOTE `proposeSimilar` but only constructors (if any)
 								fail('Enum `\(type.name)` has no value constructor `.\(n)`\n' + proposeSimilar(type.fieldNames.filter((element, index) => type.fieldEnumConstructor[index]), n, 'constructors'), node)
 							}
 							if type.fieldEnumConstructor[index] != true {
-								// Note: this case is probably impossible, i.e. .N *not* being constructor (than what?)
+								// NOTE this case is probably impossible, i.e. .N *not* being constructor (than what?)
 								fail('Enum `\(type.name)` field `.\(n)` is not a value constructor', node)
 							}
 							if let fieldType = type.fieldType[index] {
@@ -3033,6 +3034,7 @@ class Typer {
 						if asValue {
 							fail('Cannot use type `\(name)` as a value, use `\(name)()` to call constructor', node)
 						}
+
 						let subj = find(name)
 						if subj == null {
 							fail('Cannot find type with name `\(name)`', node)
@@ -3050,7 +3052,8 @@ class Typer {
 									let mod = currentModule
 									registerClassType(subj)
 									currentModule = mod
-								case Enum(_): registerEnumType(subj)
+								case Enum(_):
+									registerEnumType(subj)
 							}
 
 							if let type = types.get(subj) {
@@ -3465,6 +3468,7 @@ class Typer {
 
 							// TODO `null == null` should error cause no sense
 							if leftString != 'null', rightString != 'null' {
+								// TODO recommend `.address` for pointers
 								fail('Operator `a \(tokenString) b` requires `a` and `b` of comparable types, but got `\(leftString)` and `\(rightString)`', b)
 							}
 						}
@@ -3773,8 +3777,9 @@ class Typer {
 					}
 
 					if thisType == null {
-						fail('Cannot access `this` in class method', node)
+						fail('Cannot access `this` in the static method', node)
 					}
+
 					types.set(node, thisType)
 					parents.set(node, thisNode)
 
@@ -3784,6 +3789,7 @@ class Typer {
 
 				// `return e`
 				case Return(e):
+					// TODO cannot return from constructor
 					switch e {
 						case Var(name, _, _, const):
 							let prefix = const? 'let' : 'var'
