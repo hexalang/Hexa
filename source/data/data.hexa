@@ -65,7 +65,7 @@ enum Node {
 	/// { el[0] ... el[n] }
 	Block(el [Node])
 
-	/// e(args[0], ...args[n])
+	/// `e(args[0], ...args[n])`
 	Call(e Node, args [Node], argNames [String]/*, generic [NodeType]*/)
 
 	/// if econd[0], ...econd[n] { eif } [else { eelse }]
@@ -108,10 +108,10 @@ enum Node {
 	// TODO parser `: retType` is really needed at all?
 	Arrow(expr Node, vars [Node], retType NodeType)
 
-	// `varStatic` =>> `funStatic` `varPrivate` etc
 	/// [external ? `declare`] (const ? `let` : `var`) `name nodeType` [`= expr`]
+	// TODO `varStatic` =>> `funStatic` `varPrivate` etc like `static var` instead of Static(e)
 	// TODO `expr Node?`
-	Var(name String, varType NodeType, expr Node, const Bool, external Bool)
+	Var(name String, varType NodeType, initializer Node, readonly Bool, hasDeclare Bool)
 
 	/// external class t extends extend implements implement { fields }
 	Class(t NodeType, extend NodeType?, implement [NodeType], fields [Node], external Bool, kind ClassKind)
@@ -121,7 +121,7 @@ enum Node {
 	Property(field Node, getter Node, setter Node)
 
 	/// try { expr } catch v[0]: t[0] { catches[0] } ... catch v[n]: t[n] { catches[n] }
-	Try(expr Node, t [NodeType], v [Node], catches [Node])
+	Try(expr Node, types [NodeType], values [Node], catches [Node])
 
 	/// `expr.name`
 	// TODO rename to Field
@@ -132,7 +132,7 @@ enum Node {
 	DotUpper(expr Node, name String)
 
 	/// `new T<T> { } (args)` TODO new syntax
-	New(path [String], t NodeType, args [Node], fields [String], el [Node], argNames [String])
+	New(path [String], ofType NodeType, args [Node], fields [String], el [Node], argNames [String])
 
 	/// [elements[0], ...elements[n]]
 	Array(elements [Node])
@@ -166,7 +166,7 @@ enum Node {
 	Enum(enumType/*uniq name classType etc for easy bind*/ NodeType, fields [Node], valuesType NodeType?, extend NodeType?)
 
 	/// let expr(extract[0], ..., extract[n]) = name
-	EnumExtract(path [String], bind [Node/*.Var*/], expr Node)
+	EnumExtract(path [String], bind [Node/*.Var TODO*/], expr Node)
 
 	/// `expr is T`
 	Is(expr Node, aType NodeType)
@@ -191,9 +191,10 @@ enum Node {
 	// TODO drop this
 	Private(field Node)
 
-	/// for name in over by
-	/// for name in over ... range by
-	For(name String, over Node, by Node, range Node)
+	/// for name in over { statement }
+	/// for name in over ... range statement
+	For(iterator String, over Node, statement Node, range Node)
+	// TODO `range Node?`
 
 	/// `nullable ?? alternative`
 	Elvis(nullable Node, alternative Node)
@@ -233,7 +234,24 @@ enum Node {
 			case NodeTypeValue(t):
 				return DataHelper.extractTypeName(t)
 			case Static(f): return 'static ' + Node.stringify(f)
+			case Var(name, t, expr, const, external): {
+				var body = ''
+				if let expr = expr {
+					body = ' = ' + Node.stringify(expr)
+				}
+				return
+					(external? 'declare ' : '') +
+					(const? 'let ' : 'var ') + name + ' ' + NodeType.stringify(t) + body
+			}
+			case Function(name):
+				if name == null {
+					// TODO `// Anonymous`
+					return `fun`
+				}
+
+				return 'fun ' + name
 			case _:
+				// TODO exhaustive
 				return "..."
 		}
 	}
@@ -402,6 +420,11 @@ enum Node {
 
 	/// Clones decorators and position
 	static fun cloneData(project Project, from Node, to Node) Node {
+		// TODO non-nullable
+		if from == null {
+			return to
+		}
+
 		let project = project as! Any // TODO
 		project.mapDecorators.set(to, project.mapDecorators.get(from))
 		project.data.set(to, project.data.get(from))
