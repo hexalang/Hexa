@@ -3280,12 +3280,12 @@ class Typer {
 						case NodeTypeValue(t):
 							// Constructor
 							// TODO handle `<T>`
-							let type = toType(t, e)
+							let typeToCreate = toType(t, e)
 							// TODO better idea
 							let subj = find(DataHelper.extractTypeName(t))
 							parents.set(node, subj)
 
-							switch type {
+							switch typeToCreate {
 								case ClassInstance(type):
 									if type.constructor == -1 {
 										fail('Cannot construct class without `new () {}` constructor', node)
@@ -3294,6 +3294,13 @@ class Typer {
 									switch type.parent {
 										case Class(t, extend, implement, f, external, kind):
 											constructor = types.get(f[type.constructor])
+											switch constructor {
+												case Function(args, returns, variadic):
+													// TODO better idea
+													if returns == typeVoid {
+														constructor = Type.Function(args, typeToCreate, variadic)
+													}
+											}
 									}
 
 									type.useless = false
