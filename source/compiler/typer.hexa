@@ -3117,7 +3117,41 @@ class Typer {
 							}
 						}
 					case ParametricType(name, _):
-						fail('Cannot use generic type `\(name)` as a value', node)
+						if asValue {
+							fail('Cannot use generic type `\(name)` as a value', node)
+							// TODO ^ "you forgot () to call constructor?"
+						}
+
+						let subj = find(name)
+						if subj == null {
+							fail('Cannot find type with name `\(name)`', node)
+						}
+						if parents.get(node) != null, parents.get(node) != subj {
+							fail('Parent overwritten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
+						}
+						parents.set(node, subj)
+						if let type = types.get(subj) {
+							types.set(node, type)
+						} else {
+							// Try eager on-demand type build
+							switch subj {
+								case Class(_):
+									// TODO better idea
+									let mod = currentModule
+									registerClassType(subj)
+									currentModule = mod
+								case Enum(_):
+									// TODO module trick around this whole `switch`?
+									registerEnumType(subj)
+							}
+
+							if let type = types.get(subj) {
+								types.set(node, type)
+							} else {
+								console.log(positionOf(subj) + '\(name) is here')
+								fail('Cannot find type for `\(name)` even after late build' + never, node)
+							}
+						}
 					case _:
 						fail('Cannot use this type as a value', node)
 				}
