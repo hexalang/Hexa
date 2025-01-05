@@ -47,7 +47,7 @@ class Prettify {
 	// TODO remove `:` here!
 	case Block(el):
 	// TODO depth!
-	`{\n` + el.map(e => this.stringify(e)).join('\n') + `\n}`
+	return `{\n\t` + el.map(e => this.stringify(e)).join('\n\t') + `\n}`
 
 	/// `if condition[0], ...condition[n] { then } [else { otherwise }]`
 	case If(condition, then, otherwise, ternary):
@@ -103,11 +103,15 @@ class Prettify {
 	/// `(vars) retType => expr`
 	// TODO parser `: retType` is really needed at all?
 	case Arrow(expr, vars, retType):
+	var head = '(' + vars.map(v => this.stringify(v).substr(4)).join(', ') + ')'
+
 	if let retType = retType {
-		return '(' + vars.map(v => this.stringify(v)).join(', ') + ') => ' + this.stringify(expr) + ': ' + NodeType.stringify(retType)
+		head += NodeType.stringify(retType) + ' => '
 	} else {
-		return '(' + vars.map(v => this.stringify(v)).join(', ') + ') => ' + this.stringify(expr)
+		head += ' => '
 	}
+
+	return head + this.stringify(expr)
 
 //		// var Var[0], ..., Var[n]
 //		Vars(vars [Node])
@@ -115,7 +119,7 @@ class Prettify {
 	/// `external class t extends extend implements implement { fields }`
 	// TODO IDE: hover over `(className)` in the pattern itself must show its type
 	case Class(className, extend, implement, fields, external, kind):
-	return 'class ' + className + ' ' + (extend ? 'extends ' + extend : '') + ' ' + (implement ? 'implements ' + implement : '') + ' {\n' + fields.map(f => this.stringify(f)).join('\n') + '\n}'
+	return 'class ' + NodeType.stringify(className) + ' ' + (extend ? 'extends ' + extend : '') + (implement.length > 0 ? 'implements ' + implement : '') + ' {\n' + fields.map(f => this.stringify(f)).join('\n') + '\n}'
 
 	/// var name T { get { return x } set (v) {} }
 	// TODO .Var, .Function, .Function
@@ -140,7 +144,7 @@ class Prettify {
 	/// }
 	case Switch(inputs , expressions , guards , patterns ):
 	return 'switch ' + [for i in inputs.length this.stringify(inputs[i])].join(', ') + ' {\n' +
-		[for i in patterns.length 'case ' + this.stringify(patterns[i]) + ': ' + this.stringify(expressions[i])].join('\n') + '\n}'
+		[for i in patterns.length 'case ' + this.stringify(expressions[i]) + ': ' + this.stringify(patterns[i])].join('\n') + '\n}'
 
 	/// module path[0].path[1].r..path[n] { el }
 	case Module(path , el ):
@@ -217,7 +221,7 @@ class Prettify {
 			case String(s):
 			// TODO quote types + mirror special symbols
 			let s = JSON.stringify(s)
-				return "'\(s)'"
+				return s
 			case Ident(name): return name
 			case Bool(b): return b ? "true": "false"
 			case Int(s): return s.toString()
@@ -255,7 +259,7 @@ class Prettify {
 					}
 					return
 					(external ? 'declare ': '') +
-					(const ? 'let ': 'var ') + name + ' ' + NodeType.stringify(t) + body
+					(const ? 'let ': 'var ') + name  + (t != null? ' ' + NodeType.stringify(t) : '') + body
 				}
 			case Function(name, body, vars, returnType, external, variadic):
 				if name == null {
@@ -263,7 +267,20 @@ class Prettify {
 					return `fun`
 				}
 
-				return 'fun ' + name
+				// TODO `new_SPACE_`?
+				let prefix = name == 'new'? 'new ': 'fun ' + name
+
+				var head = prefix + '(' + vars.map(v => this.stringify(v).substr(4)).join(', ') + ')'
+
+				if let returnType = returnType {
+					head += ' ' + NodeType.stringify(returnType)
+				}
+
+				if let body = body {
+					return head + ' ' + this.stringify(body)
+				}
+
+				return head
 			case _:
 				// TODO exhaustive
 				// console.error('stringify', node)
