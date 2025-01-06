@@ -17,6 +17,16 @@
 /// Preserves user personal style to some degree
 // TODO ^
 class Prettify {
+	var tabs = ''
+
+	@inline fun pushTab() {
+			tabs += '\t'
+		}
+
+		@inline fun popTab() {
+			tabs = tabs.substring(0, tabs.length - 1)
+		}
+
 	new () {
 		// Initializes state for nested blocks indentation
 	}
@@ -47,7 +57,11 @@ class Prettify {
 	// TODO remove `:` here!
 	case Block(el):
 	// TODO depth!
-	return `{\n\t` + el.map(e => this.stringify(e)).join('\n\t') + `\n}`
+	pushTab()
+	let body = `{\n` + tabs + el.map(e => this.stringify(e)).join('\n' + tabs)
+	popTab()
+
+	return body + `\n` + tabs + `}`
 
 	/// `if condition[0], ...condition[n] { then } [else { otherwise }]`
 	case If(condition, then, otherwise, ternary):
@@ -119,7 +133,13 @@ class Prettify {
 	/// `external class t extends extend implements implement { fields }`
 	// TODO IDE: hover over `(className)` in the pattern itself must show its type
 	case Class(className, extend, implement, fields, external, kind):
-	return 'class ' + NodeType.stringify(className) + ' ' + (extend ? 'extends ' + extend : '') + (implement.length > 0 ? 'implements ' + implement : '') + ' {\n' + fields.map(f => this.stringify(f)).join('\n') + '\n}'
+	let head = 'class ' + NodeType.stringify(className) + ' ' + (extend ? 'extends ' + extend : '') + (implement.length > 0 ? 'implements ' + implement : '')
+
+	pushTab()
+	let body = '{\n' + tabs + fields.map(f => this.stringify(f)).join('\n' + tabs) + '\n}'
+	popTab()
+
+	return head + body
 
 	/// var name T { get { return x } set (v) {} }
 	// TODO .Var, .Function, .Function
@@ -143,8 +163,14 @@ class Prettify {
 	///     case cases[n]: conditions[n]
 	/// }
 	case Switch(inputs , expressions , guards , patterns ):
-	return 'switch ' + [for i in inputs.length this.stringify(inputs[i])].join(', ') + ' {\n' +
-		[for i in patterns.length 'case ' + this.stringify(expressions[i]) + ': ' + this.stringify(patterns[i])].join('\n') + '\n}'
+	let head = 'switch ' + inputs.map(i => this.stringify(i)).join(', ') + ' {\n'
+
+	pushTab()
+	let body =
+		[for i in patterns.length tabs + 'case ' + this.stringify(expressions[i]) + ': ' + this.stringify(patterns[i])].join('\n')
+	popTab()
+
+	return head + body + '\n' + tabs + '}'
 
 	/// module path[0].path[1].r..path[n] { el }
 	case Module(path , el ):
