@@ -74,6 +74,8 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 Install [Codeium](https://marketplace.visualstudio.com/items?itemName=Codeium.codeium) then open `.hexa` file and confirm experimental Hexa support.
 
+[Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) also works just fine! Seems to be activated for `.hexa` files by default. Remember to login via `Command Palette`.
+
 ## Study
 
 - [Follow progress](https://github.com/hexalang/hexa/issues)
