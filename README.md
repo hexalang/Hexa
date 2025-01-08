@@ -26,23 +26,27 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 ## Key features of Hexa
 
-- JavaScript-inspired syntax and behavior, feel yourself like at home!
+- JavaScript-inspired syntax and behavior: Feel yourself right at home!
 	- With the bits of TypeScript, Swift and Go
 - Native performance with static types and optimizing compiler
-- Follows node.js (and browser) API
+- Follows Node.js (and browser) API
 - Fast compilation
 - Compiles to JavaScript, WebAssembly, [osdev](https://github.com/GreenteaOS/Tofita), LLVM, C, C++, ObjC, ... you name it! **(WIP)**
 - Transpilation to almost anything: Lua, AutoCAD Lisp, C#, PHP, etc **(WIP)**
+	- Simple API for custom third-party transpilers **(WIP)**
 - Produces human-readable code for all targets
 - Null safety, crash resistance, pattern matching, classes **(WIP)**
-- Real multithreading, parallelism, async\await, no GC **(WIP)**
+- Real multithreading, parallelism, async/await, no GC **(WIP)**
 - Smart type inference makes other typed languages look boring
 - Friendly and helpful error messages
-- Supports `#!shebang` and scripting (just call `hexa script.hexa`)
-- REPL (enable with just `hexa` command)
-- Metaprogramming with syntax-tree, generics and contracts **(WIP)**
+- Supports `#!shebang` and scripting (just call `hexa script.hexa`) **(WIP)**
+- REPL (enable with just `hexa` command) **(WIP)**
+- Metaprogramming with syntax tree, generics and contracts **(WIP)**
 - Completely cross-platform
-- We are working on optional memory ownership model (similar to borrow checker) and side effects system **(WIP)**
+- Stable long-term backward-compatible syntax **(WIP)**
+- We are working on an optional memory ownership model (similar to borrow checker) and side effects system **(WIP)**
+- Experimental C-to-Hexa and TypeScript-to-Hexa automatic conversion **(WIP)**
+- And of course, IDE plugins with Language Server built right into Hexa!
 
 > **WIP — Work in progress, coming soon**
 
