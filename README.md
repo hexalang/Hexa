@@ -59,9 +59,21 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 
 ### Unstable
 
+#### Windows
+
 - [Latest build from git](https://ci.appveyor.com/project/PeyTy/hexa/build/artifacts)
 - [Build from source](https://github.com/hexalang/hexa#build)
-- [Install with Arch Linux AUR](https://aur.archlinux.org/packages/hexa-git)
+
+#### Linux
+
+Builds are made from the latest commit:
+
+- [Install with Arch Linux AUR](https://aur.archlinux.org/packages/hexa-git) (maintained by [@expwez](https://github.com/expwez))
+- If you're maintainer, make a Pull Request!
+
+#### Mac
+
+- Coming Soon!
 
 ### Tools & IDE
 
