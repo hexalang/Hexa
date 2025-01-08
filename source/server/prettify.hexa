@@ -19,6 +19,8 @@
 class Prettify {
 	var tabs = ''
 
+	var project Project
+
 	@inline fun pushTab() {
 			tabs += '\t'
 		}
@@ -27,11 +29,33 @@ class Prettify {
 			tabs = tabs.substring(0, tabs.length - 1)
 		}
 
-	new () {
+	new (project Project) {
 		// Initializes state for nested blocks indentation
+		this.project = project
 	}
 
 	fun stringify(node Node) String {
+		let decorators = this.project.mapDecorators.get(node)
+		let body = this.stringifyWithoutDecorators(node)
+
+		// TODO multiline decorators
+		if let decorators = decorators, decorators.length > 0 {
+			return decorators.map(d => this.stringifyDecorator(d)).join(' ') + ' ' + body
+		}
+
+		return body
+	}
+
+	fun stringifyDecorator(decorator Decorator) String {
+		if decorator.values.length == 0 {
+			return '@' + decorator.name
+		}
+
+		let values = decorator.values.map(v => this.stringify(v)).join(', ')
+		return '@' + decorator.name + '(' + values + ')' // TODO names
+	}
+
+	fun stringifyWithoutDecorators(node Node) String {
 		switch node {
 
 	/// `super`
