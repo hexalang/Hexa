@@ -27,6 +27,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 ## Key features of Hexa
 
 - JavaScript-inspired syntax and behavior, feel yourself like at home!
+	- With the bits of TypeScript, Swift and Go
 - Native performance with static types and optimizing compiler
 - Follows node.js (and browser) API
 - Fast compilation
