@@ -37,7 +37,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Produces human-readable code for all targets
 - Null safety, crash resistance, pattern matching, classes **(WIP)**
 - Real multithreading, parallelism, async/await, no GC **(WIP)**
-- Smart type inference makes other typed languages look boring
+- Smart type inference makes programming clean and simple
 - Friendly and helpful error messages
 - Supports `#!shebang` and scripting (just call `hexa script.hexa`) **(WIP)**
 - REPL (enable with just `hexa` command) **(WIP)**
@@ -46,6 +46,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Stable long-term backward-compatible syntax **(WIP)**
 - We are working on an optional memory ownership model (similar to borrow checker) and side effects system **(WIP)**
 - Experimental C-to-Hexa and TypeScript-to-Hexa automatic conversion **(WIP)**
+- JSX-style inline templating **(WIP)**
 - And of course, IDE plugins with Language Server built right into Hexa!
 
 > **WIP — Work in progress, coming soon**
