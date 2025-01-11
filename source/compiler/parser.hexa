@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2021-2024 Oleh Petrenko
+// Copyright (C) 2021-2025 Oleh Petrenko
 // Copyright (C) 2018 Bogdan Danylchenko
 //
 // This program is free software: you can redistribute it and/or modify
@@ -26,6 +26,7 @@ class Parser {
 	private var lasttok = -1
 	private var lasttokchecks = 10
 	var project: Project
+	// TODO seems like `lint` is no longer in use
 	var lint = false
 
 	// TODO mark static functions as non-mutation so they are thread-safe
@@ -171,7 +172,8 @@ class Parser {
 				var v = []
 				for i in vars.length {
 					// TODO reuse function arguments parser, to check for duplicate argument names, arrow functions etc
-					v.push(Node.Var(vars[i], types[i], values[i], true, false))
+					let argument = Node.Var(vars[i], types[i], values[i], true, false)
+					v.push(argument)
 				}
 				switch expr {
 					case null:
@@ -403,7 +405,8 @@ class Parser {
 	fun parseExpr(): Node {
 		var atts: Array<Decorator> = []
 		while tok() == Token.At {
-			atts.push(parseDecorator())
+			let decorator = parseDecorator()
+			atts.push(decorator)
 		}
 		var node = tok()
 		//-------------
@@ -1085,7 +1088,9 @@ class Parser {
 			project.mapDecorators.set(me, att)
 			result = me
 		case KFun:
+			// TODO decorators? seems no need
 			result = parseFunction()
+
 		case IndexOpen: // [a, b, c]
 			i++
 			var el = []
@@ -1177,6 +1182,7 @@ class Parser {
 			result = Node.New([], t, args, names, values, argNames)
 		case KSwitch:
 			i++
+			// TODO multiple
 			var exprs = [parseExpr()]
 			while tok() == Token.Comma {
 				i++
@@ -1387,14 +1393,17 @@ class Parser {
 			result = Node.For(name, values, expression, range)
 
 		case KStatic:
+			// TODO consume in the same way @decorators are consumed (global flag)
 			// TODO convert to simple flags instead of separate expr
 			next()
-			result = Node.Static(parseExpr())
+			let fieldExpr = parseExpr()
+			result = Node.Static(fieldExpr)
 
 		case KPrivate:
 			// TODO convert to simple flags instead of separate expr
 			next()
-			result = Node.Private(parseExpr())
+			let fieldExpr = parseExpr()
+			result = Node.Private(fieldExpr)
 
 		case _: unexpected()
 		}
@@ -1603,6 +1612,7 @@ class Parser {
 			}
 			}
 		}
+
 		if result == null {
 			Process.stdout.write('\n')
 			fail("Expression postfix is incomplete")
@@ -1612,6 +1622,7 @@ class Parser {
 			project.mapDecorators.set(result, atts)
 			atts = []
 		}
+
 		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 		return result
 	}
@@ -1968,12 +1979,12 @@ class Parser {
 					parseDecorator()
 				}
 
-				if (
+				if
 					tok() != Token.BlockClose
 					&& tok() != Token.KStatic
 					&& tok() != Token.KPrivate
 					&& tok() != Token.KFun
-				) {
+				{
 					i = tmp
 					expr = parseExpr()
 				} else {
