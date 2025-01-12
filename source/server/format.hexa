@@ -23,10 +23,12 @@ fun autoFormatWholeFile(file: String): String {
 		let tokens = Lexer.tokenize(content, 'hexa.hexa', format: true)
 		let count = tokens.line.length - 1
 		let result = ['']
+		var currentCall = [Token.Eof]
+		var currentCallLevel = Token.Eof
 		var lastLine = 1
 		var lastToken = Token.Eof
 		var lastLastToken = Token.Eof
-		var lastLastGeneric = false
+		var lastIndentation = ''
 
 		var tabs = ''
 		var tabStack = ['']
@@ -123,15 +125,43 @@ fun autoFormatWholeFile(file: String): String {
 					result.push('\n')
 				}
 
-				// TODO if bool? of array[i] not valid `if tabCase[depth] {}`, require == true
+				// TODO if `Bool?` of `array[i]` not valid `if tabCase[depth] {}`, require `== true`
+				// as `tabCase[depth] == true` cause it can be `null`
+				var indentation = tabs
 				result.push(tabs)
 
 				// `=\nvalue`
-				if lastToken == Token.Assign {
+				// TODO weird indentation right here
+				if lastToken == Token.Assign or (
+						lastToken == Token.KReturn and token != Token.BlockClose
+					) {
 					result.push('\t')
+					indentation += '\t'
+				}
+
+				// The idea here is `value1 and \n value2` should have `value2` with tab
+				if
+					lastToken == Token.Add or
+					lastToken == Token.Subtract or
+					lastToken == Token.Multiply or
+					lastToken == Token.LogicalAnd or
+					lastToken == Token.LogicalOr
+				{
+					if lastIndentation.length > indentation.length {
+						result.push('\t')
+						indentation += '\t'
+					}
+				}
+
+				if token == Token.KAs {
+					if lastIndentation != indentation {
+						result.push('\t')
+						indentation += '\t'
+					}
 				}
 
 				shouldSpace = false
+				lastIndentation = indentation
 			}
 
 			// When evaluated to `true` it means `shouldSpace = false`
@@ -184,6 +214,8 @@ fun autoFormatWholeFile(file: String): String {
 						lastToken != Token.Unequal and
 						lastToken != Token.Less and
 
+						currentCallLevel != Token.KNew and
+
 						// Preserve cause `Class<T>()` and `a > (b)`
 						not (
 							(
@@ -211,6 +243,15 @@ fun autoFormatWholeFile(file: String): String {
 								lastToken == Token.Identifier
 							) and (
 								(lastLastToken == Token.At and tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0))
+							)
+						) and
+
+						// `call()` but `var callback ()`
+						not (
+							(
+								lastToken == Token.Identifier
+							) and (
+								((lastLastToken == Token.KVar or lastLastToken == Token.KLet) and true)
 							)
 						)
 					)
@@ -312,25 +353,40 @@ fun autoFormatWholeFile(file: String): String {
 					)
 				) or
 
-				// `demo<T>` but not `demo <T>`
 				(
-					token == Token.Less and (
-						(
-							lastToken == Token.Identifier or lastToken == Token.Title
-						) and (
-							tokens.column[i] == getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+					token == Token.Less and
+					(
+						// Preserve cause `a < c` and `T<T>`
+						not (
+							tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
 						)
 					)
 				) or
-				lastLastGeneric or
+
+				(
+					(
+						lastToken == Token.Less and (
+							token == Token.Identifier or
+							token == Token.At or
+							token == Token.Title
+						)
+					) and
+					(
+						// Preserve cause `a < c` and `T<T>` and `T<name: T>`
+						not (
+							tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+						)
+					)
+				) or
+
 				// `T>`
 				// `T>>`
 				(
-					(token == Token.Greater or token == Token.BitwiseRightShift) and (
-						(
-							lastToken == Token.Identifier or lastToken == Token.Title
-						) and (
-							tokens.column[i] == getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+					(token == Token.Greater or token == Token.BitwiseRightShift) and
+					(
+						// Preserve cause `a > c` and `T<T>`
+						not (
+							tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
 						)
 					)
 				) or
@@ -349,10 +405,20 @@ fun autoFormatWholeFile(file: String): String {
 				shouldSpace = false
 			}
 
-			lastLastGeneric = token == Token.Less and not shouldSpace
 
 			if shouldSpace {
 				result.push(' ')
+			}
+
+			if token == Token.CallOpen {
+				// TODO `fun`
+				currentCall.push(lastToken)
+				currentCallLevel = lastToken
+			}
+
+			if token == Token.CallClose {
+				currentCall.pop()
+				currentCallLevel = currentCall[currentCall.length - 1]
 			}
 
 			switch token {
@@ -372,7 +438,7 @@ fun autoFormatWholeFile(file: String): String {
 				case QuotedString: switch tokens.meta[i] {
 						// TODO FORMAT: should be here 1-tab less
 						case SingleQuote: result.push(`'` + tokens.value[i] + `'`)
-						case DoubleQuote: result.push(`"` + tokens.value[i] + `"`)
+						case _: result.push(`"` + tokens.value[i] + `"`)
 					}
 				case _: result.push(Token.stringify(token, tokens.value[i], tokens.meta[i]))
 			}
