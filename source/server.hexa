@@ -1,5 +1,5 @@
 // The Hexa Compiler
-// Copyright (C) 2021-2024 Oleh Petrenko
+// Copyright (C) 2021-2025 Oleh Petrenko
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -30,7 +30,7 @@ enum ServerCommandKind : String {
 	FindProjectFile
 
 	// Uses `FindProjectFile` internally
-	// TODO reanme to AutoCheck
+	// TODO rename to AutoCheck (also lower case command names)
 	AutocheckProject
 
 	// IntelliSense
@@ -682,7 +682,25 @@ class Server {
 									}
 
 								case WholeDocumentFormatting: {
-									response.push({content: autoFormatWholeFile(command.payload)})
+									try {
+										let file String = command.payload
+										let project = new Project()
+										let content = Buffer.from(file)
+										let tokens = Lexer.tokenize(content, 'hexa.hexa', format: false /*TODO*/)
+										let nodes = Parser.parseNodes(tokens, project, true)
+										// TODO `\n\n`?
+										let assumedDepth = '\n'
+										let prettifier = new Prettify(project)
+										// TODO bind `prettifier.stringify` let pretty = nodes.map(prettifier.stringify).join(assumedDepth) + '\n'
+										let pretty = nodes.map(node => prettifier.stringify(node)).join(assumedDepth) + '\n'
+										throw false // TODO enable it later
+										response.push({content: pretty})
+										// TODO syntax as `catch e Any` no colon
+									} catch e: Any {
+										console.log(e)
+										// Fallback to token-based one
+										response.push({content: autoFormatWholeFile(command.payload)})
+									}
 								}
 
 								case SyncFileContents:
