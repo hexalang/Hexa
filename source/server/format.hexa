@@ -17,7 +17,6 @@
 // TODO hexa format cli .hexa .json
 // TODO cover in testFormat.hexa
 fun autoFormatWholeFile(file: String): String {
-	let project = new Project()
 	let content = Buffer.from(file)
 	try {
 		// TODO range formatter
@@ -65,6 +64,17 @@ fun autoFormatWholeFile(file: String): String {
 			updateTab()
 		}
 
+		fun getToken(i) Token {
+			if let token = tokens.token[i] {
+				return token as! Token
+			}
+			return Token.Eof
+		}
+
+		fun getTokenLength(i) Int {
+			return Token.stringify(getToken(i), tokens.value[i], tokens.meta[i]).length
+		}
+
 		for i in count {
 			let token = tokens.token[i] as! Token
 
@@ -77,7 +87,7 @@ fun autoFormatWholeFile(file: String): String {
 			if
 				token == Token.BlockClose or
 				token == Token.CallClose or
-				(token == Token.Sharp and tokens.token[i + 1] as! Token != Token.KIf) or
+				(token == Token.Sharp and getToken(i + 1) != Token.KIf) or
 				token == Token.IndexClose
 			{
 				parenthesis--
@@ -114,6 +124,7 @@ fun autoFormatWholeFile(file: String): String {
 				shouldSpace = false
 			}
 
+			// When evaluated to `true` it means `shouldSpace = false`
 			if
 				// `#if`
 				lastToken == Token.Sharp or
@@ -153,20 +164,43 @@ fun autoFormatWholeFile(file: String): String {
 						lastToken != Token.Assign and
 						lastToken != Token.Add and
 						lastToken != Token.Subtract and
+						lastToken != Token.Multiply and
+						lastToken != Token.Divide and
+						lastToken != Token.Remainder and
 						lastToken != Token.BitwiseAnd and
 						lastToken != Token.BitwiseOr and
 						lastToken != Token.Comma and
 						lastToken != Token.Equal and
 						lastToken != Token.Unequal and
+						lastToken != Token.Less and
+
+						// Preserve cause `Class<T>()` and `a > (b)`
+						not (
+							(
+								lastToken == Token.Greater
+							) and (
+								tokens.column[i] != 1 + (tokens.column[i - 1] ?? 0)
+							)
+						) and
+
+						lastToken != Token.LessOrEqual and
+						lastToken != Token.GreaterOrEqual and
+						lastToken != Token.BitwiseLeftShift and
+						lastToken != Token.BitwiseRightShift and
+						lastToken != Token.UnsignedRightShift and
+						lastToken != Token.Interval and
+						lastToken != Token.Colon and
 						// Includes `??`
 						lastToken != Token.Question and
+						// `)(`
+						lastToken != Token.CallClose and
 
 						// `@demo()` but not `@demo ()`
 						not (
 							(
 								lastToken == Token.Identifier
 							) and (
-								(lastLastToken == Token.At and tokens.column[i] != tokens.value[i - 1].length + tokens.column[i - 1])
+								(lastLastToken == Token.At and tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0))
 							)
 						)
 					)
@@ -179,20 +213,45 @@ fun autoFormatWholeFile(file: String): String {
 				(
 					token == Token.IndexOpen and
 					(
+						// Preserve cause `value[index]` and `value [T]`
+						not (
+							tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+						)
+					)
+
+					/*
+					(
 						lastToken == Token.Identifier or
 						lastToken == Token.IndexClose
 					) and (
-						// TODO same for ()=>
-						lastLastToken != Token.KVar and
-						lastLastToken != Token.CallOpen and
-						lastLastToken != Token.Comma and
-						lastLastToken != Token.KLet
+						(
+							// TODO same for ()=>
+							lastLastToken != Token.KVar and
+							lastLastToken != Token.CallOpen and // TODO use isFunctionArgument
+							lastLastToken != Token.Comma and // TODO use isFunctionArgument
+							lastLastToken != Token.KLet
+						) or line != lastLastLine
 					)
+					*/
 				) or
 				token == Token.IndexClose or
-
 				// `@at`
 				(token == Token.Identifier and lastToken == Token.At) or
+				// `...arg`
+				(
+					token == Token.Identifier and lastToken == Token.Interval and
+					(
+						// `, ...arg`
+						lastLastToken == Token.Comma or
+						// `(...arg`
+						lastLastToken == Token.CallOpen
+						// TODO conflicts with `(value) ... range`
+						// `@dec ...let`
+						// lastLastToken == Token.Identifier
+						// `@dec() ...let`
+						// lastLastToken == Token.CallClose
+					)
+				) or
 
 				(
 					token == Token.Question and
@@ -200,7 +259,12 @@ fun autoFormatWholeFile(file: String): String {
 						// `??`
 						lastToken == Token.Question or
 						// `Type?`
-						lastToken == Token.Title
+						// lastToken == Token.Title
+
+						// Preserve cause `a ? b : c` and `T?`
+						not (
+							tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+						)
 					)
 				) or
 
@@ -244,7 +308,7 @@ fun autoFormatWholeFile(file: String): String {
 						(
 							lastToken == Token.Identifier or lastToken == Token.Title
 						) and (
-							tokens.column[i] == tokens.value[i - 1].length + tokens.column[i - 1]
+							tokens.column[i] == getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
 						)
 					)
 				) or
@@ -256,13 +320,21 @@ fun autoFormatWholeFile(file: String): String {
 						(
 							lastToken == Token.Identifier or lastToken == Token.Title
 						) and (
-							tokens.column[i] == tokens.value[i - 1].length + tokens.column[i - 1]
+							tokens.column[i] == getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
 						)
 					)
 				) or
 
 				token == Token.Comma or
-				token == Token.Colon
+				(
+					token == Token.Colon and
+					(
+						// Preserve cause `a ? b : c` and `(name: value)`
+						not (
+							tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+						)
+					)
+				)
 			{
 				shouldSpace = false
 			}
