@@ -16,18 +16,19 @@
 /// Formatting by taking a syntax tree as input
 /// Preserves user personal style to some degree
 // TODO ^
+// TODO 100% coverage in tests -> compare to prettier based on tokens
 class Prettify {
 	var tabs = ''
 
 	var project Project
 
 	@inline fun pushTab() {
-			tabs += '\t'
-		}
+		tabs += '\t'
+	}
 
-		@inline fun popTab() {
-			tabs = tabs.substring(0, tabs.length - 1)
-		}
+	@inline fun popTab() {
+		tabs = tabs.substring(0, tabs.length - 1)
+	}
 
 	new (project Project) {
 		// Initializes state for nested blocks indentation
@@ -40,6 +41,7 @@ class Prettify {
 
 		// TODO multiline decorators
 		if let decorators = decorators, decorators.length > 0 {
+			// TODO cache this
 			return decorators.map(d => this.stringifyDecorator(d)).join(' ') + ' ' + body
 		}
 
@@ -58,226 +60,220 @@ class Prettify {
 	fun stringifyWithoutDecorators(node Node) String {
 		switch node {
 
-	/// `super`
-	case Super: return "super"
+			/// `super`
+			case Super: return "super"
 
-	/// `123n`
-	/// `123u32`
-	// TODO just add meta to Int or drop Int/Float entirely
-	// TODO rename to Number and Meta to TokenKind
-	case MetaInt(number, meta):
-		return number.toString() + Meta.stringifyPostfix(meta)
+				/// `123n`
+				/// `123u32`
+				// TODO just add meta to Int or drop Int/Float entirely
+				// TODO rename to Number and Meta to TokenKind
+			case MetaInt(number, meta):
+				return number.toString() + Meta.stringifyPostfix(meta)
 
-	/// `declare Alias = Value`
-	case TypeAlias(alias, value):
+				/// `declare Alias = Value`
+			case TypeAlias(alias, value):
 
-	/// `storage op= value`
-	// TODO rename to AssignWith or CompoundAssign
-	case AssignOp(storage, op, value):
-	return this.stringify(storage) + ' ' + Token.stringify(op) + '= ' + this.stringify(value)
+				/// `storage op= value`
+				// TODO rename to AssignWith or CompoundAssign
+			case AssignOp(storage, op, value):
+				return this.stringify(storage) + ' ' + Token.stringify(op) + '= ' + this.stringify(value)
 
-	/// { el[0] ... el[n] }
-	// TODO `, commaSeparated Bool` for `{a,b}` and `{a:b,c}
-	// TODO remove `:` here!
-	case Block(el):
-	// TODO depth!
-	pushTab()
-	let body = `{\n` + tabs + el.map(e => this.stringify(e)).join('\n' + tabs)
-	popTab()
+				/// { el[0] ... el[n] }
+				// TODO `, commaSeparated Bool` for `{a,b}` and `{a:b,c}
+				// TODO remove `:` here!
+			case Block(el):
+				// TODO depth!
+				pushTab()
+				let body = `{\n` + tabs + el.map(e => this.stringify(e)).join('\n' + tabs)
+				popTab()
 
-	return body + `\n` + tabs + `}`
+				return body + `\n` + tabs + `}`
 
-	/// `if condition[0], ...condition[n] { then } [else { otherwise }]`
-	case If(condition, then, otherwise, ternary):
-	if ternary {
-		return this.stringify(condition[0]) + ' ? ' + this.stringify(then) + ' : ' + this.stringify(otherwise)
-	}
+				/// `if condition[0], ...condition[n] { then } [else { otherwise }]`
+			case If(condition, then, otherwise, ternary):
+				if ternary {
+					return this.stringify(condition [0]) + ' ? ' + this.stringify(then) + ' : ' + this.stringify(otherwise)
+				}
 
-	return `if ` + condition.map(c => this.stringify(c)).join(`, `) + ` ` + this.stringify(then) + (otherwise ? ` else ` + this.stringify(otherwise) : ``)
+				return `if ` + condition.map(c => this.stringify(c)).join(`, `) + ` ` + this.stringify(then) + (otherwise ? ` else ` + this.stringify(otherwise): ``)
 
-	/// `expr expr` without `{}`
-	case InlineStatements(el):
+				/// `expr expr` without `{}`
+			case InlineStatements(el):
 
-	/// `return e`
-	case Return(e):
-	if let e = e {
-		return 'return ' + this.stringify(e)
-	} else {
-		return 'return'
-	}
+				/// `return e`
+			case Return(e):
+				if let e = e {
+					return 'return ' + this.stringify(e)
+				} else {
+					return 'return'
+				}
 
-	/// `throw e`
-	case Throw(e):
-	return 'throw ' + this.stringify(e)
+				/// `throw e`
+			case Throw(e):
+				return 'throw ' + this.stringify(e)
 
-	/// `break`
-	case Break: return "break"
+				/// `break`
+			case Break: return "break"
 
-	/// `continue`
-	case Continue: return "continue"
+				/// `continue`
+			case Continue: return "continue"
 
-	/// postfix ? `e op` : `op e`
-	// TODO rename to `Unary`
-	case Unop(op, postfix, e):
-	if postfix {
-		return this.stringify(e) + Token.stringify(op)
-	} else {
-		return Token.stringify(op) + this.stringify(e)
-	}
+				/// postfix ? `e op` : `op e`
+				// TODO rename to `Unary`
+			case Unop(op, postfix, e):
+				if postfix {
+					return this.stringify(e) + Token.stringify(op)
+				} else {
+					return Token.stringify(op) + this.stringify(e)
+				}
 
-	/// `while reason { e }` or if pre == true then `do { e } while reason`
-	// TODO rename pre to isDoWhile
-	case While(reason, e, pre):
-	if pre {
-		return 'do ' + this.stringify(e) + ' while ' + this.stringify(reason)
-	} else {
-		return 'while ' + this.stringify(reason) + ' ' + this.stringify(e)
-	}
+				/// `while reason { e }` or if pre == true then `do { e } while reason`
+				// TODO rename pre to isDoWhile
+			case While(reason, e, pre):
+				if pre {
+					return 'do ' + this.stringify(e) + ' while ' + this.stringify(reason)
+				} else {
+					return 'while ' + this.stringify(reason) + ' ' + this.stringify(e)
+				}
 
+				/// `[declare] fun name<T>(vars) rettype { expr }`
+				// ParametricFunction(name String?, expr Node, vars [Node], retType NodeType, external Bool, params [NodeType]?)
 
-	/// `[declare] fun name<T>(vars) rettype { expr }`
-	//ParametricFunction(name String?, expr Node, vars [Node], retType NodeType, external Bool, params [NodeType]?)
+				/// `(vars) retType => expr`
+				// TODO parser `: retType` is really needed at all?
+			case Arrow(expr, vars, retType):
+				var head = '(' + vars.map(v => this.stringify(v).substr(4)).join(', ') + ')'
 
-	/// `(vars) retType => expr`
-	// TODO parser `: retType` is really needed at all?
-	case Arrow(expr, vars, retType):
-	var head = '(' + vars.map(v => this.stringify(v).substr(4)).join(', ') + ')'
+				if let retType = retType {
+					head += NodeType.stringify(retType) + ' => '
+				} else {
+					head += ' => '
+				}
 
-	if let retType = retType {
-		head += NodeType.stringify(retType) + ' => '
-	} else {
-		head += ' => '
-	}
+				return head + this.stringify(expr)
 
-	return head + this.stringify(expr)
+				// // var Var[0], ..., Var[n]
+				// Vars(vars [Node])
+				//
+				/// `external class t extends extend implements implement { fields }`
+				// TODO IDE: hover over `(className)` in the pattern itself must show its type
+			case Class(className, extend, implement, fields, external, kind):
+				let head = 'class ' + NodeType.stringify(className) + ' ' + (extend ? 'extends ' + extend: '') + (implement.length > 0 ? 'implements ' + implement: '')
 
-//		// var Var[0], ..., Var[n]
-//		Vars(vars [Node])
-//
-	/// `external class t extends extend implements implement { fields }`
-	// TODO IDE: hover over `(className)` in the pattern itself must show its type
-	case Class(className, extend, implement, fields, external, kind):
-	let head = 'class ' + NodeType.stringify(className) + ' ' + (extend ? 'extends ' + extend : '') + (implement.length > 0 ? 'implements ' + implement : '')
+				pushTab()
+				let body = '{\n' + tabs + fields.map(f => this.stringify(f)).join('\n' + tabs) + '\n}'
+				popTab()
 
-	pushTab()
-	let body = '{\n' + tabs + fields.map(f => this.stringify(f)).join('\n' + tabs) + '\n}'
-	popTab()
+				return head + body
 
-	return head + body
+				/// var name T { get { return x } set (v) {} }
+				// TODO .Var, .Function, .Function
+			case Property(field, getter, setter):
 
-	/// var name T { get { return x } set (v) {} }
-	// TODO .Var, .Function, .Function
-	case Property(field, getter, setter):
+				/// try { expr } catch v[0]: t[0] { catches[0] } ... catch v[n]: t[n] { catches[n] }
+			case Try(expr, types, values, catches):
+				return 'try ' + this.stringify(expr) + catches.map((v, i) => 'catch ' + this.stringify(v) + ': ' + NodeType.stringify(types [i]) + ' ' + this.stringify(catches [i])).join(' ')
 
-	/// try { expr } catch v[0]: t[0] { catches[0] } ... catch v[n]: t[n] { catches[n] }
-	case Try(expr, types, values, catches):
-	return 'try ' + this.stringify(expr) + catches.map((v, i) => 'catch ' + this.stringify(v) + ': ' + NodeType.stringify(types[i]) + ' ' + this.stringify(catches[i])).join(' ')
+				/// `new T<T> { } (args)` TODO new syntax
+			case New(path, ofType, args, fields, el, argNames):
+				return NodeType.stringify(ofType) + `(` + args.map(a => this.stringify(a)).join(', ') + `)`
 
-	/// `new T<T> { } (args)` TODO new syntax
-	case New(path, ofType, args, fields, el, argNames):
-	return NodeType.stringify(ofType) + `(` + args.map(a => this.stringify(a)).join(', ') + `)`
+				/// [keys[0] : values[0], ... keys[n] : values[n]]
+			case Map(keys, values):
+				return '[' + [for i in keys.length this.stringify(keys [i]) + ': ' + this.stringify(values [i])].join(', ') + ']'
 
-	/// [keys[0] : values[0], ... keys[n] : values[n]]
-	case Map(keys, values):
-	return '[' + [for i in keys.length this.stringify(keys[i]) + ': ' + this.stringify(values[i])].join(', ') + ']'
+				// TODO update names in this doc
+				/// switch exprs[0], exprs[n] {
+				///     case cases[0] if guards[0]: conditions[0]
+				///     case cases[n]: conditions[n]
+				/// }
+			case Switch(inputs, expressions, guards, patterns):
+				let head = 'switch ' + inputs.map(i => this.stringify(i)).join(', ') + ' {\n'
 
-	// TODO update names in this doc
-	/// switch exprs[0], exprs[n] {
-	///     case cases[0] if guards[0]: conditions[0]
-	///     case cases[n]: conditions[n]
-	/// }
-	case Switch(inputs , expressions , guards , patterns ):
-	let head = 'switch ' + inputs.map(i => this.stringify(i)).join(', ') + ' {\n'
+				pushTab()
+				let body =
+					[for i in patterns.length tabs + 'case ' + this.stringify(expressions [i]) + ': ' + this.stringify(patterns [i])].join('\n')
+				popTab()
 
-	pushTab()
-	let body =
-		[for i in patterns.length tabs + 'case ' + this.stringify(expressions[i]) + ': ' + this.stringify(patterns[i])].join('\n')
-	popTab()
+				return head + body + '\n' + tabs + '}'
 
-	return head + body + '\n' + tabs + '}'
+				/// module path[0].path[1].r..path[n] { el }
+			case Module(path, el):
 
-	/// module path[0].path[1].r..path[n] { el }
-	case Module(path , el ):
+				/// Not present in syntax, used for typing
+			case ModuleExports(handle):
 
-	/// Not present in syntax, used for typing
-	case ModuleExports(handle ):
+				/// import xxx as yyy in "test"
+			case Import(el, path):
 
-	/// import xxx as yyy in "test"
-	case Import(el , path ):
+				// TODO unify into `Node.Class` and rename to `ClassLike` or `Prototype`
+				// ^ avoid `class` word to not look too much focused on OOP
+				/// enum t : valuesType extends extend { fields[0] ... fields[n] }
+			case Enum(
+					enumType /*TODO uniq name classType etc for easy bind*/,
+					fields,
+					valuesType,
+					extend
+				):
+				return 'enum ' + enumType + (valuesType ? ': ' + NodeType.stringify(valuesType): '') + (extend ? ' extends ' + extend: '') + ' {\n' + fields.map(f => this.stringify(f)).join('\n') + '\n}'
 
-	// TODO unify into `Node.Class` and rename to `ClassLike` or `Prototype`
-	// ^ avoid `class` word to not look too much focused on OOP
-	/// enum t : valuesType extends extend { fields[0] ... fields[n] }
-	case Enum(
-		enumType/*TODO uniq name classType etc for easy bind*/ ,
-		fields ,
-		valuesType ,
-		extend
-	):
-	return 'enum ' + enumType + (valuesType ? ': ' + NodeType.stringify(valuesType) : '') + (extend ? ' extends ' + extend : '') + ' {\n' + fields.map(f => this.stringify(f)).join('\n') + '\n}'
+				/// let expr(extract[0], ..., extract[n]) = name
+			case EnumExtract(path, bind, expr):
 
-	/// let expr(extract[0], ..., extract[n]) = name
-	case EnumExtract(path , bind , expr ):
+				// TODO
+				// A.B
+				// A.B(c, d)
+				// A.B(c: d, d: d)
+			case EnumConstructor:
+				// TODO
+				// case `B()`
+				// case `B(c, d)`
+				// case `B(c: d, d: d)` ?
+			case EnumPattern:
+				/// `expr is T`
+			case Is(expr, aType):
+				return this.stringify(expr) + ' is ' + NodeType.stringify(aType)
 
-	// TODO
-	// A.B
-	// A.B(c, d)
-	// A.B(c: d, d: d)
-	case EnumConstructor:
-	// TODO
-	// case `B()`
-	// case `B(c, d)`
-	// case `B(c: d, d: d)` ?
-	case EnumPattern:
-	/// `expr is T`
-	case Is(expr , aType ):
-	return this.stringify(expr) + ' is ' + NodeType.stringify(aType)
+				/// `expr as T`
+				/// `expr as? T`
+				/// `expr as! T`
+			case As(expr, kind, toType):
+				return this.stringify(expr) + ' as' + Token.stringify(kind) + ' ' + NodeType.stringify(toType)
 
-	/// `expr as T`
-	/// `expr as? T`
-	/// `expr as! T`
-	case As(expr , kind , toType ):
-	return this.stringify(expr) + ' as' + Token.stringify(kind) + ' ' + NodeType.stringify(toType)
+				/// `_`
+			case Underscore:
+				return "_"
 
-	/// `_`
-	case Underscore:
-	  return "_"
+				/// `private` field or type
+				// TODO drop this
+			case Private(field):
+				return "private " + this.stringify(field)
 
-	/// `private` field or type
-	// TODO drop this
-	case Private(field ):
-	return "private " + this.stringify(field)
-
-	/// for name in over { statement }
-	/// for name in over ... range statement
-	// for index : name in over statement // but no range
-	// for key   : name in over statement // same, just clarification for Map<>
-	// ^ index is a Var for simple typer implementation
-	case For(iterator , over , statement , range ):
-	if let range = range {
-		return 'for ' + iterator + ' in ' + this.stringify(over) + ' ... ' + this.stringify(range) + ' ' + this.stringify(statement)
-	}
-	return 'for ' + iterator + ' in ' + this.stringify(over) + ' ' + this.stringify(statement)
-	// TODO `range Node?`
-	//For(name String, over Node, by Node, range Node, index Node?)
-
-	/// `nullable ?? alternative`
-	case Elvis(nullable , alternative ):
-	return this.stringify(nullable) + ' ?? ' + this.stringify(alternative)
+				/// for name in over { statement }
+				/// for name in over ... range statement
+				// for index : name in over statement // but no range
+				// for key   : name in over statement // same, just clarification for Map<>
+				// ^ index is a Var for simple typer implementation
+			case For(iterator, over, statement, range):
+				if let range = range {
+					return 'for ' + iterator + ' in ' + this.stringify(over) + ' ... ' + this.stringify(range) + ' ' + this.stringify(statement)
+				}
+				return 'for ' + iterator + ' in ' + this.stringify(over) + ' ' + this.stringify(statement)
+				// TODO `range Node?`
+				// For(name String, over Node, by Node, range Node, index Node?)
 
 
-
-			// Smaller ones
+				// Smaller ones TODO this comment at the level of `case`
 			case String(s):
-			// TODO quote types + mirror special symbols
-			let s = JSON.stringify(s)
+				// TODO quote types + mirror special symbols
+				let s = JSON.stringify(s)
 				return s
 			case Ident(name): return name
 			case Bool(b): return b ? "true": "false"
 			case Int(s): return s.toString()
 			case Float(s, meta):
-			// TODO meta
-			 return s.toString()
+				// TODO meta
+				return s.toString()
 			case Null: return "null"
 			case This: return "this"
 			case Parenthesis(expr): return "(" + this.stringify(expr) + ")"
@@ -299,7 +295,7 @@ class Prettify {
 			case Object(names, el):
 				return '{' + [for i in el.length names[i] + ': ' + this.stringify(el [i])].join(', ') + '}'
 			case NodeTypeValue(t):
-			// TODO full type
+				// TODO full type
 				return DataHelper.extractTypeName(t)
 			case Static(f): return 'static ' + this.stringify(f)
 			case Var(name, t, expr, const, external): {
@@ -309,7 +305,7 @@ class Prettify {
 					}
 					return
 					(external ? 'declare ': '') +
-					(const ? 'let ': 'var ') + name  + (t != null? ' ' + NodeType.stringify(t) : '') + body
+					(const ? 'let ': 'var ') + name + (t != null ? ' ' + NodeType.stringify(t): '') + body
 				}
 			case Function(name, body, vars, returnType, external, variadic):
 				if name == null {
@@ -318,7 +314,7 @@ class Prettify {
 				}
 
 				// TODO `new_SPACE_`?
-				let prefix = name == 'new'? 'new ': 'fun ' + name
+				let prefix = name == 'new' ? 'new ': 'fun ' + name
 
 				var head = prefix + '(' + vars.map(v => this.stringify(v).substr(4)).join(', ') + ')'
 
