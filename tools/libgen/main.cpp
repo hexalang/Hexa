@@ -1526,31 +1526,83 @@ int main(int argc, char* argv[])
 {
 	char *pName;
 	char *fileName;
+	char *fileNameWithFunctionNames;
 	SYMBOL_INFO *pSymbolList;
+	int argvOffset = 0;
+	bool useFile = false;
 
 	if (argc < 5) {
-		printf("Not enough arguments: 64/32 dllname filename.lib funcname1 funcname2 etc\n");
+		printf("Expected arguments: 64/32 dllname filename.lib funcname1 funcname2 etc\n");
+		printf("Alternatively: file 64/32 dllname filename.lib funcnames.txt\n");
 		fflush(0);
 		exit(123);
 	}
 
+	// `file`
+	if (argv[argvOffset + 1][0] == 'f') {
+		useFile = true;
+		argvOffset++;
+	}
+
 	g_InfoAll.bX64 = TRUE;
-	if (argv[1][0] == '3') {
+	// `32`
+	if (argv[argvOffset + 1][0] == '3') {
 		g_InfoAll.bX64 = FALSE;
 	}
 
-	pName = "long_dll_name_long_dll_name_long_dll_name";
-	pName = argv[2];
-	fileName = argv[3];
+	pName = argv[argvOffset + 2];
+	fileName = argv[argvOffset + 3];
 
 	pSymbolList = CreateSymbolList(pName);
 
+	if (useFile) {
+		fileNameWithFunctionNames = argv[argvOffset + 4];
+
+		FILE *file = fopen(fileNameWithFunctionNames, "r");
+		if (file == 0) {
+			printf("Failed to open file %s\n", fileNameWithFunctionNames);
+			fflush(0);
+			exit(2);
+		}
+		fseek(file, 0, SEEK_END);
+		int fileSize = ftell(file);
+		rewind(file);
+
+		char *pFileContents = new char[fileSize + 1];
+		fread(pFileContents, 1, fileSize, file);
+		fclose(file);
+		pFileContents[fileSize] = 0; // null-terminate
+
+		int i = 0;
+		while (pFileContents[i] != 0 && i < fileSize) {
+			char *pBegin = pFileContents + i;
+			// Both spaces and enters work
+			while (
+				pFileContents[i] != 0
+				&& pFileContents[i] != '\n'
+				&& pFileContents[i] != ' '
+			) {
+				i++;
+			}
+			int len = i - (pBegin - pFileContents);
+			if (len == 0) {
+				break;
+			}
+			char *pFuncName = new char[len + 1];
+			memcpy(pFuncName, pBegin, len);
+			pFuncName[len] = 0;
+			// printf("AddFunction from file: `%s`\n", pFuncName);
+			AddFunction(pSymbolList, pFuncName, 0, 0, CALLING_CONVENTION_UNDECORATED, IMPORT_BY_DECORATED_NAME);
+			i++;
+		}
+	} else {
 	int i = 4;
 	while (i < argc) {
-		AddFunction(pSymbolList, argv[i], 0, 0, CALLING_CONVENTION_UNDECORATED, IMPORT_BY_DECORATED_NAME);
+		AddFunction(pSymbolList, argv[argvOffset + i], 0, 0, CALLING_CONVENTION_UNDECORATED, IMPORT_BY_DECORATED_NAME);
 		// TODO add verbose mode
 		// printf("AddFunction %s\n", argv[i]);
 		i++;
+	}
 	}
 
 	fflush(0);
