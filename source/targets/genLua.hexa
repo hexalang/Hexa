@@ -13,18 +13,18 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-/// Generates JavaScript
+/// Generates Lua
 /// Uses some modern features: classes, let, const, =>
-class GenJs {
+class GenLua {
 	new () {}
 
 	var project: NiceProject
-	let extension = '.js'
+	let extension = '.lua'
 	let nativeEnums = false
 	var toIterator = false
 
 	static fun spawn() {
-		return new GenJs()
+		return new GenLua()
 	}
 
 	fun perform(normalizer): String {
@@ -46,24 +46,6 @@ class GenJs {
 
 			out.push(';(() => {\n\t"use strict"\n\tconst $global = typeof(window) === "undefined"? global : window')
 			out.push('\n\tif (typeof($global.require) === "undefined") { $global.require = () => {} };')
-
-			for i in 10 {
-				// 'x'.repeat
-				var ccc [String] = []
-				for k in i+1 {
-					ccc.push('_' + k)
-				}
-
-				let args = ccc.join(', ')
-
-				var ccc [String] = []
-				for k in i+1 {
-					ccc.push('this._\(k) = _' + k)
-				}
-				let params = ccc.join(';')
-
-				out.push('class Enum_\(i) { constructor(\(args)) {\(params);} }')
-			}
 
 			// Generate version constant from `hexa.json`
 			out.push('\n\tconst selfVersion="\(project.package.version)";')
@@ -642,23 +624,6 @@ class GenJs {
 				case UnsafeBitCast(e, t): return '(' + printExpression(e) + ')'
 				case Is(e, t): return '((' + printExpression(e) + ') instanceof ' + Type.stringify(t) + ')'
 				case Enum(type, tagName, tag, args):
-					if args.length > 9 {
-						throw 'too much enum args'
-					}
-					let i = args.length
-					// TODO makes sense to always pass [0] as [EnumClassName, args]
-					// to distinguish them at runtime i.e. [1,2] vs [1,2]-but-another-type
-					// + make class name readable for clarity and accessible by js code this way
-					// or make the tag-key itself a string, not int, as
-					// "EnumClassName.TagName" (as global constant)
-					if args.length == 0 {
-					//
-					return ('/*\(tagName)*/new Enum_\(i)(' + printExpression(tag) + ')')
-					}
-					//
-					return ('/*\(tagName)*/[globalThis.$$$$ = new Enum_\(i)(' + printExpression(tag) + ',' + [for a in args printExpression(a)].join(',') + '),$$$$.tagName="\(tagName)"][0]')
-					return ('/*\(tagName)*/new Enum_\(i)(' + printExpression(tag) + ',' + [for a in args printExpression(a)].join(',') + ')')
-
 					// TODO #if debug + also print file pos of instantiation
 					if args.length == 0 {
 						//return '/*\(tagName)*/[' + printExpression(tag) + ',".' + tagName + '"]'
@@ -674,7 +639,6 @@ class GenJs {
 					//					return ('/*\(tagName)*/[' + printExpression(tag) + ',' + [for a in args printExpression(a)].join(',') + ',".' + tagName + '"]')
 					return ('/*\(tagName)*/[' + printExpression(tag) + ',' + [for a in args printExpression(a)].join(',') + ']')
 				case EnumParameter(expr, index):
-					return printExpression(expr) + '._' + (1 + index) + ''
 					return printExpression(expr) + '[' + (1 + index) + ']'
 				case null:
 					console.error("Got null expression kind in JavaScript generator, probably unsupported feature was used, ignoring")
