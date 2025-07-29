@@ -31,7 +31,7 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Native performance with static types and optimizing compiler
 - Follows Node.js (and browser) API
 - Fast compilation
-- Compiles to JavaScript, WebAssembly, [osdev](https://github.com/GreenteaOS/Tofita), LLVM, C, C++, ObjC, ... you name it! **(WIP)**
+- Compiles to JavaScript, WebAssembly, [OSDev](https://github.com/GreenteaOS/Tofita), LLVM, C, C++, ObjC, ... you name it! **(WIP)**
 - Transpilation to almost anything: Lua, AutoCAD Lisp, C#, PHP, etc **(WIP)**
 	- Simple API for custom third-party transpilers **(WIP)**
 - Produces human-readable code for all targets
@@ -45,9 +45,10 @@ Hexa is a high level, strictly typed programming language that compiles to JavaS
 - Completely cross-platform
 - Stable long-term backward-compatible syntax **(WIP)**
 - We are working on an optional memory ownership model (similar to borrow checker) and side effects system **(WIP)**
-- Experimental C-to-Hexa and TypeScript-to-Hexa automatic conversion **(WIP)**
+- Experimental C-to-Hexa and TypeScript-to-Hexa automatic conversion/import **(WIP)**
 - JSX-style inline templating **(WIP)**
 - And of course, IDE plugins with Language Server built right into Hexa!
+- (this feature is yet to be decided) Precise optional systems-friendly Garbage Collector (GC) in addition to Hexa memory management that runs **sometimes/manually** to clean circular dependencies for you
 
 > **WIP — Work in progress, coming soon**
 
