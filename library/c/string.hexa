@@ -1,6 +1,6 @@
 // The MIT License
 //
-// Copyright (C) 2022-2024 Oleh Petrenko
+// Copyright (C) 2022-2025 Oleh Petrenko
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +24,7 @@
 // TODO `[i]` not works
 /// TODO doc comment
 @final // TODO optimize into non-virtual calls
+@friend(true) // Allows to access `private var` of `String` instances within any static/etc methods of String
 // TODO @asIs // Allows to simply use this name in code generator
 class String {
 	// TODO `let length: Int` ?
@@ -41,8 +42,39 @@ class String {
 	@keep private var next: String? = null
 	@keep private var bytesLength: Int = 0
 	@keep private var bytesHash: Int = 0
+	// TODO if bytes allocated next to String, it could be as `char bytes[]` in C thus not wasting space for separate field which is good for small strings (also less mallocs)
 	@keep private var bytes: ConstArrayPointer<UInt16> = null as! ConstArrayPointer<UInt16>
 	// TODO fun getBytesPointer(): Int {return 0}
+
+	// TODO #region Operators
+
+	/* TODO
+		// by static could also work for external-defined .d.ts String types! non-builtin
+		@operator ('==') static fun compare(current String, another String) {
+			return
+				current.bytes.ref == another.bytes.ref
+				or
+				current.meta.address == another.meta.address
+				or
+				...compare by chars (for non-de-duped js-like impl)
+		}
+
+		// operator != inferred or defined manually
+
+		// TODO @operator('>') needed for default Array<String>.sort() as in JS
+		// operator < inferred or defined manually
+
+		// custom allocator:
+		static new(xxx, yyy) {
+			let result = malloc(String.meta.sizeUnaligned) as! String
+			result.meta.invokeConstructor(xxx, yyy)
+			return result
+		}
+
+		@operator ('==') fun compare(another String)
+	*/
+
+	// TODO #region Methods
 
 	// TODO `@to(ConstArrayPointer<ClangWideChar>)` so allows to call without `.wide`
 	// ^ fix tofitaDebugLog calls in Tofita
@@ -50,6 +82,7 @@ class String {
 	fun utf16(): ConstArrayPointer<ClangWideChar> {
 		return bytes as! ConstArrayPointer<ClangWideChar>
 	}
+	// TODO `.ref` getter?
 
 	fun utf8copy(): Buffer {
 		let result = Buffer.alloc(this.length)
@@ -149,6 +182,8 @@ class String {
 		return i
 	}
 
+	// TODO rename z to zero or something or null
+	// TODO ConstArrayPointer<UInt8> not same as ConstArrayPointer<UInt8>? ie nullable
 	static fun countUTF8z(string: ConstArrayPointer<UInt8>): Int {
 		return countUTF8zUpTo(string, defaultLimit)
 	}
@@ -159,6 +194,7 @@ class String {
 		// TODO test type check that constructor is private
 		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
 		let bytes = malloc(size * 2u64 + 2u64) as! ArrayPointer<UInt16>
+		// TODO alloc on stack if size is not that large (64k?)
 
 		// TODO proper UTF convert
 		// TODO copy 8 bytes at a time
@@ -214,7 +250,7 @@ class String {
 				var i = 0
 				// TODO scan 8 bytes at a time
 				while string[i] == now.bytes[i] and i < chars {
-				// TODO syntax `while string[i] == now.bytes[i], i < chars {` + `while let`
+					// TODO syntax `while string[i] == now.bytes[i], i < chars {` + `while let`
 					i++
 				}
 
@@ -385,8 +421,10 @@ class String {
 
 	static fun fromUInt64(value: UInt64): String {
 		// Reserve 2 bytes for null-terminator, cause using `fromUTF16z`
+		// TODO produces ` = {(uint16_t)((int32_t)0)};` but better just produce `= {0}`
 		var bytes: ArrayByValue<UInt16, 22> = [0]
 
+		// TODO This zero-fill is redundant
 		for i in 22 {
 			bytes[i] = 0
 		}
