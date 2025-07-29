@@ -1375,6 +1375,8 @@ class Normalizer {
 									signature.push('const')
 								case Struct(value):
 									signature.push('struct')
+								case Generic(index, name):
+									signature.push('generic' + index + name)
 								case _:
 									throw type
 							}
@@ -1643,7 +1645,7 @@ class Normalizer {
 							let storage = unique('over')
 
 							return Statement.Block([
-								// `var over = ...expression...`
+								// `var over = ...expression...` TODO do not do if coming from `let` ident
 								Statement.Var(storage, nodeToExpression(over), overType),
 								// `var it = 0`
 								Statement.Var(it, Expression.Int(0), typer.typeInt),
@@ -2188,10 +2190,12 @@ class Normalizer {
 		}
 
 		// Allows to find renamed node
+		// TODO `[:]` type is unknown!
 		let parentNames: [Node : String] = [:]
 
 		// Returns new name if name occupied or reserved
 		// Returns same name and calls addToScope if name is free
+		// TODO `= null` should not work here
 		fun unique(name: String, node: Node = null): String {
 			var uname = name
 			while
@@ -2203,7 +2207,7 @@ class Normalizer {
 			}
 
 			addToScope(uname)
-			if node != null {
+			if node != null { // TODO Inline hint (like error on the right) Always true (node is not nullable)
 				parentNames.set(node, uname)
 			}
 			return uname
@@ -2216,6 +2220,7 @@ class Normalizer {
 		}
 
 		fun fillStatement(e: Node): Statement {
+			// TODO better error message for `return call()` where `call()` returns `Void`
 			return nodeToStatement(e)
 		}
 
