@@ -653,13 +653,14 @@ class GenCxx {
 					}
 
 					if let expr = expr {
-						out.push(printFunctionReturnType(funcType))
+						let returns = printFunctionReturnType(funcType)
+						out.push(returns)
 						out.push(' ' + name)
 						out.push(printFunctionArguments(args, funcType, variadic))
 
 						let _currentReturnType = currentReturnType
 						currentReturnType = getFunctionReturnType(funcType)
-						out.push(' ' + printBlock(expr) + ';\n\n')
+						out.push(' ' + printFunctionBody(expr, returns) + ';\n\n')
 						currentReturnType = _currentReturnType
 					}
 			}}
@@ -733,8 +734,8 @@ class GenCxx {
 
 					switch type {
 						// TODO same for const
-						case ClassInstance(type, generics): {
-							if type.name == 'ArrayByValue' {
+						case ClassInstance(classType, generics): {
+							if classType.name == 'ArrayByValue' {
 								var arraySize = ''
 								if let count = generics[1] {
 									arraySize = '[' + Type.stringify(count) + ']'
@@ -769,6 +770,11 @@ class GenCxx {
 								globalVariables.push(';\n')
 
 								defaults = false
+							} else if classType.name == 'ByValue' {
+								globalVariables.push(stringifyType(type))
+								globalVariables.push(' ' + name + '_')
+								globalVariables.push(';\n')
+								defaults = false
 							}
 						}
 					}
@@ -776,7 +782,20 @@ class GenCxx {
 					if defaults {
 						//types.push('void* ' + name + '_;\n')
 						globalVariables.push(stringifyType(type))
-						globalVariables.push(' ' + name + '_;\n')
+						globalVariables.push(' ' + name + '_') // TODO respect `@rename`
+
+						if let link = link, let linkName = link.linkName {
+							if exports and extraUnderscore and linkName.startsWith('_') {
+								globalVariables.push(' HEXA_LINK("_')
+							} else {
+								globalVariables.push(' HEXA_LINK("')
+							}
+
+							globalVariables.push(linkName)
+							globalVariables.push('")')
+						}
+
+						globalVariables.push(';\n')
 						if expr != null {
 							let value String = printExpression(expr)
 
@@ -1045,6 +1064,24 @@ class GenCxx {
 				case _: //return '{ ' + printStatement(s) + '; }'
 					return printStatement(Statement.Block([s]))
 			}
+		}
+
+		// Add extra `return 0` to avoid stack corruption
+		fun printFunctionBody(s: Statement, returns: String): String {
+			if returns != 'void', returns.endsWith('*') or [
+				'float','int',
+				'uint8_t','uint16_t','uint32_t','uint64_t',
+				'int8_t','int16_t','int32_t','int64_t'
+			].includes(returns) {
+				switch s {
+					case Block(el):
+						let block = el.clone()
+						block.push(Statement.Return(Expression.Int(0)))
+						return printBlock(Statement.Block(block))
+				}
+			}
+
+			return printBlock(s)
 		}
 
 		var metaBlock: [String] = []
@@ -1634,12 +1671,18 @@ class GenCxx {
 				return 'String_$fromBool_(' + string + ')'
 			}
 
-			if fromValue == project.typer.typeString { switch to {
-				case ClassInstance(type): if (type.name == 'ConstCharPointer') {
-					console.log(type)
-					return '(' + string + ')->bytes_'
+			if fromValue == project.typer.typeString {
+				switch to {
+					case ClassInstance(type):
+					if type.name == 'ConstCharPointer' {
+						return '(' + string + ')->bytes_'
+					}
+
+					if type.name == 'ConstArrayPointer' {
+						return '(' + string + ')->bytes_'
+					}
 				}
-			}}
+			}
 
 			switch fromValue {
 				case Nullable(_):
