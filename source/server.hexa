@@ -356,6 +356,7 @@ class Server {
 															}
 
 														case For(iterator, over, statement, range):
+															// TODO `iterator`
 															checkNode(over)
 															checkNode(statement)
 															if let initializer = range {
@@ -369,6 +370,11 @@ class Server {
 																// TODO argNames too
 																checkNode(arg)
 															}
+
+														case Try(expr, types, values, catches): {
+															checkNode(expr)
+															// TODO
+														}
 
 														case Binop(left, op, right):
 															// TODO hover on op (span is between left.xy and right.xy)
@@ -411,6 +417,8 @@ class Server {
 													var code = ''
 													var doc = ''
 													var typeHeader = '// Type of expression'
+													// TODO not allow [0] on enums
+													//console.log("nearest!", nearest[0])
 
 													var typeOf Node? = nearest
 
@@ -661,9 +669,12 @@ class Server {
 
 												case Enum(t, fields, valuesType, _):
 													// TODO `extend`
-													var detail = 'enum'
-													// TODO shortcut `if let extend {}` musthave
+													var detail = 'enum' // `complex enum / tagged union` and `simple enum / enumeration / N tags/values/constants`
+													// if no `=` but -not- just enum (has 'T') than `values`
+													// `@enumTag class Int`
+													// TODO shortcut `if let extend {}` must have
 													if let valuesType = valuesType {
+														// `enum T` not `:`
 														detail = ': ' + NodeType.stringify(valuesType)
 													}
 
@@ -710,7 +721,6 @@ class Server {
 										response.push({content: pretty})
 										// TODO syntax as `catch e Any` no colon
 									} catch e: Any {
-										console.log(e)
 										// Fallback to token-based one
 										response.push({content: autoFormatWholeFile(command.payload)})
 									}
