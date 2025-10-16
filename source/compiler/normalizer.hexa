@@ -1742,12 +1742,13 @@ class Normalizer {
 				block.push(Statement.Var(step, Expression.Int(0), typer.typeInt))
 				var nullable = false
 				var last = ''
-				let lastType = typer.types.get(econd[0])
+				var lastType = typer.types.get(econd[0])
  				switch econd[0] {
 					case Var(name, t, expr, const):
 					last = unique(name, econd[0])
 					nullable = true
 					block.push(Statement.Const(last, nodeToExpression(expr), typer.types.get(econd[0])))
+					lastType = lastType ?? typer.types.get(expr)
 					case _:
 					last = unique('temp')
 					block.push(Statement.Const(last, nodeToExpression(econd[0]), typer.types.get(econd[0])))
@@ -1761,7 +1762,7 @@ class Normalizer {
 						Expression.Binop(
 							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
 							Token.LogicalAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
@@ -1770,6 +1771,7 @@ class Normalizer {
 						]), null))
 					current++
 					last = name
+					lastType = typer.types.get(expr)
 					nullable = true
 					case _:
 					let next = unique('temp')
@@ -1779,7 +1781,7 @@ class Normalizer {
 						Expression.Binop(
 							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
 							Token.LogicalAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
+							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
 							typer.typeBool
 						),
 						Statement.Block([
@@ -1788,6 +1790,7 @@ class Normalizer {
 						]), null))
 					current++
 					last = next
+					lastType = nextType
 					nullable = false
 				}}
 
@@ -1796,7 +1799,7 @@ class Normalizer {
 					Expression.Binop(
 						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
 						Token.LogicalAnd,
-						Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, typer.typeBool),
+						Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
 						typer.typeBool
 					),
 					Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(econd.length), null), null))

@@ -21,6 +21,12 @@ class GenCxx {
 		return new GenCxx()
 	}
 
+	static fun spawnCpp() {
+		let result = new GenCxx()
+		result.cpp = true
+		return result
+	}
+
 	new () {
 		// Fields are initialized at declarations
 	}
@@ -39,6 +45,8 @@ class GenCxx {
 	/// On x64 it is always fast call,
 	/// but on Win32 i686 we should use std call
 	var defaultCallingConvention = '__conventionName '
+	/// C++ generator
+	var cpp Bool = false
 	/// Quick access
 	var memory64 = true
 	let nativeIterators = false
@@ -1913,6 +1921,11 @@ class GenCxx {
 								return '*((/*struct to struct*/' + omitPointer(stringifyType(to)) + '*)&(' + string + '))'
 							}
 
+							// Special case in C++: cast from pointer to smaller type 'uint32_t'
+							if to == project.typer.typeUInt32 {
+								return '(uint32_t)(size_t)(' + string + ')'
+							}
+
 							return '(' + stringifyType(to) + ')(' + string + ')'
 					}
 				}
@@ -2207,7 +2220,8 @@ class GenCxx {
 					typedefFunctions.push(');\n')
 					return '_$\(temp)'
 				case Constant(value): return value
-				case null: return 'Any_*'
+				case null:
+					return 'Any_*'
 				case _:
 					throw 'stringifyType ' + t
 			}
@@ -2301,7 +2315,10 @@ class GenCxx {
 					}
 			}
 
-			return printExpression(v)
+			let vType = getType(v)
+
+			return printTypeConverter(printExpression(v), vType, ofType)
+			// return printExpression(v)
 		}
 
 		var customThis: String? = null

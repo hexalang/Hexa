@@ -35,7 +35,7 @@
 
 #ifndef HEXA_NO_DEFAULT_INCLUDES
 	#ifdef __cplusplus
-		#include <new> // Placement new
+		// #include <new> // Placement new
 		// TODO include if C++11:
 		// #include <functional> // For [&]
 		#ifdef __GNUC__
@@ -66,6 +66,24 @@
 		// TODO defines before includes
 		#ifndef UNICODE
 			#define UNICODE
+		#endif
+		#ifndef WIN32_LEAN_AND_MEAN
+			#define WIN32_LEAN_AND_MEAN
+		#endif
+		#ifndef WIN32_EXTRA_LEAN
+			#define WIN32_EXTRA_LEAN
+			#define NOSERVICE
+			#define NOMCX
+			#define NOIME
+			#define NOSOUND
+			#define NOCOMM
+			#define NOKANJI
+			#define NORPC
+			#define NOPROXYSTUB
+			#define NOIMAGE
+			#define NOTAPE
+			#define NOGDI
+			#define NOUSER
 		#endif
 		#ifdef _WIN32
 			#include <windows.h>
@@ -106,7 +124,7 @@ int HEXA_MAIN(int, char **);
 #endif
 // TODO malloc must be at #ifdef _WIN32 or NOT USED AT ALL, but use HEXA_NEW in code gen
 #ifdef _WIN32
-	#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
+	//#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
 #endif
 
 #ifndef HEXA_FREE
@@ -151,7 +169,8 @@ typedef struct Any_ Any_;
 //typedef _GUID _IID;
 //typedef _IID* _REFIID;
 #ifdef _WIN32
-	#define __stdcall __stdcall
+	#ifndef __stdcall
+	#endif
 #else
 	#define __stdcall__
 #endif
