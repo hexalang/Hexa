@@ -431,6 +431,8 @@ struct Null$Float64 {
 };
 typedef struct Null$Float64 Null$Float64;
 
+// TODO maybe there some bit-exact sentinel that can be used as null?
+// if ((uint32_t*)value)[0] != sentinel { non null }
 struct Null$Float32 {
 	float value_;
 	uint8_t has_;
