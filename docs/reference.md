@@ -7,6 +7,8 @@ Is does *not* correspond to the actual syntax of Hexa. It's a draft of the synta
 Below is a comprehensive list of the syntax elements of Hexa.
 Every syntax element is shown with an examples of all possible variations.
 
+> NOTE: This file will be transformed into a auto-test for a parser.
+
 ## Comments
 
 Hexa supports single-line, multi-line, and documentation comments.
@@ -336,6 +338,8 @@ declare fun externalFunc() Void
 
 ## Classes and Interfaces
 
+Types always start with a capital letter.
+
 ### Classes
 
 ```hexa
@@ -344,7 +348,7 @@ class Point {
     var y Int
 
     // Constructor
-    new(x Int, y Int) {
+    new (x Int, y Int) {
         this.x = x
         this.y = y
     }
@@ -355,7 +359,7 @@ class Point {
     }
 
     static fun origin() Point {
-        return new Point(0, 0)
+        return Point(0, 0) // `new` not required and not allowed
     }
 }
 ```
@@ -408,17 +412,27 @@ class Rect {
 ## Enums
 
 ```hexa
+// Complex enums
 enum Color {
     Red
     Green
     Blue
+	Other(r Int, g Int, b Int) // Both name and type are required
 }
+
+Color.Red != Color.Red // Every instance is unique value
 
 // Enum with values
 enum Status Int {
     Ok = 200
     NotFound = 404
+    BadRequestError = 404 // Duplicate value is NOT allowed with constant
+    BadRequest = NotFound // Duplicate value is allowed with alias
+    Overloaded // Inferred value as BadRequest + 1
 }
+
+Status.Ok == Status.Ok // Every tag is just a raw value with a name
+var plain Int = Status.Ok // ERROR: Sound type system disallows this
 ```
 
 ## Types
@@ -442,8 +456,8 @@ enum Status Int {
 ### Type Aliases
 
 ```hexa
-declare type ID = String
-declare type Callback = (Int) => Void
+type ID = String
+type Callback = (Int) => Void
 ```
 
 ## Modules
