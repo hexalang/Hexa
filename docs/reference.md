@@ -16,24 +16,23 @@ Hexa supports single-line, multi-line, and documentation comments.
 
 /*
    Multi-line comment
+
+   /* Nested */
 */
 
 /// Documentation comment (single-line)
 fun foo() {}
-
-/**
- * Documentation comment (multi-line)
- */
-class Bar {}
+// NOTE super easy to transform // into ///
 ```
 
 ## Identifiers
 
-Identifiers can contain alphanumeric characters and underscores `_`. They must start with a letter or underscore.
+Identifiers can contain alphanumeric characters and underscores `_`. They must start with a *lowercase* letter or underscore.
 
 ```hexa
 var myVariable = 1
-let _private = 2
+var myVariable T = 1 // no `:` and no `;`
+let _ssa = 2
 ```
 
 ## Variables
@@ -50,11 +49,11 @@ let y = 3
 // y = 4 // Error
 
 // Type annotation
-var z: Int = 5
+var z Int = 5
 
 // External declarations
-declare var externalVar: Int
-declare let externalConst: String
+declare var externalVar Int
+declare let externalConst String
 ```
 
 ## Literals
@@ -76,7 +75,15 @@ let exp = 1.2e-5
 // Suffixes
 let big = 123n // BigInt
 let u8 = 123u8
+let u16 = 123u16
+let u32 = 123u32
+let u64 = 123u64
+let u128 = 123u128
+let i8 = 123i8
+let i16 = 123i16
 let i32 = 123i32
+let i64 = 123i64
+let i128 = 123i128
 let f32 = 1.23f32
 ```
 
@@ -97,33 +104,38 @@ let s3 = `
 
 ```hexa
 let t = true
-let f = false
+let f Bool = false
 ```
 
 ### Null
 
 ```hexa
-let n = null
+let n T? = null // Requires known expected type
 ```
 
 ### Arrays
 
 ```hexa
 let arr = [1, 2, 3]
-let empty: [Int] = []
+let empty [Int] = []
 ```
 
 ### Maps
 
 ```hexa
-let map = ["key": "value", "one": "two"]
-let emptyMap: [String: String] = [:]
+let map = ["key": "value", "one": "two"] // Inferred as [String: String]
+let emptyMap [String: String] = [:]
+// Immutable map TODO by default?
+let immutableMap [String: String] = let ["key": "value", "one": "two"]
 ```
 
 ### Objects
 
 ```hexa
-let obj = { x: 1, y: 2 }
+let obj = { x: 1, y: 2 } // Inferred as type { var x Int var y Int }
+// NOTE mutable by default
+let obj2 = let { x: 1, y: 2 } // Immutable
+// TODO make immutable by default?
 ```
 
 ## Operators
@@ -136,9 +148,11 @@ a - b
 a * b
 a / b
 a % b  // Remainder
-a \ b  // Integer divide
-++a
---a
+a \ b  // Integer divide TODO rethink
+// ++a NOTE N/A for clarity
+// --a NOTE N/A for clarity
+a++
+a--
 ```
 
 ### Comparison
@@ -155,9 +169,9 @@ a >= b
 ### Logical
 
 ```hexa
-a && b  // Logical AND
-a || b  // Logical OR
-!a      // Logical NOT
+// a && b  // Logical AND NOTE N/A for clarity
+// a || b  // Logical OR NOTE N/A for clarity
+// !a      // Logical NOT NOTE N/A for clarity
 a and b // Alias for &&
 a or b  // Alias for ||
 not a   // Alias for !
@@ -192,6 +206,7 @@ a /= b
 obj.prop
 arr[index]
 obj?.prop // Optional chaining
+obj!.prop // Force unwrap
 ```
 
 ### Type Operators
@@ -201,6 +216,7 @@ expr is Type
 expr as Type   // Unsafe cast
 expr as? Type  // Safe cast (returns nullable)
 expr as! Type  // Force cast
+// TODO expr.as(Type) and expr.as(Type, 'static_cast') and .as? .as!
 ```
 
 ### Other
@@ -208,7 +224,8 @@ expr as! Type  // Force cast
 ```hexa
 a ?? b      // Elvis operator (null coalescing)
 a ... b     // Interval
-cond ? a : b // Ternary operator (if supported, otherwise use if/else expression)
+cond ? a : b // Ternary operator
+expr = if cond { a } else { b } // {} are required
 (args) => expr // Arrow function
 ```
 
@@ -216,15 +233,15 @@ cond ? a : b // Ternary operator (if supported, otherwise use if/else expression
 
 ### If / Else
 
-`if` can be used as a statement or an expression.
+`if` can be used as a statement or an expression. {} are required
 
 ```hexa
 if x > 0 {
-    print("Positive")
+    console.log("Positive")
 } else if x < 0 {
-    print("Negative")
+    console.log("Negative")
 } else {
-    print("Zero")
+    console.log("Zero")
 }
 
 // Expression
@@ -246,13 +263,23 @@ do {
 
 // For-In
 for item in items {
-    print(item)
+    console.log(item)
 }
 
 // For loop with range
 for i in 0 ... 10 {
-    print(i)
+    console.log(i)
 }
+
+// Loops from n to m-1 (thus allows to iterate over an array.length)
+for i in n ... m {}
+for i in 0 ... array.length {}
+
+// Shorthand for numbers - can omit 0
+for i in array.length {}
+
+// Inclusive loop syntax N/A, just use +1
+for i in n + 1 {}
 ```
 
 ### Switch
@@ -260,11 +287,11 @@ for i in 0 ... 10 {
 ```hexa
 switch value {
     case 1:
-        print("One")
+        console.log("One")
     case 2:
-        print("Two")
+        console.log("Two")
     case _:
-        print("Other")
+        console.log("Other")
 }
 ```
 
@@ -282,7 +309,7 @@ throw error
 ```hexa
 try {
     risky()
-} catch e: Error {
+} catch e Error {
     handle(e)
 }
 ```
@@ -291,20 +318,20 @@ try {
 
 ```hexa
 // Basic function
-fun add(a: Int, b: Int): Int {
+fun add(a Int, b Int) Int {
     return a + b
 }
 
 // Generic function
-fun identity<T>(x: T): T {
+fun identity<T>(x T) T {
     return x
 }
 
 // Arrow function
-let double = (x: Int) => x * 2
+let double = (x Int) => x * 2
 
 // External function
-declare fun externalFunc(): Void
+declare fun externalFunc() Void
 ```
 
 ## Classes and Interfaces
@@ -313,21 +340,21 @@ declare fun externalFunc(): Void
 
 ```hexa
 class Point {
-    var x: Int
-    var y: Int
+    var x Int
+    var y Int
 
     // Constructor
-    new(x: Int, y: Int) {
+    new(x Int, y Int) {
         this.x = x
         this.y = y
     }
 
-    fun move(dx: Int, dy: Int) {
+    fun move(dx Int, dy Int) {
         this.x += dx
         this.y += dy
     }
 
-    static fun origin(): Point {
+    static fun origin() Point {
         return new Point(0, 0)
     }
 }
@@ -351,7 +378,7 @@ class Circle extends Shape {
 
 ```hexa
 interface Drawable {
-    fun draw(): Void
+    fun draw() Void
 }
 
 class Box implements Drawable {
@@ -365,10 +392,10 @@ class Box implements Drawable {
 
 ```hexa
 class Rect {
-    var width: Int
-    var height: Int
+    var width Int
+    var height Int
 
-    var area: Int {
+    var area Int {
         get {
             return width * height
         }
@@ -388,7 +415,7 @@ enum Color {
 }
 
 // Enum with values
-enum Status: Int {
+enum Status Int {
     Ok = 200
     NotFound = 404
 }
