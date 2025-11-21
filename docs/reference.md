@@ -9,6 +9,8 @@ Every syntax element is shown with an examples of all possible variations.
 
 > NOTE: This file will be transformed into a auto-test for a parser.
 
+> NOTE: Only minimal semantic overview is provided here. Syntax is key.
+
 ## Comments
 
 Hexa supports single-line, multi-line, and documentation comments.
@@ -143,6 +145,31 @@ let obj = { x: 1, y: 2 } // Inferred as type { var x Int var y Int }
 // NOTE mutable by default
 let obj2 = let { x: 1, y: 2 } // Immutable
 // TODO make immutable by default?
+```
+
+## Decorators (Attributes/Annotations)
+
+Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their name are camelCase.
+
+```hexa
+@struct // NOTE decorators are not expressions and they require one below them
+@packed
+class AcpiTableHeader {}
+
+@inline fun foo() {} // Any expression can be decorated
+x = @example 123
+
+// TODO same names allowed?
+@sameName @sameName fun foo() {}
+
+// TODO decorator namespaces?
+@namespace.decorator fun foo() {}
+
+// Decorators can contain any expressions as parameters
+@example("example") // Unnamed
+@example(example: "example") // Named
+@example(1, 2, name: value) // Multiple parameters
+fun foo() {}
 ```
 
 ## Operators
@@ -329,9 +356,10 @@ fun add(a Int, b Int) Int {
     return a + b
 }
 
-// Generic function
-fun identity<T>(x T) T {
-    return x
+// Generic function - implicit
+fun identity(x) { // NOTE lack of type parameters (both <T> and T)
+    // NOTE this function is still fully generic, it just infers the type
+	return x
 }
 
 // Arrow function
@@ -339,6 +367,30 @@ let double = (x Int) => x * 2
 
 // External function
 declare fun externalFunc() Void
+
+// Generic function - explicit
+fun identity<T>(x T) T {
+    return x
+}
+
+// Generic function - trait bound at argument level
+fun identity(x BoxTrait<Int>) Int { // NOTE using traits as types makes the whole function generic
+    return x
+}
+
+// Generic function - trait bound at argument level - advanced
+fun identity<T>(x BoxTrait<T>) T { // NOTE passing <T> into a trait
+    return x
+}
+
+// Usage
+let x = identity(123)
+let y = identity<String>("hello") // NOTE no space in between < and T
+
+// Generic function with trait bound
+fun identity<T BoxTrait<Int>>(x T) T {
+    return x
+}
 ```
 
 ## Classes and Interfaces
@@ -350,7 +402,7 @@ Types always start with a capital letter.
 ```hexa
 class Point {
     var x Int
-    var y Int
+    private var y Int // NOTE only `private` is supported, it behaves like `protected` in other languages
 
     // Constructor
     new (x Int, y Int) {
@@ -360,13 +412,166 @@ class Point {
 
     fun move(dx Int, dy Int) {
         this.x += dx
-        this.y += dy
+        y += dy // NOTE `this` is optional when there are no name conflicts
     }
+
+    static var xx Int // NOTE static members are allowed
+    private static var yy Int // NOTE private static members are allowed
 
     static fun origin() Point {
         return Point(0, 0) // `new` not required and not allowed
     }
 }
+```
+
+### Class Constructors
+
+```hexa
+class Point {
+    var x Int
+    var y Int
+
+    new (x Int, y Int) {
+        this.x = x
+        this.y = y
+    }
+}
+
+let point = Point(1, 2) // NOTE `new` not allowed
+
+// Alternatively
+class Point {
+    var x Int
+    var y Int
+
+    // NOTE `new` assumed by default
+	// `private new() {}` to disable construction outside, allowed only in static methods
+}
+
+let point = Point() { x: 1, y: 2 } // JSON-like syntax
+let point = Point { x: 1, y: 2 } // Can omit `()` then
+
+// Alternatively even more JSON-like
+let point Point = { x: 1, y: 2 } // Type inference -> Point type omitted on the right side
+```
+
+### Generic classes
+
+```hexa
+class Box<T> {
+    var value T
+
+    new (value T) {
+        this.value = value
+    }
+}
+
+let box = Box<Int>(123)
+
+// More complex example
+let box2 = Box<Box<Int>>(Box(123))
+
+class Box<T, U> {
+    var value T
+    var value2 U
+
+    new (value T, value2 U) {
+        this.value = value
+        this.value2 = value2
+    }
+}
+
+let box3 = Box<Int, String>(123, "hello")
+```
+
+### Traits
+
+```hexa
+type BoxTrait { // NOTE traits use `type` keyword but overall parsed same way as a class
+    fun box() Void
+}
+
+// Generic trait
+type BoxTrait<T> {
+    fun box(value T) Void
+}
+
+// Implementing trait
+class Box BoxTrait<Int> { // NOTE traits are implemented just mentioning them in the class declaration
+    fun box(value Int) Void {
+        // Do something
+    }
+}
+
+// Enums can implement traits too
+enum Color BoxTrait<Int> { Red Green Blue fun box(value Int) Void { } }
+
+// Generic class with a trait as a type limit
+class Box<T BoxTrait<Int>> { // NOTE `BoxTrait<Int>` is a type limit placed after the type parameter with a space in between
+    var value T
+
+    new (value T) {
+        this.value = value
+    }
+}
+
+class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
+    var value T
+    var value2 U
+
+    new (value T, value2 U) {
+        this.value = value
+        this.value2 = value2
+    }
+}
+```
+
+### Associated types
+
+```hexa
+type BoxTrait<T> {
+    type Value = T
+}
+
+// Type bundles
+type Traits {
+	type A
+	type B
+	type C
+}
+
+type TraitsFor<T> {
+	type A = T
+	type B = T
+	type C = T
+}
+
+// Implementing them explicitly
+type TraitsBundleX Traits {
+	type A = Int
+	type B = String
+	type C = Float
+}
+
+type TraitsBundleY Traits {
+	type A = Bool
+	type B = String
+	type C = Float
+}
+
+// Using them as namespaces
+var x TraitsBundleX.A = 123
+var y TraitsBundleY.A = true
+
+// Also as local namespaces
+class Box<Types Traits> {
+	type Alias = Types.A
+
+	var value Types.B = ""
+	var value2 Types.C = 0.0
+}
+
+let box = Box<TraitsFor<Int>>()
 ```
 
 ### Inheritance
@@ -428,7 +633,7 @@ enum Color {
 Color.Red != Color.Red // Every instance is unique value
 
 // Enum with values
-enum Status Int {
+enum Status Int { // NOTE Adding basic type after the space turns it into a constant enum
     Ok = 200
     NotFound = 404
     BadRequestError = 404 // Duplicate value is NOT allowed with constant
