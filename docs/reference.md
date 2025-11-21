@@ -387,10 +387,10 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 }
 
 // Arrow function
-let double = (x Int) => x * 2
+let double Callback = (x) => x * 2 // NOTE arrow functions require known expeted type to infer their arguments
 
 // Function  type
-let func (Int, Int) => Int = add
+let func (x Int, y Int) => Int = add // NOTE arguments are required to be named for clarity
 
 // External function
 declare fun externalFunc() Void // NOTE no body
@@ -851,13 +851,18 @@ if value & requiredFlags {
 - `[T]`: Array of T
 - `[K: V]`: Map with key K and value V
 - `T?`: Optional T (nullable)
-- `{ x: Int, y: Int }`: Object type
+- `type { let x Int let y Int }`: Object type
+
+```hexa
+// Shorthand for a type -> otherwise just inferred
+var point type { let x Int let y Int } = { x: 1, y: 2 }
+```
 
 ### Type Aliases
 
 ```hexa
 type ID = String
-type Callback = (Int) => Void
+type Callback = (result Int) => Void
 ```
 
 ### Casts
