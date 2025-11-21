@@ -15,6 +15,7 @@ Hexa supports single-line, multi-line, and documentation comments.
 
 ```hexa
 // Single-line comment
+// Supports minimal `markdown` syntax in highlighting (assumed that every Hexa-compliant editor supports it)
 
 /*
    Multi-line comment
@@ -23,8 +24,12 @@ Hexa supports single-line, multi-line, and documentation comments.
 */
 
 /// Documentation comment (single-line)
+/// Can have more lines
+/// NOTE requires expression below it
 fun foo() {}
-// NOTE super easy to transform // into ///
+// NOTE super easy to transform // into /// even for lazy developers
+
+// TODO support doc tags
 ```
 
 ## Identifiers
@@ -433,6 +438,98 @@ enum Status Int {
 
 Status.Ok == Status.Ok // Every tag is just a raw value with a name
 var plain Int = Status.Ok // ERROR: Sound type system disallows this
+```
+
+## Pattern Matching
+
+```hexa
+switch value { // uses `switch` keyword for pattern matching thus familiar to C-family developers
+    case 1:
+        console.log("One")
+		// NOTE assumes `break` at the end of each case by default
+    case 2:
+        console.log("Two")
+    case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
+        console.log("Other")
+	case null: // NOTE `null` always checked first no matter where it is placed
+		console.log("Null")
+}
+```
+
+### Enum Pattern Matching
+
+```hexa
+enum Color {
+    Red
+    Green
+    Blue
+    Other(r Int, g Int, b Int)
+}
+
+switch value {
+    case Red: // NOTE `case Color.Red:` and `case .Red:` are NOT allowed
+        console.log("Red")
+		// NOTE assumes `break` at the end of each case by default
+    case Green:
+        console.log("Green")
+    case Blue:
+        console.log("Blue")
+    case Other(r, g, b as blue):
+		// NOTE exact same names are required (i.e. `r` and `g`)
+		// NOTE order of parameters is NOT important due to names requirement above
+		// NOTE `b as blue` allows to rename parameter
+		// NOTE parameters are captured as readonly local variables scoped to the case body
+        console.log("Other", r, g, blue) // NOTE only `blue` is accessible here
+}
+```
+
+### Enum Flags Pattern Matching
+
+```hexa
+switch flags {
+    // 1. EXACT Match
+    // Transpiles to: if (flags == Flag1)
+    case Flag1:
+        // ...
+
+    // 2. PARTIAL Match (Has Flag1 set, ignores others)
+    // Transpiles to: if ((flags & Flag1) == Flag1)
+    case Flag1 | ...:
+        // ...
+
+    // 3. EXCLUSION (Has Flag1, but DEFINITELY NOT Flag2)
+    // Transpiles to: if ((flags & Flag1) == Flag1 && (flags & Flag2) == 0)
+    case Flag1 | ... | not Flag2:
+        // ...
+
+    // 4. COMBINATION (Has Flag1 AND Flag2)
+    // Transpiles to: if ((flags & (Flag1|Flag2)) == (Flag1|Flag2))
+    case Flag1 | Flag2 | ...:
+        // ...
+}
+```
+
+Compatible with multiple matches and alternatives:
+
+```hexa
+switch value {
+    case A | B | C or D | E | F: // NOTE `or` has lower precedence than `|` here
+        console.log("Either exact (A | B | C) or exact (D | E | F)")
+}
+
+switch value1, value2 {
+    case A | B or D | E, 123: // NOTE `123` matches `value2` because its separated by comma
+        console.log("Either exact (A | B and also 123) or exact (D | E and also 123)")
+}
+```
+
+Can be nested:
+
+```hexa
+switch value {
+    case Other(flags: Flag1 | Flag2 | ..., otherValue1, otherValue2):
+        console.log("Exact (Flag1 | Flag2 | ...) and also captures otherValue1, otherValue2")
+}
 ```
 
 ## Types
