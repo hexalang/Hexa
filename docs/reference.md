@@ -75,6 +75,7 @@ Hexa supports integers and floating-point numbers.
 // Integers
 let a = 123
 let hex = 0xFF
+let hex = 0xff
 let bin = 0b101
 
 // Floats
@@ -127,6 +128,19 @@ let n T? = null // Requires known expected type
 ```hexa
 let arr = [1, 2, 3]
 let empty [Int] = []
+
+// TODO nullable? or just disallow and use switch?
+let [x, y, z] = arr
+
+switch arr {
+    case [x, y, z]:
+        console.log(x, y, z)
+    case []:
+        console.log("Empty")
+    case _:
+        console.log("Other")
+    // TODO more patterns
+}
 ```
 
 ### Maps
@@ -231,7 +245,7 @@ a += b
 a -= b
 a *= b
 a /= b
-// ... and so on for other operators
+// TODO and so on for other operators
 ```
 
 ### Access
@@ -359,14 +373,14 @@ fun add(a Int, b Int) Int {
 // Generic function - implicit
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
     // NOTE this function is still fully generic, it just infers the type
-	return x
+    return x
 }
 
 // Arrow function
 let double = (x Int) => x * 2
 
 // External function
-declare fun externalFunc() Void
+declare fun externalFunc() Void // NOTE no body
 
 // Generic function - explicit
 fun identity<T>(x T) T {
@@ -445,7 +459,7 @@ class Point {
     var y Int
 
     // NOTE `new` assumed by default
-	// `private new() {}` to disable construction outside, allowed only in static methods
+    // `private new() {}` to disable construction outside, allowed only in static methods
 }
 
 let point = Point() { x: 1, y: 2 } // JSON-like syntax
@@ -535,28 +549,28 @@ type BoxTrait<T> {
 
 // Type bundles
 type Traits {
-	type A
-	type B
-	type C
+    type A
+    type B
+    type C
 }
 
 type TraitsFor<T> {
-	type A = T
-	type B = T
-	type C = T
+    type A = T
+    type B = T
+    type C = T
 }
 
 // Implementing them explicitly
 type TraitsBundleX Traits {
-	type A = Int
-	type B = String
-	type C = Float
+    type A = Int
+    type B = String
+    type C = Float
 }
 
 type TraitsBundleY Traits {
-	type A = Bool
-	type B = String
-	type C = Float
+    type A = Bool
+    type B = String
+    type C = Float
 }
 
 // Using them as namespaces
@@ -565,10 +579,10 @@ var y TraitsBundleY.A = true
 
 // Also as local namespaces
 class Box<Types Traits> {
-	type Alias = Types.A
+    type Alias = Types.A
 
-	var value Types.B = ""
-	var value2 Types.C = 0.0
+    var value Types.B = ""
+    var value2 Types.C = 0.0
 }
 
 let box = Box<TraitsFor<Int>>()
@@ -591,11 +605,11 @@ class Circle extends Shape {
 ### Interfaces
 
 ```hexa
-interface Drawable {
+interface Drawable { // NOTE runtime feature compared to traits
     fun draw() Void
 }
 
-class Box implements Drawable {
+class Box Drawable { // NOTE no need to use `implements` keyword
     fun draw() {
         // Draw box
     }
@@ -615,7 +629,37 @@ class Rect {
         }
         // Optional setter
         // set(v) { ... }
+        // TODO rethinking this
     }
+}
+```
+### Destructuring
+
+```hexa
+// NOTE `let` is required for clarity, does not work with `var`
+let {width, height} = Rect {width: 1, height: 2}
+
+switch value {
+    case {width, height}: // NOTE `let` is NOT required
+        console.log("Width: ", width, "Height: ", height)
+    case {width: 123}: // NOTE checking a specific value
+        console.log("Width: ", width)
+    case SomeEnum(rect: {width, height}): // NOTE destructuring inside the pattern
+        console.log("Width: ", rect.width, "Height: ", rect.height)
+    case SomeEnum(rect: {width: 123}): // NOTE checking a specific value inside the pattern
+        console.log("Width: ", rect.width)
+
+    // Advanced patterns
+    case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
+        console.log("Width: ", width)
+        console.log("Height: ", height) // NOTE height is not checked
+
+    case {width} if width > 123: // NOTE checking a condition with runtime expression
+        console.log("Width: ", width)
+
+    // With alias
+    case {width as w: _ < 123}: // NOTE checking a condition
+        console.log("Width: ", w)
 }
 ```
 
@@ -627,7 +671,7 @@ enum Color {
     Red
     Green
     Blue
-	Other(r Int, g Int, b Int) // Both name and type are required
+    Other(r Int, g Int, b Int) // Both name and type are required
 }
 
 Color.Red != Color.Red // Every instance is unique value
@@ -651,13 +695,26 @@ var plain Int = Status.Ok // ERROR: Sound type system disallows this
 switch value { // uses `switch` keyword for pattern matching thus familiar to C-family developers
     case 1:
         console.log("One")
-		// NOTE assumes `break` at the end of each case by default
+        // NOTE assumes `break` at the end of each case by default
     case 2:
         console.log("Two")
     case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
         console.log("Other")
-	case null: // NOTE `null` always checked first no matter where it is placed
-		console.log("Null")
+    case null: // NOTE `null` always checked first no matter where it is placed
+        console.log("Null")
+}
+```
+
+### Switch as Expression
+
+```hexa
+let result = switch value {
+    case 1:
+        "One"
+    case 2:
+        "Two"
+    case _:
+        "Other"
 }
 ```
 
@@ -669,26 +726,35 @@ enum Color {
     Green
     Blue
     Other(r Int, g Int, b Int)
+    Nested(color Color)
 }
 
 switch value {
     case Red: // NOTE `case Color.Red:` and `case .Red:` are NOT allowed
         console.log("Red")
-		// NOTE assumes `break` at the end of each case by default
-    case Green:
-        console.log("Green")
-    case Blue:
-        console.log("Blue")
+        // NOTE assumes `break` at the end of each case by default
+    case Green or Blue:
+        console.log("Green or Blue")
     case Other(r, g, b as blue):
-		// NOTE exact same names are required (i.e. `r` and `g`)
-		// NOTE order of parameters is NOT important due to names requirement above
-		// NOTE `b as blue` allows to rename parameter
-		// NOTE parameters are captured as readonly local variables scoped to the case body
+        // NOTE exact same names are required (i.e. `r` and `g`)
+        // NOTE order of parameters is NOT important due to names requirement above
+        // NOTE `b as blue` allows to rename parameter
+        // NOTE parameters are captured as readonly local variables scoped to the case body
         console.log("Other", r, g, blue) // NOTE only `blue` is accessible here
+
+    // Advanced patterns with nested enums
+    case Nested(color: Red):
+        console.log("Nested Red")
+    case Nested(color: Green or Blue):
+        console.log("Nested Green or Blue")
+    case Nested(color: Other(r, g, b as blue)):
+        console.log("Nested Other", r, g, blue)
+    case Nested(color: Nested(color: Red)):
+        console.log("Nested Nested Red")
 }
 ```
 
-### Enum Flags Pattern Matching
+### Enum Flags
 
 ```hexa
 switch flags {
@@ -732,8 +798,27 @@ Can be nested:
 
 ```hexa
 switch value {
+    // NOTE named parameters checked with `name: pattern`
     case Other(flags: Flag1 | Flag2 | ..., otherValue1, otherValue2):
         console.log("Exact (Flag1 | Flag2 | ...) and also captures otherValue1, otherValue2")
+}
+```
+
+#### Enum Flags Shorthands
+
+```hexa
+if value & A {
+    console.log("A")
+}
+
+if value & (A | B) { // NOTE requires () because the (A | B) is a *value* not pattern
+    console.log("A and B")
+}
+
+// Same as
+let requiredFlags = A | B
+if value & requiredFlags {
+    console.log("A and B")
 }
 ```
 
@@ -760,6 +845,14 @@ switch value {
 ```hexa
 type ID = String
 type Callback = (Int) => Void
+```
+
+### Casts
+
+```hexa
+expr as! Type      // force/unsafe cast
+expr as? Type      // safe cast (returns null on failure)
+expr as Type       // safe cast (exception on failure)
 ```
 
 ## Modules
