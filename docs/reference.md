@@ -108,6 +108,9 @@ let s3 = `
     Multi-line
     String
 `
+let s4 = "Hello \n World"
+let s5 = "Hello \"World\""
+let s6 = "Hello \(1 + 2) World" // Formatting
 ```
 
 ### Booleans
@@ -128,6 +131,8 @@ let n T? = null // Requires known expected type
 ```hexa
 let arr = [1, 2, 3]
 let empty [Int] = []
+let none [Int]? = null
+let oneNull [Int?] = [null]
 
 // TODO nullable? or just disallow and use switch?
 let [x, y, z] = arr
@@ -169,6 +174,9 @@ Decorators start with `@` and are placed before a declaration. Multiple decorato
 @struct // NOTE decorators are not expressions and they require one below them
 @packed
 class AcpiTableHeader {}
+
+// Work with types too
+var x @example Int = 123
 
 @inline fun foo() {} // Any expression can be decorated
 x = @example 123
@@ -270,11 +278,13 @@ expr as! Type  // Force cast
 ### Other
 
 ```hexa
-a ?? b      // Elvis operator (null coalescing)
 a ... b     // Interval
 cond ? a : b // Ternary operator
 expr = if cond { a } else { b } // {} are required
 (args) => expr // Arrow function
+// NOTE arrow functions have no types, they are inferred
+// To use types, use a function (as value expression):
+fun (args) return {} // NOTE shorthand for fun (args) { return expr }
 ```
 
 ## Control Flow
@@ -378,6 +388,9 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 
 // Arrow function
 let double = (x Int) => x * 2
+
+// Function  type
+let func (Int, Int) => Int = add
 
 // External function
 declare fun externalFunc() Void // NOTE no body
@@ -853,6 +866,18 @@ type Callback = (Int) => Void
 expr as! Type      // force/unsafe cast
 expr as? Type      // safe cast (returns null on failure)
 expr as Type       // safe cast (exception on failure)
+```
+
+## Nullability
+
+```hexa
+let x Int? = null
+let y Int? = 123
+
+// NOTE this syntax is not allowed
+// let z Int! = null // Error
+
+a ?? b // Elvis operator (null coalescing)
 ```
 
 ## Modules
