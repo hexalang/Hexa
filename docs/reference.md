@@ -26,22 +26,28 @@ Hexa supports single-line, multi-line, and documentation comments.
 */
 
 /// Documentation comment (single-line)
-/// Can have more lines
+/// Can have more lines - they will combine into single doc comment
+/// They do not interact with decorators
 /// NOTE requires expression below it
 fun foo() {}
 // NOTE super easy to transform // into /// even for lazy developers
 
-// TODO support doc tags
+// TODO support doc tags like
+/// @param x the value
+/// @returns squared value
+fun square(x Int) Int { return x * x }
 ```
 
 ## Identifiers
 
 Identifiers can contain alphanumeric characters and underscores `_`. They must start with a *lowercase* letter or underscore.
 
+Unicode characters are not allowed. Only latin alphabet is supported, with numbers and underscores.
+
 ```hexa
-var myVariable = 1
+var myVariable = 1 // Type is inferred
 var myVariable T = 1 // no `:` and no `;`
-let _ssa = 2
+let _ssa = 2 // Read-only
 ```
 
 ## Variables
@@ -53,6 +59,10 @@ Variables are declared using `var` (mutable) or `let` (immutable).
 var x = 1
 x = 2
 
+// Shadowing is fine (local to the block)
+let x = 1
+let x = 2
+
 // Immutable constant
 let y = 3
 // y = 4 // Error
@@ -61,8 +71,9 @@ let y = 3
 var z Int = 5
 
 // External declarations
-declare var externalVar Int
-declare let externalConst String
+declare var externalVar Int // NOTE no `= value` assignment allowed
+// Readonly external declaration
+declare let externalConst String // Type is required for `declare`
 ```
 
 ## Literals
@@ -71,19 +82,19 @@ declare let externalConst String
 
 Keywords are reserved words that cannot be used as identifiers.
 
+They are not contextual and always reserved in any syntax construct.
+
 ```hexa
 true false
 null
-fun
+fun return
 var let
-declare
-return
-break continue
+declare private static
 throw try catch
-for while in
+for while in break continue
 if else
 switch case
-class enum type
+class enum type interface
 async await
 // TODO
 ```
@@ -92,13 +103,17 @@ Some words are reserved for possible future use.
 
 ```hexa
 trait
-interface
 override
 const // Possibly for `const [1, 2, 3]` for readonly array literals
 readonly
 match
 finally
 default
+public protected
+template macro
+when
+guard
+implements extends
 // TODO
 ```
 
@@ -118,7 +133,6 @@ let b = 1.23
 let exp = 1.2e-5
 
 // Suffixes
-let big = 123n // BigInt
 let u8 = 123u8
 let u16 = 123u16
 let u32 = 123u32
@@ -130,6 +144,14 @@ let i32 = 123i32
 let i64 = 123i64
 let i128 = 123i128
 let f32 = 1.23f32
+
+// BigInt
+let big = 123n
+let hex = 0xFFn
+let bin = 0b101n
+
+// Underscore separators
+let big = 1_000_000
 ```
 
 ### Strings
@@ -145,7 +167,10 @@ let s3 = `
 `
 let s4 = "Hello \n World"
 let s5 = "Hello \"World\""
-let s6 = "Hello \(1 + 2) World" // Formatting
+
+// String interpolation
+let s6 = "Hello \(1 + 2) World"
+let s7 = "Hello \(foo.bar) World" // Any expression is valid
 ```
 
 ### Booleans
@@ -172,6 +197,15 @@ let oneNull [Int?] = [null]
 // TODO nullable? or just disallow and use switch?
 let [x, y, z] = arr
 
+// Trailing comma
+let array = [1, 2, 3,]
+
+// Spread operator
+let a = [1, 2, 3]
+let b = [4, 5, 6]
+let c = [0, ...a, ...b]
+
+// Switch with destructuring
 switch arr {
     case [x, y, z]:
         console.log(x, y, z)
@@ -185,23 +219,60 @@ switch arr {
 
 ### Maps
 
+Map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
+
 ```hexa
 let map = ["key": "value", "one": "two"] // Inferred as [String: String]
 let emptyMap [String: String] = [:]
 // Immutable map TODO by default?
 let immutableMap [String: String] = let ["key": "value", "one": "two"]
+
+// Switch with destructuring
+switch map {
+    case ["key": "value", "one": "two"]:
+        console.log("Match")
+    case _:
+        console.log("Other")
+    // TODO more patterns
+}
+
+// Any expression works as a key
+let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 ```
 
 ### Objects
 
+Object is a simple fixed key-value store. It's not a map like []. Keys cannot be changed (added/removed) syntactically, only via reflection.
+
 ```hexa
-let obj = { x: 1, y: 2 } // Inferred as type { var x Int var y Int }
+let obj = { x: 1, y: 2 } // Inferred as type/interface (TODO?) { var x Int var y Int }
 // NOTE mutable by default
 let obj2 = let { x: 1, y: 2 } // Immutable
 // TODO make immutable by default?
+
+// Switch with destructuring
+switch obj {
+    case { x: 1, y: 2 }:
+        console.log("Match")
+    case _:
+        console.log("Other")
+    // TODO more patterns
+}
+
+// Shorthand for two or more fields (single value would confuse with a block) -> TODO rethink, maybe allow special case?
+let value = 132
+let obj = { value, x: 1, y: 2 }
+
+// Computed field names TODO is this really useful?
+let obj = { (foo()): 1 }
+
+// Object spread for Redux-like updates
+let obj = { ...obj, z: 3 }
 ```
 
 ## Decorators (Attributes/Annotations)
+
+Decorators are compile-time concept, like C++ attributes.
 
 Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their name are camelCase.
 
@@ -219,7 +290,7 @@ x = @example 123
 // TODO same names allowed?
 @sameName @sameName fun foo() {}
 
-// TODO decorator namespaces?
+// TODO decorator namespaces? -> unrelated to module system
 @namespace.decorator fun foo() {}
 
 // Decorators can contain any expressions as parameters
@@ -232,6 +303,8 @@ fun foo() {}
 fun someFunction(@readonly some Type) {
     // ...
 }
+
+// TODO Decorator order semantics — is @a @b fun f() same as @b @a?
 ```
 
 ## Operators
@@ -265,11 +338,11 @@ a >= b
 ### Logical
 
 ```hexa
-// a && b  // Logical AND NOTE N/A for clarity
-// a || b  // Logical OR NOTE N/A for clarity
-// !a      // Logical NOT NOTE N/A for clarity
-a and b // Alias for &&
-a or b  // Alias for ||
+// Deprecated: a && b  // Logical AND NOTE N/A for clarity
+// Deprecated: a || b  // Logical OR NOTE N/A for clarity
+// Deprecated: !a      // Logical NOT NOTE N/A for clarity
+a and b // Alias for && -> short-circuit
+a or b  // Alias for || -> short-circuit
 not a   // Alias for !
 ```
 
@@ -305,40 +378,6 @@ obj?.prop // Optional chaining
 obj!.prop // Force unwrap
 ```
 
-### Type Operators
-
-```hexa
-// Old way
-expr is Type
-expr as Type   // Unsafe cast
-expr as? Type  // Safe cast (returns nullable)
-expr as! Type  // Force cast
-
-// New way - good for chaining and avoids precedence confusion
-// Example: `123 + 345 as T` is confusing: `123 + (345 as T)` or `(123 + 345) as T`
-expr.as(Type).as(OtherType).method() // Enables chaining
-
-// Enables rich casting options when targeting C++, Java, C#, etc
-expr.as(Type, 'static_cast')
-expr.as(Type, 'dynamic_cast')
-expr.as(Type, 'const_cast')
-expr.as(Type, 'reinterpret_cast')
-
-// Enables to do straight-forward casts with compile time known values
-let cast = 'reinterpret_cast'
-expr.as(Type, cast)
-
-// TODO multi-casts?
-expr.as(Type, 'dynamic_cast', 'const_cast')
-expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')
-
-// TODO behaviour specification?
-expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw
-expr.as(Type, 'dynamic_cast', 'null') // cast-or-null
-
-// TODO expr.as(Type) and expr.as(Type, 'static_cast') and .as? .as!
-```
-
 ### Other
 
 ```hexa
@@ -346,6 +385,7 @@ a ... b     // Interval
 cond ? a : b // Ternary operator
 expr = if cond { a } else { b } // {} are required
 (args) => expr // Arrow function
+(args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
 fun (args) return {} // NOTE shorthand for fun (args) { return expr }
@@ -394,6 +434,16 @@ if x > 0 {
     console.log("Zero")
 }
 
+// Multiple conditions
+if x > 0, y < 10 { // Same as `if (x > 0) && (y < 10)`
+    console.log("Positive")
+}
+
+// Compatible with bindings
+if let x = a, y > b, let z = c { // NOTE `let z` is allowed
+    console.log(x, y, z)
+}
+
 // Expression
 let result = if x > 0 { "Positive" } else { "Non-positive" }
 ```
@@ -414,7 +464,7 @@ do {
 // For-In
 for item in items { // NOTE no `let` required but still creates a local read-only variable, `var` is not allowed
     console.log(item)
-    break
+    break // No labels allowed or supported, outer break is done with meta methods
     continue
 }
 
@@ -451,12 +501,17 @@ for i in n + 1 {}
 
 ### Switch
 
+Exhaustiveness checking is done when the type allows for it.
+
 ```hexa
-switch value {
+switch value { // Plain integer is not exhaustive
     case 1:
         console.log("One")
+        // no break needed, assumed to break by default
     case 2:
         console.log("Two")
+    case x if x > 10: // Pattern guard can work over captured `x` (captured from `value`)
+        console.log("Greater than 10")
     case _:
         console.log("Other")
 }
@@ -483,21 +538,30 @@ try {
 
 ## Functions
 
+Closures follow same rules as a JavaScript functions (capture by reference), including arrow functions.
+
 ```hexa
 // Basic function
-fun add(a Int, b Int) Int {
+fun add(a Int, b Int = 5) Int { // Default arguments are allowed
     return a + b
 }
 
 // Calls
 add(1, 2)
+add(1) // b is optional
+
+// Optionally can be called with same argument names as in function declaration (no need for separate named arguments set)
 add(a: 1, b: 2) // NOTE order is required to match arguments
+add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
+add(1, b: 2)
 
 // Generic function - implicit
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
     // NOTE this function is still fully generic, it just infers the type
     return x
 }
+
+// TODO possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class)
 
 // Arrow function
 let double Callback = (x) => x * 2 // NOTE arrow functions require known expeted type to infer their arguments
@@ -533,11 +597,49 @@ fun identity<T BoxTrait<Int>>(x T) T {
 }
 
 // TODO ...rest parameters
+
+// Overloading
+fun fooForInt(x Int) Int {
+    return x
+}
+
+fun fooForString(x String) String {
+    return x
+}
+
+// Odin-style left-to-right overloading
+fun foo is fooForInt or fooForString
+foo(123)
+foo("hello")
+// NOTE overloading allowed in classes too with this syntax -> compile-time only feature
+
+// Function as value
+let func = fooForInt
+let func = fun (x Int) Int { return x }
+func(123)
+
+// Recursion
+fun fib(n Int) Int {
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+// Recursion with function by value
+let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow function cannot be recursive but `fun` syntax is interchangeable
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fibAsValue(10)
 ```
 
 ## Classes and Interfaces
 
-Types always start with a capital letter.
+Types (classes, interfaces, traits, enums) always start with a capital letter.
 
 ### Classes
 
@@ -547,6 +649,7 @@ class Point {
     private var y Int // NOTE only `private` is supported, it behaves like `protected` in other languages
 
     // Constructor
+    // Can be `private` (then only accessible from within the static methods and descendants)
     new (x Int, y Int) {
         this.x = x
         this.y = y
@@ -563,7 +666,18 @@ class Point {
     static fun origin() Point {
         return Point(0, 0) // `new` not required and not allowed
     }
+
+    fun noMethodBody() Void // NOTE turns into abstract class
 }
+
+// External class
+@final // Disallow inheritance
+declare class Point {
+    var x Int
+    var y Int
+}
+
+// TODO Inner/nested classes currently decided to not support them for code clarity
 ```
 
 ### Class Constructors
@@ -595,6 +709,7 @@ let point = Point { x: 1, y: 2 } // Can omit `()` then
 
 // Alternatively even more JSON-like
 let point Point = { x: 1, y: 2 } // Type inference -> Point type omitted on the right side
+let point Point = { "x": 1, y: 2 } // NOTE `"x"` is okay if corresponding field is called `x` too
 ```
 
 ### Generic classes
@@ -639,11 +754,14 @@ class Box<T, let size T> { // NOTE `let` is used to declare a const generic and 
 }
 
 let box = Box<Int, 1>(123)
+
+// TODO rethink if <let size T> or just <size T>
 ```
 
 ### Traits
 
 ```hexa
+// Parsing rules same as of classes
 type BoxTrait { // NOTE traits use `type` keyword but overall parsed same way as a class
     fun box() Void
 }
@@ -738,7 +856,8 @@ class Shape {
     fun draw() {}
 }
 
-class Circle extends Shape {
+// Single inheritance (first in the list) but any number of traits or interfaces allowed (in any order)
+class Circle Shape Trait Interface {
     fun draw() { // NOTE `override` is not required - but signature must match
         // Draw circle
     }
@@ -748,6 +867,7 @@ class Circle extends Shape {
 ### Interfaces
 
 ```hexa
+// Parsing rules same as of classes
 interface Drawable { // NOTE runtime feature compared to traits
     fun draw() Void
 }
@@ -834,6 +954,8 @@ var plain Int = Status.Ok // ERROR: Sound type system disallows this
 
 ## Pattern Matching
 
+Compared to classic `switch` statement, pattern matching matches over patterns by the logic of "more specific first". The order of cases is not important (most of the time -> when patterns are not depending on runtime values).
+
 ```hexa
 switch value { // uses `switch` keyword for pattern matching thus familiar to C-family developers
     case 1:
@@ -851,13 +973,17 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 ### Switch as Expression
 
 ```hexa
+var three = 3 // NOTE `var` i.e. can be any actual value at the moment of pattern matching
+
 let result = switch value {
-    case 1:
+    case _: // NOTE always checked last no matter where it is placed
+        "Other"
+    case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
         "One"
     case 2:
         "Two"
-    case _:
-        "Other"
+    case (three): // NOTE `()` pick runtime value to match to
+        "Equal to variable called `three`"
 }
 ```
 
@@ -992,15 +1118,44 @@ var point type { let x Int let y Int } = { x: 1, y: 2 }
 
 ```hexa
 type ID = String
+type Generic<T> = Other<T>
 type Callback = (result Int) => Void
+type GenericCallback<T> = (result T) => Void
 ```
 
 ### Casts
 
 ```hexa
-expr as! Type      // force/unsafe cast
-expr as? Type      // safe cast (returns null on failure)
-expr as Type       // safe cast (exception on failure)
+// Old way
+expr is Type
+expr as Type   // Safe cast (exception on failure)
+expr as? Type  // Safe cast (returns nullable)
+expr as! Type  // Force unsafe cast
+
+// New way - good for chaining and avoids precedence confusion
+// Example: `123 + 345 as T` is confusing: `123 + (345 as T)` or `(123 + 345) as T`
+expr.as(Type).as(OtherType).method() // Enables chaining
+
+// Enables rich casting options when targeting C++, Java, C#, etc
+expr.as(Type, 'static_cast')
+expr.as(Type, 'dynamic_cast')
+expr.as(Type, 'const_cast')
+expr.as(Type, 'reinterpret_cast')
+
+// Enables to do straight-forward casts with compile time known values
+let cast = 'reinterpret_cast'
+expr.as(Type, cast)
+
+// TODO multi-casts?
+expr.as(Type, 'dynamic_cast', 'const_cast')
+expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')
+
+// TODO behaviour specification?
+expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw
+expr.as(Type, 'dynamic_cast', 'null') // cast-or-null
+
+// TODO expr.as(Type) and expr.as(Type, 'static_cast') and .as? .as!
+// TODO is
 ```
 
 ### Type Matching
@@ -1073,6 +1228,15 @@ let y Int? = 123
 // let z Int! = null // Error
 
 a ?? b // Elvis operator (null coalescing)
+
+value!.field // Force unwrap -> exception if value is null
+value?.field // Optional chaining -> null if value is null
+
+// TODO same for array access etc
+
+x = value! // Force unwrap -> exception if value is null
+x = value!! // Force unwrap -> unchecked and may crash elsewhere
+// value!!.field // Not allowed to avoid abuse/confusion (!.field will throw anyway due to immediate null-dereference)
 ```
 
 ## Modules
@@ -1086,7 +1250,11 @@ import std.io
 import mylib in "libs/mylib"
 
 // New way
-import NameSpace
+import NameSpace // TODO allow at module level or scope/class level too?
+import TypeName // Can import static fields into current scope and associated types
+import NameSpace.TypeName // Nested is possible
+import NameSpace as AliasNameSpace // Can alias
+import NameSpace.TypeName as AliasTypeName // Can alias
 // TODO
 ```
 
@@ -1114,6 +1282,8 @@ let element = div({ children: ["Hello, world!"] })
 
 Meta methods allow to access type information and other metadata at compile time (like size of structure akin to sizeof in C).
 
+`meta` is a keyword and cannot be used as an identifier.
+
 ```hexa
 let x = 1.meta.something // `.meta` is a special pseudo-field on any expression
 SomeClass.meta.something // Works on types as well
@@ -1123,6 +1293,10 @@ meta.something(name: "value") // callable pseudo-method with named arguments
 
 let value = someValue
 let sizeof = value.meta.type.sizeInBytes // TODO maybe redundant
+
+// `meta` itself is not a real value, and you can't pass it to functions, store it
+// let value = someValue.meta // ERROR
+// let value = meta // ERROR
 ```
 
 ## Async
