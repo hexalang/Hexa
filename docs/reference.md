@@ -67,6 +67,24 @@ declare let externalConst String
 
 ## Literals
 
+### Keywords
+
+Keywords are reserved words that cannot be used as identifiers.
+
+```hexa
+true false
+null
+// TODO
+```
+
+Some words are reserved for possible future use.
+
+```hexa
+trait
+interface
+// TODO
+```
+
 ### Numbers
 
 Hexa supports integers and floating-point numbers.
@@ -192,6 +210,11 @@ x = @example 123
 @example(example: "example") // Named
 @example(1, 2, name: value) // Multiple parameters
 fun foo() {}
+
+// Decorators on function arguments
+fun someFunction(@readonly some Type) {
+    // ...
+}
 ```
 
 ## Operators
@@ -317,17 +340,32 @@ while x > 0 {
 // Do-While
 do {
     x++
-} while x < 10
+} while x < 10 // NOTE no () for consistency
 
 // For-In
-for item in items {
+for item in items { // NOTE no `let` required but still creates a local read-only variable, `var` is not allowed
     console.log(item)
+    break
+    continue
 }
 
 // For loop with range
-for i in 0 ... 10 {
+for i in 0 ... 10 { // NOTE `i` is not visible outside the loop and is read-only
     console.log(i)
 }
+
+// Iterating over a number (0 to N-1)
+var count = 100
+for i in count {
+    // i is 0, 1, ..., 99
+}
+
+// Iterating over a number (0 to N-1) without a variable
+for i in 100 { // NOTE some variable name is always required
+    // i is 0, 1, ..., 99
+}
+
+// TODO allow to omit variable name with `_`?
 
 // Loops from n to m-1 (thus allows to iterate over an array.length)
 for i in n ... m {}
@@ -338,6 +376,8 @@ for i in array.length {}
 
 // Inclusive loop syntax N/A, just use +1
 for i in n + 1 {}
+
+// TODO kv
 ```
 
 ### Switch
@@ -609,7 +649,7 @@ class Shape {
 }
 
 class Circle extends Shape {
-    override fun draw() {
+    fun draw() { // NOTE `override` is not required - but signature must match
         // Draw circle
     }
 }
