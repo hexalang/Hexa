@@ -74,6 +74,17 @@ Keywords are reserved words that cannot be used as identifiers.
 ```hexa
 true false
 null
+fun
+var let
+declare
+return
+break continue
+throw try catch
+for while in
+if else
+switch case
+class enum type
+async await
 // TODO
 ```
 
@@ -82,6 +93,12 @@ Some words are reserved for possible future use.
 ```hexa
 trait
 interface
+override
+const // Possibly for `const [1, 2, 3]` for readonly array literals
+readonly
+match
+finally
+default
 // TODO
 ```
 
@@ -291,10 +308,34 @@ obj!.prop // Force unwrap
 ### Type Operators
 
 ```hexa
+// Old way
 expr is Type
 expr as Type   // Unsafe cast
 expr as? Type  // Safe cast (returns nullable)
 expr as! Type  // Force cast
+
+// New way - good for chaining and avoids precedence confusion
+// Example: `123 + 345 as T` is confusing: `123 + (345 as T)` or `(123 + 345) as T`
+expr.as(Type).as(OtherType).method() // Enables chaining
+
+// Enables rich casting options when targeting C++, Java, C#, etc
+expr.as(Type, 'static_cast')
+expr.as(Type, 'dynamic_cast')
+expr.as(Type, 'const_cast')
+expr.as(Type, 'reinterpret_cast')
+
+// Enables to do straight-forward casts with compile time known values
+let cast = 'reinterpret_cast'
+expr.as(Type, cast)
+
+// TODO multi-casts?
+expr.as(Type, 'dynamic_cast', 'const_cast')
+expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')
+
+// TODO behaviour specification?
+expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw
+expr.as(Type, 'dynamic_cast', 'null') // cast-or-null
+
 // TODO expr.as(Type) and expr.as(Type, 'static_cast') and .as? .as!
 ```
 
@@ -311,6 +352,34 @@ fun (args) return {} // NOTE shorthand for fun (args) { return expr }
 ```
 
 ## Control Flow
+
+### Top-Level Statements
+
+Useful for simple scripts. Hexa has no main function.
+
+```hexa
+// At the .hexa file level
+let x = 1
+let y = 2
+console.log(x + y)
+```
+
+### Blocks
+
+```hexa
+// Standalone blocks create a scope
+{
+    let x = 1
+    let y = 2
+}
+
+// Blocks can be used as expressions
+let result = {
+    let x = 1
+    let y = 2
+    x + y // The last expression is the result
+}
+```
 
 ### If / Else
 
@@ -420,6 +489,10 @@ fun add(a Int, b Int) Int {
     return a + b
 }
 
+// Calls
+add(1, 2)
+add(a: 1, b: 2) // NOTE order is required to match arguments
+
 // Generic function - implicit
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
     // NOTE this function is still fully generic, it just infers the type
@@ -458,6 +531,8 @@ let y = identity<String>("hello") // NOTE no space in between < and T
 fun identity<T BoxTrait<Int>>(x T) T {
     return x
 }
+
+// TODO ...rest parameters
 ```
 
 ## Classes and Interfaces
@@ -549,6 +624,21 @@ class Box<T, U> {
 }
 
 let box3 = Box<Int, String>(123, "hello")
+```
+### Const Generics
+
+Const generics allow to create types that depend on values.
+
+```hexa
+class Box<T, let size T> { // NOTE `let` is used to declare a const generic and can depend on other generics (e.g. `T`)
+    var value T
+
+    new (value T) {
+        this.value = value * size
+    }
+}
+
+let box = Box<Int, 1>(123)
 ```
 
 ### Traits
@@ -913,6 +1003,66 @@ expr as? Type      // safe cast (returns null on failure)
 expr as Type       // safe cast (exception on failure)
 ```
 
+### Type Matching
+
+```hexa
+switch type value {
+    case Bool:
+        console.log("Bool")
+    case Int(captureAsInt): // NOTE captureAsInt is readonly and equals to `value` casted to Int
+        console.log("Int", captureAsInt)
+    case String(captureAsString):
+        console.log("String", captureAsString)
+    case Array<Int>(captureAsArray): // NOTE generics too
+        console.log("Array of Int", captureAsArray)
+    case _:
+        console.log("Other")
+
+    // Optionally capture value as-is
+    case other:
+        console.log("Other", other)
+}
+
+// Works as expression too
+let result = switch type value {
+    case Int(captureAsInt):
+        "Int"
+    case String(captureAsString):
+        "String"
+    case Array<Int>(captureAsArray):
+        "Array of Int"
+    case _:
+        "Other"
+
+    // Optionally capture value as-is
+    case other:
+        console.log("Other", other)
+}
+
+// Allows for rich fine-tuned generic templates
+class MyArray<T> {
+    let storage SizeOfPointer
+    let capacity Int
+
+    // ... omitted ...
+
+    fun resize(newCapacity Int) {
+        switch type T {
+            case Bool:
+                // Allocate single bit per value
+                storage = realloc(storage, newCapacity / 8)
+            case _:
+                // Allocate full size per value
+                let sizeOfItem = T.meta.sizeInBytes
+                storage = realloc(storage, newCapacity * sizeOfItem)
+        }
+
+        capacity = newCapacity
+        // ...
+    }
+}
+```
+
 ## Nullability
 
 ```hexa
@@ -928,11 +1078,16 @@ a ?? b // Elvis operator (null coalescing)
 ## Modules
 
 ```hexa
+// Old way
 // Import module
 import std.io
 
 // Import from specific path
 import mylib in "libs/mylib"
+
+// New way
+import NameSpace
+// TODO
 ```
 
 ## Preprocessor
@@ -941,4 +1096,50 @@ import mylib in "libs/mylib"
 #if debug
     console.log("Debug mode")
 #end
+```
+
+## JSX
+
+```hexa
+fun div(props: { var children [Node]? }) {}
+
+// Lowercase tag names allow for HTML like syntax
+let element = <div>Hello, world!</div>
+
+// Transpiles to
+let element = div({ children: ["Hello, world!"] })
+```
+
+## Meta Methods
+
+Meta methods allow to access type information and other metadata at compile time (like size of structure akin to sizeof in C).
+
+```hexa
+let x = 1.meta.something // `.meta` is a special pseudo-field on any expression
+SomeClass.meta.something // Works on types as well
+meta.something // `meta` is a special pseudo-object
+meta.something(123) // callable pseudo-method
+meta.something(name: "value") // callable pseudo-method with named arguments
+
+let value = someValue
+let sizeof = value.meta.type.sizeInBytes // TODO maybe redundant
+```
+
+## Async
+
+```hexa
+async fun fetchData() {
+    let data = await fetch("https://api.example.com/data")
+    return data
+}
+
+// Function that awaits by default
+await fun fetchData() {
+    let data = fetch("https://api.example.com/data")
+    return data
+
+    // Can un-await with
+    let promise = async fetch("https://api.example.com/data")
+    return await promise // TODO hmm
+}
 ```
