@@ -1,8 +1,8 @@
 # Hexa Syntax Reference Draft
 
-This document is a draft of the Hexa syntax reference. It is not yet complete and may change in the future.
+This document is a draft of the Hexa syntax reference. It is not yet complete and may change.
 
-Is does *not* correspond to the actual syntax of Hexa. It's a draft of the syntax that will be released in the future.
+Is does *not* correspond to the actual syntax of Hexa. It's a draft of the syntax that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
 
 Below is a comprehensive list of the syntax elements of Hexa.
 Every syntax element is shown with an examples of all possible variations.
@@ -24,6 +24,8 @@ Reference is a work in progress:
 - [ ] Final Draft
 
 # Syntax
+
+Keep in mind that Hexa is targetting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
 
 ## Comments
 
@@ -113,7 +115,11 @@ async await
 // TODO
 ```
 
+#### Reserved Words
+
 Some words are reserved for possible future use.
+
+They will be either removed and available as identifiers or transformed into keywords.
 
 ```hexa
 trait
@@ -158,7 +164,7 @@ let i16 = 123i16
 let i32 = 123i32
 let i64 = 123i64
 let i128 = 123i128
-let f32 = 1.23f32
+let f32 = 1.23f32 // Also `1.2e-5f32` etc
 
 // BigInt
 let big = 123n
@@ -187,6 +193,10 @@ let s5 = "Hello \"World\""
 // String interpolation
 let s6 = "Hello \(1 + 2) World"
 let s7 = "Hello \(foo.bar) World" // Any expression is valid
+// NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
+// `()` is a clear group around expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
+
+// TODO describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding (rememer it should be capable of picking external formatting variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`) etc
 ```
 
 ### Booleans
@@ -198,8 +208,12 @@ let f Bool = false
 
 ### Null
 
+The `null` can only be passed to a known nullable type (`T?` with a question mark suffix):
+
 ```hexa
-let n T? = null // Requires known expected type
+let n T? = null // Ok
+let n T = null // Error: expected nullable type `T?`, got `T`
+let n = null // Error: there's no actual baking type, just `null`
 ```
 
 ### Arrays
@@ -278,6 +292,7 @@ switch obj {
 // Shorthand for two or more fields (single value would confuse with a block) -> TODO rethink, maybe allow special case?
 let value = 132
 let obj = { value, x: 1, y: 2 }
+let obj = { value } // TODO could be a special case for block with only a single identifier inside -> was acutally useful in some cases; this syntax is useless anyway for any other purpose so no confusion
 
 // Computed field names TODO is this really useful?
 let obj = { (foo()): 1 }
@@ -295,6 +310,7 @@ Decorators start with `@` and are placed before a declaration. Multiple decorato
 ```hexa
 @struct // NOTE decorators are not expressions and they require one below them
 @packed
+@sizeOf(16) // Expected size of the type in bytes checked by the compiler versus actual size
 class AcpiTableHeader {}
 
 // Work with types too
@@ -353,14 +369,13 @@ a >= b
 
 ### Logical
 
+Logical operators are short-circuiting, easy to read and write.
+
 ```hexa
-// Not allowed: a && b  // Logical AND NOTE N/A for clarity
-// Not allowed: a || b  // Logical OR NOTE N/A for clarity
-// Not allowed: !a      // Logical NOT NOTE N/A for clarity
-a and b // Same as classical && -> short-circuit
-a or b  // Same as classical || -> short-circuit
+a and b // Same as classical &&
+a or b  // Same as classical ||
 not a   // Same as classical !
-// NOTE ^ they accept only boolean operands
+// NOTE ^ they accept only boolean operands (i.e. `Bool`)
 ```
 
 ### Bitwise
@@ -386,26 +401,20 @@ a /= b
 // TODO and so on for other operators
 ```
 
-### Access
-
-```hexa
-obj.prop
-arr[index]
-obj?.prop // Optional chaining
-obj!.prop // Force unwrap
-```
-
 ### Other
 
 ```hexa
+obj.prop // Property access
+arr[index] // Element access
+map[key] = value // Forks for map too (also assignment)
 a ... b     // Interval
-cond ? a : b // Ternary operator
+cond ? a : b // Ternary operator (NOTE nested ternary is not allowed)
 expr = if cond { a } else { b } // {} are required
 (args) => expr // Arrow function
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
-fun (args) return {} // NOTE shorthand for fun (args) { return expr }
+fun (args) return {} // NOTE shorthand for fun (args) { return expr } i.e. functional programming style
 ```
 
 ## Control Flow
@@ -452,7 +461,7 @@ if x > 0 {
 }
 
 // Multiple conditions
-if x > 0, y < 10 { // Same as `if (x > 0) && (y < 10)`
+if x > 0, y < 10 { // Same as `if (x > 0) and (y < 10)`
     console.log("Positive")
 }
 
@@ -463,6 +472,15 @@ if let x = a, y > b, let z = c { // NOTE `let z` is allowed
 
 // Expression
 let result = if x > 0 { "Positive" } else { "Non-positive" }
+
+// `=` assignment is not an expression
+if a = b { // Error
+    // Will not compile, eliminates typos from if (a = b) instead of if (a == b)
+}
+
+// `if` can be used as an expression with {} required, `else` is required
+let result = if x > 0 { "Positive" } else { "Non-positive" }
+// Useful for cases like `if let` unsupported by the ternary operator
 ```
 
 ### Loops
@@ -547,12 +565,37 @@ throw error
 
 ### Try / Catch
 
+There's no `finally` block.
+
 ```hexa
 try {
     risky()
 } catch e Error {
     handle(e)
 }
+
+// Multiple catch blocks
+try {
+    risky()
+} catch e Error {
+    handle(e)
+} catch e Exception {
+    throw e // Re-throw
+}
+```
+
+#### Throw
+
+Checked and unchecked exceptions are supported.
+
+```hexa
+throw new Error("message") // Checked by default
+@unchecked throw new Error("message", cause)
+
+// TODO describe @throws and checked/unchecked more
+
+// Throwing arbitrary values is allowed
+throw "any value" // When the target supports it, otherwise wrapped in an error
 ```
 
 ## Functions
@@ -562,7 +605,7 @@ Closures follow same rules as a JavaScript functions (capture by reference), inc
 ```hexa
 // Basic function
 fun add(a Int, b Int = 5) Int { // Default arguments are allowed
-    return a + b
+    return a + b // {} around body is required for clarity (when no `return` short-hand is used instead of the body itself)
 }
 
 // Calls
@@ -584,6 +627,13 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 
 // Arrow function
 let double Callback = (x) => x * 2 // NOTE arrow functions require known expeted type to infer their arguments
+
+// Arrow function lowering to a plain function
+let plain = (x) => x * 2 // Lack of known types when assigned directly to a new constant is lowered to a plain `fun` function:
+fun plain(x) { // NOTE preserves genericity
+    return x * 2
+}
+plain(1)
 
 // Function  type
 let func (x Int, y Int) => Int = add // NOTE arguments are required to be named for clarity
@@ -615,6 +665,12 @@ fun identity<T BoxTrait<Int>>(x T) T {
     return x
 }
 
+// Generic function with multiple trait bounds `<T Bound1, U Bound2>`
+fun identity<A BoxTrait<Int>, B BoxTrait<String>>(x A, y B) Void {
+    console.log(x)
+    console.log(y)
+}
+
 // TODO ...rest parameters
 
 // Overloading
@@ -625,12 +681,6 @@ fun fooForInt(x Int) Int {
 fun fooForString(x String) String {
     return x
 }
-
-// Odin-style left-to-right overloading
-fun foo is fooForInt or fooForString
-foo(123)
-foo("hello")
-// NOTE overloading allowed in classes too with this syntax -> compile-time only feature
 
 // Function as value
 let func = fooForInt
@@ -654,6 +704,18 @@ let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow fun
 }
 
 fibAsValue(10)
+```
+
+#### Overloading
+
+Hexa supports clean compile-time function overloading via declarative `is` / `or` syntax.
+
+Alternatives are tried left-to-right, and the feature works inside classes too (to define methods and static methods).
+
+```hexa
+fun foo is fooForInt or fooForString
+foo(123)
+foo("hello")
 ```
 
 ## Classes and Interfaces
@@ -824,6 +886,13 @@ class Box<T BoxTrait<Int>> { // NOTE `BoxTrait<Int>` is a type limit placed afte
     }
 }
 
+// Generic class with multiple trait bounds `<T Bound1, U Bound2>`
+class Box<T Trait1, U Trait2> {
+    var value T
+    var value2 U
+	// ...
+}
+
 class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
     var value T
     var value2 U
@@ -837,6 +906,8 @@ class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
 
 ### Associated types
 
+Hexa supports family polymorphism:
+
 ```hexa
 type BoxTrait<T> {
     type Value = T
@@ -844,7 +915,7 @@ type BoxTrait<T> {
 
 // Type bundles
 type Traits {
-    type A
+    type A // NOTE when `=` absent, the implementor should provide it
     type B
     type C
 }
@@ -871,6 +942,14 @@ type TraitsBundleY Traits {
 // Using them as namespaces
 var x TraitsBundleX.A = 123
 var y TraitsBundleY.A = true
+
+// Generic type bundles
+type GenericTraitsBundle<K> {
+    type Collection<V> = Map<K, V> // NOTE `V` is a generic type parameter of `type` field inside of the trait
+}
+
+// Usage
+var x GenericTraitsBundle<Int>.Collection<String> = Map<Int, String>()
 
 // Also as local namespaces
 class Box<Types Traits> {
@@ -899,6 +978,8 @@ class Circle Shape Trait Interface {
 ```
 
 ### Interfaces
+
+Compared to traits, interface is a runtime feature (via reflection and virtual methods if the platform supports it). Interfaces are parsed the same way as classes.
 
 ```hexa
 // Parsing rules same as of classes
@@ -1019,12 +1100,24 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 }
 ```
 
+Enumeration tag can be made non-exhaustive by adding `nonExhaustive` modifier. This is useful for cases when you want to allow for new tags to be added in the future without breaking the code.
+
+```hexa
+enum Status Int {
+    A
+    B
+    @nonExhaustive C // NOTE `C` is not exhaustive TODO or @exhaustive(false)
+}
+```
+
 ### Switch as Expression
+
+`switch` can be used as an expression, its always exhaustive.
 
 ```hexa
 var three = 3 // NOTE `var` i.e. can be any actual value at the moment of pattern matching
 
-let result = switch value {
+let result = switch value { // NOTE no `()`
     case _: // NOTE always checked last no matter where it is placed
         "Other"
     case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
@@ -1269,14 +1362,17 @@ class MyArray<T> {
 
 ## Nullability
 
+`null`-safety is checked and enforced at compile-time.
+
 ```hexa
 let x Int? = null
 let y Int? = 123
+let z Int = null // Error
 
 // NOTE this syntax is not allowed
 // let z Int! = null // Error
 
-a ?? b // Elvis operator (null coalescing)
+a ?? defaultValue // Elvis operator (null coalescing)
 
 value!.field // Force unwrap -> exception if value is null
 value?.field // Optional chaining -> null if value is null
@@ -1284,8 +1380,8 @@ value?.field // Optional chaining -> null if value is null
 // TODO same for array access etc
 
 x = value! // Force unwrap -> exception if value is null
-x = value!! // Force unwrap -> unchecked and may crash elsewhere
-// value!!.field // Not allowed to avoid abuse/confusion (!.field will throw anyway due to immediate null-dereference)
+x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere TODO better do `value.meta.unwrapWithoutRuntimeCheck()` or similar
+// value!!.field // Not allowed to avoid confusion (`value!.field` would throw anyway due to immediate null-dereference)
 ```
 
 ## Modules
@@ -1325,6 +1421,8 @@ let element = <div>Hello, world!</div>
 
 // Transpiles to
 let element = div({ children: ["Hello, world!"] })
+
+// TODO styled + tailwind + mobx likes
 ```
 
 ## Meta Methods
@@ -1359,6 +1457,26 @@ async fun fetchData() {
 }
 ```
 
+Removing the "color" (asyncronosity):
+
+```hexa
+let isAsyncGlobal Bool = false
+
+class MyWorker<let isAsync Bool> {
+    async(isAsync) fun fetchData() { // TODO or `async<isAsync>`? `()` syntactically closer to the decorator syntax and less pointy
+        let data = await fetch("https://api.example.com/data")
+        return data
+    }
+
+	async(isAsyncGlobal) static fun fetchDataStatic() {
+        let data = await fetch("https://api.example.com/data")
+        return data
+    }
+}
+```
+
+Alternative is `meta.spawn()` or similar for actual OS threads, on supported platforms.
+
 ### Auto-Await
 
 It's like async but inverted. You write await fun and inside you can use sync-looking code, but it's actually async under the hood. You can still async inside if you want.
@@ -1373,6 +1491,6 @@ await fun fetchData() {
 
     // Can un-await with
     let promise = async fetch("https://api.example.com/data")
-    return await promise // TODO hmm `await fun` is confusing
+    return await promise // TODO hmm `await fun` is confusing, maybe add `@autoAwait` or just `@await` or `@auto`?
 }
 ```
