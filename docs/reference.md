@@ -837,6 +837,13 @@ class Box<T, let size T> { // NOTE `let` is used to declare a const generic and 
 
 let box = Box<Int, 1>(123)
 
+// Enumerations cannot be used as const generics -> they must be of a simple basic type
+enum AsyncMode Int { Async AutoAwait CallerDecides }
+class MyWorker<let mode AsyncMode> { }
+MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax
+// Would also make impossible to use this pattern:
+let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
+
 // TODO rethink if <let size T> or just <size T>
 ```
 
@@ -890,7 +897,7 @@ class Box<T BoxTrait<Int>> { // NOTE `BoxTrait<Int>` is a type limit placed afte
 class Box<T Trait1, U Trait2> {
     var value T
     var value2 U
-	// ...
+    // ...
 }
 
 class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
@@ -1103,6 +1110,7 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 Enumeration tag can be made non-exhaustive by adding `nonExhaustive` modifier. This is useful for cases when you want to allow for new tags to be added in the future without breaking the code.
 
 ```hexa
+// @nonExhaustive -> optionally make the whole enum non-exhaustive
 enum Status Int {
     A
     B
@@ -1302,6 +1310,8 @@ expr.as(Type, 'dynamic_cast', 'null') // cast-or-null
 
 ### Type Matching
 
+The captured variable is introduced in the narrowest possible scope, no extra `let` and no chance to use the wrong cast later.
+
 ```hexa
 switch type value {
     case Bool:
@@ -1431,7 +1441,7 @@ Meta methods allow to access type information and other metadata at compile time
 
 NOTE due to Hexa targeting both C/C++ and JavaScript, having built-in for `sizeof` is impractical. `meta` allows to have target-specific meta methods without polluting the language.
 
-`meta` is a keyword and cannot be used as an identifier.
+The `meta` is a keyword and cannot be used as an identifier. This syntax is LSP-friendly and great for discoverability.
 
 ```hexa
 let x = 1.meta.something // `.meta` is a special pseudo-field on any expression
@@ -1460,7 +1470,7 @@ async fun fetchData() {
 Removing the "color" (asyncronosity):
 
 ```hexa
-let isAsyncGlobal Bool = false
+let isAsyncModule Bool = false
 
 class MyWorker<let isAsync Bool> {
     async(isAsync) fun fetchData() { // TODO or `async<isAsync>`? `()` syntactically closer to the decorator syntax and less pointy
@@ -1468,10 +1478,43 @@ class MyWorker<let isAsync Bool> {
         return data
     }
 
-	async(isAsyncGlobal) static fun fetchDataStatic() {
+    async(isAsyncModule) static fun fetchDataStatic() {
         let data = await fetch("https://api.example.com/data")
         return data
     }
+}
+```
+
+Another idea is more flexible and combines all concepts together:
+
+```hexa
+// Possible values:
+let isAsyncModule String = 'async'
+let isAsyncModule String = 'autoAwait'
+let isAsyncModule String = 'callerDecides'
+
+// Lets the caller pick the strategy at use-site instead of inside the class
+class MyWorker<let isAsync String> {
+    async(isAsync) fun fetchData() { // TODO or `async<isAsync>`? `()` syntactically closer to the decorator syntax and less pointy
+        let data = await fetch("https://api.example.com/data")
+        return data
+    }
+
+    async(isAsyncModule) static fun fetchDataStatic() {
+        let data = await fetch("https://api.example.com/data")
+        return data
+    }
+}
+
+// Usage
+async fun someAsyncFunction() {
+    // Current context is async -> called functions are promoted to async
+
+    // Assuming `isAsyncModule = 'callerDecides'`
+    let callerDecides = await MyWorker.fetchDataStatic()
+
+    // Without await returns a promise
+    let callerDecides2 Promise = MyWorker.fetchDataStatic()
 }
 ```
 
