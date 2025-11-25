@@ -16,7 +16,6 @@ Every syntax element is shown with an examples of all possible variations.
 Reference is a work in progress:
 
 - [ ] Initial Draft (must cover at least every feature briefly)
-- [ ] Patreon Post
 - [ ] Complete Draft (must cover every feature in detail)
 - [ ] Internal Review
 - [ ] External References Check
@@ -912,6 +911,7 @@ class Box Drawable { // NOTE no need to use `implements` keyword
         // Draw box
     }
 }
+// TODO implicit interface implementation?
 ```
 
 ### Properties
