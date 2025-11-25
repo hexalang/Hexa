@@ -11,6 +11,21 @@ Every syntax element is shown with an examples of all possible variations.
 
 > NOTE: Only minimal semantic overview is provided here. Syntax is key.
 
+# State
+
+Reference is a work in progress:
+
+- [ ] Initial Draft (must cover at least every feature briefly)
+- [ ] Patreon Post
+- [ ] Complete Draft (must cover every feature in detail)
+- [ ] Internal Review
+- [ ] External References Check
+- [ ] Tree-Sitter Reference Grammar
+- [ ] External Review
+- [ ] Final Draft
+
+# Syntax
+
 ## Comments
 
 Hexa supports single-line, multi-line, and documentation comments.
@@ -46,7 +61,7 @@ Unicode characters are not allowed. Only latin alphabet is supported, with numbe
 
 ```hexa
 var myVariable = 1 // Type is inferred
-var myVariable T = 1 // no `:` and no `;`
+var myVariable T = 1 // no `:` and no `;` semicolons (syntax is context-free so they are not required)
 let _ssa = 2 // Read-only
 ```
 
@@ -114,6 +129,7 @@ template macro
 when
 guard
 implements extends
+export
 // TODO
 ```
 
@@ -149,6 +165,7 @@ let f32 = 1.23f32
 let big = 123n
 let hex = 0xFFn
 let bin = 0b101n
+let readability = 0b101_010n // Underscore separators compatible with sizes
 
 // Underscore separators
 let big = 1_000_000
@@ -338,12 +355,13 @@ a >= b
 ### Logical
 
 ```hexa
-// Deprecated: a && b  // Logical AND NOTE N/A for clarity
-// Deprecated: a || b  // Logical OR NOTE N/A for clarity
-// Deprecated: !a      // Logical NOT NOTE N/A for clarity
-a and b // Alias for && -> short-circuit
-a or b  // Alias for || -> short-circuit
-not a   // Alias for !
+// Not allowed: a && b  // Logical AND NOTE N/A for clarity
+// Not allowed: a || b  // Logical OR NOTE N/A for clarity
+// Not allowed: !a      // Logical NOT NOTE N/A for clarity
+a and b // Same as classical && -> short-circuit
+a or b  // Same as classical || -> short-circuit
+not a   // Same as classical !
+// NOTE ^ they accept only boolean operands
 ```
 
 ### Bitwise
@@ -449,6 +467,8 @@ let result = if x > 0 { "Positive" } else { "Non-positive" }
 ```
 
 ### Loops
+
+NOTE `for`, `do` and `while` loops are not expressions.
 
 ```hexa
 // While
@@ -693,7 +713,7 @@ class Point {
     }
 }
 
-let point = Point(1, 2) // NOTE `new` not allowed
+let point = Point(1, 2) // NOTE `new` not allowed i.e. `new Point`
 
 // Alternatively
 class Point {
@@ -706,6 +726,7 @@ class Point {
 
 let point = Point() { x: 1, y: 2 } // JSON-like syntax
 let point = Point { x: 1, y: 2 } // Can omit `()` then
+// NOTE either `()` or `{}` at least should be present
 
 // Alternatively even more JSON-like
 let point Point = { x: 1, y: 2 } // Type inference -> Point type omitted on the right side
@@ -758,7 +779,11 @@ let box = Box<Int, 1>(123)
 // TODO rethink if <let size T> or just <size T>
 ```
 
-### Traits
+### Type Traits
+
+Traits reuse `type` keyword but overall parsed same way as a class.
+
+Usage of `trait` keyword would reduce adoption and semantically does not fully match the concept of the `type`. The `type` fits better as in "structural typing". Types are compile-time concept and usage of `type` reinforces this.
 
 ```hexa
 // Parsing rules same as of classes
@@ -777,6 +802,16 @@ class Box BoxTrait<Int> { // NOTE traits are implemented just mentioning them in
         // Do something
     }
 }
+
+// Implicitly implementing a trait
+class Box { // NOTE no need to mention trait in the class declaration
+    fun box(value Int) Void {
+        // Do something
+    }
+}
+
+// Trait can be used structurally
+let box BoxTrait<Int> = Box()
 
 // Enums can implement traits too
 enum Color BoxTrait<Int> { Red Green Blue fun box(value Int) Void { } }
@@ -926,7 +961,7 @@ switch value {
 }
 ```
 
-## Enums
+## Enumerations
 
 ```hexa
 // Complex enums
@@ -951,6 +986,20 @@ enum Status Int { // NOTE Adding basic type after the space turns it into a cons
 Status.Ok == Status.Ok // Every tag is just a raw value with a name
 var plain Int = Status.Ok // ERROR: Sound type system disallows this
 ```
+
+### Enumerations in Conditions
+
+Special case for `==` and `!=` operators:
+
+```hexa
+if value == Status.Ok { // NOTE otherwise would parse as `Status.Ok {}` class constructor
+    console.log("Ok")
+}
+```
+
+There's no use for `==` operator with newly constructed values as every instance is unique. The `==` would just return `false` in such cases.
+
+From this point of view, its not an "exception" as it utilizes otherwise useless syntax construct.
 
 ## Pattern Matching
 
@@ -1282,6 +1331,8 @@ let element = div({ children: ["Hello, world!"] })
 
 Meta methods allow to access type information and other metadata at compile time (like size of structure akin to sizeof in C).
 
+NOTE due to Hexa targeting both C/C++ and JavaScript, having built-in for `sizeof` is impractical. `meta` allows to have target-specific meta methods without polluting the language.
+
 `meta` is a keyword and cannot be used as an identifier.
 
 ```hexa
@@ -1306,7 +1357,15 @@ async fun fetchData() {
     let data = await fetch("https://api.example.com/data")
     return data
 }
+```
 
+### Auto-Await
+
+It's like async but inverted. You write await fun and inside you can use sync-looking code, but it's actually async under the hood. You can still async inside if you want.
+
+It's for people who want async without coloring or script-like convenience (especially in the leaf code).
+
+```hexa
 // Function that awaits by default
 await fun fetchData() {
     let data = fetch("https://api.example.com/data")
@@ -1314,6 +1373,6 @@ await fun fetchData() {
 
     // Can un-await with
     let promise = async fetch("https://api.example.com/data")
-    return await promise // TODO hmm
+    return await promise // TODO hmm `await fun` is confusing
 }
 ```
