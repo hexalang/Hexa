@@ -1,11 +1,13 @@
-# Hexa Syntax Reference Draft
+# Hexa Syntax Reference
 
 This document is a draft of the Hexa syntax reference. It is not yet complete and may change.
 
-Is does *not* correspond to the actual syntax of Hexa. It's a draft of the syntax that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
+Is does *not* correspond to the full actual syntax of Hexa yet. It's a draft of the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
 
 Below is a comprehensive list of the syntax elements of Hexa.
 Every syntax element is shown with an examples of all possible variations.
+
+Most ideas have been validated through real-world Hexa usage in web and systems programming.
 
 > NOTE: This file will be transformed into a auto-test for a parser.
 
@@ -22,6 +24,7 @@ Reference is a work in progress:
 - [ ] Tree-Sitter Reference Grammar
 - [ ] External Review
 - [ ] Final Draft
+- [ ] Release to hexalang.github.io (with navigation)
 
 # Syntax
 
@@ -125,7 +128,7 @@ They will be either removed and available as identifiers or transformed into key
 trait
 override
 const // Possibly for `const [1, 2, 3]` for readonly array literals
-readonly
+readonly // ^ or this one
 match
 finally
 default
@@ -137,6 +140,8 @@ implements extends
 export
 // TODO
 ```
+
+NOTE: reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
 
 ### Numbers
 
@@ -159,7 +164,7 @@ let u16 = 123u16
 let u32 = 123u32
 let u64 = 123u64
 let u128 = 123u128
-let i8 = 123i8
+let i8 = 123i8 // Also `123_i8`
 let i16 = 123i16
 let i32 = 123i32
 let i64 = 123i64
@@ -307,6 +312,8 @@ Decorators are compile-time concept, like C++ attributes.
 
 Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their name are camelCase.
 
+They may alter behavior of the declaration they are attached to or even trigger compile-time actions like AST transformations via macros.
+
 ```hexa
 @struct // NOTE decorators are not expressions and they require one below them
 @packed
@@ -350,9 +357,9 @@ a * b
 a / b
 a % b  // Remainder
 a \ b  // Integer divide TODO rethink
-// ++a NOTE N/A for clarity
-// --a NOTE N/A for clarity
-a++
+// ++a NOTE Prefix form is not allowed for clarity
+// --a
+a++ // Only one way to avoid confusion (both syntactically and semantically)
 a--
 ```
 
@@ -713,7 +720,7 @@ Hexa supports clean compile-time function overloading via declarative `is` / `or
 Alternatives are tried left-to-right, and the feature works inside classes too (to define methods and static methods).
 
 ```hexa
-fun foo is fooForInt or fooForString
+fun foo is fooForInt or fooForString // Allowed at the use site too
 foo(123)
 foo("hello")
 ```
@@ -751,11 +758,11 @@ class Point {
     fun noMethodBody() Void // NOTE turns into abstract class
 }
 
-// External class
+// External class or structure (with @struct)
 @final // Disallow inheritance
 declare class Point {
     var x Int
-    var y Int
+    let y Int // Can be read-only
 }
 
 // TODO Inner/nested classes currently decided to not support them for code clarity
@@ -766,9 +773,9 @@ declare class Point {
 ```hexa
 class Point {
     var x Int
-    var y Int
+    var y Int = 0 // Can have default values
 
-    new (x Int, y Int) {
+    new (x Int, y Int = 0) { // NOTE default values are allowed in `new`
         this.x = x
         this.y = y
     }
@@ -782,19 +789,28 @@ class Point {
     var y Int
 
     // NOTE `new` assumed by default
-    // `private new() {}` to disable construction outside, allowed only in static methods
+    // `private new() {}` to disable construction outside, allowed to be called only from within static methods
 }
 
-let point = Point() { x: 1, y: 2 } // JSON-like syntax
-let point = Point { x: 1, y: 2 } // Can omit `()` then
+// JSON-like syntax
+let point = Point() { x: 1, y: 2 }
+let point = Point { x: 1, y: 2 } // Can omit `()` when `new` does not require any arguments or they have defaults
 // NOTE either `()` or `{}` at least should be present
 
 // Alternatively even more JSON-like
 let point Point = { x: 1, y: 2 } // Type inference -> Point type omitted on the right side
 let point Point = { "x": 1, y: 2 } // NOTE `"x"` is okay if corresponding field is called `x` too
+let point Point = { "x": 1, "y": 2 } // Enables copy-paste of actual JSON into the code -> field names are checked and should match
+
+// Making a copy (when `new` does not require any arguments)
+let point2 = { ...point }
+// Copy with altered fields
+let point2 = { ...point, x: 3 }
+// With arguments
+let point2 = Point(a, b) { ...point, x: 3 }
 ```
 
-### Generic classes
+### Generic Classes
 
 ```hexa
 class Box<T> {
@@ -822,6 +838,7 @@ class Box<T, U> {
 
 let box3 = Box<Int, String>(123, "hello")
 ```
+
 ### Const Generics
 
 Const generics allow to create types that depend on values.
@@ -836,11 +853,12 @@ class Box<T, let size T> { // NOTE `let` is used to declare a const generic and 
 }
 
 let box = Box<Int, 1>(123)
+let box = Box<Int, size: 1>(123) // Explicitly named const generic
 
 // Enumerations cannot be used as const generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
 class MyWorker<let mode AsyncMode> { }
-MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax
+MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax -> TODO well could still make sense because compiler still sees that the final `.U` is a enum tag
 // Would also make impossible to use this pattern:
 let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
 
@@ -911,7 +929,7 @@ class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
 }
 ```
 
-### Associated types
+### Associated Types
 
 Hexa supports family polymorphism:
 
@@ -967,6 +985,45 @@ class Box<Types Traits> {
 }
 
 let box = Box<TraitsFor<Int>>()
+let padding = 8
+
+// Type patterns can be associated types too
+class Box<T, U, Z, let size Int> {
+    // Still works as normal `let`, possibility to be used in type patterns is decided on-demand
+    let align = U.meta.alignOf
+
+    type Value = switch T, size {
+        // T == Int, size == 1
+        case Int, 1: Int
+
+        // T == Array<U>, size == 2
+        case Array<U>, 2: Array<Z>
+
+        // T == Map<U, anything captured as V>, size == 3
+        case Map<U, _ as V>, 3: Map<V, Z>
+
+        // `()` for expressions (any compile-time known expression is valid)
+        case _, (padding + U.meta.sizeOf): Z
+
+        // Same for `if` guards
+        case _, (padding + U.meta.sizeOf) as size if size > align: Z
+
+        // Fallback
+        case _, _: Z
+    }
+}
+
+// Enables fine-grained types with `meta`
+class Box<T> {
+    type Allocator = switch T.meta.sizeOf {
+        case 1: switch T {
+            case Bool: BitAllocator
+            case _: ByteAllocator<1>
+        }
+        case 2 ... 4096 as size: ByteAllocator<size>
+        case _: PageAllocator
+    }
+}
 ```
 
 ### Inheritance
@@ -1019,6 +1076,7 @@ class Rect {
     }
 }
 ```
+
 ### Destructuring
 
 ```hexa
@@ -1311,6 +1369,8 @@ expr.as(Type, 'dynamic_cast', 'null') // cast-or-null
 ### Type Matching
 
 The captured variable is introduced in the narrowest possible scope, no extra `let` and no chance to use the wrong cast later.
+
+Compile-time for known types (plays well with generics), runtime for `Any`.
 
 ```hexa
 switch type value {
