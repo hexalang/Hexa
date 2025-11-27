@@ -30,6 +30,8 @@ Reference is a work in progress:
 
 Keep in mind that Hexa is targetting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
 
+Semicolons are never required. Files are UTF-8 (with optional BOM skipping and optional shebang at the first line starting with `#!` also skipped).
+
 ## Comments
 
 Hexa supports single-line, multi-line, and documentation comments.
@@ -133,12 +135,14 @@ match
 finally
 default
 public protected
-template macro
+template macro abstract
 when
 guard
 implements extends
 export
 ```
+
+Anything that starts with `#` is reserved for future use: `#foo`.
 
 ##### Open Questions (Reserved Words)
 - **Missing reserved words**: Are there any missing reserved words?
@@ -173,6 +177,10 @@ let i64 = 123i64
 let i128 = 123i128
 let f32 = 1.23f32 // Also `1.2e-5f32` etc
 
+// All integer suffixes compatible with hexadecimals
+let hex = 0xFFu128
+let hex = 0xffu128
+
 // BigInt
 let big = 123n
 let hex = 0xFFn
@@ -181,6 +189,8 @@ let readability = 0b101_010n // Underscore separators compatible with sizes
 
 // Underscore separators
 let big = 1_000_000
+let hexadecimal = 0xFF_FFn
+let underscores = 0xFF__FFn // Multiple underscores is fine -> they serve as readability tools
 ```
 
 #### Open Questions (Numbers)
@@ -192,13 +202,13 @@ Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks ``
 
 ```hexa
 let s1 = "Hello"
-let s2 = 'World'
+let s2 = 'World' // No difference in meaning
 let s3 = `
     Multi-line
     String
 `
 let s4 = "Hello \n World"
-let s5 = "Hello \"World\""
+let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
 
 // Regular expression
 let s6 = /Hello World/
@@ -209,10 +219,15 @@ let s8 = "Hello \(1 + 2) World"
 let s9 = "Hello \(foo.bar) World" // Any expression is valid
 // NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
 // `()` is a clear group around expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
+
+// Unicode escape
+let s10 = "\u{1F600}"
 ```
 
 #### Open Questions (Strings)
 - **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`.
+- **Raw strings**: Support for raw strings with `r"""` or `r""`.
+- **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`.
 
 ### Booleans
 
@@ -249,7 +264,7 @@ let c = [0, ...a, ...b]
 
 // Switch with destructuring
 switch arr {
-    case [x, y, z]:
+    case [x, y, z]: // No trailing comma allowed in patterns
         console.log(x, y, z)
     case []:
         console.log("Empty")
@@ -272,9 +287,12 @@ let emptyMap [String: String] = [:]
 // Immutable map
 let immutableMap [String: String] = let ["key": "value", "one": "two"]
 
+// Trailing comma
+let map = ["key": "value", "one": "two",]
+
 // Switch with destructuring
 switch map {
-    case ["key": "value", "one": "two"]:
+    case ["key": "value", "one": "two"]: // No trailing comma allowed in patterns
         console.log("Match")
     case _:
         console.log("Other")
@@ -312,7 +330,7 @@ let obj = { value } // Special case for single value
 
 // Computed field names
 let name = "x" // Compile-time known field names will be included in the inferred type declaration
-let obj = { (foo()): 1, (name): 2 }
+let obj = { (foo()): 1, (name): 2 } // Uses same `()` syntax for computations as in pattern matching
 obj.x // Safe to access
 obj.(foo()) // Error: unknown field name, requires runtime reflection (`Reflect.get`)
 obj.(name) // Safe to access -> can compute the name at compile-time
@@ -332,7 +350,7 @@ let obj = { ...obj, z: 3 }
 
 Decorators are compile-time concept, like C++ attributes.
 
-Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their name are camelCase.
+Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their names are camelCase (like identifiers), any name is allowed (including reserved keywords).
 
 They may alter behavior of the declaration they are attached to or even trigger compile-time actions like AST transformations via macros.
 
@@ -343,9 +361,9 @@ They may alter behavior of the declaration they are attached to or even trigger 
 class AcpiTableHeader {}
 
 // Work with types too
-var x @example Int = 123
+@decoratorOnVariable var x @example Int = 123
 
-@inline fun foo() {} // Any expression can be decorated
+@inline fun foo() {} // Any expression, type or declaration can be decorated
 x = @example 123
 
 // Decorators can contain any expressions as parameters
@@ -358,6 +376,9 @@ fun foo() {}
 fun someFunction(@readonly some Type) {
     // ...
 }
+
+// Decorators on externals
+@external declare fun foo() // Also let/var/class/etc
 ```
 
 ### Open Questions (Decorators)
@@ -380,6 +401,8 @@ a \ b  // Integer divide
 // --a
 a++ // Only one way to avoid confusion (both syntactically and semantically)
 a--
+some.field++
+// NOTE not allowed over `array[index]++` as indexed value may be null/non-existent
 
 // Overflow runtime check is optional
 @checked {
@@ -450,7 +473,7 @@ expr = if cond { a } else { b } // {} are required
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
-fun (args) return {} // NOTE shorthand for fun (args) { return expr } i.e. functional programming style
+fun (args) return {} // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style
 ```
 
 ## Control Flow
@@ -469,10 +492,17 @@ console.log(x + y)
 ### Blocks
 
 ```hexa
-// Standalone blocks create a scope
+// Blocks create a scope
 {
     let x = 1
     let y = 2
+
+    // Standalone blocks are allowed
+    {
+        // Shadowing is allowed -> scope limited to the block
+        let x = 1
+        let y = 2
+    }
 }
 
 // Blocks can be used as expressions
@@ -529,10 +559,15 @@ while x > 0 {
     x--
 }
 
+// While with multiple conditions and bindings
+while let x = a, y < 10 {
+    y++
+}
+
 // Do-While
 do {
     x++
-} while x < 10 // NOTE no () for consistency
+} while x < 10 // NOTE no () for consistency and no `,` after the condition to avoid unnecessary complication of the `do while` loops (they are already pretty rare and confusing)
 
 // For-In
 for item in items { // NOTE no `let` required but still creates a local read-only variable, `var` is not allowed
@@ -548,8 +583,8 @@ for i in 0 ... 10 { // NOTE `i` is not visible outside the loop and is read-only
 
 // Iterating over a number (0 to N-1)
 var count = 100
-for i in count {
-    // i is 0, 1, ..., 99
+for i in count { // Can be any integer expression including sized like `1u8`
+    // Idiomatic -> iterates from 0 to count-1
 }
 
 // Iterating over a number (0 to N-1) without a variable
@@ -566,6 +601,7 @@ for i in array.length {}
 
 // Inclusive loop syntax N/A, just use +1
 for i in n + 1 {}
+for i in 0 ... n + 1 {} // Interval accepts expressions on both sides
 ```
 
 #### Open Questions (Loops)
@@ -634,8 +670,8 @@ try {
 Checked and unchecked exceptions are supported.
 
 ```hexa
-throw new Error("message") // Checked by default
-@unchecked throw new Error("message", cause)
+throw Error("message") // Checked by default
+@unchecked throw Error("message", cause)
 
 // Throwing arbitrary values is allowed
 throw "any value" // When the target supports it, otherwise wrapped in an error
@@ -700,8 +736,10 @@ fun identity<T>(x BoxTrait<T>) T { // NOTE passing <T> into a trait
     return x
 }
 
-// Usage
+// Usage -> <T> is inferred where possible
 let x = identity(123)
+
+// Calling generic function with explicit type arguments
 let y = identity<String>("hello") // NOTE no space in between < and T
 
 // Generic function with trait bound
@@ -726,7 +764,7 @@ fun fooForString(x String) String {
 
 // Function as value
 let func = fooForInt
-let func = fun (x Int) Int { return x }
+let func = fun (x Int) Int { return x } // NOTE can be named or unnamed
 func(123)
 
 // Recursion
@@ -751,7 +789,7 @@ fibAsValue(10)
 ### Open Questions (Functions)
 - **Argument order**: Should we enforce order when all arguments are named? Could enable custom evaluation order i.e. `add(b: 1, a: 2)`.
 - **Implicit generics**: Possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class).
-- **Rest parameters**: Support for `...rest` parameters.
+- **Rest parameters**: Support for `...rest` parameters and Variadic Functions.
 
 ### Overloading
 
@@ -813,9 +851,10 @@ declare class Point {
 
 ```hexa
 class Point {
-    var x Int
+    var x Int // No default value -> must be either assigned in `new` or at creation site with `Point { x: 1 }`
     var y Int = 0 // Can have default values
 
+    // NOTE only single, non-overloaded constructor is allowed
     new (x Int, y Int = 0) { // NOTE default values are allowed in `new`
         this.x = x
         this.y = y
@@ -851,6 +890,9 @@ let point2 = { ...point, x: 3 }
 let point2 = Point(a, b) { ...point, x: 3 }
 ```
 
+#### Open Questions (Class Constructors)
+- **Overloaded constructors**: Should overloaded constructors be allowed? Like `new is fromString or fromInt`. At least for `type` traits.
+
 ### Generic Template Classes
 
 Generics work as compile-time templates (unless opted-in to be a runtime generic).
@@ -869,7 +911,8 @@ let box = Box<Int>(123)
 // More complex example
 let box2 = Box<Box<Int>>(Box(123))
 
-class Box<T, U> {
+// Generic Classes with Multiple Type Parameters
+class Box<T, U = Int> { // NOTE default type parameter value
     var value T
     var value2 U
 
@@ -897,6 +940,9 @@ class Box<T, let size T> { // NOTE `let` is used to declare a const generic and 
 
 let box = Box<Int, 1>(123)
 let box = Box<Int, size: 1>(123) // Explicitly named const generic
+
+// Default const generic value
+class Box<T, let size T = 123> { /* ... */ }
 
 // Enumerations cannot be used as const generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
@@ -1059,6 +1105,9 @@ class Box<T, U, Z, let size Int> {
         // Same for `if` guards
         case _, (padding + U.meta.sizeOf) as size if size > align: Z
 
+        // Custom type error -> allows co make custom type limits/concepts
+        case _, 0: throw "Invalid size, expected non-zero, got: " + size // String-only
+
         // Fallback
         case _, _: Z
     }
@@ -1179,10 +1228,17 @@ switch value {
 ```hexa
 // Complex enums
 enum Color {
+    // NOTE tags are always capitalized (uppercase first letter) and not confused with variables in pattern matching
     Red
     Green
     Blue
-    Other(r Int, g Int, b Int) // Both name and type are required
+
+    // With payload
+    Other(r Int, g Int, b Int, a Int = 255) // Both name and type are required
+    // NOTE can have defaults
+
+    // Nested
+    Nested(value Color)
 }
 
 Color.Red != Color.Red // Every instance is unique value
@@ -1423,7 +1479,7 @@ expr as! Type  // Force unsafe cast
 
 // New way - good for chaining and avoids precedence confusion
 // Example: `123 + 345 as T` is confusing: `123 + (345 as T)` or `(123 + 345) as T`
-expr.as(Type).as(OtherType).method() // Enables chaining
+expr.as(Type).as(OtherType<T>).method() // Enables chaining
 
 // Enables rich casting options when targeting C++, Java, C#, etc
 expr.as(Type, 'static_cast')
@@ -1442,7 +1498,7 @@ expr.as(Type, cast)
     - `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
     - `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
 - **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`.
-- **Is operator**: Describe `is` operator
+- **Is operator**: Describe `is` operator.
 
 ### Type Matching
 
@@ -1525,12 +1581,12 @@ let z Int = null // Error
 
 a ?? defaultValue // Elvis operator (null coalescing)
 a ?? return 123 // Guard with return out of function if `a` is `null`
-a ?? throw new Error("a is null") // Guard with throw out of function if `a` is `null`
+a ?? throw Error("a is null") // Guard with throw out of function if `a` is `null`
 // NOTE `break` and `continue` are not allowed, this would lend to abuse in the loops making unreadable code
 
 // `value!` is a force unwrap operator -> esentially independent postfix operator
 x = value! // Removes the `?` from the type -> exception if value is null
-// Essentially same as `x = value ?? throw new Error("value is null")`
+// Essentially same as `x = value ?? throw Error("value is null")`
 
 // Those cases are not special operators, just `!` and then `.field`
 x = value!.field // Force unwrap and then access the field -> exception if value is null
@@ -1551,19 +1607,12 @@ x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere
 ## Modules
 
 ```hexa
-// Old way
-// Import module
-import std.io
-
-// Import from specific path
-import mylib in "libs/mylib"
-
-// New way
 import NameSpace
 import TypeName // Can import static fields into current scope and associated types
 import NameSpace.TypeName // Nested is possible
 import NameSpace as AliasNameSpace // Can alias
 import NameSpace.TypeName as AliasTypeName // Can alias
+import Deep.Nested.NameSpace.TypeName // Nested is possible
 ```
 
 ### Open Questions (Modules)
@@ -1572,9 +1621,15 @@ import NameSpace.TypeName as AliasTypeName // Can alias
 
 ## Preprocessor
 
+Conditional compilation is done at token level before the AST parsing.
+
 ```hexa
 #if debug
     console.log("Debug mode")
+#elseif release
+    console.log("Release mode")
+#else
+    console.log("Other mode")
 #end
 ```
 
