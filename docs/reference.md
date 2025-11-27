@@ -155,7 +155,7 @@ let hex = 0xff
 let bin = 0b101
 
 // Floats
-let b = 1.23
+let b = 1.23 // 64-bit float by default
 let exp = 1.2e-5
 
 // Suffixes
@@ -179,6 +179,8 @@ let readability = 0b101_010n // Underscore separators compatible with sizes
 
 // Underscore separators
 let big = 1_000_000
+
+// TODO compact float suffixes and complex numbers etc + 123ptr
 ```
 
 ### Strings
@@ -558,6 +560,8 @@ switch value { // Plain integer is not exhaustive
         console.log("Greater than 10")
     case _:
         console.log("Other")
+
+    // case 1: case 2: // Error when `case` on the same line to avoid confusion for C programmer (should use `case 1 or 2:` instead)
 }
 ```
 
@@ -620,7 +624,7 @@ add(1, 2)
 add(1) // b is optional
 
 // Optionally can be called with same argument names as in function declaration (no need for separate named arguments set)
-add(a: 1, b: 2) // NOTE order is required to match arguments
+add(a: 1, b: 2) // NOTE order is required to match arguments TODO maybe not enforce order when all arguments are named, enabled custom evaluation order of arguments
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
 add(1, b: 2)
 
@@ -1380,6 +1384,9 @@ switch type value {
         console.log("Int", captureAsInt)
     case String(captureAsString):
         console.log("String", captureAsString)
+    case String({ length }):
+        // Destructuring in type patterns
+        console.log("String.length", length)
     case Array<Int>(captureAsArray): // NOTE generics too
         console.log("Array of Int", captureAsArray)
     case _:
@@ -1443,6 +1450,9 @@ let z Int = null // Error
 // let z Int! = null // Error
 
 a ?? defaultValue // Elvis operator (null coalescing)
+a ?? return 123 // Guard with return out of function if `a` is `null`
+a ?? throw new Error("a is null") // Guard with throw out of function if `a` is `null`
+// NOTE `break` and `continue` are not allowed, this would lend to abuse in the loops making unreadable code
 
 value!.field // Force unwrap -> exception if value is null
 value?.field // Optional chaining -> null if value is null
