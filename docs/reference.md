@@ -50,12 +50,10 @@ Hexa supports single-line, multi-line, and documentation comments.
 /// NOTE requires expression below it
 fun foo() {}
 // NOTE super easy to transform // into /// even for lazy developers
-
-// TODO support doc tags like
-/// @param x the value
-/// @returns squared value
-fun square(x Int) Int { return x * x }
 ```
+
+### Open Questions (Comments)
+- **Doc tags**: Support doc tags like `@param` and `@returns` with example usage like `fun square(x Int) Int { return x * x }`
 
 ## Identifiers
 
@@ -115,8 +113,10 @@ if else
 switch case
 class enum type interface
 async await
-// TODO
 ```
+
+#### Open Questions (Keywords)
+- **Missing keywords**: Are there any missing keywords?
 
 #### Reserved Words
 
@@ -138,8 +138,10 @@ when
 guard
 implements extends
 export
-// TODO
 ```
+
+##### Open Questions (Reserved Words)
+- **Missing reserved words**: Are there any missing reserved words?
 
 NOTE: reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
 
@@ -179,9 +181,10 @@ let readability = 0b101_010n // Underscore separators compatible with sizes
 
 // Underscore separators
 let big = 1_000_000
-
-// TODO compact float suffixes and complex numbers etc + 123ptr
 ```
+
+#### Open Questions (Numbers)
+- **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr.
 
 ### Strings
 
@@ -202,9 +205,10 @@ let s6 = "Hello \(1 + 2) World"
 let s7 = "Hello \(foo.bar) World" // Any expression is valid
 // NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
 // `()` is a clear group around expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
-
-// TODO describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding (rememer it should be capable of picking external formatting variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`) etc
 ```
+
+#### Open Questions (Strings)
+- **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`.
 
 ### Booleans
 
@@ -231,9 +235,6 @@ let empty [Int] = []
 let none [Int]? = null
 let oneNull [Int?] = [null]
 
-// TODO nullable? or just disallow and use switch?
-let [x, y, z] = arr
-
 // Trailing comma
 let array = [1, 2, 3,]
 
@@ -250,18 +251,21 @@ switch arr {
         console.log("Empty")
     case _:
         console.log("Other")
-    // TODO more patterns
 }
 ```
 
-### Maps
+#### Open Questions (Arrays)
+- **Nullable destructuring**: Should `let [x, y, z] = arr` be allowed for nullable arrays, or force `switch`?
+- **More patterns**: What other array patterns should be supported?
+
+### Maps/Dictionaries
 
 Map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
 
 ```hexa
 let map = ["key": "value", "one": "two"] // Inferred as [String: String]
 let emptyMap [String: String] = [:]
-// Immutable map TODO by default?
+// Immutable map
 let immutableMap [String: String] = let ["key": "value", "one": "two"]
 
 // Switch with destructuring
@@ -270,22 +274,24 @@ switch map {
         console.log("Match")
     case _:
         console.log("Other")
-    // TODO more patterns
 }
 
 // Any expression works as a key
 let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 ```
 
+#### Open Questions (Maps)
+- **Immutability**: Should maps be immutable by default?
+- **More patterns**: What other map patterns should be supported?
+
 ### Objects
 
 Object is a simple fixed key-value store. It's not a map like []. Keys cannot be changed (added/removed) syntactically, only via reflection.
 
 ```hexa
-let obj = { x: 1, y: 2 } // Inferred as type/interface (TODO?) { var x Int var y Int }
+let obj = { x: 1, y: 2 } // Inferred as type/interface { var x Int var y Int }
 // NOTE mutable by default
 let obj2 = let { x: 1, y: 2 } // Immutable
-// TODO make immutable by default?
 
 // Switch with destructuring
 switch obj {
@@ -293,20 +299,26 @@ switch obj {
         console.log("Match")
     case _:
         console.log("Other")
-    // TODO more patterns
 }
 
-// Shorthand for two or more fields (single value would confuse with a block) -> TODO rethink, maybe allow special case?
+// Shorthand for two or more fields (single value would confuse with a block)
 let value = 132
 let obj = { value, x: 1, y: 2 }
-let obj = { value } // TODO could be a special case for block with only a single identifier inside -> was acutally useful in some cases; this syntax is useless anyway for any other purpose so no confusion
+let obj = { value } // Special case for single value
 
-// Computed field names TODO is this really useful?
-let obj = { (foo()): 1 }
+// Computed field names
+let obj = { (foo()): 1, (name): 2 }
 
 // Object spread for Redux-like updates
 let obj = { ...obj, z: 3 }
 ```
+
+#### Open Questions (Objects)
+- **Type inference**: Should untyped objects be inferred as `type` or `interface`? (for typed objects it's clear)
+- **Immutability**: Should objects be immutable by default?
+- **More patterns**: What other object patterns should be supported?
+- **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion.
+- **Computed fields**: Are computed field names really useful?
 
 ## Decorators (Attributes/Annotations)
 
@@ -328,12 +340,6 @@ var x @example Int = 123
 @inline fun foo() {} // Any expression can be decorated
 x = @example 123
 
-// TODO same names allowed?
-@sameName @sameName fun foo() {}
-
-// TODO decorator namespaces? -> unrelated to module system
-@namespace.decorator fun foo() {}
-
 // Decorators can contain any expressions as parameters
 @example("example") // Unnamed
 @example(example: "example") // Named
@@ -344,9 +350,12 @@ fun foo() {}
 fun someFunction(@readonly some Type) {
     // ...
 }
-
-// TODO Decorator order semantics — is @a @b fun f() same as @b @a?
 ```
+
+### Open Questions (Decorators)
+- **Duplicate decorators**: Should `@sameName @sameName` be allowed? `@sameName @sameName fun foo() {}`
+- **Namespaces**: Should we support `@namespace.decorator` syntax? `@namespace.decorator fun foo() {}` -> unrelated to modules
+- **Order semantics**: Is `@a @b fun f()` equivalent to `@b @a`?
 
 ## Operators
 
@@ -358,7 +367,7 @@ a - b
 a * b
 a / b
 a % b  // Remainder
-a \ b  // Integer divide TODO rethink
+a \ b  // Integer divide
 // ++a NOTE Prefix form is not allowed for clarity
 // --a
 a++ // Only one way to avoid confusion (both syntactically and semantically)
@@ -407,8 +416,11 @@ a += b
 a -= b
 a *= b
 a /= b
-// TODO and so on for other operators
 ```
+
+### Open Questions (Operators)
+- **Integer division**: Rethink `\` operator.
+- **Assignment operators**: Add other assignment operators.
 
 ### Other
 
@@ -530,8 +542,6 @@ for i in 100 { // NOTE some variable name is always required
     // i is 0, 1, ..., 99
 }
 
-// TODO allow to omit variable name with `_`?
-
 // Loops from n to m-1 (thus allows to iterate over an array.length)
 for i in n ... m {}
 for i in 0 ... array.length {}
@@ -541,9 +551,11 @@ for i in array.length {}
 
 // Inclusive loop syntax N/A, just use +1
 for i in n + 1 {}
-
-// TODO kv
 ```
+
+#### Open Questions (Loops)
+- **Omit variable**: Allow to omit variable name with `_` in `for _ in iterable` loops?
+- **Key-Value**: Support for key-value iteration?
 
 ### Switch
 
@@ -603,11 +615,12 @@ Checked and unchecked exceptions are supported.
 throw new Error("message") // Checked by default
 @unchecked throw new Error("message", cause)
 
-// TODO describe @throws and checked/unchecked more
-
 // Throwing arbitrary values is allowed
 throw "any value" // When the target supports it, otherwise wrapped in an error
 ```
+
+##### Open Questions (Throw)
+- **Checked exceptions**: Describe `@throws` and checked/unchecked exceptions in more detail.
 
 ## Functions
 
@@ -624,7 +637,7 @@ add(1, 2)
 add(1) // b is optional
 
 // Optionally can be called with same argument names as in function declaration (no need for separate named arguments set)
-add(a: 1, b: 2) // NOTE order is required to match arguments TODO maybe not enforce order when all arguments are named, enabled custom evaluation order of arguments
+add(a: 1, b: 2) // NOTE order is required to match arguments
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
 add(1, b: 2)
 
@@ -633,8 +646,6 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
     // NOTE this function is still fully generic, it just infers the type
     return x
 }
-
-// TODO possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class)
 
 // Arrow function
 let double Callback = (x) => x * 2 // NOTE arrow functions require known expeted type to infer their arguments
@@ -682,8 +693,6 @@ fun identity<A BoxTrait<Int>, B BoxTrait<String>>(x A, y B) Void {
     console.log(y)
 }
 
-// TODO ...rest parameters
-
 // Overloading
 fun fooForInt(x Int) Int {
     return x
@@ -717,7 +726,12 @@ let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow fun
 fibAsValue(10)
 ```
 
-#### Overloading
+### Open Questions (Functions)
+- **Argument order**: Should we enforce order when all arguments are named? Could enable custom evaluation order i.e. `add(b: 1, a: 2)`.
+- **Implicit generics**: Possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class).
+- **Rest parameters**: Support for `...rest` parameters.
+
+### Overloading
 
 Hexa supports clean compile-time function overloading via declarative `is` / `or` syntax.
 
@@ -768,9 +782,10 @@ declare class Point {
     var x Int
     let y Int // Can be read-only
 }
-
-// TODO Inner/nested classes currently decided to not support them for code clarity
 ```
+
+### Open Questions (Classes)
+- **Nested classes**: Inner/nested classes are currently not supported for code clarity. Should this change?
 
 ### Class Constructors
 
@@ -862,12 +877,14 @@ let box = Box<Int, size: 1>(123) // Explicitly named const generic
 // Enumerations cannot be used as const generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
 class MyWorker<let mode AsyncMode> { }
-MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax -> TODO well could still make sense because compiler still sees that the final `.U` is a enum tag
+MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax
 // Would also make impossible to use this pattern:
 let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
-
-// TODO rethink if <let size T> or just <size T>
 ```
+
+#### Open Questions (Const Generics)
+- **Syntax conflict**: Conflicts with `<T.U>` type namespace syntax. Could still make sense if compiler sees that the final `.U` is a enum tag.
+- **Syntax**: Rethink if `<let size T>` or just `<size T>`.
 
 ### Type Traits
 
@@ -1060,8 +1077,10 @@ class Box Drawable { // NOTE no need to use `implements` keyword
         // Draw box
     }
 }
-// TODO implicit interface implementation?
 ```
+
+#### Open Questions (Interfaces)
+- **Implicit implementation**: Should we support implicit interface implementation?
 
 ### Properties
 
@@ -1076,10 +1095,12 @@ class Rect {
         }
         // Optional setter
         // set(v) { ... }
-        // TODO rethinking this
     }
 }
 ```
+
+#### Open Questions (Properties)
+- **Setters**: Rethink setter syntax.
 
 ### Destructuring
 
@@ -1110,6 +1131,9 @@ switch value {
         console.log("Width: ", w)
 }
 ```
+
+#### Open Questions (Destructuring)
+- **Ensure ambiguity**: Make sure every pattern is soundly disambiguated.
 
 ## Enumerations
 
@@ -1176,9 +1200,12 @@ Enumeration tag can be made non-exhaustive by adding `nonExhaustive` modifier. T
 enum Status Int {
     A
     B
-    @nonExhaustive C // NOTE `C` is not exhaustive TODO or @exhaustive(false)
+    @nonExhaustive C // NOTE `C` is not exhaustive
 }
 ```
+
+### Open Questions (Pattern Matching)
+- **Non-exhaustive**: Should we use `@nonExhaustive` or `@exhaustive(false)`?
 
 ### Switch as Expression
 
@@ -1234,6 +1261,9 @@ switch value {
         console.log("Nested Nested Red")
 }
 ```
+
+#### Open Questions (Enum Pattern Matching)
+- **Enum Pattern Matching**: How to match both by internal value, fields and tag? Like `case Other(color: Red) { some: 123 }:`?
 
 ### Enum Flags
 
@@ -1357,18 +1387,15 @@ expr.as(Type, 'reinterpret_cast')
 // Enables to do straight-forward casts with compile time known values
 let cast = 'reinterpret_cast'
 expr.as(Type, cast)
-
-// TODO multi-casts?
-expr.as(Type, 'dynamic_cast', 'const_cast')
-expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')
-
-// TODO behaviour specification?
-expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw
-expr.as(Type, 'dynamic_cast', 'null') // cast-or-null
-
-// TODO expr.as(Type) and expr.as(Type, 'static_cast') and .as? .as!
-// TODO is
 ```
+
+#### Open Questions (Casts)
+- **Multi-casts**: Support for multi-casts? I.e. `expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')`
+- **Behavior**: Behaviour specification for dynamic casts (throw vs null).
+    - `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
+    - `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
+- **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`.
+- **Is operator**: Describe `is` operator
 
 ### Type Matching
 
@@ -1457,12 +1484,15 @@ a ?? throw new Error("a is null") // Guard with throw out of function if `a` is 
 value!.field // Force unwrap -> exception if value is null
 value?.field // Optional chaining -> null if value is null
 
-// TODO same for array access etc
+x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere
 
 x = value! // Force unwrap -> exception if value is null
-x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere TODO better do `value.meta.unwrapWithoutRuntimeCheck()` or similar
 // value!!.field // Not allowed to avoid confusion (`value!.field` would throw anyway due to immediate null-dereference)
 ```
+
+### Open Questions (Nullability)
+- **Array access**: Support optional chaining for array access etc.
+- **Unchecked unwrap**: Better do `value.meta.unwrapWithoutRuntimeCheck()` or similar?
 
 ## Modules
 
@@ -1475,13 +1505,16 @@ import std.io
 import mylib in "libs/mylib"
 
 // New way
-import NameSpace // TODO allow at module level or scope/class level too?
+import NameSpace
 import TypeName // Can import static fields into current scope and associated types
 import NameSpace.TypeName // Nested is possible
 import NameSpace as AliasNameSpace // Can alias
 import NameSpace.TypeName as AliasTypeName // Can alias
-// TODO
 ```
+
+### Open Questions (Modules)
+- **Import scope**: Allow `import` only at module level or block scope/class level too?
+- **More features**: What other module features are needed?
 
 ## Preprocessor
 
@@ -1502,8 +1535,10 @@ let element = <div>Hello, world!</div>
 // Transpiles to
 let element = div({ children: ["Hello, world!"] })
 
-// TODO styled + tailwind + mobx likes
 ```
+
+### Open Questions (JSX)
+- **Integration**: Support for styled components, Tailwind, MobX, etc.
 
 ## Meta Methods
 
@@ -1521,12 +1556,15 @@ meta.something(123) // callable pseudo-method
 meta.something(name: "value") // callable pseudo-method with named arguments
 
 let value = someValue
-let sizeof = value.meta.type.sizeInBytes // TODO maybe redundant
+let sizeof = value.meta.type.sizeInBytes
 
 // `meta` itself is not a real value, and you can't pass it to functions, store it
 // let value = someValue.meta // ERROR
 // let value = meta // ERROR
 ```
+
+### Open Questions (Meta Methods)
+- **Redundancy**: Is `value.meta.type` redundant and just use `value.type`/`value.type.meta`/`value.meta`?
 
 ## Async
 
@@ -1543,7 +1581,7 @@ Removing the "color" (asyncronosity):
 let isAsyncModule Bool = false
 
 class MyWorker<let isAsync Bool> {
-    async(isAsync) fun fetchData() { // TODO or `async<isAsync>`? `()` syntactically closer to the decorator syntax and less pointy
+    async(isAsync) fun fetchData() {
         let data = await fetch("https://api.example.com/data")
         return data
     }
@@ -1565,7 +1603,7 @@ let isAsyncModule String = 'callerDecides'
 
 // Lets the caller pick the strategy at use-site instead of inside the class
 class MyWorker<let isAsync String> {
-    async(isAsync) fun fetchData() { // TODO or `async<isAsync>`? `()` syntactically closer to the decorator syntax and less pointy
+    async(isAsync) fun fetchData() {
         let data = await fetch("https://api.example.com/data")
         return data
     }
@@ -1590,6 +1628,9 @@ async fun someAsyncFunction() {
 
 Alternative is `meta.spawn()` or similar for actual OS threads, on supported platforms.
 
+### Open Questions (Async)
+- **Syntax**: `async(isAsync)` or `async<isAsync>`? `()` is syntactically closer to the decorator syntax and less pointy.
+
 ### Auto-Await
 
 It's like async but inverted. You write await fun and inside you can use sync-looking code, but it's actually async under the hood. You can still async inside if you want.
@@ -1604,6 +1645,11 @@ await fun fetchData() {
 
     // Can un-await with
     let promise = async fetch("https://api.example.com/data")
-    return await promise // TODO hmm `await fun` is confusing, maybe add `@autoAwait` or just `@await` or `@auto`?
+    return await promise
+}
+```
+
+### Open Questions (Auto-Await)
+- **Syntax**: `await fun` is confusing. Maybe add `@autoAwait`, `@await`, or `@auto`?
 }
 ```
