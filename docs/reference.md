@@ -22,7 +22,7 @@ Reference is a work in progress:
 - [ ] Internal Review
 - [ ] External References Check
 - [ ] Tree-Sitter Reference Grammar
-- [ ] External Review
+- [ ] Full Review
 - [ ] Final Draft
 - [ ] Release to hexalang.github.io (with navigation)
 
@@ -200,9 +200,13 @@ let s3 = `
 let s4 = "Hello \n World"
 let s5 = "Hello \"World\""
 
+// Regular expression
+let s6 = /Hello World/
+let s7 = /Hello World/gi
+
 // String interpolation
-let s6 = "Hello \(1 + 2) World"
-let s7 = "Hello \(foo.bar) World" // Any expression is valid
+let s8 = "Hello \(1 + 2) World"
+let s9 = "Hello \(foo.bar) World" // Any expression is valid
 // NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
 // `()` is a clear group around expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
 ```
@@ -307,9 +311,13 @@ let obj = { value, x: 1, y: 2 }
 let obj = { value } // Special case for single value
 
 // Computed field names
+let name = "x" // Compile-time known field names will be included in the inferred type declaration
 let obj = { (foo()): 1, (name): 2 }
+obj.x // Safe to access
+obj.(foo()) // Error: unknown field name, requires runtime reflection (`Reflect.get`)
+obj.(name) // Safe to access -> can compute the name at compile-time
 
-// Object spread for Redux-like updates
+// Object spread-copy for Redux-like updates
 let obj = { ...obj, z: 3 }
 ```
 
@@ -372,6 +380,13 @@ a \ b  // Integer divide
 // --a
 a++ // Only one way to avoid confusion (both syntactically and semantically)
 a--
+
+// Overflow runtime check is optional
+@checked {
+    var x Int = 2147483647
+    x++ // ERROR: Overflow -> exception is thrown (depends on the target platform)
+    console.log(x)
+}
 ```
 
 ### Comparison
@@ -569,7 +584,14 @@ switch value { // Plain integer is not exhaustive
     case 2:
         console.log("Two")
     case x if x > 10: // Pattern guard can work over captured `x` (captured from `value`)
+        // NOTE guards are not exhaustive, they are runtime checks
         console.log("Greater than 10")
+    case _ ... 123:
+        console.log("Less than 123")
+    case 1 ... 123:
+        console.log("Between 1 and 122")
+    case 123 ... _:
+        console.log("Greater than 123")
     case _:
         console.log("Other")
 
@@ -829,7 +851,9 @@ let point2 = { ...point, x: 3 }
 let point2 = Point(a, b) { ...point, x: 3 }
 ```
 
-### Generic Classes
+### Generic Template Classes
+
+Generics work as compile-time templates (unless opted-in to be a runtime generic).
 
 ```hexa
 class Box<T> {
@@ -1004,7 +1028,13 @@ class Box<Types Traits> {
     var value Types.B = ""
     var value2 Types.C = 0.0
 }
+```
 
+#### Associated Types in Type and Const Patterns
+
+Important to note that evaluated const patterns are immutable (pure) and cannot call any methods (macro system is supposed to be used for complex cases) except non-mutating meta-methods (e.g. `meta.alignOf`).
+
+```hexa
 let box = Box<TraitsFor<Int>>()
 let padding = 8
 
@@ -1113,10 +1143,19 @@ switch value {
         console.log("Width: ", width, "Height: ", height)
     case {width: 123}: // NOTE checking a specific value
         console.log("Width: ", width)
+    case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
+        console.log("Width: ", width)
+        console.log("Height: ", height) // NOTE height is not checked
+
     case SomeEnum(rect: {width, height}): // NOTE destructuring inside the pattern
-        console.log("Width: ", rect.width, "Height: ", rect.height)
     case SomeEnum(rect: {width: 123}): // NOTE checking a specific value inside the pattern
         console.log("Width: ", rect.width)
+        // NOTE with nested pattern {} the `rect` itself is not captured
+        console.log("Width: ", width, "Height: ", height)
+
+    // Capture with renaming
+    case SomeEnum(rect as rectangle: _): // Capture any `rect` as a variable `rectangle`
+        console.log("Rectangle width: ", rectangle.width)
 
     // Advanced patterns
     case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
@@ -1185,6 +1224,9 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
         console.log("One")
         // NOTE assumes `break` at the end of each case by default
     case 2:
+        if Math.random() > 0.5 {
+            break // NOTE `break` is allowed only when `switch` is not used as an expression (i.e. does not return a value)
+        }
         console.log("Two")
     case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
         console.log("Other")
@@ -1209,7 +1251,9 @@ enum Status Int {
 
 ### Switch as Expression
 
-`switch` can be used as an expression, its always exhaustive.
+A `switch` can be used as an expression, its always exhaustive.
+
+The `case _:` is used instead of `default` to be consistent with nested pattern matching: `case Other(_):` allowing for wildcard pattern matching without confusing `case Other(default):` syntax.
 
 ```hexa
 var three = 3 // NOTE `var` i.e. can be any actual value at the moment of pattern matching
@@ -1235,6 +1279,9 @@ enum Color {
     Blue
     Other(r Int, g Int, b Int)
     Nested(color Color)
+
+    // May have fields
+    let some = 123
 }
 
 switch value {
@@ -1481,12 +1528,19 @@ a ?? return 123 // Guard with return out of function if `a` is `null`
 a ?? throw new Error("a is null") // Guard with throw out of function if `a` is `null`
 // NOTE `break` and `continue` are not allowed, this would lend to abuse in the loops making unreadable code
 
-value!.field // Force unwrap -> exception if value is null
+// `value!` is a force unwrap operator -> esentially independent postfix operator
+x = value! // Removes the `?` from the type -> exception if value is null
+// Essentially same as `x = value ?? throw new Error("value is null")`
+
+// Those cases are not special operators, just `!` and then `.field`
+x = value!.field // Force unwrap and then access the field -> exception if value is null
+
+// `value?` is an optional chaining operator that can only be used in a combination with some other operators
 value?.field // Optional chaining -> null if value is null
+value?.field ?? defaultValue // Optional chaining works with default value operator
 
 x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere
 
-x = value! // Force unwrap -> exception if value is null
 // value!!.field // Not allowed to avoid confusion (`value!.field` would throw anyway due to immediate null-dereference)
 ```
 
@@ -1535,6 +1589,9 @@ let element = <div>Hello, world!</div>
 // Transpiles to
 let element = div({ children: ["Hello, world!"] })
 
+// Class components
+class MyComponent { /* ... */ }
+let element = <MyComponent>Hello, world!</MyComponent>
 ```
 
 ### Open Questions (JSX)
@@ -1651,5 +1708,16 @@ await fun fetchData() {
 
 ### Open Questions (Auto-Await)
 - **Syntax**: `await fun` is confusing. Maybe add `@autoAwait`, `@await`, or `@auto`?
+
+## Regular Expressions
+
+Regular expressions are supported as patterns.
+
+```hexa
+switch string {
+    case /abc/:
+        console.log("abc")
+    case /def/gi:
+        console.log("def")
 }
 ```
