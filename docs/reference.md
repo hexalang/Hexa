@@ -17,9 +17,9 @@ Most ideas have been validated through real-world Hexa usage in web and systems 
 
 Reference is a work in progress:
 
-- [ ] Initial Draft (must cover at least every feature briefly)
-- [ ] Complete Draft (must cover every feature in detail)
+- [x] Initial Draft (must cover at least every feature briefly)
 - [ ] Internal Review
+- [ ] Complete Draft (must cover every feature in detail)
 - [ ] External References Check
 - [ ] Tree-Sitter Reference Grammar
 - [ ] Full Review
@@ -147,9 +147,9 @@ default
 public protected out
 template macro abstract
 when with
-guard
+guard infer
 implements extends
-export of from using
+export of from using inout
 ```
 
 Anything that starts with `#` is reserved for future use: `#foo`.
@@ -1173,6 +1173,12 @@ class Shape {
 class Circle Shape Trait Interface {
     fun draw() { // NOTE `override` is not required - but signature must match
         // Draw circle
+        super.draw() // Call parent method
+    }
+
+    new () {
+        // Call constructor of the parent class
+        super()
     }
 }
 ```
@@ -1210,8 +1216,9 @@ class Rect {
             // This makes properties more declarative
             width * height
         }
+
         // Optional setter
-        // set(v) { ... }
+        // set(v) { /* ... */ }
     }
 }
 ```
@@ -1641,7 +1648,7 @@ value?.field ?? defaultValue // Optional chaining works with default value opera
 // Safe navigation
 a?.b?.c()
 
-// Double exclamation mark is not allowed to type because its implies some other "not just !" operator exists to the reader
+// Double exclamation mark is not allowed to type because it implies some other "not just !" operator exists to the reader
 // x = value!! // Error: Not allowed to avoid confusion
 ```
 
@@ -1896,14 +1903,14 @@ switch string {
 - **More patterns**: What other patterns should be supported
 - **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
 
-### Advanced Memory Management (Optional Ownership Semantics)
+# Advanced Memory Management (Optional Ownership Semantics)
 
 Hexa prioritizes safety and performance by default: most types use automatic reference counting or platform garbage collection where appropriate, with no overhead for simple cases.
 
 For fine-grained control in performance-critical code, optional ownership semantics are available via decorators: they enforce uniqueness and lifetimes without altering core syntax.
 
 ```hexa
-// Ownership decorators are just decorators and don't need an overview in the syntax reference:
+// Ownership decorators are just normal decorators and don't need an overview in the syntax reference:
 fun process(
     @someOwnershipDecorator buffer Buffer
 ) { /* ... */ }
