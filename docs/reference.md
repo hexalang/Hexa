@@ -2,7 +2,7 @@
 
 This document is a draft of the Hexa syntax reference. It is not yet complete and may change.
 
-Is does *not* correspond to the full actual syntax of Hexa yet. It's a draft of the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
+It does not correspond to the full actual syntax of Hexa yet. It's a draft of the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
 
 Below is a comprehensive list of the syntax elements of Hexa.
 Every syntax element is shown with an examples of all possible variations.
@@ -74,7 +74,7 @@ fun foo() {}
 
 Identifiers can contain alphanumeric characters and underscores `_`. They must start with a *lowercase* letter or underscore.
 
-Unicode characters are not allowed. Only latin alphabet is supported, with numbers and underscores.
+Unicode characters are not allowed. Only Latin alphabet is supported, with numbers and underscores.
 
 ```hexa
 var myVariable = 1 // Type is inferred
@@ -143,7 +143,7 @@ They will be either removed and available as identifiers or transformed into key
 const // Possibly for `const [1, 2, 3]` for readonly array literals (i.e. `ReadonlyArray<T>`)
 readonly // ^ or this one
 defer yield
-default
+default hexa
 public protected out
 template macro abstract
 when with
@@ -152,7 +152,7 @@ implements extends
 export of from using inout
 ```
 
-Anything that starts with `#` is reserved for future use: `#foo`.
+Anything that starts with `#` is reserved for future use: `#foo` and such.
 
 ##### Design Considerations (Reserved Words)
 - **Missing reserved words**: Are there any missing reserved words
@@ -414,7 +414,8 @@ a * b
 a / b
 a % b  // Remainder
 a \ b  // Integer divide
-// ++a NOTE prefix form is not allowed for clarity
+// NOTE prefix form is not allowed for clarity
+// ++a
 // --a
 a++ // Only one way to avoid confusion (both syntactically and semantically)
 a--
@@ -470,7 +471,13 @@ a >>> b // Unsigned right shift
 ### Assignment
 
 ```hexa
+// Simple assignment
 a = b
+
+// NOTE `a = b = c` is not allowed, `a = b` returns `Void`
+// a = b = c // Error: `Void` cannot be assigned to `a`
+
+// Compound assignment
 a += b
 a -= b
 a *= b
@@ -736,7 +743,7 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 }
 
 // Arrow function
-let double Callback = (x) => x * 2 // NOTE arrow functions require known expeted type to infer their arguments
+let double Callback = (x) => x * 2 // NOTE arrow functions require known expected type to infer their arguments
 
 // Arrow function lowering to a plain function
 let plain = (x) => x * 2 // Lack of known types when assigned directly to a new constant is lowered to a plain `fun` function:
@@ -1210,15 +1217,16 @@ class Rect {
     var width Int
     var height Int
 
-    var area Int {
+    // `let` can have only `get`, `var` requires `get` and `set`
+    let area Int {
         get {
             // Assumes `return` as if it were `get return { expr }` (not actual syntax)
             // This makes properties more declarative
             width * height
         }
 
-        // Optional setter
-        // set(v) { /* ... */ }
+        // Optional setter -> does not return anything
+        // set (v) { /* ... */ }
     }
 }
 ```
@@ -1367,7 +1375,7 @@ let result = switch value { // NOTE no `()`
         "One"
     case 2:
         "Two"
-    case (three): // NOTE `()` pick runtime value to match to
+    case (three): // NOTE `()` picks runtime value to match to
         "Equal to variable called `three`"
 }
 ```
@@ -1893,13 +1901,22 @@ Regular expressions are supported as patterns for advanced pattern matching:
 switch string {
     case /abc/:
         console.log("abc")
+
+    // With flags
     case /def/gi:
         console.log("def")
+
+    // With named groups
+    case /(?<name1>\w+) (?<name2>\w+) (?<name3>\w+)/ {name1: "John", name2: "Snow"}:
+        console.log("Perfect match for John Snow, name3 is captured as-is:", name3)
+
+    // With named groups and array pattern
+    case /^cmd (?<name>\w+) (?<arg>\w+)*$/:
+        console.log(command, "with args:", arg.join(", "))
 }
 ```
 
 ### Design Considerations (Regular Expressions)
-- **Regex**: Captures
 - **More patterns**: What other patterns should be supported
 - **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
 
