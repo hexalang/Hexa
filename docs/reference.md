@@ -30,14 +30,14 @@ Reference is a work in progress:
 
 Hexa syntax is designed to follow those standards:
 
-- [ ] Declarative -> Code flows in a straightforward and unambiguous way
-- [ ] Easy to read and write -> Both by humans and tools
-- [ ] Performant -> Features do not come at a noticeable runtime cost
-- [ ] Safe -> Behavior is well defined and sound by default
-- [ ] Scalable -> Code is easy to maintain with a growing team and project complexity
-- [ ] Minimalistic -> As little syntax and as few special forms as possible
-- [ ] Target-agnostic -> Syntax and core semantics stay identical across all targets
-- [ ] Fast to compile -> High parsing speed is key to a smooth development experience
+- [x] Declarative -> Code flows in a straightforward and unambiguous way
+- [x] Easy to read and write -> Both by humans and tools
+- [x] Performant -> Features do not come at a noticeable runtime cost
+- [x] Safe -> Behavior is well defined and sound by default
+- [x] Scalable -> Code is easy to maintain with a growing team and project complexity
+- [x] Minimalistic -> As little syntax and as few special forms as possible
+- [x] Target-agnostic -> Syntax and core semantics stay identical across all targets
+- [x] Fast to compile -> High parsing speed is key to a smooth development experience
 
 # Syntax
 
@@ -140,17 +140,14 @@ Some words are reserved for possible future use.
 They will be either removed and available as identifiers or transformed into keywords.
 
 ```hexa
-trait
-override
 const // Possibly for `const [1, 2, 3]` for readonly array literals (i.e. `ReadonlyArray<T>`)
 readonly // ^ or this one
-match
-finally defer yield
+defer yield
 default
 public protected out
 template macro abstract
 when with
-guard unsafe
+guard
 implements extends
 export of from using
 ```
@@ -417,7 +414,7 @@ a * b
 a / b
 a % b  // Remainder
 a \ b  // Integer divide
-// ++a NOTE Prefix form is not allowed for clarity
+// ++a NOTE prefix form is not allowed for clarity
 // --a
 a++ // Only one way to avoid confusion (both syntactically and semantically)
 a--
@@ -498,7 +495,7 @@ expr = if cond { a } else { b } // {} are required
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
 fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners, `{}` "enforces" putting the body on a new line
-_ = call() // Indicate that not using a value is intentional
+_ = call() // Indicate that not using a returned value is intentional
 ```
 
 ## Control Flow
@@ -665,7 +662,7 @@ switch value { // Plain integer is not exhaustive
 ```hexa
 break
 continue
-return value // Always picks next expression (until `return` is the last expression)
+return value // Always picks next expression (until `return` is the last expression itself)
 { return } // Just-return without picking next expression -> less confusion compared to automatic semicolon insertion
 throw error
 ```
@@ -922,11 +919,11 @@ let point Point = { "x": 1, "y": 2 } // Enables copy-paste of actual JSON into t
 // Making a copy (when `new` does not require any arguments)
 let point2 = { ...point }
 // Copy with altered fields
-let point2 = { ...point, x: 3 }
+let point3 = { ...point, x: 3 }
 // With arguments
-let point2 = Point(a, b) { ...point, x: 3 }
+let point4 = Point(a, b) { ...point, x: 3 }
 // With argument names
-let point2 = Point(x: a, y: b) { ...point, x: 3 }
+let point5 = Point(x: a, y: b) { ...point, x: 3 }
 ```
 
 #### Design Considerations (Class Constructors)
@@ -1210,6 +1207,7 @@ class Rect {
     var area Int {
         get {
             // Assumes `return` as if it were `get return { expr }` (not actual syntax)
+            // This makes properties more declarative
             width * height
         }
         // Optional setter
@@ -1285,7 +1283,7 @@ enum Color {
 Color.Red != Color.Red // Every instance is unique value for non-baked enums
 
 // Enum with values -> has a baked type (here `Int`)
-enum Status Int { // NOTE Adding basic type after the space turns it into a constant enum
+enum Status Int { // NOTE adding basic type after the space turns it into a constant enum
     Ok = 200
     NotFound = 404
     BadRequestError = 404 // Duplicate value is NOT allowed with constant
@@ -1610,7 +1608,11 @@ class MyArray<T> {
 
 ## Nullability
 
-`null`-safety is checked and enforced at compile-time.
+The `null`-safety is checked and enforced at compile-time.
+
+Important note: unwrapping operator `!` is guaranteed to throw an exception immediately at the position of its use.
+
+Even when platform does not throw exceptions for null-access normally, or optimizes null-access away (say, due to devirtualization), the compiler will generate extra code that throws an exception at runtime exactly at the position of the `!` operator.
 
 ```hexa
 let x Int? = null
@@ -1630,7 +1632,7 @@ x = value! // Removes the `?` from the type -> exception if value is null
 // Essentially same as `x = value ?? throw Error("value is null")`
 
 // Those cases are not special operators, just `!` and then `.field`
-x = value!.field // Force unwrap and then access the field -> exception if value is null
+x = value!.field // Force unwrap and then access the field -> exception if value is null (`value!.field` would throw anyway due to immediate null-dereference)
 
 // `value?` is an optional chaining operator that can only be used in a combination with some other operators
 value?.field // Optional chaining -> null if value is null
@@ -1639,9 +1641,8 @@ value?.field ?? defaultValue // Optional chaining works with default value opera
 // Safe navigation
 a?.b?.c()
 
-x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere
-
-// value!!.field // Not allowed to avoid confusion (`value!.field` would throw anyway due to immediate null-dereference)
+// Double exclamation mark is not allowed to type because its implies some other "not just !" operator exists to the reader
+// x = value!! // Error: Not allowed to avoid confusion
 ```
 
 ### Design Considerations (Nullability)
@@ -1657,10 +1658,38 @@ import NameSpace
 import Math // Can import static fields into current scope and associated types (e.g. `sin()`)
 import Math { sin cos as cosine } // Import specific members
 
+// No separators needed, but users expected to add newlines for readability
+import Math {
+    sin
+    cos as cosine
+}
+
 import NameSpace.TypeName // Nested is possible
 import Deep.Nested.NameSpace.TypeName // Deeply nested is possible
 import NameSpace as AliasNameSpace // Can alias
 import NameSpace.TypeName as AliasTypeName // Can alias
+```
+### Exports
+
+Named declarations at the top level are exported by default, unless `private` is specified:
+
+```hexa
+// Exported by default
+let x Int = 123
+var y Int = 123
+fun z() {}
+class C {}
+type T {}
+interface I {}
+enum E {}
+
+// Not exported
+private let w Int = 123
+private fun x() {}
+private class D {}
+private type T {}
+private interface I {}
+private enum E {}
 ```
 
 ### Design Considerations (Modules)
@@ -1866,3 +1895,16 @@ switch string {
 - **Regex**: Captures
 - **More patterns**: What other patterns should be supported
 - **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
+
+### Advanced Memory Management (Optional Ownership Semantics)
+
+Hexa prioritizes safety and performance by default: most types use automatic reference counting or platform garbage collection where appropriate, with no overhead for simple cases.
+
+For fine-grained control in performance-critical code, optional ownership semantics are available via decorators: they enforce uniqueness and lifetimes without altering core syntax.
+
+```hexa
+// Ownership decorators are just decorators and don't need an overview in the syntax reference:
+fun process(
+    @someOwnershipDecorator buffer Buffer
+) { /* ... */ }
+```
