@@ -9,7 +9,7 @@ Every syntax element is shown with an examples of all possible variations.
 
 Most ideas have been validated through real-world Hexa usage in web and systems programming.
 
-> NOTE: This file will be transformed into a auto-test for a parser.
+> NOTE: This file will be transformed into an auto-test for a parser.
 
 > NOTE: Only minimal semantic overview is provided here. Syntax is key.
 
@@ -25,6 +25,19 @@ Reference is a work in progress:
 - [ ] Full Review
 - [ ] Final Draft
 - [ ] Release to hexalang.github.io (with navigation)
+
+# Goals
+
+Hexa syntax is designed to follow those standards:
+
+- [ ] Declarative -> Code flows in a straightforward and unambiguous way
+- [ ] Easy to read and write -> Both by humans and tools
+- [ ] Performant -> Features do not come at a noticeable runtime cost
+- [ ] Safe -> Behavior is well defined and sound by default
+- [ ] Scalable -> Code is easy to maintain with a growing team and project complexity
+- [ ] Minimalistic -> As little syntax and as few special forms as possible
+- [ ] Target-agnostic -> Syntax and core semantics stay identical across all targets
+- [ ] Fast to compile -> High parsing speed is key to a smooth development experience
 
 # Syntax
 
@@ -54,7 +67,7 @@ fun foo() {}
 // NOTE super easy to transform // into /// even for lazy developers
 ```
 
-### Open Questions (Comments)
+### Design Considerations (Comments)
 - **Doc tags**: Support doc tags like `@param` and `@returns` with example usage like `fun square(x Int) Int { return x * x }`
 
 ## Identifiers
@@ -65,13 +78,13 @@ Unicode characters are not allowed. Only latin alphabet is supported, with numbe
 
 ```hexa
 var myVariable = 1 // Type is inferred
-var myVariable T = 1 // no `:` and no `;` semicolons (syntax is context-free so they are not required)
+var myVariable T = 1 // no `:` and no `;` semicolons (syntax is context-free so they are not required) -> no automatic semicolon insertion either
 let _ssa = 2 // Read-only
 ```
 
 ## Variables
 
-Variables are declared using `var` (mutable) or `let` (immutable).
+Variables are declared using `var` (mutable) or `let` (immutable, readonly variable itself, aka single-assignment).
 
 ```hexa
 // Mutable variable
@@ -82,7 +95,7 @@ x = 2
 let x = 1
 let x = 2
 
-// Immutable constant
+// Immutable constant (can be computed at runtime, but not re-assigned)
 let y = 3
 // y = 4 // Error
 
@@ -113,12 +126,12 @@ throw try catch
 for while in break continue
 if else
 switch case
-class enum type interface
+class enum type interface super
 async await
 ```
 
-#### Open Questions (Keywords)
-- **Missing keywords**: Are there any missing keywords?
+#### Design Considerations (Keywords)
+- **Missing keywords**: Are there any missing keywords
 
 #### Reserved Words
 
@@ -129,23 +142,23 @@ They will be either removed and available as identifiers or transformed into key
 ```hexa
 trait
 override
-const // Possibly for `const [1, 2, 3]` for readonly array literals
+const // Possibly for `const [1, 2, 3]` for readonly array literals (i.e. `ReadonlyArray<T>`)
 readonly // ^ or this one
 match
-finally
+finally defer yield
 default
-public protected
+public protected out
 template macro abstract
-when
-guard
+when with
+guard unsafe
 implements extends
-export
+export of from using
 ```
 
 Anything that starts with `#` is reserved for future use: `#foo`.
 
-##### Open Questions (Reserved Words)
-- **Missing reserved words**: Are there any missing reserved words?
+##### Design Considerations (Reserved Words)
+- **Missing reserved words**: Are there any missing reserved words
 
 NOTE: reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
 
@@ -193,8 +206,9 @@ let hexadecimal = 0xFF_FFn
 let underscores = 0xFF__FFn // Multiple underscores is fine -> they serve as readability tools
 ```
 
-#### Open Questions (Numbers)
+#### Design Considerations (Numbers)
 - **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr.
+- **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`).
 
 ### Strings
 
@@ -224,7 +238,7 @@ let s9 = "Hello \(foo.bar) World" // Any expression is valid
 let s10 = "\u{1F600}"
 ```
 
-#### Open Questions (Strings)
+#### Design Considerations (Strings)
 - **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`.
 - **Raw strings**: Support for raw strings with `r"""` or `r""`.
 - **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`.
@@ -266,6 +280,10 @@ let c = [0, ...a, ...b]
 switch arr {
     case [x, y, z]: // No trailing comma allowed in patterns
         console.log(x, y, z)
+    case [1, _, z]: // Match and capture, ignoring the second element
+        console.log(z)
+    case [x, ...rest]: // Match and capture rest
+        console.log(x, rest)
     case []:
         console.log("Empty")
     case _:
@@ -273,9 +291,9 @@ switch arr {
 }
 ```
 
-#### Open Questions (Arrays)
-- **Nullable destructuring**: Should `let [x, y, z] = arr` be allowed for nullable arrays, or force `switch`?
-- **More patterns**: What other array patterns should be supported?
+#### Design Considerations (Arrays)
+- **Nullable destructuring**: Should `let [x, y, z] = arr` be allowed for nullable arrays, or force `switch`
+- **More patterns**: What other array patterns should be supported
 
 ### Maps/Dictionaries
 
@@ -302,9 +320,9 @@ switch map {
 let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 ```
 
-#### Open Questions (Maps)
-- **Immutability**: Should maps be immutable by default?
-- **More patterns**: What other map patterns should be supported?
+#### Design Considerations (Maps)
+- **Immutability**: Should maps be immutable by default
+- **More patterns**: What other map patterns should be supported
 
 ### Objects
 
@@ -339,12 +357,12 @@ obj.(name) // Safe to access -> can compute the name at compile-time
 let obj = { ...obj, z: 3 }
 ```
 
-#### Open Questions (Objects)
+#### Design Considerations (Objects)
 - **Type inference**: Should untyped objects be inferred as `type` or `interface`? (for typed objects it's clear)
-- **Immutability**: Should objects be immutable by default?
-- **More patterns**: What other object patterns should be supported?
+- **Immutability**: Should objects be immutable by default
+- **More patterns**: What other object patterns should be supported
 - **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion.
-- **Computed fields**: Are computed field names really useful?
+- **Computed fields**: Are computed field names really useful
 
 ## Decorators (Attributes/Annotations)
 
@@ -358,7 +376,9 @@ They may alter behavior of the declaration they are attached to or even trigger 
 @struct // NOTE decorators are not expressions and they require one below them
 @packed
 @sizeOf(16) // Expected size of the type in bytes checked by the compiler versus actual size
-class AcpiTableHeader {}
+class AcpiTableHeader {
+    @bits(8) var signature UInt8 // Decorators may fine-tune the generated code (bit fields, etc)
+}
 
 // Work with types too
 @decoratorOnVariable var x @example Int = 123
@@ -381,10 +401,10 @@ fun someFunction(@readonly some Type) {
 @external declare fun foo() // Also let/var/class/etc
 ```
 
-### Open Questions (Decorators)
+### Design Considerations (Decorators)
 - **Duplicate decorators**: Should `@sameName @sameName` be allowed? `@sameName @sameName fun foo() {}`
 - **Namespaces**: Should we support `@namespace.decorator` syntax? `@namespace.decorator fun foo() {}` -> unrelated to modules
-- **Order semantics**: Is `@a @b fun f()` equivalent to `@b @a`?
+- **Order semantics**: Is `@a @b fun f()` equivalent to `@b @a`
 
 ## Operators
 
@@ -404,8 +424,12 @@ a--
 some.field++
 // NOTE not allowed over `array[index]++` as indexed value may be null/non-existent
 
+// Unary operators
+// NOTE no prefix form `+a` due to confusion with platform-specific behavior
+-a
+
 // Overflow runtime check is optional
-@checked {
+@checked { // Also @wrapping @wrapAround
     var x Int = 2147483647
     x++ // ERROR: Overflow -> exception is thrown (depends on the target platform)
     console.log(x)
@@ -456,9 +480,9 @@ a *= b
 a /= b
 ```
 
-### Open Questions (Operators)
-- **Integer division**: Rethink `\` operator.
-- **Assignment operators**: Add other assignment operators.
+### Design Considerations (Operators)
+- **Integer division**: Rethink `\` operator
+- **Assignment operators**: Add other assignment operators
 
 ### Other
 
@@ -473,7 +497,8 @@ expr = if cond { a } else { b } // {} are required
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
-fun (args) return {} // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style
+fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners, `{}` "enforces" putting the body on a new line
+_ = call() // Indicate that not using a value is intentional
 ```
 
 ## Control Flow
@@ -604,9 +629,9 @@ for i in n + 1 {}
 for i in 0 ... n + 1 {} // Interval accepts expressions on both sides
 ```
 
-#### Open Questions (Loops)
-- **Omit variable**: Allow to omit variable name with `_` in `for _ in iterable` loops?
-- **Key-Value**: Support for key-value iteration?
+#### Design Considerations (Loops)
+- **Omit variable**: Allow to omit variable name with `_` in `for _ in iterable` loops (suppress unused warning)
+- **Key-Value**: Support for key-value iteration
 
 ### Switch
 
@@ -640,7 +665,8 @@ switch value { // Plain integer is not exhaustive
 ```hexa
 break
 continue
-return value
+return value // Always picks next expression (until `return` is the last expression)
+{ return } // Just-return without picking next expression -> less confusion compared to automatic semicolon insertion
 throw error
 ```
 
@@ -677,8 +703,8 @@ throw Error("message") // Checked by default
 throw "any value" // When the target supports it, otherwise wrapped in an error
 ```
 
-##### Open Questions (Throw)
-- **Checked exceptions**: Describe `@throws` and checked/unchecked exceptions in more detail.
+##### Design Considerations (Throw)
+- **Checked exceptions**: Describe `@throws` and checked/unchecked exceptions in more detail
 
 ## Functions
 
@@ -688,6 +714,13 @@ Closures follow same rules as a JavaScript functions (capture by reference), inc
 // Basic function
 fun add(a Int, b Int = 5) Int { // Default arguments are allowed
     return a + b // {} around body is required for clarity (when no `return` short-hand is used instead of the body itself)
+
+    // Nested functions
+    fun nested() {}
+    nested()
+
+    // Arguments are not re-assignable (assume `let`)
+    // a = 123 // Error
 }
 
 // Calls
@@ -786,10 +819,11 @@ let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow fun
 fibAsValue(10)
 ```
 
-### Open Questions (Functions)
-- **Argument order**: Should we enforce order when all arguments are named? Could enable custom evaluation order i.e. `add(b: 1, a: 2)`.
-- **Implicit generics**: Possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class).
-- **Rest parameters**: Support for `...rest` parameters and Variadic Functions.
+### Design Considerations (Functions)
+- **Argument order**: Should we enforce order when all arguments are named? Could enable custom evaluation order i.e. `add(b: 1, a: 2)`
+- **Implicit generics**: Possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class)
+- **Rest parameters**: Support for `...rest` parameters and Variadic Functions
+- **Arrow function short-hand**: Should we support `example(_ => { })`
 
 ### Overloading
 
@@ -844,13 +878,16 @@ declare class Point {
 }
 ```
 
-### Open Questions (Classes)
-- **Nested classes**: Inner/nested classes are currently not supported for code clarity. Should this change?
+### Design Considerations (Classes)
+- **Nested classes**: Inner/nested classes are currently not supported for code clarity. Should this change
 
 ### Class Constructors
 
 ```hexa
 class Point {
+    // Order is not important if compiler can prove it (with simple control flow analysis)
+    let z Int = y // If `y` can be computed upfront, `z` will be evaluated after it (in the constructor body)
+
     var x Int // No default value -> must be either assigned in `new` or at creation site with `Point { x: 1 }`
     var y Int = 0 // Can have default values
 
@@ -888,10 +925,12 @@ let point2 = { ...point }
 let point2 = { ...point, x: 3 }
 // With arguments
 let point2 = Point(a, b) { ...point, x: 3 }
+// With argument names
+let point2 = Point(x: a, y: b) { ...point, x: 3 }
 ```
 
-#### Open Questions (Class Constructors)
-- **Overloaded constructors**: Should overloaded constructors be allowed? Like `new is fromString or fromInt`. At least for `type` traits.
+#### Design Considerations (Class Constructors)
+- **Overloaded constructors**: Should overloaded constructors be allowed? Like `new is fromString or fromInt`. At least for `type` traits
 
 ### Generic Template Classes
 
@@ -952,9 +991,9 @@ MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace synt
 let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
 ```
 
-#### Open Questions (Const Generics)
-- **Syntax conflict**: Conflicts with `<T.U>` type namespace syntax. Could still make sense if compiler sees that the final `.U` is a enum tag.
-- **Syntax**: Rethink if `<let size T>` or just `<size T>`.
+#### Design Considerations (Const Generics)
+- **Syntax conflict**: Conflicts with `<T.U>` type namespace syntax. Could still make sense if compiler sees that the final `.U` is a enum tag
+- **Syntax**: Rethink if `<let size T>` or just `<size T>`
 
 ### Type Traits
 
@@ -1158,8 +1197,8 @@ class Box Drawable { // NOTE no need to use `implements` keyword
 }
 ```
 
-#### Open Questions (Interfaces)
-- **Implicit implementation**: Should we support implicit interface implementation?
+#### Design Considerations (Interfaces)
+- **Implicit implementation**: Should we support implicit interface implementation
 
 ### Properties
 
@@ -1170,7 +1209,8 @@ class Rect {
 
     var area Int {
         get {
-            return width * height
+            // Assumes `return` as if it were `get return { expr }` (not actual syntax)
+            width * height
         }
         // Optional setter
         // set(v) { ... }
@@ -1178,8 +1218,8 @@ class Rect {
 }
 ```
 
-#### Open Questions (Properties)
-- **Setters**: Rethink setter syntax.
+#### Design Considerations (Properties)
+- **Setters**: Rethink setter syntax
 
 ### Destructuring
 
@@ -1220,8 +1260,8 @@ switch value {
 }
 ```
 
-#### Open Questions (Destructuring)
-- **Ensure ambiguity**: Make sure every pattern is soundly disambiguated.
+#### Design Considerations (Destructuring)
+- **Ensure ambiguity**: Make sure every pattern is soundly disambiguated
 
 ## Enumerations
 
@@ -1231,7 +1271,7 @@ enum Color {
     // NOTE tags are always capitalized (uppercase first letter) and not confused with variables in pattern matching
     Red
     Green
-    Blue
+    Blue // No separator required (i.e. no `,`)
 
     // With payload
     Other(r Int, g Int, b Int, a Int = 255) // Both name and type are required
@@ -1241,15 +1281,16 @@ enum Color {
     Nested(value Color)
 }
 
-Color.Red != Color.Red // Every instance is unique value
+// Simple tag (no payload)
+Color.Red != Color.Red // Every instance is unique value for non-baked enums
 
-// Enum with values
+// Enum with values -> has a baked type (here `Int`)
 enum Status Int { // NOTE Adding basic type after the space turns it into a constant enum
     Ok = 200
     NotFound = 404
     BadRequestError = 404 // Duplicate value is NOT allowed with constant
     BadRequest = NotFound // Duplicate value is allowed with alias
-    Overloaded // Inferred value as BadRequest + 1
+    Overloaded // Inferred value as BadRequest + 1 (auto-increment)
 }
 
 Status.Ok == Status.Ok // Every tag is just a raw value with a name
@@ -1302,8 +1343,8 @@ enum Status Int {
 }
 ```
 
-### Open Questions (Pattern Matching)
-- **Non-exhaustive**: Should we use `@nonExhaustive` or `@exhaustive(false)`?
+### Design Considerations (Pattern Matching)
+- **Non-exhaustive**: Should we use `@nonExhaustive` or `@exhaustive(false)`
 
 ### Switch as Expression
 
@@ -1365,8 +1406,8 @@ switch value {
 }
 ```
 
-#### Open Questions (Enum Pattern Matching)
-- **Enum Pattern Matching**: How to match both by internal value, fields and tag? Like `case Other(color: Red) { some: 123 }:`?
+#### Design Considerations (Enum Pattern Matching)
+- **Enum Pattern Matching**: How to match both by internal value, fields and tag? Like `case Other(color: Red) { some: 123 }:`
 
 ### Enum Flags
 
@@ -1492,13 +1533,13 @@ let cast = 'reinterpret_cast'
 expr.as(Type, cast)
 ```
 
-#### Open Questions (Casts)
+#### Design Considerations (Casts)
 - **Multi-casts**: Support for multi-casts? I.e. `expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')`
-- **Behavior**: Behaviour specification for dynamic casts (throw vs null).
+- **Behavior**: Behaviour specification for dynamic casts (throw vs null)
     - `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
     - `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
-- **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`.
-- **Is operator**: Describe `is` operator.
+- **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`
+- **Is operator**: Describe `is` operator
 
 ### Type Matching
 
@@ -1595,41 +1636,85 @@ x = value!.field // Force unwrap and then access the field -> exception if value
 value?.field // Optional chaining -> null if value is null
 value?.field ?? defaultValue // Optional chaining works with default value operator
 
+// Safe navigation
+a?.b?.c()
+
 x = value!! // Force unwrap -> unchecked (zero-cost) and may crash elsewhere
 
 // value!!.field // Not allowed to avoid confusion (`value!.field` would throw anyway due to immediate null-dereference)
 ```
 
-### Open Questions (Nullability)
-- **Array access**: Support optional chaining for array access etc.
-- **Unchecked unwrap**: Better do `value.meta.unwrapWithoutRuntimeCheck()` or similar?
+### Design Considerations (Nullability)
+- **Array access**: Support optional chaining for array access too etc
+- **Unchecked unwrap**: Better do `value.meta.unwrapWithoutRuntimeCheck()` or similar
 
 ## Modules
 
+Using one `import` per each module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
+
 ```hexa
 import NameSpace
-import TypeName // Can import static fields into current scope and associated types
+import Math // Can import static fields into current scope and associated types (e.g. `sin()`)
+import Math { sin cos as cosine } // Import specific members
+
 import NameSpace.TypeName // Nested is possible
+import Deep.Nested.NameSpace.TypeName // Deeply nested is possible
 import NameSpace as AliasNameSpace // Can alias
 import NameSpace.TypeName as AliasTypeName // Can alias
-import Deep.Nested.NameSpace.TypeName // Nested is possible
 ```
 
-### Open Questions (Modules)
-- **Import scope**: Allow `import` only at module level or block scope/class level too?
-- **More features**: What other module features are needed?
+### Design Considerations (Modules)
+- **Import scope**: Allow `import` only at module level or block scope/class level too
+- **More features**: What other module features are needed
 
 ## Preprocessor
 
 Conditional compilation is done at token level before the AST parsing.
 
+Defined values are type checked.
+
 ```hexa
+// Assuming `hexa --define debug=true ...`
 #if debug
     console.log("Debug mode")
 #elseif release
     console.log("Release mode")
 #else
     console.log("Other mode")
+#end
+
+// Same line is fine
+type Entity = #if debug EntityDebug #else EntityRelease #end
+```
+
+May use enumeration for a checked set of flags:
+
+```hexa
+enum Mode {
+    Debug
+    Release
+}
+
+#if mode == Mode.Debug
+    console.log("Debug mode")
+#end
+```
+
+Usage assumes an `import`-like behavior for periods (e.g. `Mode.Debug` namespaces):
+
+```sh
+hexa --define mode=Mode.Debug ...
+```
+
+Simple expressions:
+
+```sh
+hexa --define apiLevel=2 ...
+```
+
+```hexa
+#if apiLevel >= 2
+    console.log("API level 2")
 #end
 ```
 
@@ -1649,8 +1734,8 @@ class MyComponent { /* ... */ }
 let element = <MyComponent>Hello, world!</MyComponent>
 ```
 
-### Open Questions (JSX)
-- **Integration**: Support for styled components, Tailwind, MobX, etc.
+### Design Considerations (JSX)
+- **Integration**: Support for styled components, Tailwind, MobX, etc
 
 ## Meta Methods
 
@@ -1675,8 +1760,8 @@ let sizeof = value.meta.type.sizeInBytes
 // let value = meta // ERROR
 ```
 
-### Open Questions (Meta Methods)
-- **Redundancy**: Is `value.meta.type` redundant and just use `value.type`/`value.type.meta`/`value.meta`?
+### Design Considerations (Meta Methods)
+- **Redundancy**: Is `value.meta.type` redundant and just use `value.type`/`value.type.meta`/`value.meta`
 
 ## Async
 
@@ -1687,7 +1772,7 @@ async fun fetchData() {
 }
 ```
 
-Removing the "color" (asyncronosity):
+Removing the "color" (colorless asyncronosity):
 
 ```hexa
 let isAsyncModule Bool = false
@@ -1740,8 +1825,8 @@ async fun someAsyncFunction() {
 
 Alternative is `meta.spawn()` or similar for actual OS threads, on supported platforms.
 
-### Open Questions (Async)
-- **Syntax**: `async(isAsync)` or `async<isAsync>`? `()` is syntactically closer to the decorator syntax and less pointy.
+### Design Considerations (Async)
+- **Syntax**: `async(isAsync)` or `async<isAsync>`? `()` is syntactically closer to the decorator syntax and less pointy
 
 ### Auto-Await
 
@@ -1761,12 +1846,12 @@ await fun fetchData() {
 }
 ```
 
-### Open Questions (Auto-Await)
-- **Syntax**: `await fun` is confusing. Maybe add `@autoAwait`, `@await`, or `@auto`?
+### Design Considerations (Auto-Await)
+- **Syntax**: `await fun` is confusing. Maybe add `@autoAwait`, `@await`, or `@auto`
 
 ## Regular Expressions
 
-Regular expressions are supported as patterns.
+Regular expressions are supported as patterns for advanced pattern matching:
 
 ```hexa
 switch string {
@@ -1776,3 +1861,8 @@ switch string {
         console.log("def")
 }
 ```
+
+### Design Considerations (Regular Expressions)
+- **Regex**: Captures
+- **More patterns**: What other patterns should be supported
+- **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
