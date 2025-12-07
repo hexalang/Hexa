@@ -1014,6 +1014,12 @@ type BoxTrait { // NOTE traits use `type` keyword but overall parsed same way as
 // Generic trait
 type BoxTrait<T> {
     fun box(value T) Void
+
+    // Traits can provide default implementations (extensions)
+    // NOTE the implementor is *not* required to provide an existing field
+    fun extension(value T) Void {
+        // Do something
+    }
 }
 
 // Implementing trait
@@ -1032,6 +1038,10 @@ class Box { // NOTE no need to mention trait in the class declaration
 
 // Trait can be used structurally
 let box BoxTrait<Int> = Box()
+box.box(123)
+
+// Using extension traits
+box.extension(123)
 
 // Enums can implement traits too
 enum Color BoxTrait<Int> { Red Green Blue fun box(value Int) Void { } }
@@ -1547,7 +1557,6 @@ expr.as(Type, cast)
 ```
 
 #### Design Considerations (Casts)
-- **Multi-casts**: Support for multi-casts? I.e. `expr.as(Type, 'dynamic_cast', 'const_cast', 'reinterpret_cast')`
 - **Behavior**: Behaviour specification for dynamic casts (throw vs null)
     - `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
     - `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
