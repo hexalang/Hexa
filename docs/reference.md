@@ -204,8 +204,8 @@ let underscores = 0xFF__FFn // Multiple underscores is fine -> they serve as rea
 ```
 
 #### Design Considerations (Numbers)
-- **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr.
-- **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`).
+- **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr
+- **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`)
 
 ### Strings
 
@@ -217,7 +217,7 @@ let s2 = 'World' // No difference in meaning
 let s3 = `
     Multi-line
     String
-`
+` // NOTE newlines always converted into a single \n
 let s4 = "Hello \n World"
 let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
 
@@ -233,12 +233,22 @@ let s9 = "Hello \(foo.bar) World" // Any expression is valid
 
 // Unicode escape
 let s10 = "\u{1F600}"
+
+// JSX-like and JS-like
+let s11 = "Hello \{1 + 2} World"
+let s12 = "Hello \{
+	var a = 1
+	var b = 2
+	a + b // Works like a block
+} World"
+console.log("Something: \{1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to lack of `(())` nesting
 ```
 
 #### Design Considerations (Strings)
-- **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`.
-- **Raw strings**: Support for raw strings with `r"""` or `r""`.
-- **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`.
+- **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`
+- **Raw strings**: Support for raw strings with `r"""` or `r""`
+- **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`
+- **String interpolation**: Consider leaving only `\{value}` syntax and removing `\()`
 
 ### Booleans
 
@@ -358,7 +368,7 @@ let obj = { ...obj, z: 3 }
 - **Type inference**: Should untyped objects be inferred as `type` or `interface`? (for typed objects it's clear)
 - **Immutability**: Should objects be immutable by default
 - **More patterns**: What other object patterns should be supported
-- **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion.
+- **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion
 - **Computed fields**: Are computed field names really useful
 
 ## Decorators (Attributes/Annotations)
@@ -1770,6 +1780,10 @@ hexa --define apiLevel=2 ...
     console.log("API level 2")
 #end
 ```
+
+### Design Considerations (Preprocessor)
+- **Segregation**: Support period for namespaces like `--define mylib.mode=Mode.Debug`
+- **Enums**: Support enums in preprocessor requires to think how to resolve them before the tokenization: maybe add `preprocessor` file list into the hexa.json that is pre-parsed separately upfront
 
 ## JSX
 
