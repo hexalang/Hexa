@@ -2,6 +2,8 @@
 
 This document is a draft of the Hexa syntax reference. It is not yet complete and may change.
 
+> Hexa is your missing bridge between the worlds of high-level expressiveness and low-level control.
+
 It does not correspond to the full actual syntax of Hexa yet. It's a draft of the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
 
 Below is a comprehensive list of the syntax elements of Hexa.
@@ -39,15 +41,23 @@ Hexa syntax is designed to follow those standards:
 - [x] Target-agnostic -> Syntax and core semantics stay identical across all targets
 - [x] Fast to compile -> High parsing speed is key to a smooth development experience
 
+Hexa features are designed to be mostly MISRA compliant, allowing them to satisfy industrial safety guidelines.
+
+> Motor Industry Software Reliability Association (MISRA) is an automotive industry safety standard for systems programming languages.
+
 # Syntax
 
 Keep in mind that Hexa is targetting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
 
 Semicolons are never required. Files are UTF-8 (with optional BOM skipping and optional shebang at the first line starting with `#!` also skipped).
 
+Hexa is case-sensitive and prefers (token-efficient) tabs for indentation. Standard Library mostly follows `Node.js` API on the native platforms.
+
+Each code sample is commented with // for nuanced details.
+
 ## Comments
 
-Hexa supports single-line, multi-line, and documentation comments.
+Hexa supports single-line, multi-line, and documentation comments. Its assumed that `NOTE` and `TODO` are highlighted in a distinct way by the syntax highlighter scheme.
 
 ```hexa
 // Single-line comment
@@ -62,9 +72,9 @@ Hexa supports single-line, multi-line, and documentation comments.
 /// Documentation comment (single-line)
 /// Can have more lines - they will combine into single doc comment
 /// They do not interact with decorators
-/// NOTE requires expression below it
+// NOTE: A documentation comment requires an expression/statement immediately below it:
 fun foo() {}
-// NOTE super easy to transform // into /// even for lazy developers
+// NOTE super easy to transform // into /// even for busy developers
 ```
 
 ### Design Considerations (Comments)
@@ -95,6 +105,10 @@ x = 2
 let x = 1
 let x = 2
 
+// Can make a variable readonly with shadowing
+var x = 1 // Writeable
+let x = x // Readonly in the current scope
+
 // Immutable constant (can be computed at runtime, but not re-assigned)
 let y = 3
 // y = 4 // Error
@@ -102,19 +116,23 @@ let y = 3
 // Type annotation
 var z Int = 5
 
-// External declarations
+// External variable declarations
 declare var externalVar Int // NOTE no `= value` assignment allowed
-// Readonly external declaration
+// Readonly external variable declarations
 declare let externalConst String // Type is required for `declare`
 ```
 
 ## Literals
+
+Atoms of the Hexa language.
 
 ### Keywords
 
 Keywords are reserved words that cannot be used as identifiers.
 
 They are not contextual and always reserved in any syntax construct.
+
+Singular underscore `_` is a special literal that cannot be used as an identifier. Literal `$` is reserved for future use.
 
 ```hexa
 true false
@@ -127,7 +145,8 @@ for while in break continue
 if else
 switch case
 class enum type interface super
-async await
+await async
+meta
 ```
 
 #### Design Considerations (Keywords)
@@ -140,8 +159,7 @@ Some words are reserved for possible future use.
 They will be either removed and available as identifiers or transformed into keywords.
 
 ```hexa
-const // Possibly for `const [1, 2, 3]` for readonly array literals (i.e. `ReadonlyArray<T>`)
-readonly // ^ or this one
+readonly // Possibly for `readonly [1, 2, 3]` for readonly array literals (i.e. `ReadonlyArray<T>`)
 defer yield
 default hexa
 public protected out
@@ -165,37 +183,42 @@ Hexa supports integers and floating-point numbers.
 
 ```hexa
 // Integers
-let a = 123
+let a = 123 // Defaults to `Int` aka `i32` (signed 32-bit integer) when not inferred to a different type
+let b UInt64 = 123 // Explicitly inferred to unsigned 64-bit integer
 let hex = 0xFF
 let hex = 0xff
 let bin = 0b101
 
 // Floats
-let b = 1.23 // 64-bit float by default
 let exp = 1.2e-5
+let b = 1.23 // 64-bit float by default, inferred from the usage
+0.123 // NOTE 0. upfront suffix is required for float literals
+// .123 // Error
+// 123. // Error - suffix .0 is required
 
 // Suffixes
-let u8 = 123u8
-let u16 = 123u16
 let u32 = 123u32
-let u64 = 123u64
-let u128 = 123u128
-let i8 = 123i8 // Also `123_i8`
-let i16 = 123i16
-let i32 = 123i32
-let i64 = 123i64
-let i128 = 123i128
 let f32 = 1.23f32 // Also `1.2e-5f32` etc
+let u8 UInt8 = 123u8
+let u16 UInt16 = 123u16
+let u64 UInt64 = 123u64
+let u128 UInt128 = 123u128
+let i8 Int8 = 123i8 // Also `123_i8`
+let i16 Int16 = 123i16
+let i32 Int32 = 123i32
+let i64 Int64 = 123i64
+let i128 Int128 = 123i128
 
 // All integer suffixes compatible with hexadecimals
 let hex = 0xFFu128
 let hex = 0xffu128
 
 // BigInt
-let big = 123n
+let big BigInt = 123n
 let hex = 0xFFn
 let bin = 0b101n
 let readability = 0b101_010n // Underscore separators compatible with sizes
+let autoCast = 123n + 345u8 // Other integer types are automatically casted to BigInt on demand
 
 // Underscore separators
 let big = 1_000_000
@@ -209,7 +232,7 @@ let underscores = 0xFF__FFn // Multiple underscores is fine -> they serve as rea
 
 ### Strings
 
-Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks `` ` ``.
+Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks `` ` ``. Assume Unicode by default.
 
 ```hexa
 let s1 = "Hello"
@@ -217,9 +240,11 @@ let s2 = 'World' // No difference in meaning
 let s3 = `
     Multi-line
     String
-` // NOTE newlines always converted into a single \n
+` // NOTE newlines always converted into a \n
 let s4 = "Hello \n World"
 let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
+// Anything can be concatenated with `+` as long as it has a `toString` method
+let s5_1 = "Hello " + 1 + " World" // "Hello 1 World"
 
 // Regular expression
 let s6 = /Hello World/
@@ -242,13 +267,30 @@ let s12 = "Hello \{
 	a + b // Works like a block
 } World"
 console.log("Something: \{1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to lack of `(())` nesting
+
+// Array-like access NOTE only 0...length are valid indices, otherwise `null` is returned
+let s13 = "Hello"[0] // "H"
+let s14 = "Hello"[10] // null
+let s15 = "Hello"[-1] // null
+
+// String comparison
+let s16 = "Hello" == "Hello" // true
+let s17 = "Hello" == "hello" // false
+let s18 = "Hello" != "Hello" // false
+let s19 = "Hello" != "hello" // true
+let s20 = "Hello" < "Hello" // false
+let s21 = "Hello" > "hello" // false
+// let s22 = "Hello" <= "Hello" // NOT allowed because seem to be redundant/too rare
+// let s23 = "Hello" >= "hello" // NOT allowed
 ```
 
 #### Design Considerations (Strings)
 - **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`
-- **Raw strings**: Support for raw strings with `r"""` or `r""`
+- **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
 - **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`
 - **String interpolation**: Consider leaving only `\{value}` syntax and removing `\()`
+- **Escape sequences**: Support for escape sequences like `\f` and `\b`
+- **Error-prone**: Possibly use `"{value}"` instead of `"\{value}"` thus removing the need for `\` in string interpolation, while reserving `\{\}` this would allow to avoid a problem with forgetting to escape `\` in string interpolation (also mimics JSX)
 
 ### Booleans
 
@@ -283,6 +325,18 @@ let a = [1, 2, 3]
 let b = [4, 5, 6]
 let c = [0, ...a, ...b]
 
+// Indexing
+let first = arr[0]
+let second = arr[1i8] // Any integer type is allowed including negative
+let third = arr[-1i8] // Produces `null`
+let fourth = arr[-1i8]! // Unsafe convenience operator
+
+// Assignment
+arr[0] = 1
+arr[1i8] = 2
+arr[-1i8] = 3 // Does not affect `.length`
+// arr[0] += 1 // Not allowed as `[0]` may be `null`
+
 // Switch with destructuring
 switch arr {
     case [x, y, z]: // No trailing comma allowed in patterns
@@ -293,6 +347,8 @@ switch arr {
         console.log(x, rest)
     case []:
         console.log("Empty")
+    case [x, [1, _, y]]:
+        console.log("Nested pattern", x, y)
     case _:
         console.log("Other")
 }
@@ -338,7 +394,17 @@ Object is a simple fixed key-value store. It's not a map like []. Keys cannot be
 ```hexa
 let obj = { x: 1, y: 2 } // Inferred as type/interface { var x Int var y Int }
 // NOTE mutable by default
-let obj2 = let { x: 1, y: 2 } // Immutable
+let obj2 = readonly { x: 1, y: 2 } // Immutable on-demand
+
+// Structural typing
+type Point = { var x Int var y Int }
+let obj Point = { x: 1, y: 2 }
+
+// Satisfies interfaces and types structurally
+interface IPoint { var x Int var y Int }
+let obj IPoint = { x: 1, y: 2 } // Object satisfies interface
+let obj2 Point = obj // Interface satisfies type
+let obj3 IPoint = obj2 // Type satisfies interface (if runtime-compatible)
 
 // Switch with destructuring
 switch obj {
@@ -421,6 +487,7 @@ fun someFunction(@readonly some Type) {
 a + b
 a - b
 a * b
+a ** b
 a / b
 a % b  // Remainder
 a \ b  // Integer divide
@@ -486,6 +553,7 @@ a = b
 
 // NOTE `a = b = c` is not allowed, `a = b` returns `Void`
 // a = b = c // Error: `Void` cannot be assigned to `a`
+// a = b += c // Error: not works either
 
 // Compound assignment
 a += b
@@ -505,14 +573,42 @@ obj.prop // Property access
 arr[index] // Element access
 map[key] = value // Forks for map too (also assignment)
 a ... b     // Interval
-cond ? a : b // Ternary operator (NOTE nested ternary is not allowed)
-expr = if cond { a } else { b } // {} are required
-(args) => expr // Arrow function
+arg => expr // Arrow function short form
+(arg1, arg2) => expr // Arrow function with arguments
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
 fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners, `{}` "enforces" putting the body on a new line
 _ = call() // Indicate that not using a returned value is intentional
+```
+
+### Operator Overloading
+
+Hexa limits overloading to the logically complete operator sets. Operator sets are pre-defined and sole operators cannot be overloaded.
+
+```hexa
+// Concept, actual operator sets are defined by the standard library and compiler
+type ArrayOperators<T> {
+	fun get(index Int) T
+	fun set(index Int, value T) Void
+	// ... other operators
+}
+
+// Should explicitly implement the operator set
+class MyArray<T> ArrayOperators<T> {
+	fun get(index Int) T {
+		// ... code omitted
+	}
+	fun set(index Int, value T) Void {
+		// ... code omitted
+	}
+	// ... other operators and fields
+}
+
+// Usage
+let x = MyArray<Int>(10)
+x[0] = 1
+let v = x[0]
 ```
 
 ## Control Flow
@@ -548,21 +644,40 @@ console.log(x + y)
 let result = {
     let x = 1
     let y = 2
+
+    // Can alter outer control flow
+	// NOTE this enables the `let a = value ?? continue` pattern
+    return
+    continue
+    break
+
     x + y // The last expression is the result
 }
 ```
 
-### If / Else
+#### Design Considerations (Blocks)
+- **Block as expression**: Blocks can be used as expressions, but their compatibility with `defer` and `RAII` could be limited
+
+### If / Else / Ternary
 
 `if` can be used as a statement or an expression. {} are required
 
 ```hexa
+value = if cond { a } else { b } // NOTE {} are required
+
 if x > 0 {
     console.log("Positive")
 } else if x < 0 {
     console.log("Negative")
 } else {
     console.log("Zero")
+}
+
+// Error prevention:
+if x > 0 {
+    console.log("Positive")
+} if x < 0 { // Error: `else` is required in the `{ } if` pattern on the same line
+    console.log("Negative")
 }
 
 // Multiple conditions
@@ -586,6 +701,15 @@ if a = b { // Error
 // `if` can be used as an expression with {} required, `else` is required
 let result = if x > 0 { "Positive" } else { "Non-positive" }
 // Useful for cases like `if let` unsupported by the ternary operator
+```
+
+#### Ternary Operator
+
+```hexa
+cond ? a : b // Ternary operator (NOTE nested ternary is not allowed)
+
+// Error prevention: nested ternary should be wrapped with a `(` and `)`
+let result = x > 0 ? "Positive" : (x < 0 ? "Negative" : "Zero")
 ```
 
 ### Loops
@@ -646,6 +770,7 @@ for i in 0 ... n + 1 {} // Interval accepts expressions on both sides
 #### Design Considerations (Loops)
 - **Omit variable**: Allow to omit variable name with `_` in `for _ in iterable` loops (suppress unused warning)
 - **Key-Value**: Support for key-value iteration
+- **Nullability**: `for item in items` is null-safe and skips null items and add `for item? in items`/`for item! in items`/`for item in? items` to iterate over nullable items explicitly, current design iterates over null items
 
 ### Switch
 
@@ -686,6 +811,8 @@ throw error
 
 ### Try / Catch
 
+Hexa offers exception handling for special cases where performance hit of the `??` checks is undesired or other means of result propagation is not available or impractical.
+
 There's no `finally` block.
 
 ```hexa
@@ -705,9 +832,76 @@ try {
 }
 ```
 
+#### Result
+
+Hexa encourages the use of nullable types with the `??` pattern, but `Result`-like approach is possible with a standard functionality:
+
+```hexa
+@extensibleTags
+enum Result<T> {
+    Ok(value T)
+
+    // Computed property for safe unwrapping
+    let result T? {
+        get {
+            switch this {
+                case Ok(value): value
+                case _: null // Forces downstream null-checks with `??`
+            }
+        }
+    }
+}
+```
+
+Example usage with a `@orReturn` shorthand:
+
+```hexa
+// Arbitrary user type used for final resulting value of operations
+/// Payload type for successful IO operations
+interface IoPayload {
+    let path String
+    let operation String
+}
+
+// Domain-specific Result-like enumeration is also user-defined
+enum IoResult Result<IoPayload> {
+    NotFound
+    PermissionDenied
+    IoError(message String)
+    Timeout
+}
+
+fun readFile(path String) IoResult {
+    // ... implementation concept
+	if not exists(path) { return IoResult.NotFound }
+    // ... return using the Ok tag inherited from Result
+    return IoResult.Ok({ contents: data, path: path })
+}
+
+fun processFile(path String) IoResult {
+	// Automated with the `@orReturn` shorthand
+	// Type of the `payload` is `IoPayload`
+    let payload = @orReturn readFile(path)
+
+    // Manual unwrap with null-coalescing (same logic as `@orReturn` built-in)
+    let payload = {
+		// Cache the outcome to not call `readFile` twice
+		let outcome = readFile(path)
+		// Propagate whole `outcome` if it's tag is not Ok (i.e. `.result` getter returns null)
+		outcome.result ?? return outcome
+	}
+
+    // Use payload...
+	console.log(payload.path, payload.operation)
+
+	// Return Ok
+    return IoResult.Ok(payload)
+}
+```
+
 #### Throw
 
-Checked and unchecked exceptions are supported.
+Checked and unchecked exceptions are supported. On native platforms, exceptions are translated to C++ exceptions ABI by default.
 
 ```hexa
 throw Error("message") // Checked by default
@@ -715,6 +909,37 @@ throw Error("message") // Checked by default
 
 // Throwing arbitrary values is allowed
 throw "any value" // When the target supports it, otherwise wrapped in an error
+
+// Allow throwing only specific subset
+@throws(IOException, ParseError)
+fun readConfig(path String) Config {
+    if not exists(path) {
+        throw IOException("File not found")
+    }
+    // Also forces to catch other calls if they throw other exceptions
+	try {
+		functionThatThrowsTypeError()
+	} catch e TypeError {
+		throw ParseError("Failed to parse config")
+	}
+}
+
+@throws(Void) // No throws -> forces to catch all in caller
+fun caller() {
+    try {
+        readConfig("config.json")
+    } catch e IOException {
+        // handle
+    } catch e ParseError {
+        // handle
+    }
+    // Compiler error if not all thrown types handled/propagated
+}
+
+@unchecked
+fun risky() {
+    throw RuntimeError("boom") // No need to declare/catch
+}
 ```
 
 ##### Design Considerations (Throw)
@@ -750,6 +975,15 @@ add(1, b: 2)
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
     // NOTE this function is still fully generic, it just infers the type
     return x
+}
+
+// Generic function a pro-actively type-checked with placeholder types
+// This enables partial type-echeking even when function is not used by the library itself anywhere
+fun example<T>(x T) T {
+    T.hello() // Allowed, `T` is a placeholder type - unknown before instantiation
+	x.hello() // Allowed too, as `x` of type `T`
+	"string".nonExistingMethod() // Error, `String` is not a placeholder, but a well-known type
+    return x + 5 // Inferred to placeholder type
 }
 
 // Arrow function
@@ -831,6 +1065,12 @@ let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow fun
 }
 
 fibAsValue(10)
+
+// bind call apply
+let f = fun (x Int) Int { return x + 1 }
+let bind = f.bind(1)
+let call = f.call(1)
+let apply = f.apply(null, [1])
 ```
 
 ### Design Considerations (Functions)
@@ -855,6 +1095,8 @@ foo("hello")
 
 Types (classes, interfaces, traits, enums) always start with a capital letter.
 
+Fields of class-like types (`class`, `type`, `interface`, `enum`) start with a keyword, like `var`, `let`, `fun`, etc. Enum tags start with a capital letter.
+
 ### Classes
 
 ```hexa
@@ -872,6 +1114,10 @@ class Point {
     fun move(dx Int, dy Int) {
         this.x += dx
         y += dy // NOTE `this` is optional when there are no name conflicts
+
+        fun nested() {
+            this // NOTE `this` is a class's `Point` instance from the outer scope, not this-bindable function
+        }
     }
 
     static var xx Int // NOTE static members are allowed
@@ -892,7 +1138,31 @@ declare class Point {
 }
 ```
 
-### Design Considerations (Classes)
+#### Field Access
+
+```hexa
+// Field access
+let p = Point(1, 2)
+p.x = 10 // Instance field access
+// p.y = 20 // Error: private instance field
+
+p.move(5, 5) // Instance method call
+
+Point.xx = 100 // Static field access
+// Point.yy = 200 // Error: private static field
+
+let origin = Point.origin() // Static method call
+```
+
+Static fields can be accessed as instance fields too, for refactoring purposes:
+
+```hexa
+Point.xx = 100 // Static field access
+p.xx = 100 // Instance field access of the static field
+p.origin() // Same with methods
+```
+
+#### Design Considerations (Classes)
 - **Nested classes**: Inner/nested classes are currently not supported for code clarity. Should this change
 
 ### Class Constructors
@@ -983,7 +1253,7 @@ let box3 = Box<Int, String>(123, "hello")
 Const generics allow to create types that depend on values.
 
 ```hexa
-class Box<T, let size T> { // NOTE `let` is used to declare a const generic and can depend on other generics (e.g. `T`)
+class Box<T, let size T> { // NOTE `let` is used to declare a constant generic and can depend on other generics (e.g. `T`)
     var value T
 
     new (value T) {
@@ -992,12 +1262,12 @@ class Box<T, let size T> { // NOTE `let` is used to declare a const generic and 
 }
 
 let box = Box<Int, 1>(123)
-let box = Box<Int, size: 1>(123) // Explicitly named const generic
+let box = Box<Int, size: 1>(123) // Explicitly named constant generic
 
-// Default const generic value
+// Default constant generic value
 class Box<T, let size T = 123> { /* ... */ }
 
-// Enumerations cannot be used as const generics -> they must be of a simple basic type
+// Enumerations cannot be used as constant generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
 class MyWorker<let mode AsyncMode> { }
 MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax
@@ -1081,6 +1351,14 @@ class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
         this.value2 = value2
     }
 }
+
+// Compose multiple traits into one (supertrait-like for generics constraints)
+type AddableCopyable Add Copy {} // Empty trait requiring both Add and Copy (conceptual traits)
+
+// Named constraint encourages reusable abstractions
+fun merge<R AddableCopyable>(a R, b R) R {
+    return a + b // Both are Add + Copy
+}
 ```
 
 ### Associated Types
@@ -1139,9 +1417,9 @@ class Box<Types Traits> {
 }
 ```
 
-#### Associated Types in Type and Const Patterns
+#### Associated Types in Type and Constant Patterns
 
-Important to note that evaluated const patterns are immutable (pure) and cannot call any methods (macro system is supposed to be used for complex cases) except non-mutating meta-methods (e.g. `meta.alignOf`).
+Important to note that evaluated constant patterns are immutable (pure) and cannot call any methods (macro system is supposed to be used for complex cases) except non-mutating meta-methods (e.g. `meta.alignOf`).
 
 ```hexa
 let box = Box<TraitsFor<Int>>()
@@ -1176,6 +1454,10 @@ class Box<T, U, Z, let size Int> {
     }
 }
 
+// Generics become associated types and static pseudo-fields too:
+console.log(Box<Int, String, Float, 123>.size) // Access <size>
+let int Box<Int, String, Float, 123>.T = 123 // Access <T>
+
 // Enables fine-grained types with `meta`
 class Box<T> {
     type Allocator = switch T.meta.sizeOf {
@@ -1188,6 +1470,10 @@ class Box<T> {
     }
 }
 ```
+
+##### Design Considerations (Associated Types)
+
+- **Simpler syntax**: The `let` in `<let a B>` may imply availability of `var` and that it become the field of the class, which may be confusing
 
 ### Inheritance
 
@@ -1257,8 +1543,12 @@ class Rect {
 ### Destructuring
 
 ```hexa
-// NOTE `let` is required for clarity, does not work with `var`
+// NOTE `let` is required for clarity
+// Does not work with `var` for safety reasons: `var` could confuse the reader into thinking that the `Rect` object fields are being re-assigned
 let {width, height} = Rect {width: 1, height: 2}
+
+// Nullables are fine
+let {value} = Some {value: null} // `value` is nullable here
 
 switch value {
     case {width, height}: // NOTE `let` is NOT required
@@ -1295,6 +1585,7 @@ switch value {
 
 #### Design Considerations (Destructuring)
 - **Ensure ambiguity**: Make sure every pattern is soundly disambiguated
+- **Nullability**: Need to decide if `case Some(nested)` here `nested` takes `null` (T?) too or better make it always be non-null (T) and require explicit `case Some(null)`/`case Some(nested?)`/`case Some(nested? as nullable)` or similar (this would also make `case some: case null:` soundly disambiguated)
 
 ## Enumerations
 
@@ -1312,10 +1603,26 @@ enum Color {
 
     // Nested
     Nested(value Color)
+
+    // May have methods
+    fun method () {
+        switch this {
+            case Red: console.log("Red")
+            case _: console.log("Other")
+        }
+    }
 }
 
 // Simple tag (no payload)
 Color.Red != Color.Red // Every instance is unique value for non-baked enums
+
+// Payload with named fields -> order doesn't matter
+
+// Nested
+Color.Nested(Color.Red)
+
+// Can omit type name when tag type is known up front (here `Color`)
+Color.Nested(Other(r: 0, g: 255, b: 0))
 
 // Enum with values -> has a baked type (here `Int`)
 enum Status Int { // NOTE adding basic type after the space turns it into a constant enum
@@ -1328,6 +1635,53 @@ enum Status Int { // NOTE adding basic type after the space turns it into a cons
 
 Status.Ok == Status.Ok // Every tag is just a raw value with a name
 var plain Int = Status.Ok // ERROR: Sound type system disallows this
+
+// NOTE direct comparison (`==`, `!=`) of enum tag *constructors* is not allowed
+// Status.Ok == Status.Ok // ERROR: Disallowed as not making any sense
+
+// Tag as a type (NOTE still requires `switch` to extact associated tag values if any)
+var status Status.Ok = Status.Ok // Well-known tag
+var status Status.NotFound = switch Status.Ok {
+    case _: Status.NotFound
+    case Status.NotFound as code: code // Well-known tag as a variable
+}
+
+// Compatible with function overloading - akin to static dispatch
+fun onStatusOk(status Status.Ok) {
+    console.log("Ok")
+}
+
+fun onStatusNotFound(status Status.NotFound) {
+    console.log("Not found")
+}
+
+fun onStatus is onStatusOk or onStatusNotFound
+onStatus(Status.Ok)
+onStatus(Status.NotFound)
+```
+### Enumerations Inference
+
+Enum tags can be inferred from the value on the left side. This allows for a short syntax for them.
+
+Here is an ambiguity resolution example:
+
+```hexa
+var status Status = Ok // Well-known tag - inferred from the value on the left side
+setStatus(Ok) // Same idea
+
+fun genericFunction<T>(value T) {
+    if value == Ok { // Allowed as `value` type expected, so assumed that `Ok` is a tag name, not class
+        console.log("Ok")
+    }
+
+	let some T = Ok // Allowed as `some` expects some `T` too
+	let status = T.Ok // Allowed too
+
+	// NOTE in all cases above `Ok` would have a placeholder type for the partial pro-active typing of the generic functions
+
+	let other = Ok // This would assume that `Ok` is a class name, as type of `other` is not known up front
+	// It may error if no `Ok` found in scope or if it cannot be used like that
+}
 ```
 
 ### Enumerations in Conditions
@@ -1344,6 +1698,56 @@ There's no use for `==` operator with newly constructed values as every instance
 
 From this point of view, its not an "exception" as it utilizes otherwise useless syntax construct.
 
+### Enumerations Inheritance
+
+Enumerations can inherit from other enumerations. They may add methods, fields in case of complex enums, and tags if the parent enum specifies `@extensibleTags` decorator:
+
+```hexa
+@extensibleTags // Allows derived enums to add tags and forces `case _` for the parent enum
+enum Color {
+    Red
+    Green
+    Blue
+
+	fun getColor() {
+		switch this {
+			case Red: return "Red"
+			case Green: return "Green"
+			case Blue: return "Blue"
+
+			// This pattern is enforced by the `@extensibleTags` decorator
+			case _: return "Other"
+		}
+	}
+}
+
+enum ExtendedColor Color {
+    Yellow
+    Purple
+}
+
+// Both normal and extended enums are compatible with each other
+var color Color = ExtendedColor.Yellow
+
+// Complex enums also use runtime-known extensibility mechanism similar to the classes
+let unknown Any = ExtendedColor.Yellow // Instance of `ExtendedColor` is an instance of `Color` too
+switch unknown {
+	// Runtime type check and a cast
+	case Color(color): switch color {
+		// Can now match it as a `Color`
+		case Red: console.log("Red")
+		case Green: console.log("Green")
+		case Blue: console.log("Blue")
+
+		// NOTE at usage sites the `_` pattern is required to be present even if all cases are covered due to `@extensibleTags`
+		case _: console.log("Other")
+	}
+	case _: console.log("Other")
+}
+
+// NOTE plain enums are baked by simple types like `Int` so the do not offer such functionality
+```
+
 ## Pattern Matching
 
 Compared to classic `switch` statement, pattern matching matches over patterns by the logic of "more specific first". The order of cases is not important (most of the time -> when patterns are not depending on runtime values).
@@ -1358,6 +1762,8 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
             break // NOTE `break` is allowed only when `switch` is not used as an expression (i.e. does not return a value)
         }
         console.log("Two")
+    case "String": // NOTE string literals are allowed - can match native null-terminated strings too
+        console.log("String")
     case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
         console.log("Other")
     case null: // NOTE `null` always checked first no matter where it is placed
@@ -1378,6 +1784,7 @@ enum Status Int {
 
 ### Design Considerations (Pattern Matching)
 - **Non-exhaustive**: Should we use `@nonExhaustive` or `@exhaustive(false)`
+- **Fluent**: Should we allow `value.switch {}` in addition to `switch value {}`
 
 ### Switch as Expression
 
@@ -1389,6 +1796,7 @@ The `case _:` is used instead of `default` to be consistent with nested pattern 
 var three = 3 // NOTE `var` i.e. can be any actual value at the moment of pattern matching
 
 let result = switch value { // NOTE no `()`
+	// Order of wildcard pattern does not matter and always acts as fallback
     case _: // NOTE always checked last no matter where it is placed
         "Other"
     case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
@@ -1420,6 +1828,8 @@ switch value {
         // NOTE assumes `break` at the end of each case by default
     case Green or Blue:
         console.log("Green or Blue")
+    // Names are not positional -> they were in original design, now names are required to match and order is not important
+    // Newer design allows for future extension of enum values, and avoids issues with positional matching when names can matched in the wrong order
     case Other(r, g, b as blue):
         // NOTE exact same names are required (i.e. `r` and `g`)
         // NOTE order of parameters is NOT important due to names requirement above
@@ -1444,26 +1854,43 @@ switch value {
 
 ### Enum Flags
 
+Enumerations can be marked as bit flags, allowing for bitwise operations.
+
+```hexa
+@flags enum Flags Int {
+    A // Values inferred as 1, 2, 4, ...
+    B
+    C
+}
+
+var flags = Flags.A | Flags.B
+flags |= Flags.C
+flags |= C // Infered as `Flags.C`
+flags &= ~Flags.B
+```
+
+Pattern matching can be used to match flags:
+
 ```hexa
 switch flags {
     // 1. EXACT Match
-    // Transpiles to: if (flags == Flag1)
-    case Flag1:
+    // Transpiles to: if (flags == Flags.A)
+    case A:
         // ...
 
     // 2. PARTIAL Match (Has Flag1 set, ignores others)
-    // Transpiles to: if ((flags & Flag1) == Flag1)
-    case Flag1 | ...:
+    // Transpiles to: if ((flags & Flags.A) == Flags.A)
+    case A | ...:
         // ...
 
     // 3. EXCLUSION (Has Flag1, but DEFINITELY NOT Flag2)
-    // Transpiles to: if ((flags & Flag1) == Flag1 && (flags & Flag2) == 0)
-    case Flag1 | ... | not Flag2:
+    // Transpiles to: if ((flags & Flags.A) == Flags.A && (flags & Flags.B) == 0)
+    case A | ... | not B:
         // ...
 
     // 4. COMBINATION (Has Flag1 AND Flag2)
-    // Transpiles to: if ((flags & (Flag1|Flag2)) == (Flag1|Flag2))
-    case Flag1 | Flag2 | ...:
+    // Transpiles to: if ((flags & (Flags.A|Flags.B)) == (Flags.A|Flags.B))
+    case A | B | ...:
         // ...
 }
 ```
@@ -1519,7 +1946,16 @@ if value & requiredFlags {
 - `Bool`: Boolean
 - `String`: String
 - `Void`: No return value
-- `Any`: Dynamic type
+- `Null<T>`: Nullable value of type T, an alias for `T?`
+
+#### Design Considerations (Basic Types)
+- **Nullability**: `Nullable<T>` as an alias for `T?` instead of `Null<T>`
+
+### Dynamic Types
+
+- `Any`: Dynamic type - can be anything at runtime and not checked at compile time, platform-dependent
+- `Unknown`: Same, but needs to be casted to a specific type before use
+- `Any?`: Optional dynamic type - requires null check before use and every returned field is nullable too
 
 ### Composite Types
 
@@ -1544,13 +1980,11 @@ type GenericCallback<T> = (result T) => Void
 
 ### Casts
 
-```hexa
-// Old way
-expr is Type
-expr as Type   // Safe cast (exception on failure)
-expr as? Type  // Safe cast (returns nullable)
-expr as! Type  // Force unsafe cast
+Previous approach with infix operators was not very good for chaining and precedence confusion.
 
+Feedback from the community also shows some dissatisfaction with `as!` exclamation mark operator.
+
+```hexa
 // New way - good for chaining and avoids precedence confusion
 // Example: `123 + 345 as T` is confusing: `123 + (345 as T)` or `(123 + 345) as T`
 expr.as(Type).as(OtherType<T>).method() // Enables chaining
@@ -1564,6 +1998,9 @@ expr.as(Type, 'reinterpret_cast')
 // Enables to do straight-forward casts with compile time known values
 let cast = 'reinterpret_cast'
 expr.as(Type, cast)
+
+// Cast to an inferred known type with `_` placeholder
+let some = expr.as(_)
 ```
 
 #### Design Considerations (Casts)
@@ -1571,7 +2008,7 @@ expr.as(Type, cast)
     - `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
     - `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
 - **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`
-- **Is operator**: Describe `is` operator
+- **Is operator**: Describe `is` operator or remove entirely in favor of `switch` over type and `if let = x.as(T)`
 
 ### Type Matching
 
@@ -1640,6 +2077,41 @@ class MyArray<T> {
 }
 ```
 
+### Unions
+
+Unions are a way to store different types of data in the same variable. Work on any platform, normally stored as `Any` but the exact implementation is platform-dependent. Enables JSON access and mixed types coming from the foreign languages.
+
+```hexa
+@union
+class Union {
+    var i Int
+    var s String
+}
+
+let x = Union { i: 1 }
+let y = Union { s: "2" }
+
+x.i = 2
+y.s = "3"
+
+// Runtime switch over the type is performed for `@union` values
+switch x {
+    case Int(int):
+        console.log("Int", int)
+    case String(str):
+        console.log("String", str)
+    case _:
+        // `_` is a wildcard pattern that fallbacks when no other pattern matches
+		// Not enforced at compile-time, but may be usefull for complex scenarios not handled by the default runtime type-matching algorithm
+
+		let other = x.as(Any) // Cast manually
+        console.log("Other", other)
+	// Alternative fallback syntax NOTE only either `_` or `Any` can be used as a fallback
+	case Any(other):
+		console.log("Other", other)
+}
+```
+
 ## Nullability
 
 The `null`-safety is checked and enforced at compile-time.
@@ -1672,6 +2144,9 @@ x = value!.field // Force unwrap and then access the field -> exception if value
 value?.field // Optional chaining -> null if value is null
 value?.field ?? defaultValue // Optional chaining works with default value operator
 
+// Example of optional chaining
+let name = user?.profile?.name ?? "Guest"
+
 // Safe navigation
 a?.b?.c()
 
@@ -1687,6 +2162,8 @@ a?.b?.c()
 
 Using one `import` per each module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
 
+Hexa files `.hexa` are listed in the `hexa.json` project file, their order within the project file affects the initialization order.
+
 ```hexa
 import NameSpace
 import Math // Can import static fields into current scope and associated types (e.g. `sin()`)
@@ -1697,6 +2174,9 @@ import Math {
     sin
     cos as cosine
 }
+
+import NameSpace { TypeName1 TypeName2 as MyName } // Import the type itself
+import NameSpace { TypeName1 TypeName2 method1 method2 } // Mixed imports (take methods from the namespace)
 
 import NameSpace.TypeName // Nested is possible
 import Deep.Nested.NameSpace.TypeName // Deeply nested is possible
@@ -1717,7 +2197,7 @@ type T {}
 interface I {}
 enum E {}
 
-// Not exported
+// Not exported from the .hexa file or parent type (e.g. class)
 private let w Int = 123
 private fun x() {}
 private class D {}
@@ -1782,7 +2262,7 @@ hexa --define apiLevel=2 ...
 ```
 
 ### Design Considerations (Preprocessor)
-- **Segregation**: Support period for namespaces like `--define mylib.mode=Mode.Debug`
+- **Segregation**: Support period for namespaces like `--define mylib.mode=Mode.Debug` or even multiple like `--define com.example.mylib.mode=Mode.Debug`
 - **Enums**: Support enums in preprocessor requires to think how to resolve them before the tokenization: maybe add `preprocessor` file list into the hexa.json that is pre-parsed separately upfront
 
 ## JSX
@@ -1825,12 +2305,31 @@ let sizeof = value.meta.type.sizeInBytes
 // `meta` itself is not a real value, and you can't pass it to functions, store it
 // let value = someValue.meta // ERROR
 // let value = meta // ERROR
+
+// Introspection - other meta-methods are also available beyond examples above
+fun printFields<T>(value T) {
+    for field in meta.fieldNames(T) { // Can be stored into [String]
+        console.log("Field: {field}")
+    }
+}
+
+printFields(Point(1, 2))
 ```
 
 ### Design Considerations (Meta Methods)
 - **Redundancy**: Is `value.meta.type` redundant and just use `value.type`/`value.type.meta`/`value.meta`
 
+### Macros Metaprogramming
+
+Macros are a way to perform syntax tree manipulation in Hexa. They declare the `@decorator` which then calls into the macro callback.
+
+Macros are not part of the syntax. They are compiled as separate sub-projects and `.hexa` files that define the macro are not included into the main project.
+
+They are executed before the main project is compiled and have an access to the compiler API. They are normal code and their `.hexa` files can be reused within the main project (as long as the file in question does not touch the compiler API).
+
 ## Async
+
+Async is the only universal asyncronosity primitive in Hexa. Other features are platform-specific.
 
 ```hexa
 async fun fetchData() {
@@ -1890,10 +2389,38 @@ async fun someAsyncFunction() {
 }
 ```
 
-Alternative is `meta.spawn()` or similar for actual OS threads, on supported platforms.
+Alternative is `meta.spawn()` or similar for actual OS threads/pools, on supported platforms.
 
 ### Design Considerations (Async)
 - **Syntax**: `async(isAsync)` or `async<isAsync>`? `()` is syntactically closer to the decorator syntax and less pointy
+
+### Fluent Await
+
+Fluent postfix await is a syntax that allows to write chained async function calls in a more readable way.
+
+```hexa
+// Prefix form
+async fun fetchData() {
+    let data = await fetch("https://api.example.com/data")
+    return data
+}
+```
+
+Can be written as:
+
+```hexa
+// Postfix form
+async fun fetchData() {
+    let data = fetch("https://api.example.com/data").await
+    return data
+}
+```
+
+This enables more readable code when chaining async functions:
+
+```hexa
+let data = fetch("https://api.example.com/data").await.json().await
+```
 
 ### Auto-Await
 
@@ -1939,11 +2466,13 @@ switch string {
 }
 ```
 
+Future work may transform the whole `case /regex/` pattern set of a single `switch` into optimized parser code at compile time.
+
 ### Design Considerations (Regular Expressions)
 - **More patterns**: What other patterns should be supported
 - **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
 
-# Advanced Memory Management (Optional Ownership Semantics)
+# Advanced Memory Management
 
 Hexa prioritizes safety and performance by default: most types use automatic reference counting or platform garbage collection where appropriate, with no overhead for simple cases.
 
@@ -1955,3 +2484,117 @@ fun process(
     @someOwnershipDecorator buffer Buffer
 ) { /* ... */ }
 ```
+
+# Native Programming
+
+Hexa is a multi-paradigm language, supporting both high-level and low-level programming styles.
+
+This sample briefly covers the low-level features of Hexa. Note that Hexa does not offer any explicit syntax for native code. Instead, existing syntax elements and concepts are used to represent native code.
+
+```hexa
+@struct
+class NativeStructure {
+	var x Int
+	var y Int
+
+	// Can have constructor and methods, they are not present in the virtual method table by default
+	new (x Int, y Int) {
+		this.x = x
+		this.y = y
+	}
+
+	fun add(other NativeStructure) {
+		this.x += other.x
+		this.y += other.y
+	}
+
+	// Other features like RAII are managed by the @decorators
+}
+
+// Allocated on the stack, enforced by the compiler to not leave stack on the call tree
+let x = NativeStructure(x: 1, y: 2)
+// Structure types are passed by reference, and they are tracked to not leak
+x.add(NativeStructure(x: 3, y: 4))
+
+// Allocated on the heap
+let y = @heap NativeStructure(x: 1, y: 2)
+x.add(y) // `y` is still tracked to not leave the `fun add` call stack
+
+// @struct is referential type (pointer) by default
+let x = 0x1234.as(NativeStructure)
+let byValue ByValue<NativeStructure> = @byValue NativeStructure(x: 123, y: 345)
+// Alternatively value-ness can be inferred
+let byValue ByValue<NativeStructure> = NativeStructure(x: 123, y: 345)
+x.add(byValue.ref) // Access the `.ref` field to get a reference (pointer)
+
+// `ByValue` may be constructed directly to avoid calling the constructor
+let byValue ByValue<NativeStructure> = ByValue<NativeStructure>() // No arguments are allowed
+// Has to be initialized manually
+byValue.ref.x = 123
+byValue.ref.y = 345
+
+// Union structures
+@union @struct
+class Union {
+	let x Int
+	let y Int
+	let z ByValue<NativeStructure>
+}
+
+// Allocated and tracked exactly the same as structures
+let x = Union { x: 1 }
+let y = Union { y: 2 }
+let z = Union { z: NativeStructure(x: 1, y: 2) }
+
+// Unions work exactly the same as in C
+x.x = 2
+y.y = 3
+z.z.x = 4
+z.z.y = 5
+
+// Other features
+// Custom @entry
+// @volatile @weak Span<T> SIMD
+// ...etc as per documentation
+```
+
+### Assertions
+
+Some decorators allow for compile-time checks performed:
+
+```hexa
+@sizeOf(256)
+@struct
+class NativeStructure {
+	let bytes ArrayByValue<UInt8, 256> // `@sizeOf` enforces the total size of the structure
+}
+```
+
+For the runtime checks, `console.assert` can be used:
+
+```hexa
+console.assert(condition, "message")
+```
+
+---
+
+# Intentional Omissions
+
+Hexa deliberately excludes certain features to maintain minimalism, readability, and target-agnostic consistency:
+
+- `goto` statements - avoided to encourage structured control flow and improve code safety
+- Multiple class inheritance - **single inheritance** combined with traits provides sufficient flexibility without diamond problem complexity
+- `finally` blocks in try/catch - omitted to keep exception handling syntax simple; resource management is encouraged via scope-based patterns or decorators
+- `protected` and `public` visibility - only `private` is supported; module-level exports control visibility, reducing access modifier noise
+- Inline macros or `comptime` blocks in regular code - metaprogramming is confined to **separate macro files** with explicit APIs to preserve clarity in main source files
+- Tuple types - structural objects and maps with **named fields** are preferred for better self-documentation and maintainability
+
+# Conclusion
+
+Hexa delivers safe, fast and clear programming across web, mobile, desktop and bare-metal targets.
+
+Hexa is deliberately boring in the right places (familiar control flow, mainstream operators, no kitchen-sink syntax) and radical only where it saves **time-to-market**: exhaustive matches, null-safety, target-agnostic FFI, and zero-cost opt-outs for the 3% of code that has to be "C in disguise".
+
+With declarative syntax, advanced pattern matching, rich type system, strict nullability and decorator-driven features, it cuts complexity without losing expressiveness.
+
+Hexa powers today's and tomorrow's game engines, applications and ambitious systems projects.
