@@ -1565,10 +1565,12 @@ switch value {
         console.log("Height: ", height) // NOTE height is not checked
 
     case SomeEnum(rect: {width, height}): // NOTE destructuring inside the pattern
-    case SomeEnum(rect: {width: 123}): // NOTE checking a specific value inside the pattern
-        console.log("Width: ", rect.width)
         // NOTE with nested pattern {} the `rect` itself is not captured
         console.log("Width: ", width, "Height: ", height)
+
+    case SomeEnum(rect: {width as w: 123}): // NOTE checking a specific value inside the pattern
+        // NOTE `width` is captured as `w`, otherwise `width` is not captured and only checked against the pattern `123`
+        console.log("Width: ", w)
 
     // Capture with renaming
     case SomeEnum(rect as rectangle: _): // Capture any `rect` as a variable `rectangle`
