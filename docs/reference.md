@@ -11,9 +11,11 @@ Every syntax element is shown with an examples of all possible variations.
 
 Most ideas have been validated through real-world Hexa usage in web and systems programming.
 
-> NOTE: This file will be transformed into an auto-test for a parser.
+> [!NOTE]
+> This file will be transformed into an auto-test for a parser.
 
-> NOTE: Only minimal semantic overview is provided here. Syntax is key.
+> [!IMPORTANT]
+> Only minimal semantic overview is provided here. Syntax is key.
 
 # State
 
@@ -52,7 +54,7 @@ Semicolons are never required. Files are UTF-8 (with optional BOM skipping and o
 
 Hexa is case-sensitive and prefers (token-efficient) tabs for indentation. Standard Library mostly follows `Node.js` API on the native platforms.
 
-Each code sample is commented with // for nuanced details.
+Inline // comments explain non-obvious aspects of each example. Always read them. They often clarify safety, performance, or constraints that emerge from Hexa semantics rather than its syntax.
 
 ## Comments
 
@@ -71,7 +73,7 @@ Hexa supports single-line, multi-line, and documentation comments. Its assumed t
 /// Documentation comment (single-line)
 /// Can have more lines - they will combine into single doc comment
 /// They do not interact with decorators
-// NOTE: A documentation comment requires an expression/statement immediately below it:
+// NOTE A documentation comment requires an expression/statement immediately below it:
 fun foo() {}
 // NOTE super easy to transform // into /// even for busy developers
 ```
@@ -174,7 +176,7 @@ Anything that starts with `#` is reserved for future use: `#foo` and such.
 ##### Design Considerations (Reserved Words)
 - **Missing reserved words**: Are there any missing reserved words
 
-NOTE: reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
+NOTE reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
 
 ### Numbers
 
@@ -509,7 +511,7 @@ some.field++
 // Overflow runtime check is optional
 @checked { // Also @wrapping @wrapAround
     var x Int = 2147483647
-    x++ // ERROR: Overflow -> exception is thrown (depends on the target platform)
+    x++ // ERROR Overflow -> exception is thrown (depends on the target platform)
     console.log(x)
 }
 ```
@@ -1619,7 +1621,18 @@ enum Color {
 // Simple tag (no payload)
 Color.Red != Color.Red // Every instance is unique value for non-baked enums
 
-// Payload with named fields -> order doesn't matter
+// Payload with named fields -> order of the arguments doesn't matter
+Color.Other(r: 255, g: 0, b: 0) != Color.Other(g: 0, b: 0, r: 255)
+// This allows you to control the order of evaluation or to improve code readability
+Color.Other(
+	// NOTE `getNextByte()` is called in source order (left-to-right)
+	// Let's imagine that the file format is binary and stores `a, r, g, b` in that order
+	// Thus reading from the stream in the wrong order would yield invalid color
+	a: getNextByte(),
+	r: getNextByte(),
+	g: getNextByte(),
+	b: getNextByte()
+)
 
 // Nested
 Color.Nested(Color.Red)
@@ -1636,11 +1649,15 @@ enum Status Int { // NOTE adding basic type after the space turns it into a cons
     Overloaded // Inferred value as BadRequest + 1 (auto-increment)
 }
 
-Status.Ok == Status.Ok // Every tag is just a raw value with a name
-var plain Int = Status.Ok // ERROR: Sound type system disallows this
-
 // NOTE direct comparison (`==`, `!=`) of enum tag *constructors* is not allowed
-// Status.Ok == Status.Ok // ERROR: Disallowed as not making any sense
+// Status.Ok == Status.Ok // ERROR Disallowed as not making any sense
+// Status.Ok != Status.Ok // ERROR too
+
+{
+	// NOTE adding `()` parenthesis is required to workaround the `==` operator
+	(Status.Ok) == (Status.Ok) // Every tag is just a raw value with a name
+}
+var plain Int = Status.Ok // ERROR Sound type system disallows this
 
 // Tag as a type (NOTE still requires `switch` to extact associated tag values if any)
 var status Status.Ok = Status.Ok // Well-known tag
@@ -1860,6 +1877,7 @@ switch value {
 Enumerations can be marked as bit flags, allowing for bitwise operations.
 
 ```hexa
+// @flags -> marks the enum as flags, defaults to the smallest integer type
 @flags enum Flags Int {
     A // Values inferred as 1, 2, 4, ...
     B
