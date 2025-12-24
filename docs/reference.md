@@ -1,10 +1,10 @@
 # Hexa Syntax Reference
 
-This document is a draft of the Hexa syntax reference. It is not yet complete and may change.
+This is a living document of the Hexa syntax reference. It is not yet complete and may change.
 
 > Hexa is your missing bridge between the worlds of high-level expressiveness and low-level control.
 
-It does not correspond to the full actual syntax of Hexa yet. It's a draft of the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
+It does not correspond to the full actual syntax of Hexa yet. It represents the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
 
 Below is a comprehensive list of the syntax elements of Hexa.
 Every syntax element is shown with an examples of all possible variations.
@@ -19,14 +19,13 @@ Most ideas have been validated through real-world Hexa usage in web and systems 
 
 Reference is a work in progress:
 
-- [x] Initial Draft (must cover at least every feature briefly)
+- [x] Initial Specification (must cover at least every feature briefly)
 - [ ] Internal Review
-- [ ] Complete Draft (must cover every feature in detail)
+- [ ] Complete Specification (must cover every feature in detail)
 - [ ] External References Check
 - [ ] Tree-Sitter Reference Grammar
 - [ ] Full Review
-- [ ] Final Draft
-- [ ] Release to hexalang.github.io (with navigation)
+- [ ] Release
 
 # Goals
 
@@ -425,6 +424,10 @@ let obj = { (foo()): 1, (name): 2 } // Uses same `()` syntax for computations as
 obj.x // Safe to access
 obj.(foo()) // Error: unknown field name, requires runtime reflection (`Reflect.get`)
 obj.(name) // Safe to access -> can compute the name at compile-time
+// Alternatively:
+let named = "xx"
+let obj = { @as(named) foo: 1, @as("baz") bar: 2 }
+obj.foo = 123 // Safe to access, compiled into `{ xx: 1, baz: 2 }`
 
 // Object spread-copy for Redux-like updates
 let obj = { ...obj, z: 3 }
@@ -435,7 +438,7 @@ let obj = { ...obj, z: 3 }
 - **Immutability**: Should objects be immutable by default
 - **More patterns**: What other object patterns should be supported
 - **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion
-- **Computed fields**: Are computed field names really useful
+- **Computed fields**: Are runtime computed field names really useful
 
 ## Decorators (Attributes/Annotations)
 
@@ -901,7 +904,7 @@ fun processFile(path String) IoResult {
 
 #### Throw
 
-Checked and unchecked exceptions are supported. On native platforms, exceptions are translated to C++ exceptions ABI by default.
+Checked and unchecked exceptions are supported. On native platforms, exceptions are translated to C++ exception ABI by default.
 
 ```hexa
 throw Error("message") // Checked by default
@@ -1357,7 +1360,7 @@ type AddableCopyable Add Copy {} // Empty trait requiring both Add and Copy (con
 
 // Named constraint encourages reusable abstractions
 fun merge<R AddableCopyable>(a R, b R) R {
-    return a + b // Both are Add + Copy
+    return a + b // Both are Add and Copy
 }
 ```
 
@@ -1980,7 +1983,7 @@ type GenericCallback<T> = (result T) => Void
 
 ### Casts
 
-Previous approach with infix operators was not very good for chaining and precedence confusion.
+Previous approach with infix operators was not very good for chaining and caused precedence confusion.
 
 Feedback from the community also shows some dissatisfaction with `as!` exclamation mark operator.
 
@@ -1999,8 +2002,8 @@ expr.as(Type, 'reinterpret_cast')
 let cast = 'reinterpret_cast'
 expr.as(Type, cast)
 
-// Cast to an inferred known type with `_` placeholder
-let some = expr.as(_)
+// Cast to an inferred known type `T` with `_` placeholder
+let some T = expr.as(_)
 ```
 
 #### Design Considerations (Casts)
