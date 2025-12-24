@@ -7,7 +7,7 @@ This is a living document of the Hexa syntax reference. It is not yet complete a
 It does not correspond to the full actual syntax of Hexa yet. It represents the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
 
 Below is a comprehensive list of the syntax elements of Hexa.
-Every syntax element is shown with an examples of all possible variations.
+Every syntax element is shown with examples of all possible variations.
 
 Most ideas have been validated through real-world Hexa usage in web and systems programming.
 
@@ -19,7 +19,7 @@ Most ideas have been validated through real-world Hexa usage in web and systems 
 
 # State
 
-Reference is a work in progress:
+The reference is a work in progress:
 
 - [x] Initial Specification (must cover at least every feature briefly)
 - [ ] Internal Review
@@ -31,7 +31,7 @@ Reference is a work in progress:
 
 # Goals
 
-Hexa syntax is designed to follow those standards:
+Hexa syntax is designed to follow these standards:
 
 - [x] Declarative -> Code flows in a straightforward and unambiguous way
 - [x] Easy to read and write -> Both by humans and tools
@@ -48,7 +48,7 @@ Hexa features are designed to be mostly MISRA compliant, allowing them to satisf
 
 # Syntax
 
-Keep in mind that Hexa is targetting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
+Keep in mind that Hexa is targeting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
 
 Semicolons are never required. Files are UTF-8 (with optional BOM skipping and optional shebang at the first line starting with `#!` also skipped).
 
@@ -58,7 +58,7 @@ Inline // comments explain non-obvious aspects of each example. Always read them
 
 ## Comments
 
-Hexa supports single-line, multi-line, and documentation comments. Its assumed that `NOTE` and `TODO` are highlighted in a distinct way by the syntax highlighter scheme.
+Hexa supports single-line, multi-line, and documentation comments. It's assumed that `NOTE` and `TODO` are highlighted in a distinct way by the syntax highlighter scheme.
 
 ```hexa
 // Single-line comment
@@ -224,7 +224,7 @@ let autoCast = 123n + 345u8 // Other integer types are automatically casted to B
 // Underscore separators
 let big = 1_000_000
 let hexadecimal = 0xFF_FFn
-let underscores = 0xFF__FFn // Multiple underscores is fine -> they serve as readability tools
+let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as readability tools
 ```
 
 #### Design Considerations (Numbers)
@@ -255,7 +255,7 @@ let s7 = /Hello World/gi
 let s8 = "Hello \(1 + 2) World"
 let s9 = "Hello \(foo.bar) World" // Any expression is valid
 // NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
-// `()` is a clear group around expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
+// `()` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
 
 // Unicode escape
 let s10 = "\u{1F600}"
@@ -267,7 +267,7 @@ let s12 = "Hello \{
 	var b = 2
 	a + b // Works like a block
 } World"
-console.log("Something: \{1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to lack of `(())` nesting
+console.log("Something: \{1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to the lack of `(())` nesting
 
 // Array-like access NOTE only 0...length are valid indices, otherwise `null` is returned
 let s13 = "Hello"[0] // "H"
@@ -281,7 +281,7 @@ let s18 = "Hello" != "Hello" // false
 let s19 = "Hello" != "hello" // true
 let s20 = "Hello" < "Hello" // false
 let s21 = "Hello" > "hello" // false
-// let s22 = "Hello" <= "Hello" // NOT allowed because seem to be redundant/too rare
+// let s22 = "Hello" <= "Hello" // NOT allowed because they seem to be redundant/too rare
 // let s23 = "Hello" >= "hello" // NOT allowed
 ```
 
@@ -302,12 +302,12 @@ let f Bool = false
 
 ### Null
 
-The `null` can only be passed to a known nullable type (`T?` with a question mark suffix):
+The `null` literal can only be passed to a known nullable type (`T?` with a question mark suffix):
 
 ```hexa
 let n T? = null // Ok
 let n T = null // Error: expected nullable type `T?`, got `T`
-let n = null // Error: there's no actual baking type, just `null`
+let n = null // Error: there's no actual backing type, just `null`
 ```
 
 ### Arrays
@@ -361,7 +361,7 @@ switch arr {
 
 ### Maps/Dictionaries
 
-Map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
+A map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
 
 ```hexa
 let map = ["key": "value", "one": "two"] // Inferred as [String: String]
@@ -390,7 +390,7 @@ let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 
 ### Objects
 
-Object is a simple fixed key-value store. It's not a map like []. Keys cannot be changed (added/removed) syntactically, only via reflection.
+An object is a simple fixed key-value store. It's not a map like []. Keys cannot be changed (added/removed) syntactically, only via reflection.
 
 ```hexa
 let obj = { x: 1, y: 2 } // Inferred as type/interface { var x Int var y Int }
@@ -422,7 +422,7 @@ let obj = { value } // Special case for single value
 
 // Computed field names
 let name = "x" // Compile-time known field names will be included in the inferred type declaration
-let obj = { (foo()): 1, (name): 2 } // Uses same `()` syntax for computations as in pattern matching
+let obj = { (foo()): 1, (name): 2 } // Uses the same `()` syntax for computations as in pattern matching
 obj.x // Safe to access
 obj.(foo()) // Error: unknown field name, requires runtime reflection (`Reflect.get`)
 obj.(name) // Safe to access -> can compute the name at compile-time
@@ -444,7 +444,7 @@ let obj = { ...obj, z: 3 }
 
 ## Decorators (Attributes/Annotations)
 
-Decorators are compile-time concept, like C++ attributes.
+Decorators are a compile-time concept, like C++ attributes.
 
 Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their names are camelCase (like identifiers), any name is allowed (including reserved keywords).
 
@@ -576,7 +576,7 @@ a /= b
 ```hexa
 obj.prop // Property access
 arr[index] // Element access
-map[key] = value // Forks for map too (also assignment)
+map[key] = value // Works for maps too (also assignment)
 a ... b     // Interval
 arg => expr // Arrow function short form
 (arg1, arg2) => expr // Arrow function with arguments
@@ -620,7 +620,7 @@ let v = x[0]
 
 ### Top-Level Statements
 
-Useful for simple scripts. Hexa has no main function.
+They are useful for simple scripts. Hexa has no main function.
 
 ```hexa
 // At the .hexa file level
@@ -651,7 +651,7 @@ let result = {
 	let y = 2
 
 	// Can alter outer control flow
-	// NOTE this enables the `let a = value ?? continue` pattern
+	// NOTE This enables the `let a = value ?? continue` pattern
 	return
 	continue
 	break
@@ -665,7 +665,7 @@ let result = {
 
 ### If / Else / Ternary
 
-`if` can be used as a statement or an expression. {} are required
+`if` can be used as a statement or an expression. Braces `{}` are required
 
 ```hexa
 value = if cond { a } else { b } // NOTE {} are required
@@ -735,7 +735,7 @@ while let x = a, y < 10 {
 // Do-While
 do {
 	x++
-} while x < 10 // NOTE no () for consistency and no `,` after the condition to avoid unnecessary complication of the `do while` loops (they are already pretty rare and confusing)
+} while x < 10 // NOTE no () for consistency and no `,` after the condition to avoid unnecessary complications of the `do while` loops (they are already pretty rare and confusing)
 
 // For-In
 for item in items { // NOTE no `let` required but still creates a local read-only variable, `var` is not allowed
@@ -756,7 +756,7 @@ for i in count { // Can be any integer expression including sized like `1u8`
 }
 
 // Iterating over a number (0 to N-1) without a variable
-for i in 100 { // NOTE some variable name is always required
+for i in 100 { // NOTE a variable name is always required
 	// i is 0, 1, ..., 99
 }
 
@@ -809,8 +809,8 @@ switch value { // Plain integer is not exhaustive
 ```hexa
 break
 continue
-return value // Always picks next expression (until `return` is the last expression itself)
 { return } // Just-return without picking next expression -> less confusion compared to automatic semicolon insertion
+return value // Always picks the next expression (until `return` is the last expression itself)
 throw error
 ```
 
@@ -892,7 +892,7 @@ fun processFile(path String) IoResult {
 	let payload = {
 		// Cache the outcome to not call `readFile` twice
 		let outcome = readFile(path)
-		// Propagate whole `outcome` if it's tag is not Ok (i.e. `.result` getter returns null)
+		// Propagate whole `outcome` if its tag is not Ok (i.e. `.result` getter returns null)
 		outcome.result ?? return outcome
 	}
 
@@ -915,7 +915,7 @@ throw Error("message") // Checked by default
 // Throwing arbitrary values is allowed
 throw "any value" // When the target supports it, otherwise wrapped in an error
 
-// Allow throwing only specific subset
+// Allow throwing only a specific subset
 @throws(IOException, ParseError)
 fun readConfig(path String) Config {
 	if not exists(path) {
@@ -952,12 +952,12 @@ fun risky() {
 
 ## Functions
 
-Closures follow same rules as a JavaScript functions (capture by reference), including arrow functions.
+Closures follow the same rules as JavaScript functions (capture by reference), including arrow functions.
 
 ```hexa
 // Basic function
 fun add(a Int, b Int = 5) Int { // Default arguments are allowed
-	return a + b // {} around body is required for clarity (when no `return` short-hand is used instead of the body itself)
+	return a + b // Braces `{}` around the body are required for clarity (when no `return` short-hand is used instead of the body itself)
 
 	// Nested functions
 	fun nested() {}
@@ -971,7 +971,7 @@ fun add(a Int, b Int = 5) Int { // Default arguments are allowed
 add(1, 2)
 add(1) // b is optional
 
-// Optionally can be called with same argument names as in function declaration (no need for separate named arguments set)
+// Optionally can be called with the same argument names as in function declaration (no need for separate named arguments set)
 add(a: 1, b: 2) // NOTE order is required to match arguments
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
 add(1, b: 2)
@@ -983,7 +983,7 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 }
 
 // Generic function a pro-actively type-checked with placeholder types
-// This enables partial type-echeking even when function is not used by the library itself anywhere
+// This enables partial type-checking even when the function is not used by the library itself anywhere
 fun example<T>(x T) T {
 	T.hello() // Allowed, `T` is a placeholder type - unknown before instantiation
 	x.hello() // Allowed too, as `x` of type `T`
@@ -1174,13 +1174,13 @@ p.origin() // Same with methods
 
 ```hexa
 class Point {
-	// Order is not important if compiler can prove it (with simple control flow analysis)
+	// Order is not important if the compiler can prove it (with simple control flow analysis)
 	let z Int = y // If `y` can be computed upfront, `z` will be evaluated after it (in the constructor body)
 
 	var x Int // No default value -> must be either assigned in `new` or at creation site with `Point { x: 1 }`
 	var y Int = 0 // Can have default values
 
-	// NOTE only single, non-overloaded constructor is allowed
+	// NOTE only a single, non-overloaded constructor is allowed
 	new (x Int, y Int = 0) { // NOTE default values are allowed in `new`
 		this.x = x
 		this.y = y
@@ -1292,7 +1292,7 @@ Usage of `trait` keyword would reduce adoption and semantically does not fully m
 
 ```hexa
 // Parsing rules same as of classes
-type BoxTrait { // NOTE traits use `type` keyword but overall parsed same way as a class
+type BoxTrait { // NOTE traits use `type` keyword but are overall parsed in the same way as a class
 	fun box() Void
 }
 
@@ -1315,7 +1315,7 @@ class Box BoxTrait<Int> { // NOTE traits are implemented just mentioning them in
 }
 
 // Implicitly implementing a trait
-class Box { // NOTE no need to mention trait in the class declaration
+class Box { // NOTE no need to mention the trait in the class declaration
 	fun box(value Int) Void {
 		// Do something
 	}
@@ -1407,7 +1407,7 @@ var y TraitsBundleY.A = true
 
 // Generic type bundles
 type GenericTraitsBundle<K> {
-	type Collection<V> = Map<K, V> // NOTE `V` is a generic type parameter of `type` field inside of the trait
+	type Collection<V> = Map<K, V> // NOTE `V` is a generic type parameter of the `type` field inside the trait
 }
 
 // Usage
@@ -1487,11 +1487,11 @@ class Shape {
 	fun draw() {}
 }
 
-// Single inheritance (first in the list) but any number of traits or interfaces allowed (in any order)
+// Single inheritance (the first in the list) but any number of traits or interfaces allowed (in any order)
 class Circle Shape Trait Interface {
 	fun draw() { // NOTE `override` is not required - but signature must match
 		// Draw circle
-		super.draw() // Call parent method
+		super.draw() // Call the parent method
 	}
 
 	new () {
@@ -1503,7 +1503,7 @@ class Circle Shape Trait Interface {
 
 ### Interfaces
 
-Compared to traits, interface is a runtime feature (via reflection and virtual methods if the platform supports it). Interfaces are parsed the same way as classes.
+Compared to traits, an interface is a runtime feature (via reflection and virtual methods if the platform supports it). Interfaces are parsed the same way as classes.
 
 ```hexa
 // Parsing rules same as of classes
@@ -1560,7 +1560,7 @@ switch value {
 		console.log("Width: ", width, "Height: ", height)
 	case {width: 123}: // NOTE checking a specific value
 		console.log("Width: ", width)
-	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
+	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with a compile-time known expression
 		console.log("Width: ", width)
 		console.log("Height: ", height) // NOTE height is not checked
 
@@ -1577,7 +1577,7 @@ switch value {
 		console.log("Rectangle width: ", rectangle.width)
 
 	// Advanced patterns
-	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
+	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with a compile-time known expression
 		console.log("Width: ", width)
 		console.log("Height: ", height) // NOTE height is not checked
 
@@ -1621,7 +1621,7 @@ enum Color {
 }
 
 // Simple tag (no payload)
-Color.Red != Color.Red // Every instance is unique value for non-baked enums
+Color.Red != Color.Red // Every instance is a unique value for non-baked enums
 
 // Payload with named fields -> order of the arguments doesn't matter
 Color.Other(r: 255, g: 0, b: 0) != Color.Other(g: 0, b: 0, r: 255)
@@ -1629,7 +1629,7 @@ Color.Other(r: 255, g: 0, b: 0) != Color.Other(g: 0, b: 0, r: 255)
 Color.Other(
 	// NOTE `getNextByte()` is called in source order (left-to-right)
 	// Let's imagine that the file format is binary and stores `a, r, g, b` in that order
-	// Thus reading from the stream in the wrong order would yield invalid color
+	// Thus reading from the stream in the wrong order would yield an invalid color
 	a: getNextByte(),
 	r: getNextByte(),
 	g: getNextByte(),
@@ -1643,7 +1643,7 @@ Color.Nested(Color.Red)
 Color.Nested(Other(r: 0, g: 255, b: 0))
 
 // Enum with values -> has a baked type (here `Int`)
-enum Status Int { // NOTE adding basic type after the space turns it into a constant enum
+enum Status Int { // NOTE adding a basic type after the space turns it into a constant enum
 	Ok = 200
 	NotFound = 404
 	BadRequestError = 404 // Duplicate value is NOT allowed with constant
@@ -1751,7 +1751,7 @@ enum ExtendedColor Color {
 // Both normal and extended enums are compatible with each other
 var color Color = ExtendedColor.Yellow
 
-// Complex enums also use runtime-known extensibility mechanism similar to the classes
+// Complex enums also use a runtime-known extensibility mechanism similar to the classes
 let unknown Any = ExtendedColor.Yellow // Instance of `ExtendedColor` is an instance of `Color` too
 switch unknown {
 	// Runtime type check and a cast
@@ -1810,7 +1810,7 @@ enum Status Int {
 
 ### Switch as Expression
 
-A `switch` can be used as an expression, its always exhaustive.
+A `switch` can be used as an expression, and it's always exhaustive.
 
 The `case _:` is used instead of `default` to be consistent with nested pattern matching: `case Other(_):` allowing for wildcard pattern matching without confusing `case Other(default):` syntax.
 
@@ -2293,7 +2293,7 @@ hexa --define apiLevel=2 ...
 ```hexa
 fun div(props: { var children [Node]? }) {}
 
-// Lowercase tag names allow for HTML like syntax
+// Lowercase tag names allow for HTML-like syntax
 let element = <div>Hello, world!</div>
 
 // Transpiles to
@@ -2309,9 +2309,9 @@ let element = <MyComponent>Hello, world!</MyComponent>
 
 ## Meta Methods
 
-Meta methods allow to access type information and other metadata at compile time (like size of structure akin to sizeof in C).
+Meta methods allow access to type information and other metadata at compile time (like size of structure akin to sizeof in C).
 
-NOTE due to Hexa targeting both C/C++ and JavaScript, having built-in for `sizeof` is impractical. `meta` allows to have target-specific meta methods without polluting the language.
+NOTE due to Hexa targeting both C/C++ and JavaScript, having a built-in for `sizeof` is impractical. `meta` allows to have target-specific meta methods without polluting the language.
 
 The `meta` is a keyword and cannot be used as an identifier. This syntax is LSP-friendly and great for discoverability.
 
@@ -2348,7 +2348,7 @@ Macros are a way to perform syntax tree manipulation in Hexa. They declare the `
 
 Macros are not part of the syntax. They are compiled as separate sub-projects and `.hexa` files that define the macro are not included into the main project.
 
-They are executed before the main project is compiled and have an access to the compiler API. They are normal code and their `.hexa` files can be reused within the main project (as long as the file in question does not touch the compiler API).
+They are executed before the main project is compiled and have access to the compiler API. They are normal code and their `.hexa` files can be reused within the main project (as long as the file in question does not touch the compiler API).
 
 ## Async
 
@@ -2419,7 +2419,7 @@ Alternative is `meta.spawn()` or similar for actual OS threads/pools, on support
 
 ### Fluent Await
 
-Fluent postfix await is a syntax that allows to write chained async function calls in a more readable way.
+Fluent postfix await is a syntax that allows writing chained async function calls in a more readable way.
 
 ```hexa
 // Prefix form
@@ -2543,7 +2543,7 @@ x.add(NativeStructure(x: 3, y: 4))
 let y = @heap NativeStructure(x: 1, y: 2)
 x.add(y) // `y` is still tracked to not leave the `fun add` call stack
 
-// @struct is referential type (pointer) by default
+// @struct is a referential type (pointer) by default
 let x = 0x1234.as(NativeStructure)
 let byValue ByValue<NativeStructure> = @byValue NativeStructure(x: 123, y: 345)
 // Alternatively value-ness can be inferred
@@ -2614,10 +2614,10 @@ Hexa deliberately excludes certain features to maintain minimalism, readability,
 
 # Conclusion
 
-Hexa delivers safe, fast and clear programming across web, mobile, desktop and bare-metal targets.
+Hexa delivers safe, fast, and clear programming across web, mobile, desktop and bare-metal targets.
 
 Hexa is deliberately boring in the right places (familiar control flow, mainstream operators, no kitchen-sink syntax) and radical only where it saves **time-to-market**: exhaustive matches, null-safety, target-agnostic FFI, and zero-cost opt-outs for the 3% of code that has to be "C in disguise".
 
-With declarative syntax, advanced pattern matching, rich type system, strict nullability and decorator-driven features, it cuts complexity without losing expressiveness.
+With declarative syntax, advanced pattern matching, a rich type system, strict nullability and decorator-driven features, it cuts complexity without losing expressiveness.
 
 Hexa powers today's and tomorrow's game engines, applications and ambitious systems projects.
