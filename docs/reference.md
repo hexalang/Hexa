@@ -239,8 +239,8 @@ Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks ``
 let s1 = "Hello"
 let s2 = 'World' // No difference in meaning
 let s3 = `
-    Multi-line
-    String
+	Multi-line
+	String
 ` // NOTE newlines always converted into a \n
 let s4 = "Hello \n World"
 let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
@@ -340,18 +340,18 @@ arr[-1i8] = 3 // Does not affect `.length`
 
 // Switch with destructuring
 switch arr {
-    case [x, y, z]: // No trailing comma allowed in patterns
-        console.log(x, y, z)
-    case [1, _, z]: // Match and capture, ignoring the second element
-        console.log(z)
-    case [x, ...rest]: // Match and capture rest
-        console.log(x, rest)
-    case []:
-        console.log("Empty")
-    case [x, [1, _, y]]:
-        console.log("Nested pattern", x, y)
-    case _:
-        console.log("Other")
+	case [x, y, z]: // No trailing comma allowed in patterns
+		console.log(x, y, z)
+	case [1, _, z]: // Match and capture, ignoring the second element
+		console.log(z)
+	case [x, ...rest]: // Match and capture rest
+		console.log(x, rest)
+	case []:
+		console.log("Empty")
+	case [x, [1, _, y]]:
+		console.log("Nested pattern", x, y)
+	case _:
+		console.log("Other")
 }
 ```
 
@@ -374,10 +374,10 @@ let map = ["key": "value", "one": "two",]
 
 // Switch with destructuring
 switch map {
-    case ["key": "value", "one": "two"]: // No trailing comma allowed in patterns
-        console.log("Match")
-    case _:
-        console.log("Other")
+	case ["key": "value", "one": "two"]: // No trailing comma allowed in patterns
+		console.log("Match")
+	case _:
+		console.log("Other")
 }
 
 // Any expression works as a key
@@ -409,10 +409,10 @@ let obj3 IPoint = obj2 // Type satisfies interface (if runtime-compatible)
 
 // Switch with destructuring
 switch obj {
-    case { x: 1, y: 2 }:
-        console.log("Match")
-    case _:
-        console.log("Other")
+	case { x: 1, y: 2 }:
+		console.log("Match")
+	case _:
+		console.log("Other")
 }
 
 // Shorthand for two or more fields (single value would confuse with a block)
@@ -455,7 +455,7 @@ They may alter behavior of the declaration they are attached to or even trigger 
 @packed
 @sizeOf(16) // Expected size of the type in bytes checked by the compiler versus actual size
 class AcpiTableHeader {
-    @bits(8) var signature UInt8 // Decorators may fine-tune the generated code (bit fields, etc)
+	@bits(8) var signature UInt8 // Decorators may fine-tune the generated code (bit fields, etc)
 }
 
 // Work with types too
@@ -472,7 +472,7 @@ fun foo() {}
 
 // Decorators on function arguments
 fun someFunction(@readonly some Type) {
-    // ...
+	// ...
 }
 
 // Decorators on externals
@@ -510,9 +510,9 @@ some.field++
 
 // Overflow runtime check is optional
 @checked { // Also @wrapping @wrapAround
-    var x Int = 2147483647
-    x++ // ERROR Overflow -> exception is thrown (depends on the target platform)
-    console.log(x)
+	var x Int = 2147483647
+	x++ // ERROR Overflow -> exception is thrown (depends on the target platform)
+	console.log(x)
 }
 ```
 
@@ -634,29 +634,29 @@ console.log(x + y)
 ```hexa
 // Blocks create a scope
 {
-    let x = 1
-    let y = 2
+	let x = 1
+	let y = 2
 
-    // Standalone blocks are allowed
-    {
-        // Shadowing is allowed -> scope limited to the block
-        let x = 1
-        let y = 2
-    }
+	// Standalone blocks are allowed
+	{
+		// Shadowing is allowed -> scope limited to the block
+		let x = 1
+		let y = 2
+	}
 }
 
 // Blocks can be used as expressions
 let result = {
-    let x = 1
-    let y = 2
+	let x = 1
+	let y = 2
 
-    // Can alter outer control flow
+	// Can alter outer control flow
 	// NOTE this enables the `let a = value ?? continue` pattern
-    return
-    continue
-    break
+	return
+	continue
+	break
 
-    x + y // The last expression is the result
+	x + y // The last expression is the result
 }
 ```
 
@@ -671,28 +671,28 @@ let result = {
 value = if cond { a } else { b } // NOTE {} are required
 
 if x > 0 {
-    console.log("Positive")
+	console.log("Positive")
 } else if x < 0 {
-    console.log("Negative")
+	console.log("Negative")
 } else {
-    console.log("Zero")
+	console.log("Zero")
 }
 
 // Error prevention:
 if x > 0 {
-    console.log("Positive")
+	console.log("Positive")
 } if x < 0 { // Error: `else` is required in the `{ } if` pattern on the same line
-    console.log("Negative")
+	console.log("Negative")
 }
 
 // Multiple conditions
 if x > 0, y < 10 { // Same as `if (x > 0) and (y < 10)`
-    console.log("Positive")
+	console.log("Positive")
 }
 
 // Compatible with bindings
 if let x = a, y > b, let z = c { // NOTE `let z` is allowed
-    console.log(x, y, z)
+	console.log(x, y, z)
 }
 
 // Expression
@@ -700,7 +700,7 @@ let result = if x > 0 { "Positive" } else { "Non-positive" }
 
 // `=` assignment is not an expression
 if a = b { // Error
-    // Will not compile, eliminates typos from if (a = b) instead of if (a == b)
+	// Will not compile, eliminates typos from if (a = b) instead of if (a == b)
 }
 
 // `if` can be used as an expression with {} required, `else` is required
@@ -724,40 +724,40 @@ NOTE `for`, `do` and `while` loops are not expressions.
 ```hexa
 // While
 while x > 0 {
-    x--
+	x--
 }
 
 // While with multiple conditions and bindings
 while let x = a, y < 10 {
-    y++
+	y++
 }
 
 // Do-While
 do {
-    x++
+	x++
 } while x < 10 // NOTE no () for consistency and no `,` after the condition to avoid unnecessary complication of the `do while` loops (they are already pretty rare and confusing)
 
 // For-In
 for item in items { // NOTE no `let` required but still creates a local read-only variable, `var` is not allowed
-    console.log(item)
-    break // No labels allowed or supported, outer break is done with meta methods
-    continue
+	console.log(item)
+	break // No labels allowed or supported, outer break is done with meta methods
+	continue
 }
 
 // For loop with range
 for i in 0 ... 10 { // NOTE `i` is not visible outside the loop and is read-only
-    console.log(i)
+	console.log(i)
 }
 
 // Iterating over a number (0 to N-1)
 var count = 100
 for i in count { // Can be any integer expression including sized like `1u8`
-    // Idiomatic -> iterates from 0 to count-1
+	// Idiomatic -> iterates from 0 to count-1
 }
 
 // Iterating over a number (0 to N-1) without a variable
 for i in 100 { // NOTE some variable name is always required
-    // i is 0, 1, ..., 99
+	// i is 0, 1, ..., 99
 }
 
 // Loops from n to m-1 (thus allows to iterate over an array.length)
@@ -783,24 +783,24 @@ Exhaustiveness checking is done when the type allows for it.
 
 ```hexa
 switch value { // Plain integer is not exhaustive
-    case 1:
-        console.log("One")
-        // no break needed, assumed to break by default
-    case 2:
-        console.log("Two")
-    case x if x > 10: // Pattern guard can work over captured `x` (captured from `value`)
-        // NOTE guards are not exhaustive, they are runtime checks
-        console.log("Greater than 10")
-    case _ ... 123:
-        console.log("Less than 123")
-    case 1 ... 123:
-        console.log("Between 1 and 122")
-    case 123 ... _:
-        console.log("Greater than 123")
-    case _:
-        console.log("Other")
+	case 1:
+		console.log("One")
+		// no break needed, assumed to break by default
+	case 2:
+		console.log("Two")
+	case x if x > 10: // Pattern guard can work over captured `x` (captured from `value`)
+		// NOTE guards are not exhaustive, they are runtime checks
+		console.log("Greater than 10")
+	case _ ... 123:
+		console.log("Less than 123")
+	case 1 ... 123:
+		console.log("Between 1 and 122")
+	case 123 ... _:
+		console.log("Greater than 123")
+	case _:
+		console.log("Other")
 
-    // case 1: case 2: // Error when `case` on the same line to avoid confusion for C programmer (should use `case 1 or 2:` instead)
+	// case 1: case 2: // Error when `case` on the same line to avoid confusion for C programmer (should use `case 1 or 2:` instead)
 }
 ```
 
@@ -822,18 +822,18 @@ There's no `finally` block.
 
 ```hexa
 try {
-    risky()
+	risky()
 } catch e Error {
-    handle(e)
+	handle(e)
 }
 
 // Multiple catch blocks
 try {
-    risky()
+	risky()
 } catch e Error {
-    handle(e)
+	handle(e)
 } catch e Exception {
-    throw e // Re-throw
+	throw e // Re-throw
 }
 ```
 
@@ -844,17 +844,17 @@ Hexa encourages the use of nullable types with the `??` pattern, but `Result`-li
 ```hexa
 @extensibleTags
 enum Result<T> {
-    Ok(value T)
+	Ok(value T)
 
-    // Computed property for safe unwrapping
-    let result T? {
-        get {
-            switch this {
-                case Ok(value): value
-                case _: null // Forces downstream null-checks with `??`
-            }
-        }
-    }
+	// Computed property for safe unwrapping
+	let result T? {
+		get {
+			switch this {
+				case Ok(value): value
+				case _: null // Forces downstream null-checks with `??`
+			}
+		}
+	}
 }
 ```
 
@@ -864,43 +864,43 @@ Example usage with a `@orReturn` shorthand:
 // Arbitrary user type used for final resulting value of operations
 /// Payload type for successful IO operations
 interface IoPayload {
-    let path String
-    let operation String
+	let path String
+	let operation String
 }
 
 // Domain-specific Result-like enumeration is also user-defined
 enum IoResult Result<IoPayload> {
-    NotFound
-    PermissionDenied
-    IoError(message String)
-    Timeout
+	NotFound
+	PermissionDenied
+	IoError(message String)
+	Timeout
 }
 
 fun readFile(path String) IoResult {
-    // ... implementation concept
+	// ... implementation concept
 	if not exists(path) { return IoResult.NotFound }
-    // ... return using the Ok tag inherited from Result
-    return IoResult.Ok({ contents: data, path: path })
+	// ... return using the Ok tag inherited from Result
+	return IoResult.Ok({ contents: data, path: path })
 }
 
 fun processFile(path String) IoResult {
 	// Automated with the `@orReturn` shorthand
 	// Type of the `payload` is `IoPayload`
-    let payload = @orReturn readFile(path)
+	let payload = @orReturn readFile(path)
 
-    // Manual unwrap with null-coalescing (same logic as `@orReturn` built-in)
-    let payload = {
+	// Manual unwrap with null-coalescing (same logic as `@orReturn` built-in)
+	let payload = {
 		// Cache the outcome to not call `readFile` twice
 		let outcome = readFile(path)
 		// Propagate whole `outcome` if it's tag is not Ok (i.e. `.result` getter returns null)
 		outcome.result ?? return outcome
 	}
 
-    // Use payload...
+	// Use payload...
 	console.log(payload.path, payload.operation)
 
 	// Return Ok
-    return IoResult.Ok(payload)
+	return IoResult.Ok(payload)
 }
 ```
 
@@ -918,10 +918,10 @@ throw "any value" // When the target supports it, otherwise wrapped in an error
 // Allow throwing only specific subset
 @throws(IOException, ParseError)
 fun readConfig(path String) Config {
-    if not exists(path) {
-        throw IOException("File not found")
-    }
-    // Also forces to catch other calls if they throw other exceptions
+	if not exists(path) {
+		throw IOException("File not found")
+	}
+	// Also forces to catch other calls if they throw other exceptions
 	try {
 		functionThatThrowsTypeError()
 	} catch e TypeError {
@@ -931,19 +931,19 @@ fun readConfig(path String) Config {
 
 @throws(Void) // No throws -> forces to catch all in caller
 fun caller() {
-    try {
-        readConfig("config.json")
-    } catch e IOException {
-        // handle
-    } catch e ParseError {
-        // handle
-    }
-    // Compiler error if not all thrown types handled/propagated
+	try {
+		readConfig("config.json")
+	} catch e IOException {
+		// handle
+	} catch e ParseError {
+		// handle
+	}
+	// Compiler error if not all thrown types handled/propagated
 }
 
 @unchecked
 fun risky() {
-    throw RuntimeError("boom") // No need to declare/catch
+	throw RuntimeError("boom") // No need to declare/catch
 }
 ```
 
@@ -957,14 +957,14 @@ Closures follow same rules as a JavaScript functions (capture by reference), inc
 ```hexa
 // Basic function
 fun add(a Int, b Int = 5) Int { // Default arguments are allowed
-    return a + b // {} around body is required for clarity (when no `return` short-hand is used instead of the body itself)
+	return a + b // {} around body is required for clarity (when no `return` short-hand is used instead of the body itself)
 
-    // Nested functions
-    fun nested() {}
-    nested()
+	// Nested functions
+	fun nested() {}
+	nested()
 
-    // Arguments are not re-assignable (assume `let`)
-    // a = 123 // Error
+	// Arguments are not re-assignable (assume `let`)
+	// a = 123 // Error
 }
 
 // Calls
@@ -978,17 +978,17 @@ add(1, b: 2)
 
 // Generic function - implicit
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
-    // NOTE this function is still fully generic, it just infers the type
-    return x
+	// NOTE this function is still fully generic, it just infers the type
+	return x
 }
 
 // Generic function a pro-actively type-checked with placeholder types
 // This enables partial type-echeking even when function is not used by the library itself anywhere
 fun example<T>(x T) T {
-    T.hello() // Allowed, `T` is a placeholder type - unknown before instantiation
+	T.hello() // Allowed, `T` is a placeholder type - unknown before instantiation
 	x.hello() // Allowed too, as `x` of type `T`
 	"string".nonExistingMethod() // Error, `String` is not a placeholder, but a well-known type
-    return x + 5 // Inferred to placeholder type
+	return x + 5 // Inferred to placeholder type
 }
 
 // Arrow function
@@ -997,7 +997,7 @@ let double Callback = (x) => x * 2 // NOTE arrow functions require known expecte
 // Arrow function lowering to a plain function
 let plain = (x) => x * 2 // Lack of known types when assigned directly to a new constant is lowered to a plain `fun` function:
 fun plain(x) { // NOTE preserves genericity
-    return x * 2
+	return x * 2
 }
 plain(1)
 
@@ -1009,17 +1009,17 @@ declare fun externalFunc() Void // NOTE no body
 
 // Generic function - explicit
 fun identity<T>(x T) T {
-    return x
+	return x
 }
 
 // Generic function - trait bound at argument level
 fun identity(x BoxTrait<Int>) Int { // NOTE using traits as types makes the whole function generic
-    return x
+	return x
 }
 
 // Generic function - trait bound at argument level - advanced
 fun identity<T>(x BoxTrait<T>) T { // NOTE passing <T> into a trait
-    return x
+	return x
 }
 
 // Usage -> <T> is inferred where possible
@@ -1030,22 +1030,22 @@ let y = identity<String>("hello") // NOTE no space in between < and T
 
 // Generic function with trait bound
 fun identity<T BoxTrait<Int>>(x T) T {
-    return x
+	return x
 }
 
 // Generic function with multiple trait bounds `<T Bound1, U Bound2>`
 fun identity<A BoxTrait<Int>, B BoxTrait<String>>(x A, y B) Void {
-    console.log(x)
-    console.log(y)
+	console.log(x)
+	console.log(y)
 }
 
 // Overloading
 fun fooForInt(x Int) Int {
-    return x
+	return x
 }
 
 fun fooForString(x String) String {
-    return x
+	return x
 }
 
 // Function as value
@@ -1055,18 +1055,18 @@ func(123)
 
 // Recursion
 fun fib(n Int) Int {
-    if n <= 1 {
-        return n
-    }
-    return fib(n - 1) + fib(n - 2)
+	if n <= 1 {
+		return n
+	}
+	return fib(n - 1) + fib(n - 2)
 }
 
 // Recursion with function by value
 let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow function cannot be recursive but `fun` syntax is interchangeable
-    if n <= 1 {
-        return n
-    }
-    return fib(n - 1) + fib(n - 2)
+	if n <= 1 {
+		return n
+	}
+	return fib(n - 1) + fib(n - 2)
 }
 
 fibAsValue(10)
@@ -1106,40 +1106,40 @@ Fields of class-like types (`class`, `type`, `interface`, `enum`) start with a k
 
 ```hexa
 class Point {
-    var x Int
-    private var y Int // NOTE only `private` is supported, it behaves like `protected` in other languages
+	var x Int
+	private var y Int // NOTE only `private` is supported, it behaves like `protected` in other languages
 
-    // Constructor
-    // Can be `private` (then only accessible from within the static methods and descendants)
-    new (x Int, y Int) {
-        this.x = x
-        this.y = y
-    }
+	// Constructor
+	// Can be `private` (then only accessible from within the static methods and descendants)
+	new (x Int, y Int) {
+		this.x = x
+		this.y = y
+	}
 
-    fun move(dx Int, dy Int) {
-        this.x += dx
-        y += dy // NOTE `this` is optional when there are no name conflicts
+	fun move(dx Int, dy Int) {
+		this.x += dx
+		y += dy // NOTE `this` is optional when there are no name conflicts
 
-        fun nested() {
-            this // NOTE `this` is a class's `Point` instance from the outer scope, not this-bindable function
-        }
-    }
+		fun nested() {
+			this // NOTE `this` is a class's `Point` instance from the outer scope, not this-bindable function
+		}
+	}
 
-    static var xx Int // NOTE static members are allowed
-    private static var yy Int // NOTE private static members are allowed
+	static var xx Int // NOTE static members are allowed
+	private static var yy Int // NOTE private static members are allowed
 
-    static fun origin() Point {
-        return Point(0, 0) // `new` not required and not allowed
-    }
+	static fun origin() Point {
+		return Point(0, 0) // `new` not required and not allowed
+	}
 
-    fun noMethodBody() Void // NOTE turns into abstract class
+	fun noMethodBody() Void // NOTE turns into abstract class
 }
 
 // External class or structure (with @struct)
 @final // Disallow inheritance
 declare class Point {
-    var x Int
-    let y Int // Can be read-only
+	var x Int
+	let y Int // Can be read-only
 }
 ```
 
@@ -1174,28 +1174,28 @@ p.origin() // Same with methods
 
 ```hexa
 class Point {
-    // Order is not important if compiler can prove it (with simple control flow analysis)
-    let z Int = y // If `y` can be computed upfront, `z` will be evaluated after it (in the constructor body)
+	// Order is not important if compiler can prove it (with simple control flow analysis)
+	let z Int = y // If `y` can be computed upfront, `z` will be evaluated after it (in the constructor body)
 
-    var x Int // No default value -> must be either assigned in `new` or at creation site with `Point { x: 1 }`
-    var y Int = 0 // Can have default values
+	var x Int // No default value -> must be either assigned in `new` or at creation site with `Point { x: 1 }`
+	var y Int = 0 // Can have default values
 
-    // NOTE only single, non-overloaded constructor is allowed
-    new (x Int, y Int = 0) { // NOTE default values are allowed in `new`
-        this.x = x
-        this.y = y
-    }
+	// NOTE only single, non-overloaded constructor is allowed
+	new (x Int, y Int = 0) { // NOTE default values are allowed in `new`
+		this.x = x
+		this.y = y
+	}
 }
 
 let point = Point(1, 2) // NOTE `new` not allowed i.e. `new Point`
 
 // Alternatively
 class Point {
-    var x Int
-    var y Int
+	var x Int
+	var y Int
 
-    // NOTE `new` assumed by default
-    // `private new() {}` to disable construction outside, allowed to be called only from within static methods
+	// NOTE `new` assumed by default
+	// `private new() {}` to disable construction outside, allowed to be called only from within static methods
 }
 
 // JSON-like syntax
@@ -1227,11 +1227,11 @@ Generics work as compile-time templates (unless opted-in to be a runtime generic
 
 ```hexa
 class Box<T> {
-    var value T
+	var value T
 
-    new (value T) {
-        this.value = value
-    }
+	new (value T) {
+		this.value = value
+	}
 }
 
 let box = Box<Int>(123)
@@ -1241,13 +1241,13 @@ let box2 = Box<Box<Int>>(Box(123))
 
 // Generic Classes with Multiple Type Parameters
 class Box<T, U = Int> { // NOTE default type parameter value
-    var value T
-    var value2 U
+	var value T
+	var value2 U
 
-    new (value T, value2 U) {
-        this.value = value
-        this.value2 = value2
-    }
+	new (value T, value2 U) {
+		this.value = value
+		this.value2 = value2
+	}
 }
 
 let box3 = Box<Int, String>(123, "hello")
@@ -1259,11 +1259,11 @@ Const generics allow to create types that depend on values.
 
 ```hexa
 class Box<T, let size T> { // NOTE `let` is used to declare a constant generic and can depend on other generics (e.g. `T`)
-    var value T
+	var value T
 
-    new (value T) {
-        this.value = value * size
-    }
+	new (value T) {
+		this.value = value * size
+	}
 }
 
 let box = Box<Int, 1>(123)
@@ -1293,32 +1293,32 @@ Usage of `trait` keyword would reduce adoption and semantically does not fully m
 ```hexa
 // Parsing rules same as of classes
 type BoxTrait { // NOTE traits use `type` keyword but overall parsed same way as a class
-    fun box() Void
+	fun box() Void
 }
 
 // Generic trait
 type BoxTrait<T> {
-    fun box(value T) Void
+	fun box(value T) Void
 
-    // Traits can provide default implementations (extensions)
-    // NOTE the implementor is *not* required to provide an existing field
-    fun extension(value T) Void {
-        // Do something
-    }
+	// Traits can provide default implementations (extensions)
+	// NOTE the implementor is *not* required to provide an existing field
+	fun extension(value T) Void {
+		// Do something
+	}
 }
 
 // Implementing trait
 class Box BoxTrait<Int> { // NOTE traits are implemented just mentioning them in the class declaration
-    fun box(value Int) Void {
-        // Do something
-    }
+	fun box(value Int) Void {
+		// Do something
+	}
 }
 
 // Implicitly implementing a trait
 class Box { // NOTE no need to mention trait in the class declaration
-    fun box(value Int) Void {
-        // Do something
-    }
+	fun box(value Int) Void {
+		// Do something
+	}
 }
 
 // Trait can be used structurally
@@ -1333,28 +1333,28 @@ enum Color BoxTrait<Int> { Red Green Blue fun box(value Int) Void { } }
 
 // Generic class with a trait as a type limit
 class Box<T BoxTrait<Int>> { // NOTE `BoxTrait<Int>` is a type limit placed after the type parameter with a space in between
-    var value T
+	var value T
 
-    new (value T) {
-        this.value = value
-    }
+	new (value T) {
+		this.value = value
+	}
 }
 
 // Generic class with multiple trait bounds `<T Bound1, U Bound2>`
 class Box<T Trait1, U Trait2> {
-    var value T
-    var value2 U
-    // ...
+	var value T
+	var value2 U
+	// ...
 }
 
 class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
-    var value T
-    var value2 U
+	var value T
+	var value2 U
 
-    new (value T, value2 U) {
-        this.value = value
-        this.value2 = value2
-    }
+	new (value T, value2 U) {
+		this.value = value
+		this.value2 = value2
+	}
 }
 
 // Compose multiple traits into one (supertrait-like for generics constraints)
@@ -1362,7 +1362,7 @@ type AddableCopyable Add Copy {} // Empty trait requiring both Add and Copy (con
 
 // Named constraint encourages reusable abstractions
 fun merge<R AddableCopyable>(a R, b R) R {
-    return a + b // Both are Add and Copy
+	return a + b // Both are Add and Copy
 }
 ```
 
@@ -1372,33 +1372,33 @@ Hexa supports family polymorphism:
 
 ```hexa
 type BoxTrait<T> {
-    type Value = T
+	type Value = T
 }
 
 // Type bundles
 type Traits {
-    type A // NOTE when `=` absent, the implementor should provide it
-    type B
-    type C
+	type A // NOTE when `=` absent, the implementor should provide it
+	type B
+	type C
 }
 
 type TraitsFor<T> {
-    type A = T
-    type B = T
-    type C = T
+	type A = T
+	type B = T
+	type C = T
 }
 
 // Implementing them explicitly
 type TraitsBundleX Traits {
-    type A = Int
-    type B = String
-    type C = Float
+	type A = Int
+	type B = String
+	type C = Float
 }
 
 type TraitsBundleY Traits {
-    type A = Bool
-    type B = String
-    type C = Float
+	type A = Bool
+	type B = String
+	type C = Float
 }
 
 // Using them as namespaces
@@ -1407,7 +1407,7 @@ var y TraitsBundleY.A = true
 
 // Generic type bundles
 type GenericTraitsBundle<K> {
-    type Collection<V> = Map<K, V> // NOTE `V` is a generic type parameter of `type` field inside of the trait
+	type Collection<V> = Map<K, V> // NOTE `V` is a generic type parameter of `type` field inside of the trait
 }
 
 // Usage
@@ -1415,10 +1415,10 @@ var x GenericTraitsBundle<Int>.Collection<String> = Map<Int, String>()
 
 // Also as local namespaces
 class Box<Types Traits> {
-    type Alias = Types.A
+	type Alias = Types.A
 
-    var value Types.B = ""
-    var value2 Types.C = 0.0
+	var value Types.B = ""
+	var value2 Types.C = 0.0
 }
 ```
 
@@ -1432,31 +1432,31 @@ let padding = 8
 
 // Type patterns can be associated types too
 class Box<T, U, Z, let size Int> {
-    // Still works as normal `let`, possibility to be used in type patterns is decided on-demand
-    let align = U.meta.alignOf
+	// Still works as normal `let`, possibility to be used in type patterns is decided on-demand
+	let align = U.meta.alignOf
 
-    type Value = switch T, size {
-        // T == Int, size == 1
-        case Int, 1: Int
+	type Value = switch T, size {
+		// T == Int, size == 1
+		case Int, 1: Int
 
-        // T == Array<U>, size == 2
-        case Array<U>, 2: Array<Z>
+		// T == Array<U>, size == 2
+		case Array<U>, 2: Array<Z>
 
-        // T == Map<U, anything captured as V>, size == 3
-        case Map<U, _ as V>, 3: Map<V, Z>
+		// T == Map<U, anything captured as V>, size == 3
+		case Map<U, _ as V>, 3: Map<V, Z>
 
-        // `()` for expressions (any compile-time known expression is valid)
-        case _, (padding + U.meta.sizeOf): Z
+		// `()` for expressions (any compile-time known expression is valid)
+		case _, (padding + U.meta.sizeOf): Z
 
-        // Same for `if` guards
-        case _, (padding + U.meta.sizeOf) as size if size > align: Z
+		// Same for `if` guards
+		case _, (padding + U.meta.sizeOf) as size if size > align: Z
 
-        // Custom type error -> allows co make custom type limits/concepts
-        case _, 0: throw "Invalid size, expected non-zero, got: " + size // String-only
+		// Custom type error -> allows co make custom type limits/concepts
+		case _, 0: throw "Invalid size, expected non-zero, got: " + size // String-only
 
-        // Fallback
-        case _, _: Z
-    }
+		// Fallback
+		case _, _: Z
+	}
 }
 
 // Generics become associated types and static pseudo-fields too:
@@ -1465,14 +1465,14 @@ let int Box<Int, String, Float, 123>.T = 123 // Access <T>
 
 // Enables fine-grained types with `meta`
 class Box<T> {
-    type Allocator = switch T.meta.sizeOf {
-        case 1: switch T {
-            case Bool: BitAllocator
-            case _: ByteAllocator<1>
-        }
-        case 2 ... 4096 as size: ByteAllocator<size>
-        case _: PageAllocator
-    }
+	type Allocator = switch T.meta.sizeOf {
+		case 1: switch T {
+			case Bool: BitAllocator
+			case _: ByteAllocator<1>
+		}
+		case 2 ... 4096 as size: ByteAllocator<size>
+		case _: PageAllocator
+	}
 }
 ```
 
@@ -1484,20 +1484,20 @@ class Box<T> {
 
 ```hexa
 class Shape {
-    fun draw() {}
+	fun draw() {}
 }
 
 // Single inheritance (first in the list) but any number of traits or interfaces allowed (in any order)
 class Circle Shape Trait Interface {
-    fun draw() { // NOTE `override` is not required - but signature must match
-        // Draw circle
-        super.draw() // Call parent method
-    }
+	fun draw() { // NOTE `override` is not required - but signature must match
+		// Draw circle
+		super.draw() // Call parent method
+	}
 
-    new () {
-        // Call constructor of the parent class
-        super()
-    }
+	new () {
+		// Call constructor of the parent class
+		super()
+	}
 }
 ```
 
@@ -1508,13 +1508,13 @@ Compared to traits, interface is a runtime feature (via reflection and virtual m
 ```hexa
 // Parsing rules same as of classes
 interface Drawable { // NOTE runtime feature compared to traits
-    fun draw() Void
+	fun draw() Void
 }
 
 class Box Drawable { // NOTE no need to use `implements` keyword
-    fun draw() {
-        // Draw box
-    }
+	fun draw() {
+		// Draw box
+	}
 }
 ```
 
@@ -1525,20 +1525,20 @@ class Box Drawable { // NOTE no need to use `implements` keyword
 
 ```hexa
 class Rect {
-    var width Int
-    var height Int
+	var width Int
+	var height Int
 
-    // `let` can have only `get`, `var` requires `get` and `set`
-    let area Int {
-        get {
-            // Assumes `return` as if it were `get return { expr }` (not actual syntax)
-            // This makes properties more declarative
-            width * height
-        }
+	// `let` can have only `get`, `var` requires `get` and `set`
+	let area Int {
+		get {
+			// Assumes `return` as if it were `get return { expr }` (not actual syntax)
+			// This makes properties more declarative
+			width * height
+		}
 
-        // Optional setter -> does not return anything
-        // set (v) { /* ... */ }
-    }
+		// Optional setter -> does not return anything
+		// set (v) { /* ... */ }
+	}
 }
 ```
 
@@ -1556,37 +1556,37 @@ let {width, height} = Rect {width: 1, height: 2}
 let {value} = Some {value: null} // `value` is nullable here
 
 switch value {
-    case {width, height}: // NOTE `let` is NOT required
-        console.log("Width: ", width, "Height: ", height)
-    case {width: 123}: // NOTE checking a specific value
-        console.log("Width: ", width)
-    case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
-        console.log("Width: ", width)
-        console.log("Height: ", height) // NOTE height is not checked
+	case {width, height}: // NOTE `let` is NOT required
+		console.log("Width: ", width, "Height: ", height)
+	case {width: 123}: // NOTE checking a specific value
+		console.log("Width: ", width)
+	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
+		console.log("Width: ", width)
+		console.log("Height: ", height) // NOTE height is not checked
 
-    case SomeEnum(rect: {width, height}): // NOTE destructuring inside the pattern
-        // NOTE with nested pattern {} the `rect` itself is not captured
-        console.log("Width: ", width, "Height: ", height)
+	case SomeEnum(rect: {width, height}): // NOTE destructuring inside the pattern
+		// NOTE with nested pattern {} the `rect` itself is not captured
+		console.log("Width: ", width, "Height: ", height)
 
-    case SomeEnum(rect: {width as w: 123}): // NOTE checking a specific value inside the pattern
-        // NOTE `width` is captured as `w`, otherwise `width` is not captured and only checked against the pattern `123`
-        console.log("Width: ", w)
+	case SomeEnum(rect: {width as w: 123}): // NOTE checking a specific value inside the pattern
+		// NOTE `width` is captured as `w`, otherwise `width` is not captured and only checked against the pattern `123`
+		console.log("Width: ", w)
 
-    // Capture with renaming
-    case SomeEnum(rect as rectangle: _): // Capture any `rect` as a variable `rectangle`
-        console.log("Rectangle width: ", rectangle.width)
+	// Capture with renaming
+	case SomeEnum(rect as rectangle: _): // Capture any `rect` as a variable `rectangle`
+		console.log("Rectangle width: ", rectangle.width)
 
-    // Advanced patterns
-    case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
-        console.log("Width: ", width)
-        console.log("Height: ", height) // NOTE height is not checked
+	// Advanced patterns
+	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with compile time known expression
+		console.log("Width: ", width)
+		console.log("Height: ", height) // NOTE height is not checked
 
-    case {width} if width > 123: // NOTE checking a condition with runtime expression
-        console.log("Width: ", width)
+	case {width} if width > 123: // NOTE checking a condition with runtime expression
+		console.log("Width: ", width)
 
-    // With alias
-    case {width as w: _ < 123}: // NOTE checking a condition
-        console.log("Width: ", w)
+	// With alias
+	case {width as w: _ < 123}: // NOTE checking a condition
+		console.log("Width: ", w)
 }
 ```
 
@@ -1599,25 +1599,25 @@ switch value {
 ```hexa
 // Complex enums
 enum Color {
-    // NOTE tags are always capitalized (uppercase first letter) and not confused with variables in pattern matching
-    Red
-    Green
-    Blue // No separator required (i.e. no `,`)
+	// NOTE tags are always capitalized (uppercase first letter) and not confused with variables in pattern matching
+	Red
+	Green
+	Blue // No separator required (i.e. no `,`)
 
-    // With payload
-    Other(r Int, g Int, b Int, a Int = 255) // Both name and type are required
-    // NOTE can have defaults
+	// With payload
+	Other(r Int, g Int, b Int, a Int = 255) // Both name and type are required
+	// NOTE can have defaults
 
-    // Nested
-    Nested(value Color)
+	// Nested
+	Nested(value Color)
 
-    // May have methods
-    fun method () {
-        switch this {
-            case Red: console.log("Red")
-            case _: console.log("Other")
-        }
-    }
+	// May have methods
+	fun method () {
+		switch this {
+			case Red: console.log("Red")
+			case _: console.log("Other")
+		}
+	}
 }
 
 // Simple tag (no payload)
@@ -1644,11 +1644,11 @@ Color.Nested(Other(r: 0, g: 255, b: 0))
 
 // Enum with values -> has a baked type (here `Int`)
 enum Status Int { // NOTE adding basic type after the space turns it into a constant enum
-    Ok = 200
-    NotFound = 404
-    BadRequestError = 404 // Duplicate value is NOT allowed with constant
-    BadRequest = NotFound // Duplicate value is allowed with alias
-    Overloaded // Inferred value as BadRequest + 1 (auto-increment)
+	Ok = 200
+	NotFound = 404
+	BadRequestError = 404 // Duplicate value is NOT allowed with constant
+	BadRequest = NotFound // Duplicate value is allowed with alias
+	Overloaded // Inferred value as BadRequest + 1 (auto-increment)
 }
 
 // NOTE direct comparison (`==`, `!=`) of enum tag *constructors* is not allowed
@@ -1664,17 +1664,17 @@ var plain Int = Status.Ok // ERROR Sound type system disallows this
 // Tag as a type (NOTE still requires `switch` to extact associated tag values if any)
 var status Status.Ok = Status.Ok // Well-known tag
 var status Status.NotFound = switch Status.Ok {
-    case _: Status.NotFound
-    case Status.NotFound as code: code // Well-known tag as a variable
+	case _: Status.NotFound
+	case Status.NotFound as code: code // Well-known tag as a variable
 }
 
 // Compatible with function overloading - akin to static dispatch
 fun onStatusOk(status Status.Ok) {
-    console.log("Ok")
+	console.log("Ok")
 }
 
 fun onStatusNotFound(status Status.NotFound) {
-    console.log("Not found")
+	console.log("Not found")
 }
 
 fun onStatus is onStatusOk or onStatusNotFound
@@ -1692,9 +1692,9 @@ var status Status = Ok // Well-known tag - inferred from the value on the left s
 setStatus(Ok) // Same idea
 
 fun genericFunction<T>(value T) {
-    if value == Ok { // Allowed as `value` type expected, so assumed that `Ok` is a tag name, not class
-        console.log("Ok")
-    }
+	if value == Ok { // Allowed as `value` type expected, so assumed that `Ok` is a tag name, not class
+		console.log("Ok")
+	}
 
 	let some T = Ok // Allowed as `some` expects some `T` too
 	let status = T.Ok // Allowed too
@@ -1712,7 +1712,7 @@ Special case for `==` and `!=` operators:
 
 ```hexa
 if value == Status.Ok { // NOTE otherwise would parse as `Status.Ok {}` class constructor
-    console.log("Ok")
+	console.log("Ok")
 }
 ```
 
@@ -1727,9 +1727,9 @@ Enumerations can inherit from other enumerations. They may add methods, fields i
 ```hexa
 @extensibleTags // Allows derived enums to add tags and forces `case _` for the parent enum
 enum Color {
-    Red
-    Green
-    Blue
+	Red
+	Green
+	Blue
 
 	fun getColor() {
 		switch this {
@@ -1744,8 +1744,8 @@ enum Color {
 }
 
 enum ExtendedColor Color {
-    Yellow
-    Purple
+	Yellow
+	Purple
 }
 
 // Both normal and extended enums are compatible with each other
@@ -1776,20 +1776,20 @@ Compared to classic `switch` statement, pattern matching matches over patterns b
 
 ```hexa
 switch value { // uses `switch` keyword for pattern matching thus familiar to C-family developers
-    case 1:
-        console.log("One")
-        // NOTE assumes `break` at the end of each case by default
-    case 2:
-        if Math.random() > 0.5 {
-            break // NOTE `break` is allowed only when `switch` is not used as an expression (i.e. does not return a value)
-        }
-        console.log("Two")
-    case "String": // NOTE string literals are allowed - can match native null-terminated strings too
-        console.log("String")
-    case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
-        console.log("Other")
-    case null: // NOTE `null` always checked first no matter where it is placed
-        console.log("Null")
+	case 1:
+		console.log("One")
+		// NOTE assumes `break` at the end of each case by default
+	case 2:
+		if Math.random() > 0.5 {
+			break // NOTE `break` is allowed only when `switch` is not used as an expression (i.e. does not return a value)
+		}
+		console.log("Two")
+	case "String": // NOTE string literals are allowed - can match native null-terminated strings too
+		console.log("String")
+	case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
+		console.log("Other")
+	case null: // NOTE `null` always checked first no matter where it is placed
+		console.log("Null")
 }
 ```
 
@@ -1798,9 +1798,9 @@ Enumeration tag can be made non-exhaustive by adding `nonExhaustive` modifier. T
 ```hexa
 // @nonExhaustive -> optionally make the whole enum non-exhaustive
 enum Status Int {
-    A
-    B
-    @nonExhaustive C // NOTE `C` is not exhaustive
+	A
+	B
+	@nonExhaustive C // NOTE `C` is not exhaustive
 }
 ```
 
@@ -1819,14 +1819,14 @@ var three = 3 // NOTE `var` i.e. can be any actual value at the moment of patter
 
 let result = switch value { // NOTE no `()`
 	// Order of wildcard pattern does not matter and always acts as fallback
-    case _: // NOTE always checked last no matter where it is placed
-        "Other"
-    case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
-        "One"
-    case 2:
-        "Two"
-    case (three): // NOTE `()` picks runtime value to match to
-        "Equal to variable called `three`"
+	case _: // NOTE always checked last no matter where it is placed
+		"Other"
+	case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
+		"One"
+	case 2:
+		"Two"
+	case (three): // NOTE `()` picks runtime value to match to
+		"Equal to variable called `three`"
 }
 ```
 
@@ -1834,40 +1834,40 @@ let result = switch value { // NOTE no `()`
 
 ```hexa
 enum Color {
-    Red
-    Green
-    Blue
-    Other(r Int, g Int, b Int)
-    Nested(color Color)
+	Red
+	Green
+	Blue
+	Other(r Int, g Int, b Int)
+	Nested(color Color)
 
-    // May have fields
-    let some = 123
+	// May have fields
+	let some = 123
 }
 
 switch value {
-    case Red: // NOTE `case Color.Red:` and `case .Red:` are NOT allowed
-        console.log("Red")
-        // NOTE assumes `break` at the end of each case by default
-    case Green or Blue:
-        console.log("Green or Blue")
-    // Names are not positional -> they were in original design, now names are required to match and order is not important
-    // Newer design allows for future extension of enum values, and avoids issues with positional matching when names can matched in the wrong order
-    case Other(r, g, b as blue):
-        // NOTE exact same names are required (i.e. `r` and `g`)
-        // NOTE order of parameters is NOT important due to names requirement above
-        // NOTE `b as blue` allows to rename parameter
-        // NOTE parameters are captured as readonly local variables scoped to the case body
-        console.log("Other", r, g, blue) // NOTE only `blue` is accessible here
+	case Red: // NOTE `case Color.Red:` and `case .Red:` are NOT allowed
+		console.log("Red")
+		// NOTE assumes `break` at the end of each case by default
+	case Green or Blue:
+		console.log("Green or Blue")
+	// Names are not positional -> they were in original design, now names are required to match and order is not important
+	// Newer design allows for future extension of enum values, and avoids issues with positional matching when names can matched in the wrong order
+	case Other(r, g, b as blue):
+		// NOTE exact same names are required (i.e. `r` and `g`)
+		// NOTE order of parameters is NOT important due to names requirement above
+		// NOTE `b as blue` allows to rename parameter
+		// NOTE parameters are captured as readonly local variables scoped to the case body
+		console.log("Other", r, g, blue) // NOTE only `blue` is accessible here
 
-    // Advanced patterns with nested enums
-    case Nested(color: Red):
-        console.log("Nested Red")
-    case Nested(color: Green or Blue):
-        console.log("Nested Green or Blue")
-    case Nested(color: Other(r, g, b as blue)):
-        console.log("Nested Other", r, g, blue)
-    case Nested(color: Nested(color: Red)):
-        console.log("Nested Nested Red")
+	// Advanced patterns with nested enums
+	case Nested(color: Red):
+		console.log("Nested Red")
+	case Nested(color: Green or Blue):
+		console.log("Nested Green or Blue")
+	case Nested(color: Other(r, g, b as blue)):
+		console.log("Nested Other", r, g, blue)
+	case Nested(color: Nested(color: Red)):
+		console.log("Nested Nested Red")
 }
 ```
 
@@ -1881,9 +1881,9 @@ Enumerations can be marked as bit flags, allowing for bitwise operations.
 ```hexa
 // @flags -> marks the enum as flags, defaults to the smallest integer type
 @flags enum Flags Int {
-    A // Values inferred as 1, 2, 4, ...
-    B
-    C
+	A // Values inferred as 1, 2, 4, ...
+	B
+	C
 }
 
 var flags = Flags.A | Flags.B
@@ -1896,25 +1896,25 @@ Pattern matching can be used to match flags:
 
 ```hexa
 switch flags {
-    // 1. EXACT Match
-    // Transpiles to: if (flags == Flags.A)
-    case A:
-        // ...
+	// 1. EXACT Match
+	// Transpiles to: if (flags == Flags.A)
+	case A:
+		// ...
 
-    // 2. PARTIAL Match (Has Flag1 set, ignores others)
-    // Transpiles to: if ((flags & Flags.A) == Flags.A)
-    case A | ...:
-        // ...
+	// 2. PARTIAL Match (Has Flag1 set, ignores others)
+	// Transpiles to: if ((flags & Flags.A) == Flags.A)
+	case A | ...:
+		// ...
 
-    // 3. EXCLUSION (Has Flag1, but DEFINITELY NOT Flag2)
-    // Transpiles to: if ((flags & Flags.A) == Flags.A && (flags & Flags.B) == 0)
-    case A | ... | not B:
-        // ...
+	// 3. EXCLUSION (Has Flag1, but DEFINITELY NOT Flag2)
+	// Transpiles to: if ((flags & Flags.A) == Flags.A && (flags & Flags.B) == 0)
+	case A | ... | not B:
+		// ...
 
-    // 4. COMBINATION (Has Flag1 AND Flag2)
-    // Transpiles to: if ((flags & (Flags.A|Flags.B)) == (Flags.A|Flags.B))
-    case A | B | ...:
-        // ...
+	// 4. COMBINATION (Has Flag1 AND Flag2)
+	// Transpiles to: if ((flags & (Flags.A|Flags.B)) == (Flags.A|Flags.B))
+	case A | B | ...:
+		// ...
 }
 ```
 
@@ -1922,13 +1922,13 @@ Compatible with multiple matches and alternatives:
 
 ```hexa
 switch value {
-    case A | B | C or D | E | F: // NOTE `or` has lower precedence than `|` here
-        console.log("Either exact (A | B | C) or exact (D | E | F)")
+	case A | B | C or D | E | F: // NOTE `or` has lower precedence than `|` here
+		console.log("Either exact (A | B | C) or exact (D | E | F)")
 }
 
 switch value1, value2 {
-    case A | B or D | E, 123: // NOTE `123` matches `value2` because its separated by comma
-        console.log("Either exact (A | B and also 123) or exact (D | E and also 123)")
+	case A | B or D | E, 123: // NOTE `123` matches `value2` because its separated by comma
+		console.log("Either exact (A | B and also 123) or exact (D | E and also 123)")
 }
 ```
 
@@ -1936,9 +1936,9 @@ Can be nested:
 
 ```hexa
 switch value {
-    // NOTE named parameters checked with `name: pattern`
-    case Other(flags: Flag1 | Flag2 | ..., otherValue1, otherValue2):
-        console.log("Exact (Flag1 | Flag2 | ...) and also captures otherValue1, otherValue2")
+	// NOTE named parameters checked with `name: pattern`
+	case Other(flags: Flag1 | Flag2 | ..., otherValue1, otherValue2):
+		console.log("Exact (Flag1 | Flag2 | ...) and also captures otherValue1, otherValue2")
 }
 ```
 
@@ -1946,17 +1946,17 @@ switch value {
 
 ```hexa
 if value & A {
-    console.log("A")
+	console.log("A")
 }
 
 if value & (A | B) { // NOTE requires () because the (A | B) is a *value* not pattern
-    console.log("A and B")
+	console.log("A and B")
 }
 
 // Same as
 let requiredFlags = A | B
 if value & requiredFlags {
-    console.log("A and B")
+	console.log("A and B")
 }
 ```
 
@@ -2028,8 +2028,8 @@ let some T = expr.as(_)
 
 #### Design Considerations (Casts)
 - **Behavior**: Behaviour specification for dynamic casts (throw vs null)
-    - `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
-    - `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
+	- `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
+	- `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
 - **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`
 - **Is operator**: Describe `is` operator or remove entirely in favor of `switch` over type and `if let = x.as(T)`
 
@@ -2041,62 +2041,62 @@ Compile-time for known types (plays well with generics), runtime for `Any`.
 
 ```hexa
 switch type value {
-    case Bool:
-        console.log("Bool")
-    case Int(captureAsInt): // NOTE captureAsInt is readonly and equals to `value` casted to Int
-        console.log("Int", captureAsInt)
-    case String(captureAsString):
-        console.log("String", captureAsString)
-    case String({ length }):
-        // Destructuring in type patterns
-        console.log("String.length", length)
-    case Array<Int>(captureAsArray): // NOTE generics too
-        console.log("Array of Int", captureAsArray)
-    case _:
-        console.log("Other")
+	case Bool:
+		console.log("Bool")
+	case Int(captureAsInt): // NOTE captureAsInt is readonly and equals to `value` casted to Int
+		console.log("Int", captureAsInt)
+	case String(captureAsString):
+		console.log("String", captureAsString)
+	case String({ length }):
+		// Destructuring in type patterns
+		console.log("String.length", length)
+	case Array<Int>(captureAsArray): // NOTE generics too
+		console.log("Array of Int", captureAsArray)
+	case _:
+		console.log("Other")
 
-    // Optionally capture value as-is
-    case other:
-        console.log("Other", other)
+	// Optionally capture value as-is
+	case other:
+		console.log("Other", other)
 }
 
 // Works as expression too
 let result = switch type value {
-    case Int(captureAsInt):
-        "Int"
-    case String(captureAsString):
-        "String"
-    case Array<Int>(captureAsArray):
-        "Array of Int"
-    case _:
-        "Other"
+	case Int(captureAsInt):
+		"Int"
+	case String(captureAsString):
+		"String"
+	case Array<Int>(captureAsArray):
+		"Array of Int"
+	case _:
+		"Other"
 
-    // Optionally capture value as-is
-    case other:
-        console.log("Other", other)
+	// Optionally capture value as-is
+	case other:
+		console.log("Other", other)
 }
 
 // Allows for rich fine-tuned generic templates
 class MyArray<T> {
-    let storage SizeOfPointer
-    let capacity Int
+	let storage SizeOfPointer
+	let capacity Int
 
-    // ... omitted ...
+	// ... omitted ...
 
-    fun resize(newCapacity Int) {
-        switch type T {
-            case Bool:
-                // Allocate single bit per value
-                storage = realloc(storage, newCapacity / 8)
-            case _:
-                // Allocate full size per value
-                let sizeOfItem = T.meta.sizeInBytes
-                storage = realloc(storage, newCapacity * sizeOfItem)
-        }
+	fun resize(newCapacity Int) {
+		switch type T {
+			case Bool:
+				// Allocate single bit per value
+				storage = realloc(storage, newCapacity / 8)
+			case _:
+				// Allocate full size per value
+				let sizeOfItem = T.meta.sizeInBytes
+				storage = realloc(storage, newCapacity * sizeOfItem)
+		}
 
-        capacity = newCapacity
-        // ...
-    }
+		capacity = newCapacity
+		// ...
+	}
 }
 ```
 
@@ -2107,8 +2107,8 @@ Unions are a way to store different types of data in the same variable. Work on 
 ```hexa
 @union
 class Union {
-    var i Int
-    var s String
+	var i Int
+	var s String
 }
 
 let x = Union { i: 1 }
@@ -2119,16 +2119,16 @@ y.s = "3"
 
 // Runtime switch over the type is performed for `@union` values
 switch x {
-    case Int(int):
-        console.log("Int", int)
-    case String(str):
-        console.log("String", str)
-    case _:
-        // `_` is a wildcard pattern that fallbacks when no other pattern matches
+	case Int(int):
+		console.log("Int", int)
+	case String(str):
+		console.log("String", str)
+	case _:
+		// `_` is a wildcard pattern that fallbacks when no other pattern matches
 		// Not enforced at compile-time, but may be usefull for complex scenarios not handled by the default runtime type-matching algorithm
 
 		let other = x.as(Any) // Cast manually
-        console.log("Other", other)
+		console.log("Other", other)
 	// Alternative fallback syntax NOTE only either `_` or `Any` can be used as a fallback
 	case Any(other):
 		console.log("Other", other)
@@ -2194,8 +2194,8 @@ import Math { sin cos as cosine } // Import specific members
 
 // No separators needed, but users expected to add newlines for readability
 import Math {
-    sin
-    cos as cosine
+	sin
+	cos as cosine
 }
 
 import NameSpace { TypeName1 TypeName2 as MyName } // Import the type itself
@@ -2242,11 +2242,11 @@ Defined values are type checked.
 ```hexa
 // Assuming `hexa --define debug=true ...`
 #if debug
-    console.log("Debug mode")
+	console.log("Debug mode")
 #elseif release
-    console.log("Release mode")
+	console.log("Release mode")
 #else
-    console.log("Other mode")
+	console.log("Other mode")
 #end
 
 // Same line is fine
@@ -2257,12 +2257,12 @@ May use enumeration for a checked set of flags:
 
 ```hexa
 enum Mode {
-    Debug
-    Release
+	Debug
+	Release
 }
 
 #if mode == Mode.Debug
-    console.log("Debug mode")
+	console.log("Debug mode")
 #end
 ```
 
@@ -2280,7 +2280,7 @@ hexa --define apiLevel=2 ...
 
 ```hexa
 #if apiLevel >= 2
-    console.log("API level 2")
+	console.log("API level 2")
 #end
 ```
 
@@ -2331,9 +2331,9 @@ let sizeof = value.meta.type.sizeInBytes
 
 // Introspection - other meta-methods are also available beyond examples above
 fun printFields<T>(value T) {
-    for field in meta.fieldNames(T) { // Can be stored into [String]
-        console.log("Field: {field}")
-    }
+	for field in meta.fieldNames(T) { // Can be stored into [String]
+		console.log("Field: {field}")
+	}
 }
 
 printFields(Point(1, 2))
@@ -2356,8 +2356,8 @@ Async is the only universal asyncronosity primitive in Hexa. Other features are 
 
 ```hexa
 async fun fetchData() {
-    let data = await fetch("https://api.example.com/data")
-    return data
+	let data = await fetch("https://api.example.com/data")
+	return data
 }
 ```
 
@@ -2367,15 +2367,15 @@ Removing the "color" (colorless asyncronosity):
 let isAsyncModule Bool = false
 
 class MyWorker<let isAsync Bool> {
-    async(isAsync) fun fetchData() {
-        let data = await fetch("https://api.example.com/data")
-        return data
-    }
+	async(isAsync) fun fetchData() {
+		let data = await fetch("https://api.example.com/data")
+		return data
+	}
 
-    async(isAsyncModule) static fun fetchDataStatic() {
-        let data = await fetch("https://api.example.com/data")
-        return data
-    }
+	async(isAsyncModule) static fun fetchDataStatic() {
+		let data = await fetch("https://api.example.com/data")
+		return data
+	}
 }
 ```
 
@@ -2389,26 +2389,26 @@ let isAsyncModule String = 'callerDecides'
 
 // Lets the caller pick the strategy at use-site instead of inside the class
 class MyWorker<let isAsync String> {
-    async(isAsync) fun fetchData() {
-        let data = await fetch("https://api.example.com/data")
-        return data
-    }
+	async(isAsync) fun fetchData() {
+		let data = await fetch("https://api.example.com/data")
+		return data
+	}
 
-    async(isAsyncModule) static fun fetchDataStatic() {
-        let data = await fetch("https://api.example.com/data")
-        return data
-    }
+	async(isAsyncModule) static fun fetchDataStatic() {
+		let data = await fetch("https://api.example.com/data")
+		return data
+	}
 }
 
 // Usage
 async fun someAsyncFunction() {
-    // Current context is async -> called functions are promoted to async
+	// Current context is async -> called functions are promoted to async
 
-    // Assuming `isAsyncModule = 'callerDecides'`
-    let callerDecides = await MyWorker.fetchDataStatic()
+	// Assuming `isAsyncModule = 'callerDecides'`
+	let callerDecides = await MyWorker.fetchDataStatic()
 
-    // Without await returns a promise
-    let callerDecides2 Promise = MyWorker.fetchDataStatic()
+	// Without await returns a promise
+	let callerDecides2 Promise = MyWorker.fetchDataStatic()
 }
 ```
 
@@ -2424,8 +2424,8 @@ Fluent postfix await is a syntax that allows to write chained async function cal
 ```hexa
 // Prefix form
 async fun fetchData() {
-    let data = await fetch("https://api.example.com/data")
-    return data
+	let data = await fetch("https://api.example.com/data")
+	return data
 }
 ```
 
@@ -2434,8 +2434,8 @@ Can be written as:
 ```hexa
 // Postfix form
 async fun fetchData() {
-    let data = fetch("https://api.example.com/data").await
-    return data
+	let data = fetch("https://api.example.com/data").await
+	return data
 }
 ```
 
@@ -2454,12 +2454,12 @@ It's for people who want async without coloring or script-like convenience (espe
 ```hexa
 // Function that awaits by default
 await fun fetchData() {
-    let data = fetch("https://api.example.com/data")
-    return data
+	let data = fetch("https://api.example.com/data")
+	return data
 
-    // Can un-await with
-    let promise = async fetch("https://api.example.com/data")
-    return await promise
+	// Can un-await with
+	let promise = async fetch("https://api.example.com/data")
+	return await promise
 }
 ```
 
@@ -2472,20 +2472,20 @@ Regular expressions are supported as patterns for advanced pattern matching:
 
 ```hexa
 switch string {
-    case /abc/:
-        console.log("abc")
+	case /abc/:
+		console.log("abc")
 
-    // With flags
-    case /def/gi:
-        console.log("def")
+	// With flags
+	case /def/gi:
+		console.log("def")
 
-    // With named groups
-    case /(?<name1>\w+) (?<name2>\w+) (?<name3>\w+)/ {name1: "John", name2: "Snow"}:
-        console.log("Perfect match for John Snow, name3 is captured as-is:", name3)
+	// With named groups
+	case /(?<name1>\w+) (?<name2>\w+) (?<name3>\w+)/ {name1: "John", name2: "Snow"}:
+		console.log("Perfect match for John Snow, name3 is captured as-is:", name3)
 
-    // With named groups and array pattern
-    case /^cmd (?<name>\w+) (?<arg>\w+)*$/:
-        console.log(command, "with args:", arg.join(", "))
+	// With named groups and array pattern
+	case /^cmd (?<name>\w+) (?<arg>\w+)*$/:
+		console.log(command, "with args:", arg.join(", "))
 }
 ```
 
@@ -2504,7 +2504,7 @@ For fine-grained control in performance-critical code, optional ownership semant
 ```hexa
 // Ownership decorators are just normal decorators and don't need an overview in the syntax reference:
 fun process(
-    @someOwnershipDecorator buffer Buffer
+	@someOwnershipDecorator buffer Buffer
 ) { /* ... */ }
 ```
 
