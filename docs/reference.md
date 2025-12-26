@@ -88,6 +88,7 @@ Identifiers can contain alphanumeric characters and underscores `_`. They must s
 Unicode characters are not allowed. Only Latin alphabet is supported, with numbers and underscores.
 
 ```hexa
+// Variable names must start with a lowercase letter or underscore
 var myVariable = 1 // Type is inferred
 var myVariable T = 1 // no `:` and no `;` semicolons (syntax is context-free so they are not required) -> no automatic semicolon insertion either
 let _ssa = 2 // Read-only
@@ -99,7 +100,7 @@ Variables are declared using `var` (mutable) or `let` (immutable, readonly varia
 
 ```hexa
 // Mutable variable
-var x = 1
+var x = 1 // NOTE initial assignment `=` is required for local variables
 x = 2
 
 // Shadowing is fine (local to the block)
@@ -275,12 +276,12 @@ let s14 = "Hello"[10] // null
 let s15 = "Hello"[-1] // null
 
 // String comparison
-let s16 = "Hello" == "Hello" // true
-let s17 = "Hello" == "hello" // false
-let s18 = "Hello" != "Hello" // false
-let s19 = "Hello" != "hello" // true
-let s20 = "Hello" < "Hello" // false
-let s21 = "Hello" > "hello" // false
+let s16 = "Hello" == "Hello" // True
+let s17 = "Hello" == "hello" // False
+let s18 = "Hello" != "Hello" // False
+let s19 = "Hello" != "hello" // True
+let s20 = "Hello" < "Hello" // False
+let s21 = "Hello" > "hello" // False
 // let s22 = "Hello" <= "Hello" // NOT allowed because they seem to be redundant/too rare
 // let s23 = "Hello" >= "hello" // NOT allowed
 ```
@@ -325,6 +326,8 @@ let array = [1, 2, 3,]
 let a = [1, 2, 3]
 let b = [4, 5, 6]
 let c = [0, ...a, ...b]
+let d = [...a] // Copy
+let e = [...a, index: 4] // Copy and update
 
 // Indexing
 let first = arr[0]
@@ -337,6 +340,25 @@ arr[0] = 1
 arr[1i8] = 2
 arr[-1i8] = 3 // Does not affect `.length`
 // arr[0] += 1 // Not allowed as `[0]` may be `null`
+
+// Index cascade assignment
+arr.[ 0: 1, 1: 2 ] // arr[0] = 1, arr[1] = 2
+arr.[
+	0: 1,
+	1: 2, // Trailing comma is allowed when the line ends with a newline
+]
+// Indices can be expressions computed at runtime
+let index = 0
+arr.[ index: 1 ]
+arr.[ index: 1, index + 1: 2 ]
+// Updates the original array in-place
+arr.[ 0: 1, 1: 2 ].pop() == 2 // True
+arr.[ 0: 1, 1: 2 ] == arr // True
+
+// The explicit distinction between mutation `.[]` and copy-update `[...array, index: value]`
+let copy = [...arr, 4]
+arr.[ 0: 1, 1: 2 ] == arr // True
+arr.[ 0: 1, 1: 2 ] == copy // False
 
 // Switch with destructuring
 switch arr {
@@ -370,7 +392,17 @@ let emptyMap [String: String] = [:]
 let immutableMap [String: String] = let ["key": "value", "one": "two"]
 
 // Trailing comma
-let map = ["key": "value", "one": "two",]
+let map = [
+	"key": "value",
+	"one": "two", // Trailing comma is allowed when the line ends with a newline
+]
+
+// Index cascade assignment (same syntax as arrays)
+map.[ "key": "value", "one": "two" ] // map["key"] = "value", map["one"] = "two"
+map.[
+	"key": "value",
+	"one" + "two": "two" // Indices can be expressions computed at runtime
+] == map // True, updates the original map in-place
 
 // Switch with destructuring
 switch map {
@@ -393,7 +425,7 @@ let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 An object is a simple fixed key-value store. It's not a map like []. Keys cannot be changed (added/removed) syntactically, only via reflection.
 
 ```hexa
-let obj = { x: 1, y: 2 } // Inferred as type/interface { var x Int var y Int }
+let obj = { x: 1, y: 2 } // Inferred as `interface { var x Int var y Int }`
 // NOTE mutable by default
 let obj2 = readonly { x: 1, y: 2 } // Immutable on-demand
 
@@ -432,7 +464,74 @@ let obj = { @as(named) foo: 1, @as("baz") bar: 2 }
 obj.foo = 123 // Safe to access, compiled into `{ xx: 1, baz: 2 }`
 
 // Object spread-copy for Redux-like updates
-let obj = { ...obj, z: 3 }
+let obj = { ...obj, z: 3 } // Infeffed from the `...obj` type
+let obj = Point { ...obj, x: 4 } // Shorthand for `Point() { y: obj.y, x: 4 }`
+```
+
+#### Mutation Cascades
+
+The fluent cascade syntax `.{}` is a pure declarative multi-field mutation block (fields only, nested via `sub.{}`).
+
+Chaining rule: in a chain, `object.{}.method().method().{}.method().method()` calls run for side effects and their **returned values are ignored** when the call follows `.{}` or `.[]` - the original base object replaces the returned value with itself instead.
+
+```hexa
+// Efficient, clear, scoped multiple-field mutation on mutable objects with cascades:
+let obj = { x: 1, y: 2 } // Mutable sample object
+// JSON look and feel and mimics declarative construction syntax
+obj.{ x: 3, y: 4 } // Configuring an existing object with multiple fields in one expression
+
+// Returns an existing object with the fields updated:
+obj.{ x: 3, y: 4 }.x // 3
+// Distinct syntax from the `{...obj}` operator (copy-update) prevents accidental hidden mutations and makes intent crystal clear
+obj == obj.{ x: 3, y: 4 } // True, same object returned
+
+// Configure then call a method with chaining:
+form.{ username, password }.validate()
+person.{ salary: 1000 }.work() // Update and call a method with chaining
+let originalSalary = person.salary
+// Implementation of `fun work()` returned value is irrelevant and replaced with `person`
+person.{ salary: originalSalary * 2 }.work().{ salary: originalSalary }.salary // Temporary mutation pattern
+person.salary == originalSalary // True
+person == person.{ salary: 1000 }.work() // True, as chained method calls over `.{}` always return the original object
+// NOTE Compilation error if the method enforces a return value usage (with annotations)
+
+// Trailing comma is allowed when the line ends with a newline
+let obj = {
+	x: 1,
+}
+obj.{
+	x: 2,
+}
+
+// Shorter syntax for a cascade fields when the variable in the scope matches the field name
+let x = 123
+obj.{ x } // Shorthand for `obj.{ x: x }`
+let y = 123
+obj.{ x, y } // Shorthand for `obj.{ x: x, y: y }`
+
+// Nested mutation cascade
+obj.{ x.{ y: 1 }, arr.[ index: 1 ] } // `obj.{ x: { y: 1 }, arr: [ ...arr, { index: 1 } ] }`
+
+// Deep nested mutation cascade
+object.{
+	// Normal cascades
+	a: q,
+	// Nested cascades
+	b.{ // NOTE `field.{}` syntax
+		w: 1,
+	},
+	// Array or map cascades
+	arrayOrMap.[ // NOTE `field.[index]` syntax
+		index: 1
+	],
+	// Deep nested mutation cascades
+	c.{
+		d: 1,
+		e.{
+			f: 1,
+		},
+	}
+}
 ```
 
 #### Design Considerations (Objects)
@@ -954,7 +1053,14 @@ fun risky() {
 
 Closures follow the same rules as JavaScript functions (capture by reference), including arrow functions.
 
+Function names follow same rules as identifiers: must start with a *lowercase* letter or underscore.
+
 ```hexa
+// Function names must start with a lowercase letter or underscore
+fun camelCase() {
+	// Function body `{}` is always required for clarity
+}
+
 // Basic function
 fun add(a Int, b Int = 5) Int { // Default arguments are allowed
 	return a + b // Braces `{}` around the body are required for clarity (when no `return` short-hand is used instead of the body itself)
@@ -1216,6 +1322,9 @@ let point3 = { ...point, x: 3 }
 let point4 = Point(a, b) { ...point, x: 3 }
 // With argument names
 let point5 = Point(x: a, y: b) { ...point, x: 3 }
+
+// When all fields and constructor arguments have defaults, the `{}` shorthand can be used
+let point6 Point = {}
 ```
 
 #### Design Considerations (Class Constructors)
@@ -2147,9 +2256,10 @@ Even when platform does not throw exceptions for null-access normally, or optimi
 let x Int? = null
 let y Int? = 123
 let z Int = null // Error
+let z Some = null! // Force null-initialization (useful for prototyping)
 
 // NOTE this syntax is not allowed
-// let z Int! = null // Error
+// let z Int! = null // Error `T!` is not allowed
 
 a ?? defaultValue // Elvis operator (null coalescing)
 a ?? return 123 // Guard with return out of function if `a` is `null`
@@ -2185,7 +2295,7 @@ a?.b?.c()
 
 Using one `import` per each module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
 
-Hexa files `.hexa` are listed in the `hexa.json` project file, their order within the project file affects the initialization order.
+Hexa files `.hexa` are listed in the `hexa.json` project file, their order within the project file affects the initialization order. Project file also controls the namespace of each module.
 
 ```hexa
 import NameSpace
