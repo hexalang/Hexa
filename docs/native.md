@@ -10,10 +10,17 @@ Inline // comments explain non-obvious aspects of each example. Always read them
 
 ## Primitive Types
 
+| Type | Description | Size |
+| :--- | :--- | :--- |
+| `Int8`, `Int16`, `Int32`, `Int64` | Signed Integers | 1, 2, 4, 8 bytes |
+| `UInt8`, `UInt16`, `UInt32`, `UInt64` | Unsigned Integers | 1, 2, 4, 8 bytes |
+| `Float32`, `Float64` | Floating Point | 4, 8 bytes |
+| `Bool` | Boolean | 1 byte |
 
 ## Variable Declarations
 
 ```hexa
+let immutableVal Int = 10
 ```
 
 ## Functions
@@ -24,6 +31,19 @@ Inline // comments explain non-obvious aspects of each example. Always read them
 ## Control Flow
 
 ```hexa
+if x > 0 {
+	// code
+} else {
+	// code
+}
+
+for i in 10 {
+	// code
+}
+
+while condition {
+	// code
+}
 ```
 
 ## Arrays by Value
@@ -96,3 +116,7 @@ This avoids a common source of performance bottlenecks in languages with referen
 Reference counting operations over `null` are ignored and are not tracked by memory manager.
 
 Due to Hexa doing immediate null checks when using forced null dereference operator `!` and casts, the misuse of the `null` object is not a concern.
+
+# Conclusion
+
+Hexa provides a robust foundation for systems programming by balancing high-level abstractions with low-level control. The features discussed—efficient value-based arrays and optimized null handling—demonstrate the language's commitment to performance, predictability, and memory safety.
