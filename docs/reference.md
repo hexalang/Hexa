@@ -236,7 +236,7 @@ let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as re
 
 ### Strings
 
-Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks `` ` ``. Assume Unicode by default.
+Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks `` ` ``. Assume Unicode by default. They are always immutable.
 
 ```hexa
 let s1 = "Hello"
@@ -1249,6 +1249,101 @@ declare class Point {
 	var x Int
 	let y Int // Can be read-only
 }
+```
+
+#### Immutability
+
+Classes can be marked as `readonly` to make their instances immutable from outside of the class. This is a compile-time check.
+
+Immutables are separate types: a mutating function can take a mutable instance, while a non-mutating function can take any instance (mutable or readonly).
+
+Clarity: `readonly fun` explicitly documents purity, `private fun` signals encapsulated mutation, `fun` allows for performance-sensitive escape hatches.
+
+The `readonly class` means instances are externally immutable by default, but allow controlled internal mutation during creation or when owned mutably (via public non-readonly methods).
+
+This creates a clear lifecycle: creation phase (mutable internally) -> initialization (controlled mutation) -> stabilization (`return readonly p`) -> observation phase (immutable projection):
+
+```hexa
+readonly class Point() { /* ... */ fun adjust(x Int, y Int) { this.x += x; this.y += y } }
+
+fun makePoint() /* readonly Point <- inferred from returned value */ {
+	// Creation phase
+	let p = Point() // `readonly class Point` but not `let p = readonly Point()` at use-site
+	// Initialization phase
+	p.adjust(1, 1) // Mutation is still controlled and allowed here *only* via public non-readonly methods
+	// p.x = 10 // Error! Not allowed to mutate directly
+	// Stabilization phase
+	return readonly p // Now we apply `readonly` to the *value*
+
+	// Alternatively apply `readonly` to the function return *type*
+	// fun makePoint() readonly Point
+	// return p // Still works as the stabilization point due to explicit `readonly` type
+}
+
+// Observation phase
+makePoint().adjust(1, 1) // Error! Not allowed to mutate explicit `readonly Point`
+```
+
+Even though `let p = Point()` (where `Point` is a readonly class) allows mutation via public non-readonly methods (e.g. `p.adjust()`), it is *not* fully freely mutable like a normal mutable class would be: direct field writes (e.g. `p.x = 10`) are still forbidden.
+
+Trust layering: core team can afford careful interior mutability (inside the class itself), application/library team uses the reduced API surface (controlled via `readonly class`), downstream users get strongest guarantee possible without runtime cost (via `readonly T`/`readonly value`).
+
+Full syntax:
+
+```hexa
+// Readonly from outside, writeable from inside of the class
+readonly class Point {
+	var x Int // No need for getters just to prevent external mutation
+	var y Int // NOTE `var` usage here
+	let origin Origin = { x: 0, y: 0 } // NOTE `let` can still be used to enforce immutability of the field even inside of the class
+	// `Origin` is a nested object, it does not inherit `readonly` allowing mutation from the *inside*
+
+	// Enables efficient builder patterns due to in-place mutation
+	new (x Int, y Int) {
+		this.x = x
+		this.y = y
+	}
+
+	// Allows efficient in-place mutation when needed (e.g., `move` updates coordinates without allocation)
+	fun move(x Int, y Int) {
+		// Can overwrite own fields from inside
+		this.x += x
+		// Nested objects do not inherit `readonly` from the *inside*
+		this.origin.x += x
+
+		// Access to other (non-`this`) instance fields is still `readonly`
+		let other = Point(1, 2)
+		other.x = 10 // Error: cannot assign to readonly field
+		// You cannot take a readonly instance, pass it into a method of the same class, and mutate it there: the only way to mutate a readonly instance is through a method call on that exact instance
+	}
+
+	static var s Int = 0 // Statics are `readonly` from outside, writeable from inside
+
+	// Non-mutating methods can be marked as `readonly` and cannot change anything that they create and touch, including `this`
+	readonly fun distance(other Point, origin Origin = { x: 0, y: 0 }) Int { // Assumes `readonly Origin` despite creating its default value
+		return (this.x - other.x) * (this.y - other.y)
+		// Cannot mutate `this` or any other instance fields
+		this.x = 10 // Error: cannot mutate `this`
+		origin.x = 10 // Error: cannot mutate anything it receives as an argument
+	}
+}
+
+// Instance fields are implicitly marked as `let` and `readonly` from outside
+let p = Point(1, 2) // Effectively `let p = readonly Point(1, 2)`
+p.x = 10 // Error: cannot assign to readonly field
+let origin = p.origin // Effectively `let origin = readonly p.origin`
+origin.x = 10 // Error: fields inherit `readonly` from outside
+
+// Inheritance of mutability allows fine-tuning: classes do *not* become `readonly` when their base is `readonly`, this is decided by the descendant
+// With writeable base class:
+class A { var a } // `.a` is writeable from outside
+class B readonly A { var b } // `.a` is readonly inside of the class, `.b` is writeable
+readonly class B A { var b } // `.a` and `.b` are readonly outside of the class
+
+// With readonly base class:
+readonly class A { var a } // `.a` is readonly from outside
+class B A { var b } // `.a` is readonly from inside, `.b` is writeable
+readonly class B A { var b } // `.a` is readonly from inside and outside, `.b` is readonly from outside
 ```
 
 #### Field Access
