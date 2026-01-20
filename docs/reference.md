@@ -1258,6 +1258,29 @@ let f = fun (x Int) Int { return x + 1 }
 let bind = f.bind(1)
 let call = f.call(1)
 let apply = f.apply(null, [1])
+
+// Variadic functions
+fun variadic(arg Int, ...args Int) Int {
+	[...args] // Packing
+
+	for arg in args {
+		console.log(arg)
+	}
+
+	return args.length
+}
+
+// Variadic templates (alternatively `fun forward<...T>(...args T)`)
+fun forward(...args) [args.meta.commonType] { // Every `args` value can be of any type as no singular `T` constraint is used
+	variadic(...args) // Forwarding
+	args.length
+
+	@unroll for arg in args { // NOTE requires `@unroll` as `args` not a runtime array
+		work(arg) // `work` can be overloaded with `fun work is workForInt or workForString` etc
+	}
+
+	return [...args]
+}
 ```
 
 ### Design Considerations (Functions)
