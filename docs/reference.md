@@ -1861,6 +1861,10 @@ switch value {
 	case SomeEnum(rect as rectangle: _): // Capture any `rect` as a variable `rectangle`
 		console.log("Rectangle width: ", rectangle.width)
 
+	// Capture the whole object if the fields match, and also capture the fields themselves
+	case SomeEnum(rect as rectangle: {width, height: 123}): // Capture `rect` as a variable `rectangle` if `height` is `123`
+		console.log("Rectangle width: ", rectangle.width)
+
 	// Advanced patterns
 	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with a compile-time known expression
 		console.log("Width: ", width)
@@ -1880,6 +1884,22 @@ switch value {
 - **Nullability**: Need to decide if `case Some(nested)` here `nested` takes `null` (T?) too or better make it always be non-null (T) and require explicit `case Some(null)`/`case Some(nested?)`/`case Some(nested? as nullable)` or similar (this would also make `case some: case null:` soundly disambiguated)
 
 ## Enumerations
+
+Complex enumerations/ADTs are reflection-capable. When no backing type is specified, the enum is a **complex** enum by default:
+
+```hexa
+// No backing type -> complex enum
+enum Complex { A B C } // A, B and C are NOT numbers!
+// Complex.A != Complex.A // NOTE every complex tag instance is a unique object allocated at runtime
+
+// With backing type -> constant enum
+enum Constant Int { A B C } // A, B and C are `Int` constants!
+// Constant.A == Constant.A // NOTE every constant tag is just a plain integer
+```
+
+### Complex Enums
+
+Complex enum instances are reflection-capable, passed by reference (managed) and can have methods, properties, etc. Their tags may contain payloads.
 
 ```hexa
 // Complex enums
@@ -1901,6 +1921,18 @@ enum Color { // Should not inherit from the basic type (like `Int`)
 		switch this {
 			case Red: console.log("Red")
 			case _: console.log("Other")
+		}
+	}
+
+	// May have shared fields
+	// Compile-time rule: payload parameter names must not shadow shared enum fields
+	var sharedField Int = 123 // Useful for things like line/column in AST
+
+	// Tag may have writable and confined fields
+	Sealed(payload Int) {
+		var writableField Int = 123 // Can be `private` and `static`
+		fun sealedMethod(value Int) { // `this` type assumed `Color.Sealed`
+			writableField = value
 		}
 	}
 }
@@ -1926,6 +1958,18 @@ Color.Nested(Color.Red)
 
 // Can omit type name when tag type is known up front (here `Color`)
 Color.Nested(Other(r: 0, g: 255, b: 0))
+
+// Creating and matching a sealed tag
+let sealedTag = Color.Sealed(123) { writableField: 123 }
+switch sealedTag {
+	// Bind the sealed field as read-only
+	case Color.Sealed(value) { writableField }: console.log("Sealed: ", value, writableField)
+	// Bind whole tag as writable
+	case Color.Sealed(value) as sealed:
+		sealed.writableField += 1 // Can modify writable fields
+		sealed.sealedMethod(123)
+}
+```
 
 ### Constant Enums
 
@@ -2138,6 +2182,8 @@ let result = switch value { // NOTE no `()`
 ```
 
 ### Enum Pattern Matching
+
+Complex enum tag values extraction requires a pattern matching `switch` construct:
 
 ```hexa
 enum Color {
