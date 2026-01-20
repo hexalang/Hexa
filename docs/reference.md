@@ -2641,7 +2641,7 @@ They are executed before the main project is compiled and have access to the com
 
 ## Async
 
-Async is the only universal asyncronosity primitive in Hexa. Other features are platform-specific.
+Async is the only universal asynchrony primitive in Hexa. Other features are platform-specific.
 
 ```hexa
 async fun fetchData() {
@@ -2650,7 +2650,7 @@ async fun fetchData() {
 }
 ```
 
-Removing the "color" (colorless asyncronosity):
+Removing the "color" (colorless asynchrony):
 
 ```hexa
 let isAsyncModule Bool = false
@@ -2784,17 +2784,52 @@ Future work may transform the whole `case /regex/` pattern set of a single `swit
 - **More patterns**: What other patterns should be supported
 - **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
 
-# Advanced Memory Management
+# Advanced Memory Management Beyond Ownership Model
 
-Hexa prioritizes safety and performance by default: most types use automatic reference counting or platform garbage collection where appropriate, with no overhead for simple cases.
+Hexa prioritizes safety and performance by default: most types use automatic reference counting (ARC, on targets like WASM/LLVM/C/C++) or platform garbage collection (GC) where appropriate, with no overhead for simple cases.
 
 For fine-grained control in performance-critical code, optional ownership semantics are available via decorators: they enforce uniqueness and lifetimes without altering core syntax.
+
+Memory management decorators offer fine-tuning beyond ownership model: they allow to track general flow of the data in the codebase, and not necessarily limited to the memory usage. This is similar to RAII model where the goal is to track resources in general, not just allocations.
 
 ```hexa
 // Ownership decorators are just normal decorators and don't need an overview in the syntax reference:
 fun process(
 	@someOwnershipDecorator buffer Buffer
 ) { /* ... */ }
+
+// Example of a decorator that tracks some arbitrary resource
+fun useResource(@local resource Resource) { /*...*/ } // Example leaf function
+let globalResources [Resource] = [] // Example global variable
+fun trackResource(
+	@local resource Resource // Can be reference-counted class or structure or anything else
+) {
+	// Resource is tracked and guaranteed to never leave the call tree (effectively the stack)
+
+	useResource(resource) // Fine, we know that `useResource` doesn't leak
+
+	// globalResources.push(resource) // Error: leaves the call-tree
+}
+
+let globalResource Resource = Resource()
+{
+	let localResource Resource = @local Resource() // Enforce local scope
+	trackResource(localResource) // We can pass it to a function that tracks resources
+	trackResource(globalResource) // Ok, @local is compatible with non-local resources because enforces the call-tree, not specifically the stack allocation
+}
+
+// Example of a consuming decorator
+// Enables defensive programming via hiding sensitive intermediates
+fun loadDLL(name String) {
+	let env = "C:\\Windows\\System32\\"
+	let fullPath = env + @hide name // @hide is a decorator that marks the variable as hidden from the rest of the scope (it can be used in the other contexts too)
+
+	/// ... imagine lots of code lines obscuring the actual logic ...
+	readFile(fullPath)
+	// readFile(name) // Without the @hide it would be easy to make a mistake and pass the wrong variable
+}
+
+loadDLL('kernel32.dll')
 ```
 
 # Native Programming
