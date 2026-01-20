@@ -100,6 +100,8 @@ let _ssa = 2 // Read-only
 
 Variables are declared using `var` (mutable) or `let` (immutable, readonly variable itself, aka single-assignment).
 
+Hexa uses space-separated type annotations, never colons: `var name Type = value` (no `:` colons and no `;` semicolons).
+
 ```hexa
 // Mutable variable
 var x = 1 // NOTE initial assignment `=` is required for local variables
@@ -150,7 +152,7 @@ if else
 switch case
 class enum type interface super
 await async
-meta
+meta readonly
 ```
 
 #### Design Considerations (Keywords)
@@ -163,7 +165,6 @@ Some words are reserved for possible future use.
 They will be either removed and available as identifiers or transformed into keywords.
 
 ```hexa
-readonly
 defer yield
 default hexa
 public protected out
@@ -316,6 +317,8 @@ let n = null // Error: there's no actual backing type, just `null`
 
 ### Arrays
 
+Array type syntax is `[T]` where `T` is the type of the elements, or alternatively `Array<T>`.
+
 ```hexa
 let arr = [1, 2, 3]
 let empty [Int] = []
@@ -429,12 +432,14 @@ An object is a simple fixed key-value store. It's not a map like []. Keys cannot
 
 ```hexa
 let obj = { x: 1, y: 2 } // Inferred as `interface { var x Int var y Int }`
+let obj interface { var x Int var y Int } = { x: 1, y: 2 } // Explicitly typed object
 // NOTE mutable by default
 let obj2 = readonly { x: 1, y: 2 } // Immutable on-demand
 
 // Structural typing
 type Point = { var x Int var y Int }
 let obj Point = { x: 1, y: 2 }
+let obj type { var x Int var y Int } = { x: 1, y: 2 } // Explicitly typed object
 
 // Satisfies interfaces and types structurally
 interface IPoint { var x Int var y Int }
@@ -821,6 +826,8 @@ let result = x > 0 ? "Positive" : (x < 0 ? "Negative" : "Zero")
 ### Loops
 
 NOTE `for`, `do` and `while` loops are not expressions.
+
+The `for` loop may accept user-defined iterable types (not covered in the syntax reference, API-covered).
 
 ```hexa
 // While
@@ -1492,9 +1499,9 @@ let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag pass
 
 ### Type Traits
 
-Traits reuse `type` keyword but overall parsed same way as a class.
+Traits reuse the `type` keyword but are overall parsed in the same way as a class.
 
-Usage of `trait` keyword would reduce adoption and semantically does not fully match the concept of the `type`. The `type` fits better as in "structural typing". Types are compile-time concept and usage of `type` reinforces this.
+Usage of the `trait` keyword would reduce adoption and semantically does not fully match the concept of the `type`. The `type` fits better as in "structural typing". Types are a compile-time concept and the usage of `type` reinforces this.
 
 ```hexa
 // Parsing rules same as of classes
@@ -1570,6 +1577,15 @@ type AddableCopyable Add Copy {} // Empty trait requiring both Add and Copy (con
 fun merge<R AddableCopyable>(a R, b R) R {
 	return a + b // Both are Add and Copy
 }
+
+// Compile-time type validation with concepts
+type Valid<T> = switch T {
+	case Int: T
+	case _ if T.meta.sizeOf < 4: throw "Type is too small"
+	case _: throw "Unsupported type"
+}
+
+let x Valid<Int> = 123
 ```
 
 ### Associated Types
@@ -1648,6 +1664,9 @@ class Box<T, U, Z, let size Int> {
 
 		// T == Array<U>, size == 2
 		case Array<U>, 2: Array<Z>
+
+		// Any Array
+		case Array<_>, _: Array<Z>
 
 		// T == Map<U, anything captured as V>, size == 3
 		case Map<U, _ as V>, 3: Map<V, Z>
@@ -2187,19 +2206,23 @@ if value & requiredFlags {
 ### Dynamic Types
 
 - `Any`: Dynamic type - can be anything at runtime and not checked at compile time, platform-dependent
-- `Unknown`: Same, but needs to be casted to a specific type before use
 - `Any?`: Optional dynamic type - requires null check before use and every returned field is nullable too
+- `Unknown` and `Unknown?`: Same, but needs to be casted to a specific type before use
 
 ### Composite Types
 
 - `[T]`: Array of T
 - `[K: V]`: Map with key K and value V
 - `T?`: Optional T (nullable)
-- `type { let x Int let y Int }`: Object type
+- `type { let x Int var y Int }?`: Object type + optional
+- `interface { let x Int var y Int }?`: Object interface + optional
 
 ```hexa
 // Shorthand for a type -> otherwise just inferred
 var point type { let x Int let y Int } = { x: 1, y: 2 }
+
+// Shorthand for an interface
+let point interface { let x Int let y Int } = { x: 1, y: 2 }
 ```
 
 ### Type Aliases
