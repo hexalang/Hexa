@@ -1229,14 +1229,18 @@ let apply = f.apply(null, [1])
 
 ### Overloading
 
-Hexa supports clean compile-time function overloading via declarative `is` / `or` syntax.
+Hexa supports clean compile-time function overloading via declarative `is` / `or` syntax (enables deterministic typeclass-driven dispatch and multi-method-like behavior).
 
-Alternatives are tried left-to-right, and the feature works inside classes too (to define methods and static methods).
+Alternatives are tried left-to-right, and the feature works inside classes too (to define methods and static methods), enabling static polymorphism with zero runtime cost.
 
 ```hexa
-foo(123)
-foo("hello")
 fun foo is fooForInt or fooForString // Allowed to define an overloading at the use site (local scope) too
+// Overloads selected by arguments types, names (when names are present) and their count
+foo(123) // Selects fooForInt
+foo("hello") // Selects fooForString
+// When a call uses named arguments (e.g. f(param: value)), only overloads that declare a parameter with that exact name are considered
+foo(s: "hello") // Selects fooForString
+foo(i: 123) // Selects fooForInt
 ```
 
 ## Classes and Interfaces
