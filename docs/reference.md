@@ -130,7 +130,7 @@ declare var externalVar Int // NOTE no `= value` assignment allowed
 declare let externalConst String // Type is required for `declare`
 
 // Lazy initialization until first read
-var lazyVar Int { lazy { 123 } }
+var lazyVar Int { lazy { 123 } } // May capture outside variables (i.e. closure)
 lazyVar.meta.computed // True after initialization
 ```
 
@@ -256,6 +256,9 @@ let s4 = "Hello \n World"
 let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
 // Anything can be concatenated with `+` as long as it has a `toString` method
 let s5_1 = "Hello " + 1 + " World" // "Hello 1 World"
+
+// Large raw strings are supposed to be in files
+let script = meta.embedString('file.txt') // `\n` by default, `meta.embedString(..., '\r\n')` for other
 
 // Regular expression
 let s6 = /Hello World/ // Per parser rules, there should be no space after the leading `/` to start a regex
@@ -480,6 +483,16 @@ obj.foo = 123 // Safe to access, compiled into `{ xx: 1, baz: 2 }`
 // Object spread-copy for Redux-like updates
 let obj = { ...obj, z: 3 } // Infeffed from the `...obj` type
 let obj = Point { ...obj, x: 4 } // Shorthand for `Point() { y: obj.y, x: 4 }`
+
+// Meta methods cover common use cases
+let obj = { x: 1, y: 2 }
+obj.meta.hashCode == obj.meta.hashCode // True
+obj.meta.equalsByFields(obj) // True (compares field-by-field)
+obj.meta.equalsByFieldsHashCodes(obj) // True (compares field-by-field hash codes, mimics deep equals)
+obj.meta.dump // Returns a human-readable string representation of the object
+obj.meta.dumpSorted // Returns a human-readable string representation of the object with sorted fields
+obj.meta.dumpWithTypes // Returns a human-readable string representation of the object with types
+// etc
 ```
 
 #### Mutation Cascades
@@ -2481,7 +2494,7 @@ Project file also controls the namespace of each module and which namespaces to 
 
 ```hexa
 // The namespaces are always available, no need to import them
-// Classes works as a namespace too, here `Math` is a class
+// Classes work as a namespace too, here `Math` is a class
 Math.sin(1) // Can call into the namespace (here `Math`) directly
 
 // Instead the whole or partial content of the namespace can be imported
