@@ -65,12 +65,14 @@ Hexa supports single-line, multi-line, and documentation comments. It's assumed 
 // Supports minimal `markdown` syntax in highlighting (assumed that every Hexa-compliant editor supports it)
 
 /*
-   Multi-line comment
+	Multi-line comment
 
-   /* Nested */
+	Comments are not parsed to AST.
+
+	/* Nested */
 */
 
-/// Documentation comment (single-line)
+/// Documentation comment (single-line) present in the AST (attached to an expression/statement node)
 /// Can have more lines - they will combine into single doc comment
 /// They do not interact with decorators
 // NOTE A documentation comment requires an expression/statement immediately below it:
@@ -90,7 +92,7 @@ Unicode characters are not allowed. Only Latin alphabet is supported, with numbe
 ```hexa
 // Variable names must start with a lowercase letter or underscore
 var myVariable = 1 // Type is inferred
-var myVariable T = 1 // no `:` and no `;` semicolons (syntax is context-free so they are not required) -> no automatic semicolon insertion either
+var myVariable T = 1 // NOTE no `:` colons and no `;` semicolons (syntax is context-free so they are not required) -> no automatic semicolon insertion either
 let _ssa = 2 // Read-only
 ```
 
@@ -116,7 +118,7 @@ let y = 3
 // y = 4 // Error
 
 // Type annotation
-var z Int = 5
+var z Int = 5 // Type comes after the name, separated by space
 
 // External variable declarations
 declare var externalVar Int // NOTE no `= value` assignment allowed
@@ -161,7 +163,7 @@ Some words are reserved for possible future use.
 They will be either removed and available as identifiers or transformed into keywords.
 
 ```hexa
-readonly // Possibly for `readonly [1, 2, 3]` for readonly array literals (i.e. `ReadonlyArray<T>`)
+readonly
 defer yield
 default hexa
 public protected out
@@ -187,9 +189,9 @@ Hexa supports integers and floating-point numbers.
 // Integers
 let a = 123 // Defaults to `Int` aka `i32` (signed 32-bit integer) when not inferred to a different type
 let b UInt64 = 123 // Explicitly inferred to unsigned 64-bit integer
-let hex = 0xFF
+let hex = 0xFF // Only lowercase `x` in `0x` is supported
 let hex = 0xff
-let bin = 0b101
+let bin = 0b101 // Only lowercase `b` in `0b` is supported
 
 // Floats
 let exp = 1.2e-5
@@ -230,7 +232,7 @@ let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as re
 
 #### Design Considerations (Numbers)
 - **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr
-- **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`)
+- **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`/`case -n`)
 
 ### Strings
 
@@ -249,8 +251,9 @@ let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operato
 let s5_1 = "Hello " + 1 + " World" // "Hello 1 World"
 
 // Regular expression
-let s6 = /Hello World/
-let s7 = /Hello World/gi
+let s6 = /Hello World/ // Per parser rules, there should be no space after the leading `/` to start a regex
+// With flags
+let s7 = /\ Hello World/gi // Space when escaped `\ ` after the leading `/` is allowed to start a regex
 
 // String interpolation
 let s8 = "Hello \(1 + 2) World"
@@ -330,7 +333,7 @@ let d = [...a] // Copy
 let e = [...a, index: 4] // Copy and update
 
 // Indexing
-let first = arr[0]
+let first = arr[0] // NOTE any integer type (including BigInt) is allowed as an index
 let second = arr[1i8] // Any integer type is allowed including negative
 let third = arr[-1i8] // Produces `null`
 let fourth = arr[-1i8]! // Unsafe convenience operator
@@ -482,7 +485,7 @@ obj.{ x: 3, y: 4 } // Configuring an existing object with multiple fields in one
 
 // Returns an existing object with the fields updated:
 obj.{ x: 3, y: 4 }.x // 3
-// Distinct syntax from the `{...obj}` operator (copy-update) prevents accidental hidden mutations and makes intent crystal clear
+// Distinct syntax from the `{ ...obj }` operator (copy-update) prevents accidental hidden mutations and makes intent crystal clear
 obj == obj.{ x: 3, y: 4 } // True, same object returned
 
 // Configure then call a method with chaining:
@@ -570,7 +573,7 @@ x = @example 123
 fun foo() {}
 
 // Decorators on function arguments
-fun someFunction(@readonly some Type) {
+fun someFunction(@example some Type) {
 	// ...
 }
 
@@ -580,7 +583,7 @@ fun someFunction(@readonly some Type) {
 
 ### Design Considerations (Decorators)
 - **Duplicate decorators**: Should `@sameName @sameName` be allowed? `@sameName @sameName fun foo() {}`
-- **Namespaces**: Should we support `@namespace.decorator` syntax? `@namespace.decorator fun foo() {}` -> unrelated to modules
+- **Namespaces**: Should we support `@namespace.decorator` syntax? Only two level deep to keep lean? `@namespace.decorator fun foo() {}` -> unrelated to modules
 - **Order semantics**: Is `@a @b fun f()` equivalent to `@b @a`
 
 ## Operators
@@ -593,13 +596,12 @@ a - b
 a * b
 a ** b
 a / b
-a % b  // Remainder
 a \ b  // Integer divide
-// NOTE prefix form is not allowed for clarity
-// ++a
-// --a
+a % b // Remainder
+// NOTE for clarity prefix form of increment/decrement is not allowed
+// `++a` and `--a` are not allowed
 a++ // Only one way to avoid confusion (both syntactically and semantically)
-a--
+a-- // Does not return a value, thus `v = a++` is not allowed to avoid one-liners
 some.field++
 // NOTE not allowed over `array[index]++` as indexed value may be null/non-existent
 
@@ -676,9 +678,9 @@ a /= b
 obj.prop // Property access
 arr[index] // Element access
 map[key] = value // Works for maps too (also assignment)
-a ... b     // Interval
+a ... b // Interval
 arg => expr // Arrow function short form
-(arg1, arg2) => expr // Arrow function with arguments
+(arg1, arg2) => expr // Arrow function with arguments -> argument types are inferred and cannot be specified
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
@@ -764,7 +766,7 @@ let result = {
 
 ### If / Else / Ternary
 
-`if` can be used as a statement or an expression. Braces `{}` are required
+`if` can be used as a statement or an expression. Braces `{}` are required.
 
 ```hexa
 value = if cond { a } else { b } // NOTE {} are required
@@ -789,7 +791,7 @@ if x > 0, y < 10 { // Same as `if (x > 0) and (y < 10)`
 	console.log("Positive")
 }
 
-// Compatible with bindings
+// Compatible with bindings - vibes with do-notation
 if let x = a, y > b, let z = c { // NOTE `let z` is allowed
 	console.log(x, y, z)
 }
@@ -908,8 +910,8 @@ switch value { // Plain integer is not exhaustive
 ```hexa
 break
 continue
-{ return } // Just-return without picking next expression -> less confusion compared to automatic semicolon insertion
 return value // Always picks the next expression (until `return` is the last expression itself)
+{ return } // A just-return without picking the next expression -> less confusion compared to automatic semicolon insertion
 throw error
 ```
 
@@ -938,7 +940,7 @@ try {
 
 #### Result
 
-Hexa encourages the use of nullable types with the `??` pattern, but `Result`-like approach is possible with a standard functionality:
+Hexa encourages the use of nullable types with the `??` pattern, but a Result-like approach is possible with standard functionality:
 
 ```hexa
 @extensibleTags
@@ -1020,7 +1022,7 @@ fun readConfig(path String) Config {
 	if not exists(path) {
 		throw IOException("File not found")
 	}
-	// Also forces to catch other calls if they throw other exceptions
+	// Also forces the user to catch other calls if they throw other exceptions
 	try {
 		functionThatThrowsTypeError()
 	} catch e TypeError {
@@ -1028,7 +1030,7 @@ fun readConfig(path String) Config {
 	}
 }
 
-@throws(Void) // No throws -> forces to catch all in caller
+@throws(Void) // No throws -> forces the user to catch all in caller
 fun caller() {
 	try {
 		readConfig("config.json")
@@ -1057,7 +1059,7 @@ Function names follow same rules as identifiers: must start with a *lowercase* l
 
 ```hexa
 // Function names must start with a lowercase letter or underscore
-fun camelCase() {
+fun camelCase() Void { // Return type is optional and comes right after the arguments closing parenthesis
 	// Function body `{}` is always required for clarity
 }
 
@@ -1082,7 +1084,7 @@ add(a: 1, b: 2) // NOTE order is required to match arguments
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
 add(1, b: 2)
 
-// Generic function - implicit
+// Generic function - implicit - enables gradual typing (e.g. when prototyping)
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 	// NOTE this function is still fully generic, it just infers the type
 	return x
@@ -1107,7 +1109,7 @@ fun plain(x) { // NOTE preserves genericity
 }
 plain(1)
 
-// Function  type
+// Function type
 let func (x Int, y Int) => Int = add // NOTE arguments are required to be named for clarity
 
 // External function
@@ -1146,12 +1148,12 @@ fun identity<A BoxTrait<Int>, B BoxTrait<String>>(x A, y B) Void {
 }
 
 // Overloading
-fun fooForInt(x Int) Int {
-	return x
+fun fooForInt(i Int) Int {
+	return i
 }
 
-fun fooForString(x String) String {
-	return x
+fun fooForString(s String) String {
+	return s
 }
 
 // Function as value
@@ -1168,7 +1170,7 @@ fun fib(n Int) Int {
 }
 
 // Recursion with function by value
-let fibAsValue = fun fib(n Int) Int { // Needs name to be recursive -> arrow function cannot be recursive but `fun` syntax is interchangeable
+let fibAsValue = fun fib(n Int) Int { // It needs a name to be recursive -> arrow function cannot be recursive but `fun` syntax is interchangeable
 	if n <= 1 {
 		return n
 	}
@@ -1197,9 +1199,9 @@ Hexa supports clean compile-time function overloading via declarative `is` / `or
 Alternatives are tried left-to-right, and the feature works inside classes too (to define methods and static methods).
 
 ```hexa
-fun foo is fooForInt or fooForString // Allowed at the use site too
 foo(123)
 foo("hello")
+fun foo is fooForInt or fooForString // Allowed to define an overloading at the use site (local scope) too
 ```
 
 ## Classes and Interfaces
@@ -1212,7 +1214,7 @@ Fields of class-like types (`class`, `type`, `interface`, `enum`) start with a k
 
 ```hexa
 class Point {
-	var x Int
+	var x Int // NOTE lack of `=` default value implies late init (definitive assignment analysis is applied)
 	private var y Int // NOTE only `private` is supported, it behaves like `protected` in other languages
 
 	// Constructor
@@ -1231,8 +1233,8 @@ class Point {
 		}
 	}
 
-	static var xx Int // NOTE static members are allowed
-	private static var yy Int // NOTE private static members are allowed
+	static var xx Int = 123 // NOTE static members are allowed
+	private static var yy Int = 123 // NOTE private static members are allowed
 
 	static fun origin() Point {
 		return Point(0, 0) // `new` not required and not allowed
@@ -1300,7 +1302,7 @@ class Point {
 	var x Int
 	var y Int
 
-	// NOTE `new` assumed by default
+	// NOTE `new() {}` assumed by default
 	// `private new() {}` to disable construction outside, allowed to be called only from within static methods
 }
 
@@ -1364,7 +1366,7 @@ let box3 = Box<Int, String>(123, "hello")
 
 ### Const Generics
 
-Const generics allow to create types that depend on values.
+Const generics allow the creation of types that depend on values.
 
 ```hexa
 class Box<T, let size T> { // NOTE `let` is used to declare a constant generic and can depend on other generics (e.g. `T`)
@@ -1466,7 +1468,7 @@ class Box<T, U BoxTrait<T>> { // NOTE can pass <T> to the trait left-to-right
 	}
 }
 
-// Compose multiple traits into one (supertrait-like for generics constraints)
+// Compose multiple traits into one (supertrait-like for generics constraints / complex bounds)
 type AddableCopyable Add Copy {} // Empty trait requiring both Add and Copy (conceptual traits)
 
 // Named constraint encourages reusable abstractions
@@ -1544,6 +1546,7 @@ class Box<T, U, Z, let size Int> {
 	// Still works as normal `let`, possibility to be used in type patterns is decided on-demand
 	let align = U.meta.alignOf
 
+	// Effectively conditional constraints - happens at compile-time (for `type T = switch` patterns)
 	type Value = switch T, size {
 		// T == Int, size == 1
 		case Int, 1: Int
@@ -1587,7 +1590,7 @@ class Box<T> {
 
 ##### Design Considerations (Associated Types)
 
-- **Simpler syntax**: The `let` in `<let a B>` may imply availability of `var` and that it become the field of the class, which may be confusing
+- **Simpler syntax**: The `let` in `<let a B>` may imply the availability of `var` and that it becomes a field of the class, which may be confusing
 
 ### Inheritance
 
@@ -1604,7 +1607,7 @@ class Circle Shape Trait Interface {
 	}
 
 	new () {
-		// Call constructor of the parent class
+		// Call the parent class constructor
 		super()
 	}
 }
@@ -1707,7 +1710,7 @@ switch value {
 
 ```hexa
 // Complex enums
-enum Color {
+enum Color { // Should not inherit from the basic type (like `Int`)
 	// NOTE tags are always capitalized (uppercase first letter) and not confused with variables in pattern matching
 	Red
 	Green
@@ -1761,7 +1764,7 @@ enum Status Int { // NOTE adding a basic type after the space turns it into a co
 }
 
 // NOTE direct comparison (`==`, `!=`) of enum tag *constructors* is not allowed
-// Status.Ok == Status.Ok // ERROR Disallowed as not making any sense
+// Status.Ok == Status.Ok // ERROR Disallowed at compile time as not making any sense
 // Status.Ok != Status.Ok // ERROR too
 
 {
@@ -1770,7 +1773,7 @@ enum Status Int { // NOTE adding a basic type after the space turns it into a co
 }
 var plain Int = Status.Ok // ERROR Sound type system disallows this
 
-// Tag as a type (NOTE still requires `switch` to extact associated tag values if any)
+// Tag as a type (NOTE still requires a `switch` to extract associated tag values if any)
 var status Status.Ok = Status.Ok // Well-known tag
 var status Status.NotFound = switch Status.Ok {
 	case _: Status.NotFound
@@ -1790,6 +1793,7 @@ fun onStatus is onStatusOk or onStatusNotFound
 onStatus(Status.Ok)
 onStatus(Status.NotFound)
 ```
+
 ### Enumerations Inference
 
 Enum tags can be inferred from the value on the left side. This allows for a short syntax for them.
@@ -1934,6 +1938,7 @@ let result = switch value { // NOTE no `()`
 		"One"
 	case 2:
 		"Two"
+	// Switch over computable values
 	case (three): // NOTE `()` picks runtime value to match to
 		"Equal to variable called `three`"
 }
@@ -1964,7 +1969,7 @@ switch value {
 	case Other(r, g, b as blue):
 		// NOTE exact same names are required (i.e. `r` and `g`)
 		// NOTE order of parameters is NOT important due to names requirement above
-		// NOTE `b as blue` allows to rename parameter
+		// NOTE `b as blue` allows renaming the parameter
 		// NOTE parameters are captured as readonly local variables scoped to the case body
 		console.log("Other", r, g, blue) // NOTE only `blue` is accessible here
 
@@ -2005,12 +2010,12 @@ Pattern matching can be used to match flags:
 
 ```hexa
 switch flags {
-	// 1. EXACT Match
+	// 1. EXACT Match (Has Flag A)
 	// Transpiles to: if (flags == Flags.A)
 	case A:
 		// ...
 
-	// 2. PARTIAL Match (Has Flag1 set, ignores others)
+	// 2. PARTIAL Match (Has at least Flag A set, ignores others)
 	// Transpiles to: if ((flags & Flags.A) == Flags.A)
 	case A | ...:
 		// ...
@@ -2020,7 +2025,7 @@ switch flags {
 	case A | ... | not B:
 		// ...
 
-	// 4. COMBINATION (Has Flag1 AND Flag2)
+	// 4. COMBINATION (Has at least Flag A AND Flag B)
 	// Transpiles to: if ((flags & (Flags.A|Flags.B)) == (Flags.A|Flags.B))
 	case A | B | ...:
 		// ...
@@ -2035,6 +2040,7 @@ switch value {
 		console.log("Either exact (A | B | C) or exact (D | E | F)")
 }
 
+// Switch over multiple values
 switch value1, value2 {
 	case A | B or D | E, 123: // NOTE `123` matches `value2` because its separated by comma
 		console.log("Either exact (A | B and also 123) or exact (D | E and also 123)")
@@ -2300,6 +2306,7 @@ Hexa files `.hexa` are listed in the `hexa.json` project file, their order withi
 ```hexa
 import NameSpace
 import Math // Can import static fields into current scope and associated types (e.g. `sin()`)
+// Can import static fields into current scope and associated types (e.g. `sin()`)
 import Math { sin cos as cosine } // Import specific members
 
 // No separators needed, but users expected to add newlines for readability
@@ -2308,14 +2315,15 @@ import Math {
 	cos as cosine
 }
 
-import NameSpace { TypeName1 TypeName2 as MyName } // Import the type itself
+import NameSpace { TypeName1 TypeName2 as MyName } // Import the type itself, alias as needed
 import NameSpace { TypeName1 TypeName2 method1 method2 } // Mixed imports (take methods from the namespace)
 
 import NameSpace.TypeName // Nested is possible
 import Deep.Nested.NameSpace.TypeName // Deeply nested is possible
-import NameSpace as AliasNameSpace // Can alias
+import NameSpace as AliasNameSpace // Can alias, does not do a wildcard import when aliased
 import NameSpace.TypeName as AliasTypeName // Can alias
 ```
+
 ### Exports
 
 Named declarations at the top level are exported by default, unless `private` is specified:
@@ -2441,6 +2449,7 @@ let sizeof = value.meta.type.sizeInBytes
 
 // Introspection - other meta-methods are also available beyond examples above
 fun printFields<T>(value T) {
+	// @unroll // Enforce unrolling of the loop for a well-known iterable (here `meta.fieldNames`)
 	for field in meta.fieldNames(T) { // Can be stored into [String]
 		console.log("Field: {field}")
 	}
@@ -2644,14 +2653,14 @@ class NativeStructure {
 	// Other features like RAII are managed by the @decorators
 }
 
-// Allocated on the stack, enforced by the compiler to not leave stack on the call tree
+// Allocated on the stack, enforced by the compiler not to leave the stack on the call tree
 let x = NativeStructure(x: 1, y: 2)
-// Structure types are passed by reference, and they are tracked to not leak
+// Structure types are passed by reference, and they are tracked so as not to leak
 x.add(NativeStructure(x: 3, y: 4))
 
 // Allocated on the heap
 let y = @heap NativeStructure(x: 1, y: 2)
-x.add(y) // `y` is still tracked to not leave the `fun add` call stack
+x.add(y) // `y` is still tracked so as not to leave the `fun add` call stack
 
 // @struct is a referential type (pointer) by default
 let x = 0x1234.as(NativeStructure)
@@ -2687,7 +2696,7 @@ z.z.y = 5
 
 // Other features
 // Custom @entry
-// @volatile @weak Span<T> SIMD
+// @volatile @weak Span<T> SIMD @syncronized (thread-safety)
 // ...etc as per documentation
 ```
 
@@ -2716,11 +2725,11 @@ console.assert(condition, "message")
 Hexa deliberately excludes certain features to maintain minimalism, readability, and target-agnostic consistency:
 
 - `goto` statements - avoided to encourage structured control flow and improve code safety
-- Multiple class inheritance - **single inheritance** combined with traits provides sufficient flexibility without diamond problem complexity
+- Multiple class inheritance - **single inheritance** combined with traits provides sufficient flexibility without the diamond problem's complexity
 - `finally` blocks in try/catch - omitted to keep exception handling syntax simple; resource management is encouraged via scope-based patterns or decorators
 - `protected` and `public` visibility - only `private` is supported; module-level exports control visibility, reducing access modifier noise
 - Inline macros or `comptime` blocks in regular code - metaprogramming is confined to **separate macro files** with explicit APIs to preserve clarity in main source files
-- Tuple types - structural objects and maps with **named fields** are preferred for better self-documentation and maintainability
+- Tuple types - in favor of `{ x, y }` short-hand syntax, structural objects and maps with **named fields** are preferred for better self-documentation and maintainability, positional destructuring is done by other means (like giving class field an index as an alias)
 
 # Conclusion
 
