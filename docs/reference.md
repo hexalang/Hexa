@@ -807,6 +807,10 @@ if let x = a, y > b, let z = c { // NOTE `let z` is allowed
 	console.log(x, y, z)
 }
 
+// Shorthand for `if let value = value`: binds the value if its not null
+if let value {}
+if let value, value > 5 {}
+
 // Expression
 let result = if x > 0 { "Positive" } else { "Non-positive" }
 
@@ -844,6 +848,13 @@ while x > 0 {
 // While with multiple conditions and bindings
 while let x = a, y < 10 {
 	y++
+}
+
+// Halting problem is error when solvable
+let loop = true
+// When @infinite is present, the condition must be `true`, otherwise it is a compile-time error
+@infinite while loop {
+	// Infinite loop
 }
 
 // Do-While
@@ -930,6 +941,8 @@ throw error
 
 ### Try / Catch
 
+> Exceptions are exceptional. Use sparingly.
+
 Hexa offers exception handling for special cases where the performance hit of the `??` checks is undesired or other means of result propagation are not available or impractical.
 
 There's no `finally` block.
@@ -948,6 +961,14 @@ try {
 	handle(e)
 } catch e Exception {
 	throw e // Re-throw
+}
+
+// Try-catch as expression
+let result = try {
+	risky() // last expression is the result
+} catch e Error {
+	handle(e)
+	123 // default value
 }
 ```
 
@@ -1040,6 +1061,7 @@ fun readConfig(path String) Config {
 		functionThatThrowsTypeError()
 	} catch e TypeError {
 		throw ParseError("Failed to parse config")
+		// Compiler error if not all thrown types handled/propagated
 	}
 }
 
@@ -2392,15 +2414,21 @@ switch x {
 
 The `null`-safety is checked and enforced at compile-time.
 
-Important note: unwrapping operator `!` is guaranteed to throw an exception immediately at the position of its use.
+Important note: unwrapping operator `!` is guaranteed to throw an exception immediately at the position of its use. Special syntax `null!` is provided to force null-initialization (or with some platform-default value, for unit-like behavior). Parsing treats `null!` as a single token, distinct from the postfix `!` operator.
 
 Even when platform does not throw exceptions for null-access normally, or optimizes null-access away (say, due to devirtualization), the compiler will generate extra code that throws an exception at runtime exactly at the position of the `!` operator.
+
+Non-nullable types are checked at compile-time and do not have to be checked with `if obj != null` before use, leading to better performance.
 
 ```hexa
 let x Int? = null
 let y Int? = 123
-let z Int = null // Error
-let z Some = null! // Force null-initialization (useful for prototyping)
+let z Int = null // Error: types are not nullable by default
+
+// Does not throw but deliberately screams "temporary hack", easy to grep for and remove before shipping:
+let z Int = null! // Assigns platform-default value, e.g. 0 for Int, null for reference types
+var z Some = null! // Force null-initialization (useful for prototyping)
+hello(null!) // Valid in other value contexts when the type can be inferred
 
 // NOTE this syntax is not allowed
 // let z Int! = null // Error `T!` is not allowed
@@ -2425,7 +2453,11 @@ value?.field ?? defaultValue // Optional chaining works with default value opera
 let name = user?.profile?.name ?? "Guest"
 
 // Safe navigation
-a?.b?.c()
+a?.b?.c?() // Calls too with `?()` if the callback is nullable
+
+// Index navigation
+a?[0] // Optional index access -> null if array is null
+a![0] // Force index access -> exception if array is null
 
 // Double exclamation mark is not allowed to type because it implies some other "not just !" operator exists to the reader
 // x = value!! // Error: Not allowed to avoid confusion
