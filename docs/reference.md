@@ -128,6 +128,10 @@ var z Int = 5 // Type comes after the name, separated by space
 declare var externalVar Int // NOTE no `= value` assignment allowed
 // Readonly external variable declarations
 declare let externalConst String // Type is required for `declare`
+
+// Lazy initialization until first read
+var lazyVar Int { lazy { 123 } }
+lazyVar.meta.computed // True after initialization
 ```
 
 ## Literals
@@ -1476,6 +1480,10 @@ Const generics allow the creation of types that depend on values.
 class Box<T, let size T> { // NOTE `let` is used to declare a constant generic and can depend on other generics (e.g. `T`)
 	var value T
 
+	// Effectively associated constants (they will be compile-time well known)
+	static let amount T = size
+	let length T = size
+
 	new (value T) {
 		this.value = value * size
 	}
@@ -1758,6 +1766,12 @@ class Rect {
 
 	// `let` can have only `get`, `var` requires `get` and `set`
 	let area Int {
+		// Can have backing fields - may have different type than the property (but checked for compatibility if no setter is provided)
+		// Implicitly `private` class-wide, thus accesible via `this.backing`
+		var backing Int = 0
+		// Ultimately private and isolated inside the `{ getters/setters }` block, unaccessible via `this.secret`
+		private var secret Int = 0
+
 		get {
 			// Assumes `return` as if it were `get return { expr }` (not actual syntax)
 			// This makes properties more declarative
@@ -1766,6 +1780,10 @@ class Rect {
 
 		// Optional setter -> does not return anything
 		// set (v) { /* ... */ }
+
+		// Observers
+		// willSet(oldValue, newValue) { ... }
+		// didSet(newValue) { ... }
 	}
 }
 ```
