@@ -2471,11 +2471,19 @@ a![0] // Force index access -> exception if array is null
 
 Using one `import` per each module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
 
-Hexa files `.hexa` are listed in the `hexa.json` project file, their order within the project file affects the initialization order. Project file also controls the namespace of each module.
+Hexa files `.hexa` are listed in the `hexa.json` project file, their order within the project file affects the initialization order.
+
+Project file also controls the namespace of each module and which namespaces to export as a library (as long as the definition is not `private`).
 
 ```hexa
-import NameSpace
-import Math // Can import static fields into current scope and associated types (e.g. `sin()`)
+// The namespaces are always available, no need to import them
+// Classes works as a namespace too, here `Math` is a class
+Math.sin(1) // Can call into the namespace (here `Math`) directly
+
+// Instead the whole or partial content of the namespace can be imported
+import Math // Wildcard import of everything within the namespace (e.g. all static fields and associated types from the namespace)
+sin(1) // The `sin` is now available in the current scope
+
 // Can import static fields into current scope and associated types (e.g. `sin()`)
 import Math { sin cos as cosine } // Import specific members
 
