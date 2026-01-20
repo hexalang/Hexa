@@ -1927,14 +1927,31 @@ Color.Nested(Color.Red)
 // Can omit type name when tag type is known up front (here `Color`)
 Color.Nested(Other(r: 0, g: 255, b: 0))
 
+### Constant Enums
+
+```hexa
+// Some well-known constant (computable at compile time)
+let userRequest = 999 + 1
+
 // Enum with values -> has a baked type (here `Int`)
 enum Status Int { // NOTE adding a basic type after the space turns it into a constant enum
 	Ok = 200
 	NotFound = 404
 	BadRequestError = 404 // Duplicate value is NOT allowed with constant
 	BadRequest = NotFound // Duplicate value is allowed with alias
+	UserRequest = userRequest // Well-known values may be used for tags (for example to set initial iota)
 	Overloaded // Inferred value as BadRequest + 1 (auto-increment)
 }
+
+// Sometimes values come outside (FFI) out of range, we can handle that:
+enum Bool32 Int {
+	True = 1 or _ // Anything other than 0 is `True` when matched as `case True:`
+	False = 0
+}
+
+let b = Bool32.True // Takes `1` as a value from `1 or _` tag
+let bool = b == Bool32.True // Pattern `1 or _` disallows `==` operator over `True` tag, use `switch` instead
+let bool = b == Bool32.False // Allowed as `False` is a fixed constant, not range
 
 // NOTE direct comparison (`==`, `!=`) of enum tag *constructors* is not allowed
 // Status.Ok == Status.Ok // ERROR Disallowed at compile time as not making any sense
@@ -1997,6 +2014,7 @@ fun genericFunction<T>(value T) {
 Special case for `==` and `!=` operators:
 
 ```hexa
+// When enum is compared to a value within a `if` condition, it is parsed as a tag name without the `{}` part
 if value == Status.Ok { // NOTE otherwise would parse as `Status.Ok {}` class constructor
 	console.log("Ok")
 }
@@ -2004,7 +2022,7 @@ if value == Status.Ok { // NOTE otherwise would parse as `Status.Ok {}` class co
 
 There's no use for `==` operator with newly constructed values as every instance is unique. The `==` would just return `false` in such cases.
 
-From this point of view, its not an "exception" as it utilizes otherwise useless syntax construct.
+From this point of view, it utilizes an otherwise useless syntax construct.
 
 ### Enumerations Inheritance
 
@@ -2072,6 +2090,8 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 		console.log("Two")
 	case "String": // NOTE string literals are allowed - can match native null-terminated strings too
 		console.log("String")
+	case /hi/i: // Regex is fine too
+		console.log("Regex")
 	case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
 		console.log("Other")
 	case null: // NOTE `null` always checked first no matter where it is placed
@@ -2786,8 +2806,9 @@ Regular expressions are supported as patterns for advanced pattern matching:
 
 ```hexa
 switch string {
-	case /abc/:
-		console.log("abc")
+	// With or
+	case /abc/ or /def/:
+		console.log("abc or def")
 
 	// With flags
 	case /def/gi:
