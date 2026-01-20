@@ -161,9 +161,6 @@ await async
 meta readonly
 ```
 
-#### Design Considerations (Keywords)
-- **Missing keywords**: Are there any missing keywords
-
 #### Reserved Words
 
 Some words are reserved for possible future use.
@@ -182,9 +179,6 @@ export of from using inout
 ```
 
 Anything that starts with `#` is reserved for future use: `#foo` and such.
-
-##### Design Considerations (Reserved Words)
-- **Missing reserved words**: Are there any missing reserved words
 
 NOTE reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
 
@@ -247,24 +241,24 @@ let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as re
 Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks `` ` ``. Assume Unicode by default. They are always immutable.
 
 ```hexa
-let s1 = "Hello"
-let s2 = 'World' // No difference in meaning
-let s3 = `
+let s = "Hello"
+let s = 'World' // No difference in meaning
+let s = `
 	Multi-line
 	String
 ` // NOTE newlines always converted into a \n
-let s4 = "Hello \n World"
-let s5 = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
+let s = "Hello \n World"
+let s = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
 // Anything can be concatenated with `+` as long as it has a `toString` method
-let s5_1 = "Hello " + 1 + " World" // "Hello 1 World"
+let s = "Hello " + 1 + " World" // "Hello 1 World"
 
 // Large raw strings are supposed to be in files
 let script = meta.embedString('file.txt') // `\n` by default, `meta.embedString(..., '\r\n')` for other
 
 // Regular expression
-let s6 = /Hello World/ // Per parser rules, there should be no space after the leading `/` to start a regex
+let s = /Hello World/ // Per parser rules, there should be no space after the leading `/` to start a regex
 // With flags
-let s7 = /\ Hello World/gi // Space when escaped `\ ` after the leading `/` is allowed to start a regex
+let s = /\ Hello World/gi // Space when escaped `\ ` after the leading `/` is allowed to start a regex
 
 // String interpolation
 let s8 = "Hello \(1 + 2) World"
@@ -274,6 +268,9 @@ let s9 = "Hello \(foo.bar) World" // Any expression is valid
 
 // Unicode escape
 let s10 = "\u{1F600}"
+
+// Escape sequences
+let s = "\r \n \t \b \f \v \\ \" \' \0 \x00 \{ \}"
 
 // JSX-like and JS-like
 let s11 = "Hello \{1 + 2} World"
@@ -285,19 +282,19 @@ let s12 = "Hello \{
 console.log("Something: \{1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to the lack of `(())` nesting
 
 // Array-like access NOTE only 0...length are valid indices, otherwise `null` is returned
-let s13 = "Hello"[0] // "H"
-let s14 = "Hello"[10] // null
-let s15 = "Hello"[-1] // null
+let s = "Hello"[0] // "H"
+let s = "Hello"[10] // null
+let s = "Hello"[-1] // null
 
 // String comparison
-let s16 = "Hello" == "Hello" // True
-let s17 = "Hello" == "hello" // False
-let s18 = "Hello" != "Hello" // False
-let s19 = "Hello" != "hello" // True
-let s20 = "Hello" < "Hello" // False
-let s21 = "Hello" > "hello" // False
-// let s22 = "Hello" <= "Hello" // NOT allowed because they seem to be redundant/too rare
-// let s23 = "Hello" >= "hello" // NOT allowed
+let s = "Hello" == "Hello" // True
+let s = "Hello" == "hello" // False
+let s = "Hello" != "Hello" // False
+let s = "Hello" != "hello" // True
+let s = "Hello" < "Hello" // False
+let s = "Hello" > "hello" // False
+// let s = "Hello" <= "Hello" // NOT allowed because they seem to be redundant/too rare
+// let s = "Hello" >= "hello" // NOT allowed -> use functions for exact behavior that you need
 ```
 
 #### Design Considerations (Strings)
@@ -305,7 +302,6 @@ let s21 = "Hello" > "hello" // False
 - **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
 - **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`
 - **String interpolation**: Consider leaving only `\{value}` syntax and removing `\()`
-- **Escape sequences**: Support for escape sequences like `\f` and `\b`
 - **Error-prone**: Possibly use `"{value}"` instead of `"\{value}"` thus removing the need for `\` in string interpolation, while reserving `\{\}` this would allow to avoid a problem with forgetting to escape `\` in string interpolation (also mimics JSX)
 
 ### Booleans
@@ -330,7 +326,7 @@ let n = null // Error: there's no actual backing type, just `null`
 Array type syntax is `[T]` where `T` is the type of the elements, or alternatively `Array<T>`.
 
 ```hexa
-let arr = [1, 2, 3]
+let array = [1, 2, 3]
 let empty [Int] = []
 let none [Int]? = null
 let oneNull [Int?] = [null]
@@ -343,10 +339,10 @@ let d = [...a] // Copy
 let e = [...a, index: 4] // Copy and update
 
 // Indexing
-let first = arr[0] // NOTE any integer type (including BigInt) is allowed as an index
-let second = arr[1i8] // Any integer type is allowed including negative
-let third = arr[-1i8] // Produces `null`
-let fourth = arr[-1i8]! // Unsafe convenience operator
+let first = array[0] // NOTE any integer type (including BigInt) is allowed as an index
+let second = array[1i8] // Any integer type is allowed including negative
+let third = array[-1i8] // Produces `null`
+let fourth = array[-1i8]! // Unsafe convenience operator
 
 // Multidimensional indexing
 let value = matrix[0, 0] // Optimization-friendly (arbitrary internal memory layout)
@@ -354,36 +350,36 @@ matrix[0, 0] = value // `[x, y]` syntax enables `=` operator
 blocks[x, y, z] // Upto 3 dimensions are allowed, otherwise use a function
 
 // Assignment
-arr[0] = 1
-arr[1i8] = 2
-arr[-1i8] = 3 // Does not affect `.length`
-// arr[0] += 1 // Not allowed as `[0]` may be `null`
+array[0] = 1
+array[1i8] = 2
+array[-1i8] = 3 // Does not affect `.length`
+// array[0] += 1 // Not allowed as `[0]` may be `null`
 
 // Index cascade assignment
-arr.[ 0: 1, 1: 2 ] // arr[0] = 1, arr[1] = 2
-arr.[
+array.[ 0: 1, 1: 2 ] // array[0] = 1, array[1] = 2
+array.[
 	0: 1,
 	1: 2, // Trailing comma is allowed when the line ends with a newline
 ]
 // Indices can be expressions computed at runtime
 let index = 0
-arr.[ index: 1 ]
-arr.[ index: 1, index + 1: 2 ]
+array.[ index: 1 ]
+array.[ index: 1, index + 1: 2 ]
 // Updates the original array in-place
-arr.[ 0: 1, 1: 2 ].pop() == 2 // True
-arr.[ 0: 1, 1: 2 ] == arr // True
+array.[ 0: 1, 1: 2 ].pop() == 2 // True
+array.[ 0: 1, 1: 2 ] == array // True
 // Cascade with a range
-arr.[ 0 ... arr.length: 123 ] // As in `for` counts from `0` to n-1 (exclusive)
-arr.[ 0 ... arr.length: ...array ] // Copy an array
-arr.[ 0 ... arr.length: for i in meta.length { i + 1 } ] // Comprehension
+array.[ 0 ... array.length: 123 ] // As in `for` counts from `0` to n-1 (exclusive)
+array.[ 0 ... array.length: ...array ] // Copy an array
+array.[ 0 ... array.length: for i in meta.length { i + 1 } ] // Comprehension
 
 // The explicit distinction between mutation `.[]` and copy-update `[...array, index: value]`
-let copy = [...arr, 4]
-arr.[ 0: 1, 1: 2 ] == arr // True
-arr.[ 0: 1, 1: 2 ] == copy // False
+let copy = [...array, 4]
+array.[ 0: 1, 1: 2 ] == array // True
+array.[ 0: 1, 1: 2 ] == copy // False
 
 // Switch with destructuring
-switch arr {
+switch array {
 	case [x, y, z]: // No trailing comma allowed in patterns
 		console.log(x, y, z)
 	case [1, _, z]: // Match and capture, ignoring the second element
@@ -410,6 +406,7 @@ A map is a simple key-value store. It's not an object like {}. Keys are arbitrar
 ```hexa
 let map = ["key": "value", "one": "two"] // Inferred as [String: String]
 let emptyMap [String: String] = [] // Empty map `[]` requires a known type expected for inference
+
 // Immutable map
 let immutableMap [String: String] = readonly ["key": "value", "one": "two"]
 
@@ -554,7 +551,7 @@ obj.{ x, y } // Shorthand for `obj.{ x: x, y: y }`
 obj.{ ...other, x: 123 } // Copy *fields* from other object into current one (`...` must go first) and update a field
 
 // Nested mutation cascade
-obj.{ x.{ y: 1 }, arr.[ index: 1 ] } // `obj.{ x: { y: 1 }, arr: [ ...arr, { index: 1 } ] }`
+obj.{ x.{ y: 1 }, array.[ index: 1 ] } // `obj.{ x: { y: 1 }, array: [ ...array, { index: 1 } ] }`
 
 // Deep nested mutation cascade
 object.{
@@ -710,14 +707,13 @@ a /= b
 ```
 
 ### Design Considerations (Operators)
-- **Integer division**: Rethink `\` operator
 - **Assignment operators**: Add other assignment operators
 
 ### Other
 
 ```hexa
 obj.prop // Property access
-arr[index] // Element access
+array[index] // Element access
 map[key] = value // Works for maps too (also assignment)
 a ... b // Interval
 arg => expr // Arrow function short form
@@ -904,6 +900,21 @@ for item in items { // NOTE no `let` required but still creates a local read-onl
 	continue
 }
 
+// For-In with a forced checked null-unwrapping -> removes nullability from the `item` variable
+for item! in items {
+	console.log(item)
+}
+
+// For-In with an automatic null-skipping
+@skipNulls for item in items {
+	console.log(item)
+}
+
+// For loop with key-value iteration (mimics map syntax)
+for key: value in map { // Also `key: value!` for checked null-unwrapping
+	console.log(key, value)
+}
+
 // For loop with range
 for i in 0 ... 10 { // NOTE `i` is not visible outside the loop and is read-only
 	console.log(i)
@@ -914,6 +925,9 @@ var count = 100
 for i in count { // Can be any integer expression including sized like `1u8`
 	// Idiomatic -> iterates from 0 to count-1
 }
+
+// Ignoring the value (suppress unused warning)
+for _ in 100 {}
 
 // Iterating over a number (0 to N-1) without a variable
 for i in 100 { // NOTE a variable name is always required
@@ -931,11 +945,6 @@ for i in array.length {}
 for i in n + 1 {}
 for i in 0 ... n + 1 {} // Interval accepts expressions on both sides
 ```
-
-#### Design Considerations (Loops)
-- **Omit variable**: Allow to omit variable name with `_` in `for _ in iterable` loops (suppress unused warning)
-- **Key-Value**: Support for key-value iteration
-- **Nullability**: `for item in items` is null-safe and skips null items and add `for item? in items`/`for item! in items`/`for item in? items` to iterate over nullable items explicitly, current design iterates over null items
 
 ### Switch
 
@@ -1286,7 +1295,6 @@ fun forward(...args) [args.meta.commonType] { // Every `args` value can be of an
 ### Design Considerations (Functions)
 - **Argument order**: Should we enforce order when all arguments are named? Could enable custom evaluation order i.e. `add(b: 1, a: 2)`
 - **Implicit generics**: Possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class)
-- **Rest parameters**: Support for `...rest` parameters and Variadic Functions
 - **Arrow function short-hand**: Should we support `example(_ => { })`
 
 ### Overloading
@@ -1814,7 +1822,6 @@ class Box<T> {
 ```
 
 ##### Design Considerations (Associated Types)
-
 - **Simpler syntax**: The `let` in `<let a B>` may imply the availability of `var` and that it becomes a field of the class, which may be confusing
 
 ### Inheritance
@@ -1869,7 +1876,8 @@ class Rect {
 
 	// `let` can have only `get`, `var` requires `get` and `set`
 	let area Int {
-		// Can have backing fields - may have different type than the property (but checked for compatibility if no setter is provided)
+		// Can have multiple backing fields (when single one, can omit the setter)
+		// They may have different type than the property (but checked for compatibility if no setter is provided)
 		// Implicitly `private` class-wide, thus accesible via `this.backing`
 		var backing Int = 0
 		// Ultimately private and isolated inside the `{ getters/setters }` block, unaccessible via `this.secret`
@@ -1882,17 +1890,14 @@ class Rect {
 		}
 
 		// Optional setter -> does not return anything
-		// set (v) { /* ... */ }
+		set (v) { /* ... */ }
 
 		// Observers
-		// willSet(oldValue, newValue) { ... }
-		// didSet(newValue) { ... }
+		willSet(oldValue, newValue) { ... }
+		didSet(newValue) { ... }
 	}
 }
 ```
-
-#### Design Considerations (Properties)
-- **Setters**: Rethink setter syntax
 
 ### Destructuring
 
@@ -2872,9 +2877,6 @@ async fun someAsyncFunction() {
 
 Alternative is `meta.spawn()` or similar for actual OS threads/pools, on supported platforms.
 
-### Design Considerations (Async)
-- **Syntax**: `async(isAsync)` or `async<isAsync>`? `()` is syntactically closer to the decorator syntax and less pointy
-
 ### Fluent Await
 
 Fluent postfix await is a syntax that allows writing chained async function calls in a more readable way.
@@ -2950,9 +2952,10 @@ switch string {
 
 Future work may transform the whole `case /regex/` pattern set of a single `switch` into optimized parser code at compile time.
 
+The syntax assumes JavaScript RegExp subset as lowest common denominator, which may fallback to platform specific regex depending on the target at the code generation stage.
+
 ### Design Considerations (Regular Expressions)
 - **More patterns**: What other patterns should be supported
-- **More syntax**: JS regex syntax subset? Unlikely PCRE, or do platform specific
 
 # Advanced Memory Management Beyond Ownership Model
 
