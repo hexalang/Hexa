@@ -2303,17 +2303,21 @@ Enumerations can be marked as bit flags, allowing for bitwise operations.
 	C
 }
 
-var flags = Flags.A | Flags.B
-flags |= Flags.C
 flags |= C // Infered as `Flags.C`
 flags &= ~Flags.B
+var flags = Flags.A | Flags.B // NOTE `|` is used for bitwise OR
+flags |= Flags.C // Adds flag
 ```
 
 Pattern matching can be used to match flags:
 
 ```hexa
+// Example variable used later in the pattern
+let features = Flags.A | Flags.B
+
+// Full enum flags pattern matching example:
 switch flags {
-	// 1. EXACT Match (Has Flag A)
+	// 1. EXACT Match (Has only Flag A)
 	// Transpiles to: if (flags == Flags.A)
 	case A:
 		// ...
@@ -2331,6 +2335,16 @@ switch flags {
 	// 4. COMBINATION (Has at least Flag A AND Flag B)
 	// Transpiles to: if ((flags & (Flags.A|Flags.B)) == (Flags.A|Flags.B))
 	case A | B | ...:
+		// ...
+
+	// 5. DYNAMIC PARTIAL MATCH (Has at least *all* flags in `features` set, ignores others)
+	// Transpiles to: if ((flags & features) == features)
+	case (features) | ...: // NOTE `features` is a variable used later in the pattern
+		// ...
+
+	// 6. ALTERNATIVES (Matches pattern 1 OR pattern 2)
+	// Transpiles to: if ((flags == Flags.A) || (flags == (Flags.B | Flags.C)))
+	case A or B | C:
 		// ...
 }
 ```
