@@ -46,11 +46,13 @@ Hexa features are designed to be mostly MISRA compliant, allowing them to satisf
 
 > Motor Industry Software Reliability Association (MISRA) is an automotive industry safety standard for systems programming languages.
 
+Hexa intentionally avoids "warnings" and instead relies solely either on "errors" or programmer wisdom and specific team practices (i.e. external tools). Every feature is either producing a compile-time error or is safe by default enough to trust the developer.
+
 # Syntax
 
 Keep in mind that Hexa is targeting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
 
-Semicolons are never required. Files are UTF-8 (with optional BOM skipping and optional shebang at the first line starting with `#!` also skipped).
+Semicolons are never required. Files are UTF-8 (with optional BOM skipping and optional shebang at the first line starting with `#!` also skipped). The `.hexa` file contains arbitrary number of top-level expressions without the strict ordering.
 
 Hexa is case-sensitive and prefers (token-efficient) tabs for indentation. Standard Library mostly follows `Node.js` API on the native platforms.
 
@@ -924,7 +926,7 @@ throw error
 
 ### Try / Catch
 
-Hexa offers exception handling for special cases where performance hit of the `??` checks is undesired or other means of result propagation is not available or impractical.
+Hexa offers exception handling for special cases where the performance hit of the `??` checks is undesired or other means of result propagation are not available or impractical.
 
 There's no `finally` block.
 
@@ -2218,10 +2220,10 @@ if value & requiredFlags {
 - `interface { let x Int var y Int }?`: Object interface + optional
 
 ```hexa
-// Shorthand for a type -> otherwise just inferred
+// Shorthand for a type
 var point type { let x Int let y Int } = { x: 1, y: 2 }
 
-// Shorthand for an interface
+// Shorthand for an interface -> otherwise just inferred
 let point interface { let x Int let y Int } = { x: 1, y: 2 }
 ```
 
