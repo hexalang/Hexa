@@ -1665,6 +1665,15 @@ type Valid<T> = switch T {
 }
 
 let x Valid<Int> = 123
+
+// Higher-kinded types
+type Mapper<T, K> {
+	fun map() T<K>
+}
+
+type MapOfIntValues<T> = Map<T, Int>
+// Pass `MapOfIntValues` as a type parameter to `Mapper` without any type arguments -> type constructor is passed
+type MapperOfStringKeys = Mapper<MapOfIntValues, String>
 ```
 
 ### Associated Types
@@ -1808,7 +1817,9 @@ class Circle Shape Trait Interface {
 
 ### Interfaces
 
-Compared to traits, an interface is a runtime feature (via reflection and virtual methods if the platform supports it). Interfaces are parsed the same way as classes.
+Practice demonstrates that high-level tasks are better done with high-level constructs (like interfaces) and achieve better real-world performance by eliminating the mandatory manual plumbing/intermediate layers that low-level implementations must explicitly manage. That's one of the core reasons why Hexa provides interfaces.
+
+Compared to traits, an interface is a runtime feature (protocols via reflection and virtual methods if the platform supports it). Interfaces are parsed the same way as classes.
 
 ```hexa
 // Parsing rules same as of classes
