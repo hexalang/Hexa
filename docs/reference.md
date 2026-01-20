@@ -232,7 +232,8 @@ let readability = 0b101_010n // Underscore separators compatible with sizes
 let autoCast = 123n + 345u8 // Other integer types are automatically casted to BigInt on demand
 
 // Underscore separators
-let big = 1_000_000
+let int = 1_000_000
+let float = 1_000.000_001 // Float literals with separators
 let hexadecimal = 0xFF_FFn
 let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as readability tools
 ```
@@ -334,9 +335,6 @@ let empty [Int] = []
 let none [Int]? = null
 let oneNull [Int?] = [null]
 
-// Trailing comma
-let array = [1, 2, 3,]
-
 // Spread operator
 let a = [1, 2, 3]
 let b = [4, 5, 6]
@@ -349,6 +347,11 @@ let first = arr[0] // NOTE any integer type (including BigInt) is allowed as an 
 let second = arr[1i8] // Any integer type is allowed including negative
 let third = arr[-1i8] // Produces `null`
 let fourth = arr[-1i8]! // Unsafe convenience operator
+
+// Multidimensional indexing
+let value = matrix[0, 0] // Optimization-friendly (arbitrary internal memory layout)
+matrix[0, 0] = value // `[x, y]` syntax enables `=` operator
+blocks[x, y, z] // Upto 3 dimensions are allowed, otherwise use a function
 
 // Assignment
 arr[0] = 1
@@ -369,6 +372,10 @@ arr.[ index: 1, index + 1: 2 ]
 // Updates the original array in-place
 arr.[ 0: 1, 1: 2 ].pop() == 2 // True
 arr.[ 0: 1, 1: 2 ] == arr // True
+// Cascade with a range
+arr.[ 0 ... arr.length: 123 ] // As in `for` counts from `0` to n-1 (exclusive)
+arr.[ 0 ... arr.length: ...array ] // Copy an array
+arr.[ 0 ... arr.length: for i in meta.length { i + 1 } ] // Comprehension
 
 // The explicit distinction between mutation `.[]` and copy-update `[...array, index: value]`
 let copy = [...arr, 4]
@@ -402,9 +409,15 @@ A map is a simple key-value store. It's not an object like {}. Keys are arbitrar
 
 ```hexa
 let map = ["key": "value", "one": "two"] // Inferred as [String: String]
-let emptyMap [String: String] = [:]
+let emptyMap [String: String] = [] // Empty map `[]` requires a known type expected for inference
 // Immutable map
-let immutableMap [String: String] = let ["key": "value", "one": "two"]
+let immutableMap [String: String] = readonly ["key": "value", "one": "two"]
+
+// Access with `[]` or `get/set`
+map["key"] == "value"
+map.set("key", "value")
+let value = map.get("key")
+value == "value"
 
 // Trailing comma
 let map = [
@@ -507,6 +520,9 @@ let obj = { x: 1, y: 2 } // Mutable sample object
 // JSON look and feel and mimics declarative construction syntax
 obj.{ x: 3, y: 4 } // Configuring an existing object with multiple fields in one expression
 
+// Helps to avoid bugs
+point.{ x:1, x: 2 } // Error: `x` repeated
+
 // Returns an existing object with the fields updated:
 obj.{ x: 3, y: 4 }.x // 3
 // Distinct syntax from the `{ ...obj }` operator (copy-update) prevents accidental hidden mutations and makes intent crystal clear
@@ -535,6 +551,7 @@ let x = 123
 obj.{ x } // Shorthand for `obj.{ x: x }`
 let y = 123
 obj.{ x, y } // Shorthand for `obj.{ x: x, y: y }`
+obj.{ ...other, x: 123 } // Copy *fields* from other object into current one (`...` must go first) and update a field
 
 // Nested mutation cascade
 obj.{ x.{ y: 1 }, arr.[ index: 1 ] } // `obj.{ x: { y: 1 }, arr: [ ...arr, { index: 1 } ] }`
@@ -708,7 +725,8 @@ arg => expr // Arrow function short form
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
-fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners, `{}` "enforces" putting the body on a new line
+callback = fun (args) return { expr } // NOTE name is optional, `return` is preferred for clarity if not `Void`
+fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
 _ = call() // Indicate that not using a returned value is intentional
 ```
 
@@ -783,6 +801,10 @@ let result = {
 
 	x + y // The last expression is the result
 }
+
+// Empty block
+{} // As a statement, it does nothing
+value = {} // As an expression, it acts as a constructor for an inferred type of left-hand side
 ```
 
 #### Design Considerations (Blocks)
@@ -1126,6 +1148,10 @@ fun add(a Int, b Int = 5) Int { // Default arguments are allowed
 // Calls
 add(1, 2)
 add(1) // b is optional
+add(
+	1,
+	2, // Trailing comma is allowed when the line ends with a newline
+)
 
 // Optionally can be called with the same argument names as in function declaration (no need for separate named arguments set)
 add(a: 1, b: 2) // NOTE order is required to match arguments
@@ -1254,6 +1280,10 @@ foo("hello") // Selects fooForString
 // When a call uses named arguments (e.g. f(param: value)), only overloads that declare a parameter with that exact name are considered
 foo(s: "hello") // Selects fooForString
 foo(i: 123) // Selects fooForInt
+// To be taken as value, the type must be explicit
+// let f = foo // Error: cannot assign function to a variable with unknown type
+let f (anyName Int) => Int = foo // Allowed
+f(123)
 ```
 
 ## Classes and Interfaces
@@ -1862,8 +1892,8 @@ switch value {
 		console.log("Rectangle width: ", rectangle.width)
 
 	// Capture the whole object if the fields match, and also capture the fields themselves
-	case SomeEnum(rect as rectangle: {width, height: 123}): // Capture `rect` as a variable `rectangle` if `height` is `123`
-		console.log("Rectangle width: ", rectangle.width)
+	case SomeEnum(rect as rectangle: {width, height: 123}): // Capture `width` and `rect` as a variable `rectangle` if `height` is `123`
+		console.log("Rectangle width: ", rectangle.width, "==", width)
 
 	// Advanced patterns
 	case {width: _ > 123 and _ != 0, height}: // NOTE checking a condition with a compile-time known expression
