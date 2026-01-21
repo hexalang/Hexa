@@ -17,18 +17,6 @@ Most ideas have been validated through real-world Hexa usage in web and systems 
 > [!IMPORTANT]
 > Only minimal semantic overview is provided here. Syntax is key.
 
-# State
-
-The reference is a work in progress:
-
-- [x] Initial Specification (must cover at least every feature briefly)
-- [ ] Internal Review
-- [ ] Complete Specification (must cover every feature in detail)
-- [ ] External References Check
-- [ ] Tree-Sitter Reference Grammar
-- [ ] Full Review
-- [ ] Release
-
 # Goals
 
 Hexa syntax is designed to follow these standards:
@@ -161,12 +149,6 @@ await async
 meta readonly
 ```
 
-#### Reserved Words
-
-Some words are reserved for possible future use.
-
-They will be either removed and available as identifiers or transformed into keywords.
-
 ```hexa
 defer yield
 default hexa
@@ -177,10 +159,6 @@ guard infer
 implements extends
 export of from using inout
 ```
-
-Anything that starts with `#` is reserved for future use: `#foo` and such.
-
-NOTE reserved words and keywords are chosen to not conflict with JSX function names (i.e. HTML tag names).
 
 ### Numbers
 
@@ -325,11 +303,16 @@ let n = null // Error: there's no actual backing type, just `null`
 
 Array type syntax is `[T]` where `T` is the type of the elements, or alternatively `Array<T>`.
 
+Values are always nullable.
+
 ```hexa
 let array = [1, 2, 3]
 let empty [Int] = []
 let none [Int]? = null
 let oneNull [Int?] = [null]
+
+// Immutable array
+let immutableArray [Int] = readonly [1, 2, 3]
 
 // Spread operator
 let a = [1, 2, 3]
@@ -514,6 +497,7 @@ Chaining rule: in a chain, `object.{}.method().method().{}.method().method()` ca
 ```hexa
 // Efficient, clear, scoped multiple-field mutation on mutable objects with cascades:
 let obj = { x: 1, y: 2 } // Mutable sample object
+let obj = readonly { x: 1, y: 2 } // Immutable sample object
 // JSON look and feel and mimics declarative construction syntax
 obj.{ x: 3, y: 4 } // Configuring an existing object with multiple fields in one expression
 
@@ -576,8 +560,6 @@ object.{
 ```
 
 #### Design Considerations (Objects)
-- **Type inference**: Should untyped objects be inferred as `type` or `interface`? (for typed objects it's clear)
-- **Immutability**: Should objects be immutable by default
 - **More patterns**: What other object patterns should be supported
 - **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion
 - **Computed fields**: Are runtime computed field names really useful
@@ -634,7 +616,6 @@ a - b
 a * b
 a ** b
 a / b
-a \ b  // Integer divide
 a % b // Remainder
 // NOTE for clarity prefix form of increment/decrement is not allowed
 // `++a` and `--a` are not allowed
@@ -2435,11 +2416,19 @@ let point interface { let x Int let y Int } = { x: 1, y: 2 }
 
 ### Type Aliases
 
+Type aliases are simple substitutions, they are not types in their own right.
+
 ```hexa
 type ID = String
 type Generic<T> = Other<T>
 type Callback = (result Int) => Void
 type GenericCallback<T> = (result T) => Void
+type Immutable<T> = readonly T
+
+// Expression type reuse
+let someVar = some()
+type Alias = someVar.type // Should bind to `type` to re-use
+let otherVar Alias = some()
 ```
 
 ### Casts
@@ -2481,7 +2470,7 @@ The captured variable is introduced in the narrowest possible scope, no extra `l
 Compile-time for known types (plays well with generics), runtime for `Any`.
 
 ```hexa
-switch type value {
+switch value.type {
 	case Bool:
 		console.log("Bool")
 	case Int(captureAsInt): // NOTE captureAsInt is readonly and equals to `value` casted to Int
@@ -2785,7 +2774,7 @@ meta.something(123) // callable pseudo-method
 meta.something(name: "value") // callable pseudo-method with named arguments
 
 let value = someValue
-let sizeof = value.meta.type.sizeInBytes
+let sizeof = value.type.meta.sizeInBytes
 
 // `meta` itself is not a real value, and you can't pass it to functions, store it
 // let value = someValue.meta // ERROR
@@ -2801,9 +2790,6 @@ fun printFields<T>(value T) {
 
 printFields(Point(1, 2))
 ```
-
-### Design Considerations (Meta Methods)
-- **Redundancy**: Is `value.meta.type` redundant and just use `value.type`/`value.type.meta`/`value.meta`
 
 ### Macros Metaprogramming
 
@@ -2937,25 +2923,40 @@ switch string {
 		console.log("abc or def")
 
 	// With flags
-	case /def/gi:
+	case /def/gimsu:
 		console.log("def")
 
-	// With named groups
-	case /(?<name1>\w+) (?<name2>\w+) (?<name3>\w+)/ {name1: "John", name2: "Snow"}:
+	// With named groups -> unnamed positional captures are not bound
+	// Guards allow for flexible checks without regex recompilation if values are dynamic
+	case /(?<name1>\w+) (?<name2>\w+) (?<name3>\w+)/ if name1 == "John", name2 == "Snow":
 		console.log("Perfect match for John Snow, name3 is captured as-is:", name3)
 
 	// With named groups and array pattern
 	case /^cmd (?<name>\w+) (?<arg>\w+)*$/:
 		console.log(command, "with args:", arg.join(", "))
+
+	// Optional groups `()?` bind to nullables
+	case /^(?<name>\w+)(?<beta>beta)?$/:
+		console.log("Program:", name)
+		console.log("Beta?", beta ?? "no")
+
+	// Whole match binding
+	case /pattern/ as whole:
+		console.log("Whole match:", whole)
+
+	// Guards -> allow extra checks and to re-bind/shadow with conversions
+	case /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/ if let year = parseInt(year), let month = parseInt(month), let day = parseInt(day):
+		console.log("Date:", year, month, day)
+
+	// Repeated groups with `*`, `+`, `{n,m}`/`{n}`/`{n,}`, `*?`/`+?` (nullable) on a capturing group bind to arrays
+	case /(?<command>\w+) (?<args>\w+)*$/:
+		console.log(command, "with args:", args.join(", "))
 }
 ```
 
 Future work may transform the whole `case /regex/` pattern set of a single `switch` into optimized parser code at compile time.
 
 The syntax assumes JavaScript RegExp subset as lowest common denominator, which may fallback to platform specific regex depending on the target at the code generation stage.
-
-### Design Considerations (Regular Expressions)
-- **More patterns**: What other patterns should be supported
 
 # Advanced Memory Management Beyond Ownership Model
 
