@@ -150,14 +150,10 @@ meta readonly
 ```
 
 ```hexa
-defer yield
-default hexa
-public protected out
-template macro abstract
-when with
-guard infer
-implements extends
 export of from using inout
+defer
+echo
+out
 ```
 
 ### Numbers
@@ -239,8 +235,9 @@ let s = /Hello World/ // Per parser rules, there should be no space after the le
 let s = /\ Hello World/gi // Space when escaped `\ ` after the leading `/` is allowed to start a regex
 
 // String interpolation
-let s8 = "Hello \(1 + 2) World"
-let s9 = "Hello \(foo.bar) World" // Any expression is valid
+let s = "Hello {1 + 2} World"
+let s = "Hello \{ brackets \} World" // Print the {} themselves: final string is "Hello { brackets } World"
+let s = "Hello {foo.bar} World" // Any expression is valid
 // NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
 // `()` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
 
@@ -251,13 +248,13 @@ let s10 = "\u{1F600}"
 let s = "\r \n \t \b \f \v \\ \" \' \0 \x00 \{ \}"
 
 // JSX-like and JS-like
-let s11 = "Hello \{1 + 2} World"
-let s12 = "Hello \{
+let s = "Hello {1 + 2} World"
+let s = "Hello {
 	var a = 1
 	var b = 2
 	a + b // Works like a block
 } World"
-console.log("Something: \{1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to the lack of `(())` nesting
+console.log("Something: {1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to the lack of `(())` nesting
 
 // Array-like access NOTE only 0...length are valid indices, otherwise `null` is returned
 let s = "Hello"[0] // "H"
@@ -279,7 +276,6 @@ let s = "Hello" > "hello" // False
 - **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`
 - **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
 - **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`
-- **String interpolation**: Consider leaving only `\{value}` syntax and removing `\()`
 - **Error-prone**: Possibly use `"{value}"` instead of `"\{value}"` thus removing the need for `\` in string interpolation, while reserving `\{\}` this would allow to avoid a problem with forgetting to escape `\` in string interpolation (also mimics JSX)
 
 ### Booleans
