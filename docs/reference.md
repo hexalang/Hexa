@@ -147,11 +147,6 @@ switch case
 class enum type interface super
 await async
 meta readonly
-```
-
-```hexa
-export of from using inout
-defer
 echo
 out
 ```
@@ -234,7 +229,7 @@ let s = /Hello World/ // Per parser rules, there should be no space after the le
 // With flags
 let s = /\ Hello World/gi // Space when escaped `\ ` after the leading `/` is allowed to start a regex
 
-// String interpolation
+// String interpolation does not require prefix, avoiding common pitfalls (no more "[object Object]")
 let s = "Hello {1 + 2} World"
 let s = "Hello \{ brackets \} World" // Print the {} themselves: final string is "Hello { brackets } World"
 let s = "Hello {foo.bar} World" // Any expression is valid
@@ -247,7 +242,7 @@ let s10 = "\u{1F600}"
 // Escape sequences
 let s = "\r \n \t \b \f \v \\ \" \' \0 \x00 \{ \}"
 
-// JSX-like and JS-like
+// String interpolation is JSX-like
 let s = "Hello {1 + 2} World"
 let s = "Hello {
 	var a = 1
@@ -276,7 +271,6 @@ let s = "Hello" > "hello" // False
 - **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`
 - **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
 - **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`
-- **Error-prone**: Possibly use `"{value}"` instead of `"\{value}"` thus removing the need for `\` in string interpolation, while reserving `\{\}` this would allow to avoid a problem with forgetting to escape `\` in string interpolation (also mimics JSX)
 
 ### Booleans
 
@@ -433,6 +427,10 @@ let obj = { x: 1, y: 2 } // Inferred as `interface { var x Int var y Int }`
 let obj interface { var x Int var y Int } = { x: 1, y: 2 } // Explicitly typed object
 // NOTE mutable by default
 let obj2 = readonly { x: 1, y: 2 } // Immutable on-demand
+
+// Property access
+let v = obj.x
+obj.y = v
 
 // Structural typing
 type Point = { var x Int var y Int }
@@ -686,13 +684,7 @@ a /= b
 ### Design Considerations (Operators)
 - **Assignment operators**: Add other assignment operators
 
-### Other
-
 ```hexa
-obj.prop // Property access
-array[index] // Element access
-map[key] = value // Works for maps too (also assignment)
-a ... b // Interval
 arg => expr // Arrow function short form
 (arg1, arg2) => expr // Arrow function with arguments -> argument types are inferred and cannot be specified
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
@@ -1140,15 +1132,18 @@ add(
 )
 
 // Optionally can be called with the same argument names as in function declaration (no need for separate named arguments set)
-add(a: 1, b: 2) // NOTE order is required to match arguments
+add(a: 1, b: 2) // NOTE order is not required to match arguments - enabling custom evaluation order
+add(b: 1, a: 2) // Evaluate `b` first
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
-add(1, b: 2)
+add(1, b: 2) // When not all names are provided, the order *must* match arguments
 
 // Generic function - implicit - enables gradual typing (e.g. when prototyping)
 fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 	// NOTE this function is still fully generic, it just infers the type
 	return x
 }
+
+// NOTE Implicit generics (functions without <T> in the signature) are only allowed within the project and cannot be exported outside (say, as a library)
 
 // Generic function a pro-actively type-checked with placeholder types
 // This enables partial type-checking even when the function is not used by the library itself anywhere
@@ -1161,6 +1156,11 @@ fun example<T>(x T) T {
 
 // Arrow function
 let double Callback = (x) => x * 2 // NOTE arrow functions require known expected type to infer their arguments
+
+// Arrow function are allowed to ignore the arguments they do not need
+[1, 2, 3].map(x => x * 2) // Without index
+[1, 2, 3].map((x, i) => x + i) // With index
+[1, 2, 3].forEach(_ => console.log("loop")) // `_ =>` ignores every argument (useful for events like onClick)
 
 // Arrow function lowering to a plain function
 let plain = (x) => x * 2 // Lack of known types when assigned directly to a new constant is lowered to a plain `fun` function:
@@ -1269,11 +1269,6 @@ fun forward(...args) [args.meta.commonType] { // Every `args` value can be of an
 }
 ```
 
-### Design Considerations (Functions)
-- **Argument order**: Should we enforce order when all arguments are named? Could enable custom evaluation order i.e. `add(b: 1, a: 2)`
-- **Implicit generics**: Possibly make implicit generic functions `private` to avoid confusion (thus they are either module-local or private to a class)
-- **Arrow function short-hand**: Should we support `example(_ => { })`
-
 ### Overloading
 
 Hexa supports clean compile-time function overloading via declarative `is` / `or` syntax (enables deterministic typeclass-driven dispatch and multi-method-like behavior).
@@ -1281,7 +1276,9 @@ Hexa supports clean compile-time function overloading via declarative `is` / `or
 Alternatives are tried left-to-right, and the feature works inside classes too (to define methods and static methods), enabling static polymorphism with zero runtime cost.
 
 ```hexa
+// Core syntax
 fun foo is fooForInt or fooForString // Allowed to define an overloading at the use site (local scope) too
+
 // Overloads selected by arguments types, names (when names are present) and their count
 foo(123) // Selects fooForInt
 foo("hello") // Selects fooForString
@@ -1339,6 +1336,18 @@ declare class Point {
 	var x Int
 	let y Int // Can be read-only
 }
+
+// Nested classes
+class A<T> { // Generic outer class
+	// `A` works as a simple namespace with type parameters passing - fields privacy of the nested types is preserved
+	private class B { // Nested class/interface/type - can be private
+		var v T // Uses outer generic parameter T
+	}
+	let b B // Field of nested type
+}
+
+let b A<Int>.B // Nested type
+// NOTE Classes are defined at the module level and right inside the class, cannot be defined in function body
 ```
 
 #### Immutability
@@ -1460,9 +1469,6 @@ p.xx = 100 // Instance field access of the static field
 p.origin() // Same with methods
 ```
 
-#### Design Considerations (Classes)
-- **Nested classes**: Inner/nested classes are currently not supported for code clarity. Should this change
-
 ### Class Constructors
 
 ```hexa
@@ -1488,7 +1494,34 @@ class Point {
 	var y Int
 
 	// NOTE `new() {}` assumed by default
+	// Hiding constructor allows for "parse, don't validate" paradigm
 	// `private new() {}` to disable construction outside, allowed to be called only from within static methods
+}
+
+// Example of "Parse, Don't Validate":
+@inline // Zero-cost wrapper: expands fields into variables
+class Email {
+	let value String
+
+	private new() {} // Hide constructor
+	static fun parseString(value String) Email? { // Can return nullable
+		if value.includes("@") { // Demo
+			return Email { value }
+		}
+
+		return null // Discard
+	}
+
+	static fun parseURL(url URL) Email? { // Something like `mailto:example@example.com`
+		if url.path.includes("@") { // Demo
+			return Email { value: url.path }
+		}
+
+		return null // Discard
+	}
+
+	// Overloaded initializers
+	static fun parse is parseString or parseURL
 }
 
 // JSON-like syntax
@@ -1513,9 +1546,6 @@ let point5 = Point(x: a, y: b) { ...point, x: 3 }
 // When all fields and constructor arguments have defaults, the `{}` shorthand can be used
 let point6 Point = {}
 ```
-
-#### Design Considerations (Class Constructors)
-- **Overloaded constructors**: Should overloaded constructors be allowed? Like `new is fromString or fromInt`. At least for `type` traits
 
 ### Generic Template Classes
 
@@ -1554,7 +1584,7 @@ let box3 = Box<Int, String>(123, "hello")
 Const generics allow the creation of types that depend on values.
 
 ```hexa
-class Box<T, let size T> { // NOTE `let` is used to declare a constant generic and can depend on other generics (e.g. `T`)
+class Box<T, size T> { // NOTE camelCase is used to declare a constant generic and can depend on other generics (e.g. `T`)
 	var value T
 
 	// Effectively associated constants (they will be compile-time well known)
@@ -1570,11 +1600,11 @@ let box = Box<Int, 1>(123)
 let box = Box<Int, size: 1>(123) // Explicitly named constant generic
 
 // Default constant generic value
-class Box<T, let size T = 123> { /* ... */ }
+class Box<T, size T = 123> { /* ... */ }
 
 // Enumerations cannot be used as constant generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
-class MyWorker<let mode AsyncMode> { }
+class MyWorker<mode AsyncMode> { }
 MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax
 // Would also make impossible to use this pattern:
 let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
@@ -1582,7 +1612,6 @@ let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag pass
 
 #### Design Considerations (Const Generics)
 - **Syntax conflict**: Conflicts with `<T.U>` type namespace syntax. Could still make sense if compiler sees that the final `.U` is a enum tag
-- **Syntax**: Rethink if `<let size T>` or just `<size T>`
 
 ### Type Traits
 
@@ -1749,7 +1778,7 @@ let box = Box<TraitsFor<Int>>()
 let padding = 8
 
 // Type patterns can be associated types too
-class Box<T, U, Z, let size Int> {
+class Box<T, U, Z, size Int> {
 	// Still works as normal `let`, possibility to be used in type patterns is decided on-demand
 	let align = U.meta.alignOf
 
@@ -1797,9 +1826,6 @@ class Box<T> {
 	}
 }
 ```
-
-##### Design Considerations (Associated Types)
-- **Simpler syntax**: The `let` in `<let a B>` may imply the availability of `var` and that it becomes a field of the class, which may be confusing
 
 ### Inheritance
 
@@ -1886,6 +1912,7 @@ let {width, height} = Rect {width: 1, height: 2}
 // Nullables are fine
 let {value} = Some {value: null} // `value` is nullable here
 
+// Destructuring inside the pattern
 switch value {
 	case {width, height}: // NOTE `let` is NOT required
 		console.log("Width: ", width, "Height: ", height)
@@ -2383,10 +2410,6 @@ if value & requiredFlags {
 - `Bool`: Boolean
 - `String`: String
 - `Void`: No return value
-- `Null<T>`: Nullable value of type T, an alias for `T?`
-
-#### Design Considerations (Basic Types)
-- **Nullability**: `Nullable<T>` as an alias for `T?` instead of `Null<T>`
 
 ### Dynamic Types
 
@@ -2398,7 +2421,8 @@ if value & requiredFlags {
 
 - `[T]`: Array of T
 - `[K: V]`: Map with key K and value V
-- `T?`: Optional T (nullable)
+- `T?`: Optional T (nullable), nested nullables collapse: `T?? == T?`, `Nullable<Nullable<T>> == Nullable<T>`
+- `Nullable<T>`: Nullable value of type T, an alias for `T?`, also `NonNullable<T>` for opposite operation
 - `type { let x Int var y Int }?`: Object type + optional
 - `interface { let x Int var y Int }?`: Object interface + optional
 
@@ -2615,7 +2639,6 @@ a![0] // Force index access -> exception if array is null
 ```
 
 ### Design Considerations (Nullability)
-- **Array access**: Support optional chaining for array access too etc
 - **Unchecked unwrap**: Better do `value.meta.unwrapWithoutRuntimeCheck()` or similar
 
 ## Modules
@@ -2811,7 +2834,7 @@ Removing the "color" (colorless asynchrony):
 ```hexa
 let isAsyncModule Bool = false
 
-class MyWorker<let isAsync Bool> {
+class MyWorker<isAsync Bool> {
 	async(isAsync) fun fetchData() {
 		let data = await fetch("https://api.example.com/data")
 		return data
@@ -2833,7 +2856,7 @@ let isAsyncModule String = 'autoAwait'
 let isAsyncModule String = 'callerDecides'
 
 // Lets the caller pick the strategy at use-site instead of inside the class
-class MyWorker<let isAsync String> {
+class MyWorker<isAsync String> {
 	async(isAsync) fun fetchData() {
 		let data = await fetch("https://api.example.com/data")
 		return data
@@ -3000,6 +3023,12 @@ fun loadDLL(name String) {
 }
 
 loadDLL('kernel32.dll')
+
+// "defer" can be implemented with ownership decorators
+{
+	Defer(_ => console.log("deferred")) // `Defer` is single-owning
+	// Executes when the scope is leaving, or may be transferred to another owner
+}
 ```
 
 # Native Programming
@@ -3075,7 +3104,7 @@ z.z.y = 5
 // ...etc as per documentation
 ```
 
-### Assertions
+### Assertions/Debugging
 
 Some decorators allow for compile-time checks performed:
 
@@ -3091,6 +3120,17 @@ For the runtime checks, `console.assert` can be used:
 
 ```hexa
 console.assert(condition, "message")
+```
+
+Meta methods also allow for debugging:
+
+```hexa
+// TODO and "unreachable"
+if shouldNeverHappen { meta.scream("TODO") } // Works as unreachable
+let x = value ?? meta.scream("TODO") // Works as placeholder
+
+// Debug with tracing value and file position
+x = 1.meta.echo + 2.meta.echo("extra message") + 3.meta.dump // .echo and .dump just return value as-is
 ```
 
 ---
