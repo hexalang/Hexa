@@ -147,7 +147,7 @@ switch case
 class enum type interface super
 await async
 meta readonly
-echo
+guard
 out
 ```
 
@@ -199,11 +199,15 @@ let int = 1_000_000
 let float = 1_000.000_001 // Float literals with separators
 let hexadecimal = 0xFF_FFn
 let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as readability tools
-```
 
 #### Design Considerations (Numbers)
 - **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr
 - **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`/`case -n`)
+// Complex numbers
+let complex = 2i // Defaults to ComplexDouble (both real and imaginary parts are double)
+let complex ComplexHalf = 1 + 2i
+let complex ComplexFloat = 1.2 + 2.3 * 1i
+```
 
 ### Strings
 
@@ -245,9 +249,9 @@ let s = "\r \n \t \b \f \v \\ \" \' \0 \x00 \{ \}"
 // String interpolation is JSX-like
 let s = "Hello {1 + 2} World"
 let s = "Hello {
-	var a = 1
-	var b = 2
 	a + b // Works like a block
+	var a = "{1}" // Nested interpolation
+	var b = "2"
 } World"
 console.log("Something: {1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to the lack of `(())` nesting
 
@@ -270,7 +274,6 @@ let s = "Hello" > "hello" // False
 #### Design Considerations (Strings)
 - **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`
 - **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
-- **Nested string interpolation**: Support for string interpolation with `\(value \(anotherValue))` and nested escaping `"Hello \(foo.bar(baz[\"key\"]))"`
 
 ### Booleans
 
@@ -415,7 +418,6 @@ let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 ```
 
 #### Design Considerations (Maps)
-- **Immutability**: Should maps be immutable by default
 - **More patterns**: What other map patterns should be supported
 
 ### Objects
@@ -451,7 +453,7 @@ switch obj {
 		console.log("Other")
 }
 
-// Shorthand for two or more fields (single value would confuse with a block)
+// Shorthand when the field name matches the variable name
 let value = 132
 let obj = { value, x: 1, y: 2 }
 let obj = { value } // Special case for single value
@@ -555,7 +557,6 @@ object.{
 
 #### Design Considerations (Objects)
 - **More patterns**: What other object patterns should be supported
-- **Shorthand**: Rethink shorthand for two or more fields. Maybe allow special case for single value? `{ value }` could be a special case for block with only a single identifier inside -> was actually useful in some cases; this syntax is useless anyway for any other purpose so no confusion
 - **Computed fields**: Are runtime computed field names really useful
 
 ## Decorators (Attributes/Annotations)
@@ -649,7 +650,8 @@ Logical operators are short-circuiting, easy to read and write.
 a and b // Same as classical &&
 a or b  // Same as classical ||
 not a   // Same as classical !
-// NOTE ^ they accept only boolean operands (i.e. `Bool`)
+a.xor(b) // Special method-only syntax as its very confusing and should not be abused
+// NOTE they all accept only boolean operands (i.e. `Bool`, not numbers/objects or `Bool?`)
 ```
 
 ### Bitwise
@@ -679,20 +681,19 @@ a += b
 a -= b
 a *= b
 a /= b
-```
-
-### Design Considerations (Operators)
-- **Assignment operators**: Add other assignment operators
-
-```hexa
-arg => expr // Arrow function short form
-(arg1, arg2) => expr // Arrow function with arguments -> argument types are inferred and cannot be specified
-(args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
-// NOTE arrow functions have no types, they are inferred
 // To use types, use a function (as value expression):
 callback = fun (args) return { expr } // NOTE name is optional, `return` is preferred for clarity if not `Void`
 fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
-_ = call() // Indicate that not using a returned value is intentional
+a %= b
+a &= b
+a |= b
+a ^= b
+a <<= b
+a >>= b
+a >>>= b // Force a logical shift for signed integers, and useful for a `Number` portability
+a **= b
+// Omitted
+// a ??= b // Confusing as `??=` keeps the type `T?` -> doesn't help escape nullability
 ```
 
 ### Operator Overloading
@@ -831,6 +832,29 @@ cond ? a : b // Ternary operator (NOTE nested ternary is not allowed)
 
 // Error prevention: nested ternary should be wrapped with a `(` and `)`
 let result = x > 0 ? "Positive" : (x < 0 ? "Negative" : "Zero")
+```
+
+#### Guard
+
+The `guard` statement for early returns and validation. Requires a transfer of control (return, break, continue, throw) in the `else` block.
+
+```hexa
+// Guard with null checks and multiple conditions
+fun validateInput(name String?, age Int?) {
+	guard let name, let age, age >= 18 else {
+		throw Error("Invalid input")
+	}
+	// Both `name` and `age` are non-null and validated
+	console.log("{name} is {age} years old")
+}
+
+// Guard in loops
+for item in items {
+	guard let item, item.isValid else {
+		continue // Skip null and invalid items
+	}
+	process(item)
+}
 ```
 
 ### Loops
@@ -1131,6 +1155,9 @@ add(
 	2, // Trailing comma is allowed when the line ends with a newline
 )
 
+// Indicate that not using a returned value is intentional
+_ = call() // Optional syntax, but some functions may enforce it
+
 // Optionally can be called with the same argument names as in function declaration (no need for separate named arguments set)
 add(a: 1, b: 2) // NOTE order is not required to match arguments - enabling custom evaluation order
 add(b: 1, a: 2) // Evaluate `b` first
@@ -1156,6 +1183,11 @@ fun example<T>(x T) T {
 
 // Arrow function
 let double Callback = (x) => x * 2 // NOTE arrow functions require known expected type to infer their arguments
+
+arg => expr // Arrow function short form
+(arg1, arg2) => expr // Arrow function with arguments -> argument types are inferred and cannot be specified
+(args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
+// NOTE arrow functions have no types, they are inferred
 
 // Arrow function are allowed to ignore the arguments they do not need
 [1, 2, 3].map(x => x * 2) // Without index
@@ -1865,10 +1897,17 @@ class Box Drawable { // NOTE no need to use `implements` keyword
 		// Draw box
 	}
 }
-```
 
-#### Design Considerations (Interfaces)
-- **Implicit implementation**: Should we support implicit interface implementation
+// Implicit interface implementation
+class Shape {
+	fun draw() Void {
+		// Draw shape
+	}
+}
+
+let drawer Drawable = Shape() // Structural typing
+drawer.draw()
+```
 
 ### Properties
 
@@ -2214,6 +2253,16 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 	case null: // NOTE `null` always checked first no matter where it is placed
 		console.log("Null")
 }
+
+// Postfix form `.switch` is allowed in an expression context:
+some = value.switch {
+	case 1: true
+	case _: false
+}
+
+// The choice between the two forms depends on the preferred coding style and context:
+// fluent / expression-oriented code -> `.switch` is allowed only as expression
+// imperative / side-effect-only code / preference -> `switch` is allowed everywhere
 ```
 
 Enumeration tag can be made non-exhaustive by adding `nonExhaustive` modifier. This is useful for cases when you want to allow for new tags to be added in the future without breaking the code.
@@ -2224,12 +2273,9 @@ enum Status Int {
 	A
 	B
 	@nonExhaustive C // NOTE `C` is not exhaustive
+	// Alternative configurable via `@exhaustive(false)`
 }
 ```
-
-### Design Considerations (Pattern Matching)
-- **Non-exhaustive**: Should we use `@nonExhaustive` or `@exhaustive(false)`
-- **Fluent**: Should we allow `value.switch {}` in addition to `switch value {}`
 
 ### Switch as Expression
 
@@ -2674,6 +2720,12 @@ import NameSpace.TypeName // Nested is possible
 import Deep.Nested.NameSpace.TypeName // Deeply nested is possible
 import NameSpace as AliasNameSpace // Can alias, does not do a wildcard import when aliased
 import NameSpace.TypeName as AliasTypeName // Can alias
+
+// Imports also work at the top of function body level (but not at nested block level) before statements
+fun f() {
+	import Math { sin cos as cosine }
+	sin(1)
+}
 ```
 
 ### Exports
@@ -2700,37 +2752,54 @@ private enum E {}
 ```
 
 ### Design Considerations (Modules)
-- **Import scope**: Allow `import` only at module level or block scope/class level too
 - **More features**: What other module features are needed
 
 ## Preprocessor
 
-Conditional compilation is done at token level before the AST parsing.
+Conditional compilation is done at the AST level after the parsing.
+
+The syntax preserves "preprocessor" look and feel (e.g. `#if`), but avoids parsing pitfalls.
+
+Conditions are contextually-evaluated while type checking (including templates instantiations).
 
 Defined values are type checked.
 
 ```hexa
 // Assuming `hexa --define debug=true ...`
-#if debug
+#if meta.defined('debug')
 	console.log("Debug mode")
-#elseif release
+#elseif meta.defined('release')
 	console.log("Release mode")
 #else
 	console.log("Other mode")
 #end
 
 // Same line is fine
-type Entity = #if debug EntityDebug #else EntityRelease #end
+type Entity = #if meta.defined('debug') EntityDebug #else EntityRelease #end
+
+// Allows for enable-if pattern
+class C<isDebug Bool> {
+	#if isDebug
+		let counter Int = 0
+	#end
+
+	fun use() {
+		#if isDebug
+			counter++
+		#end
+	}
+}
 ```
 
 May use enumeration for a checked set of flags:
 
 ```hexa
-enum Mode {
-	Debug
-	Release
+enum Mode String {
+	Debug = "debug"
+	Release = "release"
 }
 
+let mode = meta.getDefineAs('mode', Mode)
 #if mode == Mode.Debug
 	console.log("Debug mode")
 #end
@@ -2739,7 +2808,7 @@ enum Mode {
 Usage assumes an `import`-like behavior for periods (e.g. `Mode.Debug` namespaces):
 
 ```sh
-hexa --define mode=Mode.Debug ...
+hexa --define mode=debug ...
 ```
 
 Simple expressions:
@@ -2749,16 +2818,14 @@ hexa --define apiLevel=2 ...
 ```
 
 ```hexa
-#if apiLevel >= 2
+#if meta.int('apiLevel') >= 2
 	console.log("API level 2")
 #end
 ```
 
-### Design Considerations (Preprocessor)
-- **Segregation**: Support period for namespaces like `--define mylib.mode=Mode.Debug` or even multiple like `--define com.example.mylib.mode=Mode.Debug`
-- **Enums**: Support enums in preprocessor requires to think how to resolve them before the tokenization: maybe add `preprocessor` file list into the hexa.json that is pre-parsed separately upfront
-
 ## JSX
+
+JSX syntax is first-class but the backend is decided per .hexa file or whole target (in the `hexa.json`):
 
 ```hexa
 fun div(props: { var children [Node]? }) {}
@@ -2773,9 +2840,6 @@ let element = div({ children: ["Hello, world!"] })
 class MyComponent { /* ... */ }
 let element = <MyComponent>Hello, world!</MyComponent>
 ```
-
-### Design Considerations (JSX)
-- **Integration**: Support for styled components, Tailwind, MobX, etc
 
 ## Meta Methods
 
@@ -2851,9 +2915,9 @@ Another idea is more flexible and combines all concepts together:
 
 ```hexa
 // Possible values:
-let isAsyncModule String = 'async'
 let isAsyncModule String = 'autoAwait'
 let isAsyncModule String = 'callerDecides'
+let isAsyncModule String = 'async' // Default
 
 // Lets the caller pick the strategy at use-site instead of inside the class
 class MyWorker<isAsync String> {
@@ -2914,7 +2978,7 @@ let data = fetch("https://api.example.com/data").await.json().await
 
 It's like async but inverted. You write await fun and inside you can use sync-looking code, but it's actually async under the hood. You can still async inside if you want.
 
-It's for people who want async without coloring or script-like convenience (especially in the leaf code).
+Made for people who want async without coloring or script-like convenience (especially in the leaf code).
 
 ```hexa
 // Function that awaits by default
@@ -3104,7 +3168,7 @@ z.z.y = 5
 // ...etc as per documentation
 ```
 
-### Assertions/Debugging
+### Assertions/Debuggability
 
 Some decorators allow for compile-time checks performed:
 
