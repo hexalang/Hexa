@@ -62,16 +62,20 @@ Hexa supports single-line, multi-line, and documentation comments. It's assumed 
 	/* Nested */
 */
 
-/// Documentation comment (single-line) present in the AST (attached to an expression/statement node)
+/// Documentation comment (single-line) present in the AST (attached to an expression/statement/node)
 /// Can have more lines - they will combine into single doc comment
 /// They do not interact with decorators
-// NOTE A documentation comment requires an expression/statement immediately below it:
-fun foo() {}
-// NOTE super easy to transform // into /// even for busy developers
+/// The [bar] doc prose-like tags look like this (LSP-supported, if one [param] present, not mentioning others is a hard error)
+// NOTE A documentation comment requires an expression/statement/node immediately below it:
+fun foo(
+	/// Documentation for `bar` parameter can be written inline
+	bar Int
+) {
+	/// Local variable documentation is also supported
+	var baz Int
+}
+// NOTE super easy to transform // into /// even by busy developers
 ```
-
-### Design Considerations (Comments)
-- **Doc tags**: Support doc tags like `@param` and `@returns` with example usage like `fun square(x Int) Int { return x * x }`
 
 ## Identifiers
 
@@ -170,6 +174,12 @@ let b = 1.23 // 64-bit float by default, inferred from the usage
 // .123 // Error
 // 123. // Error - suffix .0 is required
 
+// Prefix
+let neg = -123 // Parsed as single token
+// Token-wise it allows proper inference of the integer size
+// (i.e. `let x Int16 = -123` would be `-123 of Int16` instead of `-n of Int 123` / and works well with `case -n` patterns and enum variants)
+let neg = -123.45
+
 // Suffixes
 let u32 = 123u32
 let f32 = 1.23f32 // Also `1.2e-5f32` etc
@@ -202,7 +212,6 @@ let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as re
 
 #### Design Considerations (Numbers)
 - **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr
-- **Negation**: Should `-123` be a token for negation or a unary operator? Token-wise it would allow proper inference of the integer size (i.e. `let x Int16 = -123` would be `-123i16`/`case -n`)
 // Complex numbers
 let complex = 2i // Defaults to ComplexDouble (both real and imaginary parts are double)
 let complex ComplexHalf = 1 + 2i
@@ -354,6 +363,10 @@ let copy = [...array, 4]
 array.[ 0: 1, 1: 2 ] == array // True
 array.[ 0: 1, 1: 2 ] == copy // False
 
+// Destructuring
+let [x, y, z] = value
+// Variables `x`, `y`, and `z` may be nullable depending on the type of value (when length is unknown)
+
 // Switch with destructuring
 switch array {
 	case [x, y, z]: // No trailing comma allowed in patterns
@@ -372,7 +385,6 @@ switch array {
 ```
 
 #### Design Considerations (Arrays)
-- **Nullable destructuring**: Should `let [x, y, z] = arr` be allowed for nullable arrays, or force `switch`
 - **More patterns**: What other array patterns should be supported
 
 ### Maps/Dictionaries
@@ -681,9 +693,6 @@ a += b
 a -= b
 a *= b
 a /= b
-// To use types, use a function (as value expression):
-callback = fun (args) return { expr } // NOTE name is optional, `return` is preferred for clarity if not `Void`
-fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style -> `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
 a %= b
 a &= b
 a |= b
@@ -772,9 +781,6 @@ let result = {
 {} // As a statement, it does nothing
 value = {} // As an expression, it acts as a constructor for an inferred type of left-hand side
 ```
-
-#### Design Considerations (Blocks)
-- **Block as expression**: Blocks can be used as expressions, but their compatibility with `defer` and `RAII` could be limited
 
 ### If / Else / Ternary
 
@@ -1188,6 +1194,11 @@ arg => expr // Arrow function short form
 (arg1, arg2) => expr // Arrow function with arguments -> argument types are inferred and cannot be specified
 (args) => { expr } // Arrow function with block that returns `expr` -> if block should not return then use `fun`
 // NOTE arrow functions have no types, they are inferred
+
+// To use types, use anonymous function (as value expression) + immediate return:
+callback = fun (args) return { expr } // NOTE name is optional, `return` is preferred for clarity if not `Void`
+fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style
+// `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
 
 // Arrow function are allowed to ignore the arguments they do not need
 [1, 2, 3].map(x => x * 2) // Without index
@@ -1634,16 +1645,17 @@ let box = Box<Int, size: 1>(123) // Explicitly named constant generic
 // Default constant generic value
 class Box<T, size T = 123> { /* ... */ }
 
-// Enumerations cannot be used as constant generics -> they must be of a simple basic type
+// Enumerations can be used as constant generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
-class MyWorker<mode AsyncMode> { }
-MyWorker<AsyncMode.Async>() // Error: conflicts with `<T.U>` type namespace syntax
-// Would also make impossible to use this pattern:
-let mode = meta.getDefine('asyncMode') // Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
-```
+class MyWorker<mode AsyncMode> { } // Do not select tag as a *type* (e.g. `<mode AsyncMode.Async>`) only enum type name itself
+MyWorker<AsyncMode.Async>() // The `<T.U>` syntax selects the enum tag
+let tag = AsyncMode.Async // May also store in the compile-time well known variable
+MyWorker<mode: tag>() // Passing variable name that contains enum tag
 
-#### Design Considerations (Const Generics)
-- **Syntax conflict**: Conflicts with `<T.U>` type namespace syntax. Could still make sense if compiler sees that the final `.U` is a enum tag
+// Arbitrarty-named compilation flag passed globally into the project (plain integer, boolean or string only)
+let mode = meta.getDefineAs('asyncMode', AsyncMode) // Will convert the define into enum tag when possible
+MyWorker<mode>() // Passing variable name that contains enum tag
+```
 
 ### Type Traits
 
@@ -2726,6 +2738,12 @@ fun f() {
 	import Math { sin cos as cosine }
 	sin(1)
 }
+
+// Re-exporting
+@export import Math { sin cos as cosine }
+
+// Easy packaging
+@github('github.com/username/libname') import Lib
 ```
 
 ### Exports
@@ -2750,9 +2768,6 @@ private type T {}
 private interface I {}
 private enum E {}
 ```
-
-### Design Considerations (Modules)
-- **More features**: What other module features are needed
 
 ## Preprocessor
 
@@ -2828,13 +2843,14 @@ hexa --define apiLevel=2 ...
 JSX syntax is first-class but the backend is decided per .hexa file or whole target (in the `hexa.json`):
 
 ```hexa
-fun div(props: { var children [Node]? }) {}
+// `fun TitleCase` is a special syntax for JSX, such function cannot be called directly
+fun TagName(props) {}
 
-// Lowercase tag names allow for HTML-like syntax
+// Usage
+let element = <TagName>Hello, world!</TagName>
+
+// Lowercase tag names allow for HTML-like syntax but backend-specific
 let element = <div>Hello, world!</div>
-
-// Transpiles to
-let element = div({ children: ["Hello, world!"] })
 
 // Class components
 class MyComponent { /* ... */ }
@@ -2885,6 +2901,7 @@ They are executed before the main project is compiled and have access to the com
 ## Async
 
 Async is the only universal asynchrony primitive in Hexa. Other features are platform-specific.
+Its flexible and combines all async/await concepts together.
 
 ```hexa
 async fun fetchData() {
@@ -2896,28 +2913,11 @@ async fun fetchData() {
 Removing the "color" (colorless asynchrony):
 
 ```hexa
-let isAsyncModule Bool = false
-
-class MyWorker<isAsync Bool> {
-	async(isAsync) fun fetchData() {
-		let data = await fetch("https://api.example.com/data")
-		return data
-	}
-
-	async(isAsyncModule) static fun fetchDataStatic() {
-		let data = await fetch("https://api.example.com/data")
-		return data
-	}
-}
-```
-
-Another idea is more flexible and combines all concepts together:
-
-```hexa
 // Possible values:
-let isAsyncModule String = 'autoAwait'
-let isAsyncModule String = 'callerDecides'
 let isAsyncModule String = 'async' // Default
+let isAsyncModule String = 'autoAwait' // Auto-wait for all function calls, implies `async`
+let isAsyncModule String = 'callerDecides' // Lets the caller pick the strategy at use-site, API-friendly
+let isAsyncModule String = 'disable' // No async and disallows `await`
 
 // Lets the caller pick the strategy at use-site instead of inside the class
 class MyWorker<isAsync String> {
@@ -2976,24 +2976,21 @@ let data = fetch("https://api.example.com/data").await.json().await
 
 ### Auto-Await
 
-It's like async but inverted. You write await fun and inside you can use sync-looking code, but it's actually async under the hood. You can still async inside if you want.
+It's like async but inverted. You write implicitly awaiting functions and inside you can use sync-looking code, but it's actually async under the hood. You can still force async to get a promise if you want.
 
 Made for people who want async without coloring or script-like convenience (especially in the leaf code).
 
 ```hexa
 // Function that awaits by default
-await fun fetchData() {
-	let data = fetch("https://api.example.com/data")
+async('autoAwait') fun fetchData() {
+	let data = fetch("https://api.example.com/data") // Implicitly awaited
 	return data
 
 	// Can un-await with
-	let promise = async fetch("https://api.example.com/data")
-	return await promise
+	let promise = async fetch("https://api.example.com/data") // Explicit opt-out to get a promise
+	return await promise // Only function calls get implicitly awaited for clarity, other expressions are not
 }
 ```
-
-### Design Considerations (Auto-Await)
-- **Syntax**: `await fun` is confusing. Maybe add `@autoAwait`, `@await`, or `@auto`
 
 ## Regular Expressions
 
