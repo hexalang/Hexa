@@ -147,7 +147,7 @@ declare private static
 throw try catch
 for while in break continue
 if else
-switch case
+switch case as
 class enum type interface super
 await async
 meta readonly
@@ -2513,7 +2513,13 @@ Feedback from the community also shows some dissatisfaction with `as!` exclamati
 ```hexa
 // New way - good for chaining and avoids precedence confusion
 // Example: `123 + 345 as T` is confusing: `123 + (345 as T)` or `(123 + 345) as T`
-expr.as(Type).as(OtherType<T>).method() // Enables chaining
+expr.as(Type, 'throw').method().as(OtherType<T>, 'null')!.method() // Enables chaining
+
+// Standard behavior
+expr.as(Type) // Defaults to `null`
+expr.as(Type, 'null') // Strings are compile-time checked and come from an exhaustive list
+expr.as(Type, 'throw') // Produces non-nullable
+expr.as(Type, 'force')
 
 // Enables rich casting options when targeting C++, Java, C#, etc
 expr.as(Type, 'static_cast')
@@ -2526,15 +2532,17 @@ let cast = 'reinterpret_cast'
 expr.as(Type, cast)
 
 // Cast to an inferred known type `T` with `_` placeholder
-let some T = expr.as(_)
-```
+let some T? = expr.as(_)
 
-#### Design Considerations (Casts)
-- **Behavior**: Behaviour specification for dynamic casts (throw vs null)
-	- `expr.as(Type, 'dynamic_cast', 'throw') // cast-or-throw`
-	- `expr.as(Type, 'dynamic_cast', 'null') // cast-or-null`
-- **Syntax**: `expr.as(Type)` vs `expr.as(Type, 'static_cast')` vs `.as?` `.as!`
-- **Is operator**: Describe `is` operator or remove entirely in favor of `switch` over type and `if let = x.as(T)`
+// Default cast behavior is `null` thus `is` operator may be emulated with `if let` or `switch` over type
+if let some = expr.as(T) {
+	// ... handle some
+} else {
+	// ... handle null
+}
+
+// Pure type checks are done with platform-specific means (e.g. `instanceof/typeof` in JS)
+```
 
 ### Type Matching
 
