@@ -152,7 +152,6 @@ class enum type interface super
 await async
 meta readonly
 guard
-out
 ```
 
 ### Numbers
@@ -384,9 +383,6 @@ switch array {
 }
 ```
 
-#### Design Considerations (Arrays)
-- **More patterns**: What other array patterns should be supported
-
 ### Maps/Dictionaries
 
 A map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
@@ -429,9 +425,6 @@ switch map {
 let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
 ```
 
-#### Design Considerations (Maps)
-- **More patterns**: What other map patterns should be supported
-
 ### Objects
 
 An object is a simple fixed key-value store. It's not a map like []. Keys cannot be changed (added/removed) syntactically, only via reflection.
@@ -472,17 +465,12 @@ let obj = { value } // Special case for single value
 
 // Computed field names
 let name = "x" // Compile-time known field names will be included in the inferred type declaration
-let obj = { (foo()): 1, (name): 2 } // Uses the same `()` syntax for computations as in pattern matching
-obj.x // Safe to access
-obj.(foo()) // Error: unknown field name, requires runtime reflection (`Reflect.get`)
-obj.(name) // Safe to access -> can compute the name at compile-time
-// Alternatively:
-let named = "xx"
-let obj = { @as(named) foo: 1, @as("baz") bar: 2 }
+let obj = { @as(name) foo: 1, @as("baz") bar: 2 }
 obj.foo = 123 // Safe to access, compiled into `{ xx: 1, baz: 2 }`
 
 // Object spread-copy for Redux-like updates
 let obj = { ...obj, z: 3 } // Infeffed from the `...obj` type
+let obj = readonly { ...obj, z: 3 } // Immutable copy
 let obj = Point { ...obj, x: 4 } // Shorthand for `Point() { y: obj.y, x: 4 }`
 
 // Meta methods cover common use cases
@@ -566,10 +554,6 @@ object.{
 	}
 }
 ```
-
-#### Design Considerations (Objects)
-- **More patterns**: What other object patterns should be supported
-- **Computed fields**: Are runtime computed field names really useful
 
 ## Decorators (Attributes/Annotations)
 
@@ -1000,6 +984,9 @@ try {
 // Multiple catch blocks
 try {
 	risky()
+} catch e Error if let reason = e.reason { // Guarded catch
+	console.log(reason) // `reason` is only available in this block
+	handle(e)
 } catch e Error {
 	handle(e)
 } catch e Exception {
@@ -1012,6 +999,7 @@ let result = try {
 } catch e Error {
 	handle(e)
 	123 // default value
+	// return // Escape control flow like a guard
 }
 ```
 
@@ -1084,50 +1072,60 @@ fun processFile(path String) IoResult {
 
 #### Throw
 
-Checked and unchecked exceptions are supported. On native platforms, exceptions are translated to C++ exception ABI by default.
+Hexa uses concept of tracked exceptions. They are not checked until the exception boundary is reached.
+
+This design may handle such a complicated use case like zero-cost happy paths + silent tracking during recursion and complicated control flow + precise enforcement only at the edges.
+
+On native platforms, exceptions are translated to C++ exception ABI by default.
+
+Exception boundaries may be enforced at compile time on a function level with:
+- `@throws` annotations by narrowing the set of exceptions that can escape
+- `@noThrow` annotations by ensuring no exceptions can escape
 
 ```hexa
-throw Error("message") // Checked by default
-@unchecked throw Error("message", cause)
+fun risky() {
+	throw Error("message") // Unchecked but tracked by default
+}
 
-// Throwing arbitrary values is allowed
+// Throwing arbitrary values is allowed (useful for quick prototyping)
 throw "any value" // When the target supports it, otherwise wrapped in an error
 
 // Allow throwing only a specific subset
-@throws(IOException, ParseError)
+@throws(IOException, ParseError) // Compiler enforces that only these can escape
+// Alternatively disallow selected exception type and propagate others
+// @noThrow(TypeError)
 fun readConfig(path String) Config {
 	if not exists(path) {
 		throw IOException("File not found")
 	}
+
 	// Also forces the user to catch other calls if they throw other exceptions
 	try {
 		functionThatThrowsTypeError()
 	} catch e TypeError {
 		throw ParseError("Failed to parse config")
-		// Compiler error if not all thrown types handled/propagated
 	}
-}
 
-@throws(Void) // No throws -> forces the user to catch all in caller
-fun caller() {
-	try {
-		readConfig("config.json")
-	} catch e IOException {
-		// handle
-	} catch e ParseError {
-		// handle
-	}
 	// Compiler error if not all thrown types handled/propagated
 }
 
-@unchecked
-fun risky() {
-	throw RuntimeError("boom") // No need to declare/catch
+@noThrow // No throws -> forces the user to catch all in caller
+// @noThrow(IOException) // Forces the user to catch IOException
+fun caller() {
+	// Compiler error if not all thrown types handled/propagated
+}
+
+// Wildcard to allow any throw, and pretend to throw a set of exceptions for API consistency
+@throws(IOException, ParseError, _)
+fun external() {
+	// Throws nothing but still pretending to throw IOException and ParseError
+}
+
+// Escape hatch
+let callback @throws(Unknown) () => Void = fun () {
+	throw SomeError("message")
 }
 ```
-
-##### Design Considerations (Throw)
-- **Checked exceptions**: Describe `@throws` and checked/unchecked exceptions in more detail
 
 ## Functions
 
@@ -2354,9 +2352,6 @@ switch value {
 		console.log("Nested Nested Red")
 }
 ```
-
-#### Design Considerations (Enum Pattern Matching)
-- **Enum Pattern Matching**: How to match both by internal value, fields and tag? Like `case Other(color: Red) { some: 123 }:`
 
 ### Enum Flags
 
