@@ -184,7 +184,7 @@ let b = 1.23 // 64-bit float by default, inferred from the usage
 // Prefix
 let neg = -123 // Parsed as single token
 // Token-wise it allows proper inference of the integer size
-// (i.e. `let x Int16 = -123` would be `-123 of Int16` instead of `-n of Int 123` / and works well with `case -n` patterns and enum variants)
+// (i.e. `let x Int16 = -123` would be `-123 of Int16` instead of `-n of Int 123`, and works well with `case -n` patterns and enum variants)
 let neg = -123.45
 
 // Suffixes
@@ -253,8 +253,8 @@ let s = /\ Hello World/gi // Space when escaped `\ ` after the leading `/` is al
 let s = "Hello {1 + 2} World"
 let s = "Hello \{ brackets \} World" // Print the {} themselves: final string is "Hello { brackets } World"
 let s = "Hello {foo.bar} World" // Any expression is valid
-// NOTE `\()` allows to avoid reserving normal characters like `$` for interpolation and adding new syntax for strings themselves
-// `()` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello \(1 + 2) World" syntax
+// `{}` allows to avoid reserving characters like `$` for interpolation and adding new syntax for strings themselves
+// `{}` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello {1 + 2} World" syntax
 
 // Unicode escape
 let s10 = "\u{1F600}"
@@ -269,7 +269,7 @@ let s = "Hello {
 	var a = "{1}" // Nested interpolation
 	var b = "2"
 } World"
-console.log("Something: {1 + 2}") // Easier to type and read than `"Something: \(1 + 2)"` due to the lack of `(())` nesting
+console.log("Something: {1 + (2 + 3)}") // Easier to type and read than `"Something: \(1 + (2 + 3))"` due to the lack of `(())` nesting
 
 // Array-like access NOTE only 0...length are valid indices, otherwise `null` is returned
 let s = "Hello"[0] // "H"
@@ -378,12 +378,20 @@ let [x, y, z] = value
 switch array {
 	case [x, y, z]: // No trailing comma allowed in patterns
 		console.log(x, y, z)
+	case [x?, y?, z?]: // Match even if some elements are null
+		console.log(x, y, z)
+	case [x, null, z]: // Match only if the second element is null
+		console.log(x, z)
 	case [1, _, z]: // Match and capture, ignoring the second element
 		console.log(z)
 	case [x, ...rest]: // Match and capture rest
 		console.log(x, rest)
+	case [x, ..._]: // Match rest without capturing
+		console.log(x)
+	case _ if array.length == 0: // Guards
+		console.log("Empty via length check")
 	case []:
-		console.log("Empty")
+		console.log("Empty via pattern")
 	case [x, [1, _, y]]:
 		console.log("Nested pattern", x, y)
 	case _:
@@ -423,8 +431,23 @@ map.[
 
 // Switch with destructuring
 switch map {
-	case ["key": "value", "one": "two"]: // No trailing comma allowed in patterns
-		console.log("Match")
+	// Key-value matching
+	case ["key": "value", "one": "two"]: // No trailing comma allowed in patterns, exactly two keys present
+		console.log("Match exactly")
+	case ["key": "value", ...rest]: // At least one key must match
+		console.log("Match exactly with rest", rest)
+	case ["key": "value", ..._]: // Match ignoring the rest without capturing
+		console.log("Match exactly with rest")
+	case [k: "value", ..._]: // Capture key as `k` for any key with value "value", useful for reverse lookups or schema validation
+		console.log("Match exactly with rest", k)
+	case [_: v, ..._]:       // Check if contains any key with value as `v`
+		console.log("Match exactly with rest", v)
+	case [k: v, ..._]:       // Capture both
+		console.log("Match exactly with rest", k, v)
+	case [(variable): (expression), ..._]: // Any runtime computed expression in a `()` parenthesis works as a pattern
+		console.log("Match by dynamic pattern")
+	case [(variable) as a: (expression) as b, ..._]: // Save computed values for later use
+		console.log("Match by dynamic pattern", a, b)
 	case _:
 		console.log("Other")
 }
@@ -874,7 +897,7 @@ while let x = a, y < 10 {
 
 // Halting problem is error when solvable
 let loop = true
-// When @infinite is present, the condition must be `true`, otherwise it is a compile-time error
+// When @infinite is present, the condition can be `true`, otherwise it is a compile-time error
 @infinite while loop {
 	// Infinite loop
 }
@@ -1979,9 +2002,23 @@ switch value {
 		console.log("Width: ", width)
 		console.log("Height: ", height) // NOTE height is not checked
 
-	case SomeEnum(rect: {width, height}): // NOTE destructuring inside the pattern
+	case SomeEnum(rect: {width, height, extra?}): // NOTE destructuring inside the pattern
 		// NOTE with nested pattern {} the `rect` itself is not captured
 		console.log("Width: ", width, "Height: ", height)
+		if let extra { // `capture?` nullable
+			console.log("Extra: ", extra)
+		}
+
+	// Nullability rules
+	case Some(nested): // By default `null` is considered no-match and skipped
+	case Some(null): // `== null` is matched
+	case Some(nested?): // `can be null` is matched
+	case Some(nested? as alias): // `can be null` is matched + rename the bind
+	case _: // Fallback, matches anything
+	case null: // `== null` is matched
+	case other: // `!= null` is matched
+	case other?: // `can be null` is matched
+	case other? as alias: // `can be null` is matched + rename the bind
 
 	case SomeEnum(rect: {width as w: 123}): // NOTE checking a specific value inside the pattern
 		// NOTE `width` is captured as `w`, otherwise `width` is not captured and only checked against the pattern `123`
@@ -2011,8 +2048,6 @@ switch value {
 
 #### Design Considerations (Destructuring)
 - **Ensure ambiguity**: Make sure every pattern is soundly disambiguated
-- **Nullability**: Need to decide if `case Some(nested)` here `nested` takes `null` (T?) too or better make it always be non-null (T) and require explicit `case Some(null)`/`case Some(nested?)`/`case Some(nested? as nullable)` or similar (this would also make `case some: case null:` soundly disambiguated)
-
 ## Enumerations
 
 Complex enumerations/ADTs are reflection-capable. When no backing type is specified, the enum is a **complex** enum by default:
@@ -2268,8 +2303,13 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 		console.log("Regex")
 	case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
 		console.log("Other")
-	case null: // NOTE `null` always checked first no matter where it is placed
+	case null: // NOTE `null` checked in order of cases, and may shadow `nullable?` cases or vice versa
 		console.log("Null")
+
+	// Pattern guards & nullable binding
+	// NOTE guards bind the values as `@local` and `readonly` within the `if` itself for safety, `if let` skips nulls
+	case value? if let value, value > 1, let alias = value: // In-guard bound values are available in the scope of the case
+		console.log("Greater than 1:", alias)
 }
 
 // Postfix form `.switch` is allowed in an expression context:
@@ -2358,6 +2398,10 @@ switch value {
 		console.log("Nested Other", r, g, blue)
 	case Nested(color: Nested(color: Red)):
 		console.log("Nested Nested Red")
+
+	// Match both by internal value, fields and tag
+	case Other(color: Red) { some: 123 }:
+		console.log("Other Red with some 123")
 }
 ```
 
@@ -2373,10 +2417,16 @@ Enumerations can be marked as bit flags, allowing for bitwise operations.
 	C
 }
 
-flags |= C // Infered as `Flags.C`
-flags &= ~Flags.B
 var flags = Flags.A | Flags.B // NOTE `|` is used for bitwise OR
 flags |= Flags.C // Adds flag
+flags |= C // Infered as `Flags.C`
+
+// Other operations are done with methods (similar to `Set`)
+// flags &= ~Flags.B // This syntax is not supported
+if flags.has(Flags.B) {
+	flags.delete(B)
+	flags.toggle(A) // Additional methods
+}
 ```
 
 Pattern matching can be used to match flags:
@@ -2475,7 +2525,7 @@ if value & requiredFlags {
 ### Dynamic Types
 
 - `Any`: Dynamic type - can be anything at runtime and not checked at compile time, platform-dependent
-- `Any?`: Optional dynamic type - requires null check before use and every returned field is nullable too
+- `Any?`: Optional dynamic type - requires null check before use
 - `Unknown` and `Unknown?`: Same, but needs to be casted to a specific type before use
 
 ### Composite Types
