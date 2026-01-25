@@ -254,7 +254,7 @@ let s = "Hello {1 + 2} World"
 let s = "Hello \{ brackets \} World" // Print the {} themselves: final string is "Hello { brackets } World"
 let s = "Hello {foo.bar} World" // Any expression is valid
 // `{}` allows to avoid reserving characters like `$` for interpolation and adding new syntax for strings themselves
-// `{}` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only "Hello {1 + 2} World" syntax
+// `{}` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only reliable "Hello {a + b} World" syntax
 
 // Unicode escape
 let s10 = "\u{1F600}"
@@ -265,9 +265,9 @@ let s = "\r \n \t \b \f \v \\ \" \' \0 \x00 \{ \}"
 // String interpolation is JSX-like
 let s = "Hello {1 + 2} World"
 let s = "Hello {
-	a + b // Works like a block
 	var a = "{1}" // Nested interpolation
 	var b = "2"
+	a + b // Works like a block
 } World"
 console.log("Something: {1 + (2 + 3)}") // Easier to type and read than `"Something: \(1 + (2 + 3))"` due to the lack of `(())` nesting
 
@@ -376,7 +376,7 @@ let [x, y, z] = value
 
 // Switch with destructuring
 switch array {
-	case [x, y, z]: // No trailing comma allowed in patterns
+	case [x, y, z]: // No trailing comma allowed in single-line patterns
 		console.log(x, y, z)
 	case [x?, y?, z?]: // Match even if some elements are null
 		console.log(x, y, z)
@@ -432,18 +432,18 @@ map.[
 // Switch with destructuring
 switch map {
 	// Key-value matching
-	case ["key": "value", "one": "two"]: // No trailing comma allowed in patterns, exactly two keys present
+	case ["key": "value", "one": "two"]: // No trailing comma allowed in single-line patterns, exactly two keys present
 		console.log("Match exactly")
 	case ["key": "value", ...rest]: // At least one key must match
 		console.log("Match exactly with rest", rest)
 	case ["key": "value", ..._]: // Match ignoring the rest without capturing
 		console.log("Match exactly with rest")
 	case [k: "value", ..._]: // Capture key as `k` for any key with value "value", useful for reverse lookups or schema validation
-		console.log("Match exactly with rest", k)
-	case [_: v, ..._]:       // Check if contains any key with value as `v`
-		console.log("Match exactly with rest", v)
-	case [k: v, ..._]:       // Capture both
-		console.log("Match exactly with rest", k, v)
+		console.log("Match exactly by value", k)
+	case [_: v, ..._]: // Check if contains any key with value as `v`
+		console.log("Match at least one key with value", v)
+	case [k: v, ..._]: // Capture both
+		console.log("Match at least one key-value pair", k, v)
 	case [(variable): (expression), ..._]: // Any runtime computed expression in a `()` parenthesis works as a pattern
 		console.log("Match by dynamic pattern")
 	case [(variable) as a: (expression) as b, ..._]: // Save computed values for later use
