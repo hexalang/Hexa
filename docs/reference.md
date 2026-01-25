@@ -98,8 +98,15 @@ Hexa uses space-separated type annotations, never colons: `var name Type = value
 
 ```hexa
 // Mutable variable
-var x = 1 // NOTE initial assignment `=` is required for local variables
+var x = 1 // NOTE initial assignment `=` is required for local variables (enforcing declarative style and definite assignment)
 x = 2
+
+// Init multiple variables
+var { a, b } = { // Some complex expression
+	let x = 1
+	let y = 2
+	{ a: x, b: y } // Optimized to assignments
+}
 
 // Shadowing is fine (local to the block)
 let x = 1
@@ -123,6 +130,7 @@ declare let externalConst String // Type is required for `declare`
 
 // Lazy initialization until first read
 var lazyVar Int { lazy { 123 } } // May capture outside variables (i.e. closure)
+// T cannot be nullable as `null` used as a marker for uninitialized variables
 lazyVar.meta.computed // True after initialization
 ```
 
@@ -304,7 +312,7 @@ let n = null // Error: there's no actual backing type, just `null`
 
 Array type syntax is `[T]` where `T` is the type of the elements, or alternatively `Array<T>`.
 
-Values are always nullable.
+Values may be nullable `[T?]`: when values are not nullable, certain operations are not allowed (e.g. index assignment, resize, push/fill with `null`, etc). Nullable `[T?]` may be used as `[T]` but not vice versa.
 
 ```hexa
 let array = [1, 2, 3]
@@ -565,7 +573,7 @@ They may alter behavior of the declaration they are attached to or even trigger 
 
 ```hexa
 @struct // NOTE decorators are not expressions and they require one below them
-@packed
+@packed // NOTE duplicates are not allowed to avoid confusion (i.e. `@noThrow(A) @noThrow(B)` vs `@noThrow(A, B)`)
 @sizeOf(16) // Expected size of the type in bytes checked by the compiler versus actual size
 class AcpiTableHeader {
 	@bits(8) var signature UInt8 // Decorators may fine-tune the generated code (bit fields, etc)
@@ -574,13 +582,15 @@ class AcpiTableHeader {
 // Work with types too
 @decoratorOnVariable var x @example Int = 123
 
-@inline fun foo() {} // Any expression, type or declaration can be decorated
+// Any expression, type or declaration can be decorated
+@inline fun foo() {}
 x = @example 123
 
 // Decorators can contain any expressions as parameters
-@example("example") // Unnamed
-@example(example: "example") // Named
-@example(1, 2, name: value) // Multiple parameters
+@exampleA("example") // Unnamed
+@exampleB(example: "example") // Named
+@exampleC(1, 2, name: value) // Multiple parameters
+// Decorator order generally does not matter, but some macros may enforce it
 fun foo() {}
 
 // Decorators on function arguments
@@ -590,12 +600,10 @@ fun someFunction(@example some Type) {
 
 // Decorators on externals
 @external declare fun foo() // Also let/var/class/etc
-```
 
-### Design Considerations (Decorators)
-- **Duplicate decorators**: Should `@sameName @sameName` be allowed? `@sameName @sameName fun foo() {}`
-- **Namespaces**: Should we support `@namespace.decorator` syntax? Only two level deep to keep lean? `@namespace.decorator fun foo() {}` -> unrelated to modules
-- **Order semantics**: Is `@a @b fun f()` equivalent to `@b @a`
+// Decorators may have one level namespace
+@namespace.decorator fun foo() {}
+```
 
 ## Operators
 
