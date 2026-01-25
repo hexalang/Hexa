@@ -285,10 +285,18 @@ let s = "Hello" < "Hello" // False
 let s = "Hello" > "hello" // False
 // let s = "Hello" <= "Hello" // NOT allowed because they seem to be redundant/too rare
 // let s = "Hello" >= "hello" // NOT allowed -> use functions for exact behavior that you need
+
+// Formatting methods examples
+let str = "Hello" // Managed `String`
+str.truncate(maxLength) // = substring(0, maxLength)
+str.ellipsis(maxLength, at: 'end', pattern: '…')
+str.align(maxLength, at: 'center', fill: ' ')
+// Native strings require a surrounding arena context for allocating methods
+// Assuming called in the @arena context
+cstr.padStart(5, '0') // OK: compiler knows we're in @arena
 ```
 
 #### Design Considerations (Strings)
-- **Extended formatting**: Describe extended formatting via `\(value : format)` i.e. `\(value : '0000')` for padding. Should support external format variables like `let formatted = "0000" \(value : formatted)` and `let zeros = 4 \(value : '0*(zeros)')`
 - **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
 
 ### Booleans
