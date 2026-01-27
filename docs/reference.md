@@ -394,6 +394,24 @@ switch array {
 }
 ```
 
+#### Matrices
+
+The `Matrix<T>` type is a 2D array of arrays of T. Basically operates like a normal `Array<T>`: grows on demand, etc. But for 2D use cases like UI grid / game inventory / layout usage. Maybe later replaced with dedicated type without breaking code (compared to manual array of arrays or offset withing single array).
+
+```hexa
+let matrix Matrix<Int> = [[1, 2, 3], [4, 5, 6]] // `Matrix` just a view on top of an array of arrays
+matrix[100, 100] = 1 // Grows automatically
+let v = matrix[1, 1]! // Values are always nullable on read
+matrix[1] // Get N-array
+// matrix[n] = [] // This operation is not allowed
+
+for row in matrix { // Iterates over existing rows (Array<Int?>)
+	for cell in row {
+		console.log(cell ?? "∅")
+	}
+}
+```
+
 ### Maps/Dictionaries
 
 A map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
@@ -2511,7 +2529,7 @@ if value & requiredFlags {
 
 - `Number`: Universal floating-point number (IEEE 754), may substitute integers and floats
 - `Int`, `Int64`, `UInt8` and similar: Integer
-- `Float`, `Double`, `Half` and similar: Floating-point number
+- `Float`, `Double`, `Half` and similar: Floating-point number (also `Float4` and `Float4x4` SIMD types)
 - `Bool`: Boolean
 - `String`: String
 - `Void`: No return value
@@ -2524,7 +2542,7 @@ if value & requiredFlags {
 
 ### Composite Types
 
-- `[T]`: Array of T
+- `[T]`: Array of T (also `Matrix<T>`)
 - `[K: V]`: Map with key K and value V
 - `T?`: Optional T (nullable), nested nullables collapse: `T?? == T?`, `Nullable<Nullable<T>> == Nullable<T>`
 - `Nullable<T>`: Nullable value of type T, an alias for `T?`, also `NonNullable<T>` for opposite operation
@@ -2917,7 +2935,7 @@ let element = <div>
 </div>
 
 // Class components
-class MyComponent { /* ... */ }
+class MyComponent Component { /* ... */ }
 let element = <MyComponent>Hello, world!</MyComponent>
 ```
 
