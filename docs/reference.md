@@ -174,6 +174,7 @@ let u UInt64 = 123 // Explicitly inferred to unsigned 64-bit integer
 let hex = 0xFF // Only lowercase `x` in `0x` is supported for readability
 let hex = 0xff // Hexadecimal part can be lowercase
 let bin = 0b101 // Only lowercase `b` in `0b` is supported
+a / b // Integer divide when both sides are integers, otherwise floating point division
 
 // Floats
 let f = 1.23 // Defaults to `Double`
@@ -2508,8 +2509,9 @@ if value & requiredFlags {
 
 ### Basic Types
 
-- `Int`: Integer
-- `Float`: Floating-point number
+- `Number`: Universal floating-point number (IEEE 754), may substitute integers and floats
+- `Int`, `Int64`, `UInt8` and similar: Integer
+- `Float`, `Double`, `Half` and similar: Floating-point number
 - `Bool`: Boolean
 - `String`: String
 - `Void`: No return value
