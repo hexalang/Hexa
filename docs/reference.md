@@ -168,18 +168,22 @@ Hexa supports integers and floating-point numbers.
 
 ```hexa
 // Integers
-let a = 123 // Defaults to `Int` aka `i32` (signed 32-bit integer) when not inferred to a different type
-let b UInt64 = 123 // Explicitly inferred to unsigned 64-bit integer
-let hex = 0xFF // Only lowercase `x` in `0x` is supported
-let hex = 0xff
+let a = 123 // Defaults to universal `Number` (IEEE 754) when not inferred to a different type (when <=53 bits, otherwise requires a known type)
+let i Int = 123 // Explicitly inferred to signed 32-bit integer
+let u UInt64 = 123 // Explicitly inferred to unsigned 64-bit integer
+let hex = 0xFF // Only lowercase `x` in `0x` is supported for readability
+let hex = 0xff // Hexadecimal part can be lowercase
 let bin = 0b101 // Only lowercase `b` in `0b` is supported
 
 // Floats
-let exp = 1.2e-5
-let b = 1.23 // 64-bit float by default, inferred from the usage
+let f = 1.23 // Defaults to `Double`
+let f = 1e3 // Scientific notation is floating point
+let b Double = 1.23 // 64-bit float inferred from the usage
+let exp Float = 1.2e-5 // 32-bit float inferred from the usage
 0.123 // NOTE 0. upfront suffix is required for float literals
 // .123 // Error
 // 123. // Error - suffix .0 is required
+exp + b // -> Double // Promotion to higher precision
 
 // Prefix
 let neg = -123 // Parsed as single token
@@ -187,38 +191,20 @@ let neg = -123 // Parsed as single token
 // (i.e. `let x Int16 = -123` would be `-123 of Int16` instead of `-n of Int 123`, and works well with `case -n` patterns and enum variants)
 let neg = -123.45
 
-// Suffixes
-let u32 = 123u32
-let f32 = 1.23f32 // Also `1.2e-5f32` etc
-let u8 UInt8 = 123u8
-let u16 UInt16 = 123u16
-let u64 UInt64 = 123u64
-let u128 UInt128 = 123u128
-let i8 Int8 = 123i8 // Also `123_i8`
-let i16 Int16 = 123i16
-let i32 Int32 = 123i32
-let i64 Int64 = 123i64
-let i128 Int128 = 123i128
-
-// All integer suffixes compatible with hexadecimals
-let hex = 0xFFu128
-let hex = 0xffu128
-
 // BigInt
 let big BigInt = 123n
 let hex = 0xFFn
 let bin = 0b101n
 let readability = 0b101_010n // Underscore separators compatible with sizes
-let autoCast = 123n + 345u8 // Other integer types are automatically casted to BigInt on demand
+let infer = 123n + 345 // Other integer literals are automatically casted to BigInt on demand
+let autoCast = 123n + i // Integer variables are automatically casted to BigInt (except `Number`)
 
 // Underscore separators
-let int = 1_000_000
+let int = 1_000_000 // Disallowed: `1_._0` point-adjacent and at the end
 let float = 1_000.000_001 // Float literals with separators
 let hexadecimal = 0xFF_FFn
 let underscores = 0xFF__FFn // Multiple underscores are fine -> they serve as readability tools
 
-#### Design Considerations (Numbers)
-- **Compact suffixes**: Compact float suffixes and complex numbers etc + 123ptr
 // Complex numbers
 let complex = 2i // Defaults to ComplexDouble (both real and imaginary parts are double)
 let complex ComplexHalf = 1 + 2i
@@ -340,9 +326,9 @@ let e = [...a, index: 4] // Copy and update
 
 // Indexing
 let first = array[0] // NOTE any integer type (including BigInt) is allowed as an index
-let second = array[1i8] // Any integer type is allowed including negative
-let third = array[-1i8] // Produces `null`
-let fourth = array[-1i8]! // Unsafe convenience operator
+let second = array[1] // Any integer type is allowed including negative
+let third = array[-1] // Produces `null`
+let fourth = array[-1]! // Unsafe convenience operator
 
 // Multidimensional indexing
 let value = matrix[0, 0] // Optimization-friendly (arbitrary internal memory layout)
@@ -351,8 +337,8 @@ blocks[x, y, z] // Upto 3 dimensions are allowed, otherwise use a function
 
 // Assignment
 array[0] = 1
-array[1i8] = 2
-array[-1i8] = 3 // Does not affect `.length`
+array[1] = 2
+array[-1] = 3 // Does not affect `.length`
 // array[0] += 1 // Not allowed as `[0]` may be `null`
 
 // Index cascade assignment
@@ -888,7 +874,7 @@ for item in items {
 
 ### Loops
 
-NOTE `for`, `do` and `while` loops are not expressions.
+NOTE `do` and `while` loops are not expressions.
 
 The `for` loop may accept user-defined iterable types (not covered in the syntax reference, API-covered).
 
@@ -944,7 +930,7 @@ for i in 0 ... 10 { // NOTE `i` is not visible outside the loop and is read-only
 
 // Iterating over a number (0 to N-1)
 var count = 100
-for i in count { // Can be any integer expression including sized like `1u8`
+for i in count { // Can be any integer including sized like `UInt8`
 	// Idiomatic -> iterates from 0 to count-1
 }
 
@@ -2358,8 +2344,6 @@ let result = switch value { // NOTE no `()`
 		"Other"
 	case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
 		"One"
-	case 2:
-		"Two"
 	// Switch over computable values
 	case (three): // NOTE `()` picks runtime value to match to
 		"Equal to variable called `three`"
@@ -2916,10 +2900,19 @@ JSX syntax is first-class but the backend is decided per .hexa file or whole tar
 fun TagName(props) {}
 
 // Usage
-let element = <TagName>Hello, world!</TagName>
+let element = <TagName>Hello, {
+	let name = "world"
+	name // {} works like an expression block
+}!</TagName>
 
 // Lowercase tag names allow for HTML-like syntax but backend-specific
 let element = <div>Hello, world!</div>
+
+// &&-pattern is done by `if let` (`switch` is also supported)
+let element = <div>
+	{if let x = value {x}}
+	{switch i {case 1: "one" case 2: "two"}}
+</div>
 
 // Class components
 class MyComponent { /* ... */ }
