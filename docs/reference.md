@@ -927,7 +927,7 @@ for item in items { // NOTE no `let` required but still creates a local read-onl
 	continue
 }
 
-// For-In with a forced checked null-unwrapping -> removes nullability from the `item` variable
+// For-In with a forced checked null-unpacking -> removes nullability from the `item` variable
 for item! in items {
 	console.log(item)
 }
@@ -938,7 +938,7 @@ for item! in items {
 }
 
 // For loop with key-value iteration (mimics map syntax)
-for key: value in map { // Also `key: value!` for checked null-unwrapping
+for key: value in map { // Also `key: value!` for checked null-unpacking
 	console.log(key, value)
 }
 
@@ -1056,7 +1056,7 @@ Hexa encourages the use of nullable types with the `??` pattern, but a Result-li
 enum Result<T> {
 	Ok(value T)
 
-	// Computed property for safe unwrapping
+	// Computed property for safe unpacking
 	let result T? {
 		get {
 			switch this {
@@ -1098,7 +1098,7 @@ fun processFile(path String) IoResult {
 	// Type of the `payload` is `IoPayload`
 	let payload = @orReturn readFile(path)
 
-	// Manual unwrap with null-coalescing (same logic as `@orReturn` built-in)
+	// Manual unpack with null-coalescing (same logic as `@orReturn` built-in)
 	let payload = {
 		// Cache the outcome to not call `readFile` twice
 		let outcome = readFile(path)
@@ -2720,7 +2720,7 @@ switch x {
 
 The `null`-safety is checked and enforced at compile-time.
 
-Important note: unwrapping operator `!` is guaranteed to throw an exception immediately at the position of its use. Special syntax `null!` is provided to force null-initialization (or with some platform-default value, for unit-like behavior). Parsing treats `null!` as a single token, distinct from the postfix `!` operator.
+Important note: unpacking operator `!` is guaranteed to throw an exception immediately at the position of its use. Special syntax `null!` is provided to force null-initialization (or with some platform-default value, for unit-like behavior). Parsing treats `null!` as a single token, distinct from the postfix `!` operator.
 
 Even when platform does not throw exceptions for null-access normally, or optimizes null-access away (say, due to devirtualization), the compiler will generate extra code that throws an exception at runtime exactly at the position of the `!` operator.
 
@@ -2744,12 +2744,15 @@ a ?? return 123 // Guard with return out of function if `a` is `null`
 a ?? throw Error("a is null") // Guard with throw out of function if `a` is `null`
 // NOTE `break` and `continue` are not allowed, this would lend to abuse in the loops making unreadable code
 
-// `value!` is a force unwrap operator -> esentially independent postfix operator
+// `value!` is a force unpack operator -> esentially independent postfix operator
 x = value! // Removes the `?` from the type -> exception if value is null
 // Essentially same as `x = value ?? throw Error("value is null")`
 
+// With manual error message
+x = value ?? throw "Value is required"
+
 // Those cases are not special operators, just `!` and then `.field`
-x = value!.field // Force unwrap and then access the field -> exception if value is null (`value!.field` would throw anyway due to immediate null-dereference)
+x = value!.field // Force unpack and then access the field -> exception if value is null (`value!.field` would throw anyway due to immediate null-dereference)
 
 // `value?` is an optional chaining operator that can only be used in a combination with some other operators
 value?.field // Optional chaining -> null if value is null
@@ -2767,10 +2770,10 @@ a![0] // Force index access -> exception if array is null
 
 // Double exclamation mark is not allowed to type because it implies some other "not just !" operator exists to the reader
 // x = value!! // Error: Not allowed to avoid confusion
-```
 
-### Design Considerations (Nullability)
-- **Unchecked unwrap**: Better do `value.meta.unwrapWithoutRuntimeCheck()` or similar
+// Escape hatch
+x = value.meta.assumeNotNull // Removes the `?` from the type -> exception-free if value is null
+```
 
 ## Modules
 
