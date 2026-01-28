@@ -674,10 +674,18 @@ some.field++
 // NOTE no prefix form `+a` due to confusion with platform-specific behavior
 -a
 
-// Overflow runtime check is optional
-@checked { // Also @wrapping @wrapAround
-	var x Int = 2147483647
-	x++ // ERROR Overflow -> exception is thrown (depends on the target platform)
+// Overflow runtime check is optional and configurable
+let rule = 'wrapAround' // Can be got with `--define` and `meta` (say for tests/debug switch)
+let rule = 'clamp' // Clamp to min/max, useful for general code (e.g. in gamedev: HP never goes below `0` no matter the damage)
+let rule = 'throw' // Catchable exception
+let rule = 'crash' // Abort/trap
+let rule = 'fast' // Similar to -fno-wrapv
+let rule = 'callerDecides' // Requires calling function to specify its own rule
+
+// Hexa defaults to wrap-around on native platforms, but you may further enforce it even on JS target
+@overflow(rule) fun function() { // Affects only decorated code withing the function body
+	var x Int = 2147483647 // Max signed 32-bit int
+	x++ // Overflow -> behavior depends on the overflow rule
 	console.log(x)
 }
 ```
