@@ -980,6 +980,28 @@ for i in n + 1 {}
 for i in 0 ... n + 1 {} // Interval accepts expressions on both sides
 ```
 
+#### Array Comprehension
+
+List comprehension is a concise way to create, initialize or transform arrays and other list-like types.
+
+```hexa
+// `for` works as an expression
+let array = for i in 0 ... 10 { i * 2 }
+array.length // 10
+array[0] // 0
+array[9] // 18
+
+// Enables complex patterns like filtering
+let even = for i in 0 ... 10 {
+	if i % 2 != 0 {
+		continue // Skips odd numbers
+	}
+
+	i // Returns only even numbers
+}
+even.length // 5
+```
+
 ### Switch
 
 Exhaustiveness checking is done when the type allows for it.
@@ -2936,7 +2958,19 @@ let element = <TagName>Hello, {
 }!</TagName>
 
 // Lowercase tag names allow for HTML-like syntax but backend-specific
-let element = <div>Hello, world!</div>
+let element = <div>Hello {
+	for name in ["", "you", "world", "Hexa"] {
+		if name == "" {
+			continue
+		}
+
+		if meta.lastIteration {
+			<b>and {name}</b>
+		} else {
+			<b>, {name}</b>
+		}
+	}
+}!</div>
 
 // &&-pattern is done by `if let` (`switch` is also supported)
 let element = <div>
