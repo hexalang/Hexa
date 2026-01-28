@@ -318,6 +318,7 @@ let oneNull [Int?] = [null]
 
 // Immutable array
 let immutableArray [Int] = readonly [1, 2, 3]
+v = immutableArray[0] // Value is also immutable
 
 // Spread operator
 let a = [1, 2, 3]
