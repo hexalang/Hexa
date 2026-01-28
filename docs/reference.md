@@ -417,6 +417,8 @@ for row in matrix { // Iterates over existing rows (Array<Int?>)
 
 A map is a simple key-value store. It's not an object like {}. Keys are arbitrary expressions of any type.
 
+Values attached to the keys are always nullable.
+
 ```hexa
 let map = ["key": "value", "one": "two"] // Inferred as [String: String]
 let emptyMap [String: String] = [] // Empty map `[]` requires a known type expected for inference
@@ -488,6 +490,7 @@ obj.y = v
 type Point = { var x Int var y Int }
 let obj Point = { x: 1, y: 2 }
 let obj type { var x Int var y Int } = { x: 1, y: 2 } // Explicitly typed object
+let obj type { var x Infer var y Infer } = { x: 1, y: 2 } // Infer types from object
 
 // Satisfies interfaces and types structurally
 interface IPoint { var x Int var y Int }
@@ -2088,8 +2091,6 @@ switch value {
 }
 ```
 
-#### Design Considerations (Destructuring)
-- **Ensure ambiguity**: Make sure every pattern is soundly disambiguated
 ## Enumerations
 
 Complex enumerations/ADTs are reflection-capable. When no backing type is specified, the enum is a **complex** enum by default:
@@ -2562,6 +2563,7 @@ if value & requiredFlags {
 - `Bool`: Boolean
 - `String`: String
 - `Void`: No return value
+- `Infer`: Infer the type from the context
 
 ### Dynamic Types
 
