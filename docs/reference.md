@@ -244,10 +244,11 @@ let s = "Hello {foo.bar} World" // Any expression is valid
 // `{}` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only reliable "Hello {a + b} World" syntax
 
 // Unicode escape
-let s10 = "\u{1F600}"
+let s = "\u1F600" // Four digits long
+let s = "\x41" // Only 2 digits allowed
 
 // Escape sequences
-let s = "\r \n \t \b \f \v \\ \" \' \0 \x00 \{ \}"
+let s = "\r \n \t \b \f \v \\ \" \' \0 \{ \}"
 
 // String interpolation is JSX-like
 let s = "Hello {1 + 2} World"
@@ -329,7 +330,7 @@ let e = [...a, index: 4] // Copy and update
 let first = array[0] // NOTE any integer type (including BigInt) is allowed as an index
 let second = array[1] // Any integer type is allowed including negative
 let third = array[-1] // Produces `null`
-let fourth = array[-1]! // Unsafe convenience operator
+let fourth = array[-1]! // Convenience operator
 
 // Multidimensional indexing
 let value = matrix[0, 0] // Optimization-friendly (arbitrary internal memory layout)
@@ -526,6 +527,12 @@ obj.meta.dump // Returns a human-readable string representation of the object
 obj.meta.dumpSorted // Returns a human-readable string representation of the object with sorted fields
 obj.meta.dumpWithTypes // Returns a human-readable string representation of the object with types
 // etc
+
+// Tuple-likes are useful to access JSON data
+@tuple declare interface Pair<K, V> {
+	let key K // Field order == index
+	let value V	// this.value same as this[1]
+}
 ```
 
 #### Mutation Cascades
