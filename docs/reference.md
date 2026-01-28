@@ -2462,22 +2462,22 @@ switch flags {
 
 	// 2. PARTIAL Match (Has at least Flag A set, ignores others)
 	// Transpiles to: if ((flags & Flags.A) == Flags.A)
-	case A | ...:
+	case A | _:
 		// ...
 
-	// 3. EXCLUSION (Has Flag1, but DEFINITELY NOT Flag2)
+	// 3. EXCLUSION (Has Flag A, maybe others, but DEFINITELY NOT Flag B)
 	// Transpiles to: if ((flags & Flags.A) == Flags.A && (flags & Flags.B) == 0)
-	case A | ... | not B:
+	case A | _ | not B:
 		// ...
 
 	// 4. COMBINATION (Has at least Flag A AND Flag B)
 	// Transpiles to: if ((flags & (Flags.A|Flags.B)) == (Flags.A|Flags.B))
-	case A | B | ...:
+	case A | B | _:
 		// ...
 
 	// 5. DYNAMIC PARTIAL MATCH (Has at least *all* flags in `features` set, ignores others)
 	// Transpiles to: if ((flags & features) == features)
-	case (features) | ...: // NOTE `features` is a variable used later in the pattern
+	case (features) | _: // NOTE `features` is a variable used later in the pattern
 		// ...
 
 	// 6. ALTERNATIVES (Matches pattern 1 OR pattern 2)
