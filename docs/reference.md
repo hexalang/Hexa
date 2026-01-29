@@ -518,7 +518,7 @@ let obj = { @as(name) foo: 1, @as("baz") bar: 2 }
 obj.foo = 123 // Safe to access, compiled into `{ xx: 1, baz: 2 }`
 
 // Object spread-copy for Redux-like updates
-let obj = { ...obj, z: 3 } // Infeffed from the `...obj` type
+let obj = { ...obj, z: 3 } // Inferred from the `...obj` type
 let obj = readonly { ...obj, z: 3 } // Immutable copy
 let obj = Point { ...obj, x: 4 } // Shorthand for `Point() { y: obj.y, x: 4 }`
 
@@ -683,7 +683,7 @@ let rule = 'fast' // Similar to -fno-wrapv
 let rule = 'callerDecides' // Requires calling function to specify its own rule
 
 // Hexa defaults to wrap-around on native platforms, but you may further enforce it even on JS target
-@overflow(rule) fun function() { // Affects only decorated code withing the function body
+@overflow(rule) fun function() { // Affects only decorated code within the function body
 	var x Int = 2147483647 // Max signed 32-bit int
 	x++ // Overflow -> behavior depends on the overflow rule
 	console.log(x)
@@ -1929,7 +1929,7 @@ class Box<T, U, Z, size Int> {
 		// Same for `if` guards
 		case _, (padding + U.meta.sizeOf) as size if size > align: Z
 
-		// Custom type error -> allows co make custom type limits/concepts
+		// Custom type error -> allows to make custom type limits/concepts
 		case _, 0: throw "Invalid size, expected non-zero, got: " + size // String-only
 
 		// Fallback
@@ -2015,9 +2015,9 @@ class Rect {
 	let area Int {
 		// Can have multiple backing fields (when single one, can omit the setter)
 		// They may have different type than the property (but checked for compatibility if no setter is provided)
-		// Implicitly `private` class-wide, thus accesible via `this.backing`
+		// Implicitly `private` class-wide, thus accessible via `this.backing`
 		var backing Int = 0
-		// Ultimately private and isolated inside the `{ getters/setters }` block, unaccessible via `this.secret`
+		// Ultimately private and isolated inside the `{ getters/setters }` block, inaccessible via `this.secret`
 		private var secret Int = 0
 
 		get {
@@ -2332,7 +2332,7 @@ switch unknown {
 	case _: console.log("Other")
 }
 
-// NOTE plain enums are baked by simple types like `Int` so the do not offer such functionality
+// NOTE plain enums are baked by simple types like `Int` so they do not offer such functionality
 ```
 
 ## Pattern Matching
@@ -2746,7 +2746,7 @@ switch x {
 		console.log("String", str)
 	case _:
 		// `_` is a wildcard pattern that fallbacks when no other pattern matches
-		// Not enforced at compile-time, but may be usefull for complex scenarios not handled by the default runtime type-matching algorithm
+		// Not enforced at compile-time, but may be useful for complex scenarios not handled by the default runtime type-matching algorithm
 
 		let other = x.as(Any) // Cast manually
 		console.log("Other", other)
@@ -2782,9 +2782,9 @@ hello(null!) // Valid in other value contexts when the type can be inferred
 a ?? defaultValue // Elvis operator (null coalescing)
 a ?? return 123 // Guard with return out of function if `a` is `null`
 a ?? throw Error("a is null") // Guard with throw out of function if `a` is `null`
-// NOTE `break` and `continue` are not allowed, this would lend to abuse in the loops making unreadable code
+// NOTE `break` and `continue` are not allowed, this would lead to abuse in the loops making unreadable code
 
-// `value!` is a force unpack operator -> esentially independent postfix operator
+// `value!` is a force unpack operator -> essentially independent postfix operator
 x = value! // Removes the `?` from the type -> exception if value is null
 // Essentially same as `x = value ?? throw Error("value is null")`
 
@@ -3298,7 +3298,7 @@ z.z.y = 5
 
 // Other features
 // Custom @entry
-// @volatile @weak Span<T> SIMD @syncronized (thread-safety)
+// @volatile @weak Span<T> SIMD @synchronized (thread-safety)
 // ...etc as per documentation
 ```
 
