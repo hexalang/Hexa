@@ -92,6 +92,7 @@ let _ssa = 2 // Read-only
 ## Variables
 
 Variables are declared using `var` (mutable) or `let` (immutable, read-only variable itself, aka single-assignment).
+Only one variable per `var`/`let` statement.
 
 Hexa uses space-separated type annotations, never colons: `var name Type = value` (no `:` colons and no `;` semicolons).
 
@@ -184,6 +185,7 @@ let f = 1e3 // Scientific notation is floating-point
 let b Double = 1.23 // 64-bit float inferred from the usage
 let exp Float = 1.2e-5 // 32-bit float inferred from the usage
 
+// Floating point literals cannot start or end with a dot
 0.123 // NOTE the 0. upfront prefix is required for float literals
 // .123 // Error
 // 123. // Error - suffix .0 is required
@@ -222,17 +224,14 @@ Strings can be enclosed in double quotes `"`, single quotes `'`, or backticks ``
 ```hexa
 let s = "Hello"
 let s = 'World' // No difference in meaning
-let s = `
+let s = " // Normal strings are multi-line by default
 	Multi-line
 	String
-` // NOTE newlines always converted into a \n
+" // NOTE newlines always converted into a \n
 let s = "Hello \n World"
 let s = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
 // Anything can be concatenated with `+` as long as it has a `toString` method
 let s = "Hello " + 1 + " World" // "Hello 1 World"
-
-// Large raw strings are supposed to be in files
-let script = meta.embedString('file.txt') // `\n` by default, `meta.embedString(..., '\r\n')` for other
 
 // Regular expression
 let s = /Hello World/ // Per parser rules, there should be no space after the leading `/` to start a regex
@@ -285,6 +284,39 @@ str.align(maxLength, at: 'center', fill: ' ')
 // Native strings require a surrounding arena context for allocating methods
 // Assuming called in the @arena context
 cstr.padStart(5, '0') // Ok as compiler knows we're in @arena
+```
+
+#### Backtick Strings (Raw and Tagged)
+
+Backtick strings are always **raw**. They do not support escape sequences (like `\n` or `\u`) and do not support standard interpolation `{}`. They are ideal for regex, paths, and multi-line data.
+
+To include backticks inside the string, increase the number of starting backticks. The string will only close when the same number of closing backticks is encountered.
+
+A backtick string can be prefixed with a `camelCase` identifier to trigger a macro. This allows for domain-specific languages (DSLs) with custom interpolation and syntax highlighting.
+
+Even though they are raw, Hexa still normalizes `\r\n` to `\n` because it's an arbitrary code editor setting.
+
+```hexa
+// Large strings are supposed to be in files, not raw strings:
+let script = meta.embedString('file.txt') // `\n` by default, `meta.embedString(..., '\r\n')` for other
+
+// Raw strings: no escape processing at all
+let raw = `C:\Users\name\file.txt`
+
+// When the content contains backticks, use multiple backticks to start and end the string
+let nested = ``String with `backticks` inside`` // Two opening backticks require two closing backticks
+
+// Tagged strings: the tag macro processes the content (including escaping and interpolation)
+let html = html`<div>Hello, world!</div>` // The `html` prefix makes this a tagged string
+let html = html``<div>Hello, `backticks here is fine`!</div>`` // Tagged string with nested backticks
+
+// The macro decides how to handle the `${}` or any other interpolation syntax
+// For SQL, as an example, it might generate a prepared statement to prevent injection
+let query = sql`SELECT * FROM users WHERE id = ${userId}`
+
+// The prefix is part of the tagged string syntax and defined by a macro, not a variable
+// let tag = sql // Error: cannot assign a prefix to a variable
+// let query = tag`SELECT * FROM users` // Error: variables cannot be used as prefixes
 ```
 
 ### Booleans
@@ -920,11 +952,16 @@ if x > 0, y < 10 { // Same as `if (x > 0) and (y < 10)`
 // Compatible with bindings - vibes with do-notation
 if let x = a, y > b, let z = c { // NOTE `let z` is allowed
 	console.log(x, y, z)
+} else {
+	// NOTE `let` bindings cannot be used in the `else` block
 }
 
 // Shorthand for `if let value = value`: binds the value if it's not null
 if let value {}
 if let value, value > 5 {}
+
+// NOTE `let` bindings cannot be delimited with `or`
+// if let x = a or let y = b {} // Error: `or` not allowed between `let` bindings
 
 // Expression
 let result = if x > 0 { "Positive" } else { "Non-positive" }
@@ -960,16 +997,30 @@ fun validateInput(name String?, age Int?) {
 	guard let name, let age, age >= 18 else {
 		throw Error("Invalid input")
 	}
+
 	// Both `name` and `age` are non-null and validated
 	console.log("{name} is {age} years old")
 }
 
 // Guard in loops
 for item in items {
+	// NOTE that bindings in guard are visible outside the guard, in the outer scope, but not in the `else` block
 	guard let item, item.isValid else {
 		continue // Skip null and invalid items
 	}
+
 	process(item)
+}
+
+// The "Double Negative" aka `or` operator is not allowed in the guard conditions
+// guard x < 0 or y < 0 else { // Error: `or` not allowed (escape hatch: `or` is allowed in `()` parentheses)
+// Logical inversion (De Morgan's Law) makes the failure state hard to read
+// }
+// The above reads as "guard that x is negative OR y is negative... else fail" which is a double negative
+
+// Instead, use positive conditions with implicit `and` (comma-separated)
+guard x >= 0, y >= 0 else {
+	return // Early exit if any condition fails
 }
 ```
 
