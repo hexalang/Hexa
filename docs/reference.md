@@ -2244,7 +2244,9 @@ switch value {
 
 ## Enumerations
 
-Complex enumerations/ADTs are reflection-capable. When no backing type is specified, the enum is a **complex** enum by default:
+Complex enumerations/ADTs are reflection-capable. When no backing type is specified, the enum is a **complex** enum by default.
+
+Enum tags do not float freely in the global or module scope. They are strictly contained within their `enum` namespaces. When the enumeration type is inferred, the tag can be omitted.
 
 ```hexa
 // No backing type -> complex enum
@@ -2487,6 +2489,11 @@ Compared to the classic `switch` statement, pattern matching matches against pat
 
 Developers shouldn't inherently seek side effects during pattern matching. Guards work as observations, limiting control flow via `@local` and `readonly` rules.
 
+The ambiguity regarding where a pattern ends is resolved by a strict, sequential grammar. A `case` pattern is composed of four specific parts, terminated by a colon:
+`case TagOrType + (Payload) + {Fields} + if Guard:`
+
+The compiler does not require a wildcard pattern when it can prove exhaustiveness.
+
 ```hexa
 let other = 123 // Demo variable used in the wildcard pattern
 
@@ -2504,20 +2511,26 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 	case /hi/i: // Regex is fine too
 		console.log("Regex")
 	case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
+		// NOTE only either `case wildcard?:` or `case _:` may be present
 		console.log("Other")
 	case null: // NOTE `null` is checked in the order of cases, and may shadow `nullable?` cases or vice versa
+		// NOTE only either `case wildcard?:` or `case null:` may be present
 		console.log("Null")
 
 	// Nullable binding
 	case value?: // NOTE adding the `?` to a binding satisfies the exhaustiveness check for nullable types `T?`, whereas a standard binding does not
 		console.log("Value:", value ?? "null")
 
+	// Named bindings are non-nullable and will require a corresponding nullable one for a nullable value
+	case value: // Hexa enforces explicit null-handling
+		console.log("Value:", value)
+
 	// Pattern guards
 	// NOTE guards bind the values as `@local` and `readonly` within the `if` itself for safety, `if let` skips nulls
 	case value? if let value, value > 1, let alias = value: // In-guard bound values are available in the scope of the case
 		console.log("Greater than 1:", alias)
 
-	// Safety check for wildcard patterns that capture the original value as-is
+	// Safety check for **wildcard** patterns that capture the original value as-is
 	// NOTE its a compile error to use a name that exists in the outer scope for a binding
 	// Here the `case other` has the same name as `let other` which is present in the same scope as `switch`
 	// Thus compiler requires either `(other)` syntax or renaming `case another`
@@ -2527,7 +2540,7 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 }
 
 // Postfix form `.switch` is allowed in an expression context:
-some = value.switch {
+some = value.switch { // NOTE `switch` is a hard-reserved keyword (as per the Keywords list), the parser treats `value.switch { ... }` as a language construct
 	case 1: true
 	case _: false
 }
@@ -2643,7 +2656,7 @@ if flags.has(Flags.B) {
 }
 ```
 
-Pattern matching can be used to match flags:
+Pattern matching can be used to match flags: `|` is a value-forming operator and is computed into a single bit mask. It is used to match bit-flags within a single pattern.
 
 ```hexa
 // Example variable used later in the pattern
@@ -2694,8 +2707,9 @@ switch value {
 // Switch over multiple values
 switch value1, value2 {
 	// NOTE `|` is always bitwise OR (higher precedence than `or`)
-	// `or` separates alternative patterns
+	// `or` separates alternative patterns (higher precedence than `,`)
 	// `,` matches incoming separate subjects (here `value1, value2`)
+	// This is consistent and predictable even for complex patterns
 	case A | B or D | E, 123: // NOTE `123` matches `value2` because its separated by comma
 		console.log("Either exact (A | B and also 123) or exact (D | E and also 123)")
 
@@ -2854,7 +2868,8 @@ switch value {
 	case Int(captureAsInt): // NOTE captureAsInt is read-only and equals to `value` casted to Int
 		console.log("Int", captureAsInt)
 		// captureAsInt = 123 // Error: read-only (like `let`)
-	case String(captureAsString):
+	// The binding can be given an arbitrary name, mimicking `case other:` pattern
+	case String(captureAsString): // Type is not enum, thus has no specific name for payload
 		console.log("String", captureAsString)
 	// Type + Deconstruct
 	case String({ length }):
@@ -3368,7 +3383,6 @@ async('autoAwait') fun fetchData() {
 Regular expressions are supported as patterns for advanced pattern matching:
 
 ```hexa
-// Requires string-typed value, not allowed over `Any`
 switch string {
 	// With or
 	case /abc/ or /def/:
@@ -3393,7 +3407,7 @@ switch string {
 		console.log("Beta?", beta ?? "no")
 
 	// Whole match binding
-	case /pattern/ as whole:
+	case /pattern/ as whole: // Capture the specific chunk of text that satisfies the whole regex
 		console.log("Whole match:", whole)
 
 	// Guards -> allow extra checks and to re-bind/shadow with conversions
