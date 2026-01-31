@@ -3118,14 +3118,30 @@ hexa --define apiLevel=2 ...
 JSX syntax is first-class but the backend is decided per .hexa file or whole target (in the `hexa.json`):
 
 ```hexa
-// `fun TitleCase` is a special syntax for JSX (such a function cannot be called directly)
-fun TagName(props) {}
+// `@tag` is a special syntax for JSX (such a function can still be called directly)
+@tag // Optionally @tag('TagName')
+fun tagName(props) {}
 
-// Usage
+// `@tag` desugars to a sentinel that represents the tag usable by JSX
+type TagName = meta.jsx(tagName) // Built-in meta method is an escape hatch for JSX tag types
+
+// Usage of expressions via interpolation
 let element = <TagName>Hello, {
 	let name = "world"
 	name // {} works like an expression block
 }!</TagName>
+
+// Tagged raw strings enable backends such as styled-components
+@tag let primaryButton = styled`
+	@tag button
+	@props type { var primary Bool }
+
+	// CSS
+	background: {primary ? "red" : "blue"};
+`
+
+// Desugared to (also works inside the blocks etc)
+type PrimaryButton = meta.jsx(primaryButton)
 
 // Lowercase tag names allow for HTML-like syntax but are backend-specific
 let element = <div>Hello {
@@ -3149,7 +3165,13 @@ let element = <div>
 </div>
 
 // Class components
-class MyComponent Component { /* ... */ }
+class MyComponent Component {
+	// Decorators potentially enable JSX related features
+	@observable var counter Int = 0 // Can be desugared into reactive getter/setter with tracking
+
+	/* ... */
+}
+
 let element = <MyComponent>Hello, world!</MyComponent>
 ```
 
