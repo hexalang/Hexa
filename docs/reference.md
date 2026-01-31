@@ -2707,7 +2707,7 @@ if let some = expr.as(T) {
 
 ### Type Matching
 
-The captured variable is introduced in the narrowest possible scope, no extra `let` and no chance to use the wrong cast later.
+The captured variable is introduced in the narrowest possible scope. There's no extra `let` (you do not have to write `case let` or `case T(let v)`), and no chance to use the wrong cast later.
 
 Compile-time for known types (plays well with generics), runtime for `Any`.
 
