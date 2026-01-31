@@ -3001,29 +3001,31 @@ Conditions are evaluated contextually while type checking (including templates i
 
 Defined values are type checked.
 
+Curly braces `{}` are required for all `#if`, `else if`, and `else` blocks. The braces are syntactically required but are excluded when putting the code into the AST: they serve only to visually delimit the conditional blocks during parsing.
+
 ```hexa
 // Assuming `hexa --define debug=true ...`
-#if meta.defined('debug')
+#if meta.defined('debug') {
 	console.log("Debug mode")
-#elseif meta.defined('release')
+} else if meta.defined('release') {
 	console.log("Release mode")
-#else
+} else {
 	console.log("Other mode")
-#end
+}
 
 // Same line is fine
-type Entity = #if meta.defined('debug') EntityDebug #else EntityRelease #end
+type Entity = #if meta.defined('debug') { EntityDebug } else { EntityRelease }
 
 // Allows for enable-if pattern
 class C<isDebug Bool> {
-	#if isDebug
+	#if isDebug {
 		let counter Int = 0
-	#end
+	}
 
 	fun use() {
-		#if isDebug
+		#if isDebug {
 			counter++
-		#end
+		}
 	}
 }
 ```
@@ -3037,9 +3039,9 @@ enum Mode String {
 }
 
 let mode = meta.getDefineAs('mode', Mode)
-#if mode == Mode.Debug
+#if mode == Mode.Debug {
 	console.log("Debug mode")
-#end
+}
 ```
 
 Usage assumes an `import`-like behavior for periods (e.g. `Mode.Debug` namespaces):
@@ -3055,9 +3057,9 @@ hexa --define apiLevel=2 ...
 ```
 
 ```hexa
-#if meta.int('apiLevel') >= 2
+#if meta.int('apiLevel') >= 2 {
 	console.log("API level 2")
-#end
+}
 ```
 
 ## JSX
@@ -3453,9 +3455,14 @@ let x = value ?? meta.scream("TODO") // Works as a placeholder
 
 // Positional and context information
 meta.line
+meta.file
 meta.functionName
 fun log(msg String, where = meta.functionName + ':' + meta.line)
 // etc
+
+// Source mapping uses the same mechanism of additional position info as macros-generated code
+#file "demo.lang"
+#line 100
 
 // Debug with tracing the value and file position
 x = 1.meta.echo + 2.meta.echo("extra message") + 3.meta.dump // .echo and .dump just return value as-is
