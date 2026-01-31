@@ -406,7 +406,7 @@ switch array {
 
 #### Matrices
 
-The `Matrix<T>` type is a 2D array of arrays of T. Basically operates like a normal `Array<T>`: grows on demand, etc. But for 2D use cases like UI grid / game inventory / layout usage. Maybe later replaced with dedicated type without breaking code (compared to manual array of arrays or offset withing single array).
+The `Matrix<T>` type is a 2D array of arrays of T. Basically it operates like a normal `Array<T>`: grows on demand, etc. But for 2D use cases like UI grid / game inventory / layout usage. Can be later replaced with a dedicated type without breaking code (compared to manual arrays of arrays or an offset within a single array).
 
 ```hexa
 let matrix Matrix<Int> = [[1, 2, 3], [4, 5, 6]] // `Matrix` just a view on top of an array of arrays
@@ -573,7 +573,8 @@ obj == obj.{ x: 3, y: 4 } // True, same object returned
 form.{ username, password }.validate()
 person.{ salary: 1000 }.work() // Update and call a method with chaining
 let originalSalary = person.salary
-// Implementation of `fun work()` returned value is irrelevant and replaced with `person`
+
+// The implementation of `fun work()` returned value is irrelevant and replaced with `person`
 person.{ salary: originalSalary * 2 }.work().{ salary: originalSalary }.salary // Temporary mutation pattern
 person.salary == originalSalary // True
 person == person.{ salary: 1000 }.work() // True, as chained method calls over `.{}` always return the original object
@@ -2297,7 +2298,9 @@ var status Status = Ok // Well-known tag - inferred from the value on the left s
 setStatus(Ok) // Same idea
 
 fun genericFunction<T>(value T) {
-	if value == Ok { // Allowed as `value` type expected, so assumed that `Ok` is a tag name, not class
+	if value == Ok { // Allowed because the `==` operator expects complete values
+		// The parser therefore treats `Ok` on the right as a **tag name**, not as a class constructor `Ok {}`
+		// And typer infers the tag type `Ok` from the type of `value` as `Status`
 		console.log("Ok")
 	}
 
@@ -2316,8 +2319,8 @@ fun genericFunction<T>(value T) {
 Special case for `==` and `!=` operators:
 
 ```hexa
-if value == Status.Ok { // NOTE otherwise would parse as `Status.Ok {}` class constructor
 // When enum is compared to a value within an `if` condition, it is parsed as a tag name without the `{}` part
+if value == Status.Ok { // NOTE it would otherwise parse as the `Status.Ok {}` class constructor
 	console.log("Ok")
 }
 ```
@@ -2378,7 +2381,7 @@ switch unknown {
 
 ## Pattern Matching
 
-Compared to classic `switch` statement, pattern matching matches over patterns by the logic of "more specific first". The order of cases is not important (most of the time -> when patterns are not depending on runtime values).
+Compared to the classic `switch` statement, pattern matching matches against patterns using the "more specific first" logic as an optimization. The order of cases is not important most of the time (i.e. when patterns do not depend on runtime values).
 
 ```hexa
 switch value { // uses `switch` keyword for pattern matching thus familiar to C-family developers
@@ -3200,7 +3203,7 @@ switch string {
 	case /^cmd (?<name>\w+) (?<arg>\w+)*$/:
 		console.log(command, "with args:", arg.join(", "))
 
-	// Optional groups `()?` bind to nullables
+	// Optional groups `()?` produce nullable bindings (`T?` instead of `T`)
 	case /^(?<name>\w+)(?<beta>beta)?$/:
 		console.log("Program:", name)
 		console.log("Beta?", beta ?? "no")
