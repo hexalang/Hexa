@@ -499,9 +499,9 @@ let obj type { var x Infer var y Infer } = { x: 1, y: 2 } // Infer types from ob
 
 // Satisfies interfaces and types structurally
 interface IPoint { var x Int var y Int }
-let obj IPoint = { x: 1, y: 2 } // Object satisfies interface
-let obj2 Point = obj // Interface satisfies type
-let obj3 IPoint = obj2 // Type satisfies interface (if runtime-compatible)
+let obj IPoint = { x: 1, y: 2 } // The object satisfies the interface
+let obj2 Point = obj // The interface satisfies the type
+let obj3 IPoint = obj2 // The type satisfies the interface (if runtime-compatible)
 
 // Switch with destructuring
 switch obj {
@@ -545,7 +545,7 @@ obj.meta.dumpWithTypes // Returns a human-readable string representation of the 
 
 #### Mutation Cascades
 
-The fluent cascade syntax `.{}` is a pure declarative multi-field mutation block (fields only, nested via `sub.{}`).
+The fluent cascade syntax `.{}` is a pure declarative multi-field mutation block (fields only, nested via `sub.{}`). Enables safe bulk updates without accidental copies.
 
 Chaining rule: in a chain, `object.{}.method().method().{}.method().method()` calls run for side effects and their **returned values are ignored** when the call follows `.{}` or `.[]` - the original base object replaces the returned value with itself instead.
 
@@ -553,8 +553,8 @@ Chaining rule: in a chain, `object.{}.method().method().{}.method().method()` ca
 // Efficient, clear, scoped multiple-field mutation on mutable objects with cascades:
 let obj = { x: 1, y: 2 } // Mutable sample object
 let obj = readonly { x: 1, y: 2 } // Immutable sample object
-// JSON look and feel and mimics declarative construction syntax
 
+// JSON look and feel, and mimicking declarative construction syntax
 obj.{ x: 3, y: 4 } // Configuring an existing object with multiple fields in one expression
 
 // Helps avoiding bugs
@@ -573,7 +573,7 @@ let originalSalary = person.salary
 person.{ salary: originalSalary * 2 }.work().{ salary: originalSalary }.salary // Temporary mutation pattern
 person.salary == originalSalary // True
 person == person.{ salary: 1000 }.work() // True, as chained method calls over `.{}` always return the original object
-// NOTE Compilation error if the method enforces a return value usage (with annotations)
+// NOTE compilation error if the method enforces a return value usage (with annotations)
 
 // Trailing comma is allowed when the line ends with a newline
 let obj = {
@@ -621,10 +621,10 @@ Decorators are a compile-time concept, like C++ attributes.
 
 Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their names are camelCase (like identifiers), any name is allowed (including reserved keywords).
 
-They may alter behavior of the declaration they are attached to or even trigger compile-time actions like AST transformations via macros.
+They may alter the behavior of the declaration they are attached to or even trigger compile-time actions like AST transformations via macros.
 
 ```hexa
-@struct // NOTE decorators are not expressions and they require one below them
+@struct // NOTE decorators are not expressions and they require an expression/statement/declaration below them
 @packed // NOTE duplicates are not allowed to avoid confusion (i.e. `@noThrow(A) @noThrow(B)` vs `@noThrow(A, B)`)
 @sizeOf(16) // Expected size of the type in bytes checked by the compiler versus actual size
 class AcpiTableHeader {
@@ -650,7 +650,7 @@ fun someFunction(@example some Type) {
 	// ...
 }
 
-// Decorators on externals
+// Decorators on external declarations
 @external declare fun foo() // Also let/var/class/etc
 
 // Decorators may have a one-level namespace
@@ -659,7 +659,11 @@ fun someFunction(@example some Type) {
 
 ## Operators
 
+Hexa provides a standard set of operators for arithmetic, comparison, logical, and bitwise operations.
+
 ### Arithmetic
+
+Standard arithmetic operators for numeric calculations.
 
 ```hexa
 a + b
@@ -697,6 +701,8 @@ let rule = 'callerDecides' // Requires calling function to specify its own rule
 
 ### Comparison
 
+Operators for comparing values and producing boolean results.
+
 ```hexa
 a == b
 a != b
@@ -720,6 +726,8 @@ a.xor(b) // Special method-only syntax as its very confusing and should not be a
 
 ### Bitwise
 
+Bitwise operators for low-level manipulation of individual bits within integers.
+
 ```hexa
 a & b   // Bitwise AND
 a | b   // Bitwise OR
@@ -731,6 +739,8 @@ a >>> b // Unsigned right shift
 ```
 
 ### Assignment
+
+Operators for assigning values to variables, including compound assignment forms.
 
 ```hexa
 // Simple assignment
@@ -788,6 +798,8 @@ let v = x[0]
 
 ## Control Flow
 
+Hexa supports standard control flow constructs like blocks, conditional branching, and loops.
+
 ### Top-Level Statements
 
 They are useful for simple scripts. Hexa has no main function.
@@ -801,6 +813,8 @@ console.log(x + y)
 
 ### Blocks
 
+Blocks group multiple statements and expressions together into a single scope.
+
 ```hexa
 // Blocks create a scope
 {
@@ -809,7 +823,7 @@ console.log(x + y)
 
 	// Standalone blocks are allowed
 	{
-		// Shadowing is allowed -> scope limited to the block
+		// Shadowing is allowed -> the scope is limited to the block
 		let x = 1
 		let y = 2
 	}
@@ -985,7 +999,7 @@ for i in 100 { // NOTE a variable name is always required
 	// i is 0, 1, ..., 99
 }
 
-// Loops from n to m-1 (thus allows to iterate over an array.length)
+// Loops from n to m-1 (thus allows iterating over an array.length)
 for i in n ... m {}
 for i in 0 ... array.length {}
 
@@ -1047,6 +1061,8 @@ switch value { // Plain integer is not exhaustive
 ```
 
 ### Branching
+
+Branching statements allow for altering the execution flow within loops and functions.
 
 ```hexa
 break
@@ -1117,7 +1133,7 @@ enum Result<T> {
 Example usage with a `@orReturn` shorthand:
 
 ```hexa
-// Arbitrary user type used for final resulting value of operations
+// Arbitrary user type used for final resulting values of operations
 /// Payload type for successful IO operations
 interface IoPayload {
 	let path String
@@ -1230,8 +1246,8 @@ fun camelCase() Void { // Return type is optional and comes right after the argu
 }
 
 // Basic function
-fun add(a Int, b Int = 5) Int { // Default arguments are allowed
-	return a + b // Braces `{}` around the body are required for clarity (when no `return` short-hand is used instead of the body itself)
+fun add(a Int, b Int = 5 + 5) Int { // Default arguments are allowed
+	return a + b // Braces `{}` around the body are required for clarity (when no `return` shorthand is used instead of the body itself)
 
 	// Nested functions
 	fun nested() {}
@@ -1252,8 +1268,8 @@ add(
 // Indicate that not using the returned value is intentional
 _ = call() // Optional syntax, but some functions may enforce it
 
-// Optionally can be called with the same argument names as in function declaration (no need for separate named arguments set)
 add(a: 1, b: 2) // NOTE order is not required to match arguments - enabling custom evaluation order
+// Optionally can be called with the same argument names as in the function declaration (no need for separate named arguments set)
 add(b: 1, a: 2) // Evaluate `b` first
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
 add(1, b: 2) // When not all names are provided, the order *must* match arguments
@@ -1264,9 +1280,9 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 	return x
 }
 
-// NOTE Implicit generics (functions without <T> in the signature) are only allowed within the project and cannot be exported outside (say, as a library)
+// NOTE Implicit generics (functions without <T> in the signature) are only allowed within the project and cannot be exported outside (say, as a library installable via package manager)
 
-// Generic function a pro-actively type-checked with placeholder types
+// Generic function is proactively type-checked with placeholder types
 // This enables partial type-checking even when the function is not used by the library itself anywhere
 fun example<T>(x T) T {
 	T.hello() // Allowed, `T` is a placeholder type - unknown before instantiation
@@ -1275,7 +1291,7 @@ fun example<T>(x T) T {
 	return x + 5 // Inferred to placeholder type
 }
 
-// Arrow function
+// An arrow function
 let double Callback = (x) => x * 2 // NOTE arrow functions require a known expected type to infer their arguments
 
 arg => expr // Arrow function short form
@@ -1288,13 +1304,14 @@ callback = fun (args) return { expr } // NOTE name is optional, `return` is pref
 fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style
 // `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
 
-// Arrow function are allowed to ignore the arguments they do not need
+// Arrow functions are allowed to ignore the arguments they do not need
 [1, 2, 3].map(x => x * 2) // Without index
 [1, 2, 3].map((x, i) => x + i) // With index
 [1, 2, 3].forEach(_ => console.log("loop")) // `_ =>` ignores every argument (useful for events like onClick)
 
 // Arrow function lowering to a plain function
-let plain = (x) => x * 2 // Lack of known types when assigned directly to a new constant is lowered to a plain `fun` function:
+// A lack of known types when assigned directly to a new constant causes lowering to a plain `fun` function:
+let plain = (x) => x * 2
 fun plain(x) { // NOTE preserves genericity
 	return x * 2
 }
@@ -1347,7 +1364,7 @@ fun fooForString(s String) String {
 	return s
 }
 
-// Function as value
+// A function as a value
 let func = fooForInt
 let func = fun (x Int) Int { return x } // NOTE can be named or unnamed
 func(123)
@@ -1410,7 +1427,7 @@ Alternatives are tried left-to-right, and the feature works inside classes too (
 // Core syntax
 fun foo is fooForInt or fooForString // Allowed to define an overloading at the use site (local scope) too
 
-// Overloads selected by arguments types, names (when names are present) and their count
+// Overloads selected by argument types, names (when names are present) and their count
 foo(123) // Selects fooForInt
 foo("hello") // Selects fooForString
 // When a call uses named arguments (e.g. f(param: value)), only overloads that declare a parameter with that exact name are considered
@@ -1578,6 +1595,8 @@ readonly class B A { var b } // `.a` is readonly from inside and outside, `.b` i
 
 #### Field Access
 
+Accessing instance and static fields of a class.
+
 ```hexa
 // Field access
 let p = Point(1, 2)
@@ -1601,6 +1620,8 @@ p.origin() // Same with methods
 ```
 
 ### Class Constructors
+
+Constructors initialize new instances of a class. They are defined using the `new` keyword and syntax similar to methods.
 
 ```hexa
 class Point {
@@ -1631,7 +1652,7 @@ class Point {
 
 // Example of "Parse, Don't Validate":
 @inline // Zero-cost wrapper: expands fields into variables
-class Email {
+class Email { // Inline class is effectively a distinct type
 	let value String
 
 	private new() {} // Hide constructor
@@ -1961,12 +1982,14 @@ class Box<T> {
 
 ### Inheritance
 
+Classes can inherit from a single base class and implement multiple traits or interfaces.
+
 ```hexa
 class Shape {
 	fun draw() {}
 }
 
-// Single inheritance (the first in the list) but any number of traits or interfaces allowed (in any order)
+// Single inheritance (the first in the list), but any number of traits or interfaces is allowed (in any order)
 class Circle Shape Trait Interface {
 	fun draw() { // NOTE `override` is not required - but signature must match
 		// Draw circle
@@ -2011,6 +2034,8 @@ drawer.draw()
 
 ### Properties
 
+Properties allow for custom logic when getting or setting class fields.
+
 ```hexa
 class Rect {
 	var width Int
@@ -2019,7 +2044,7 @@ class Rect {
 	// `let` can have only `get`, `var` requires `get` and `set`
 	let area Int {
 		// Can have multiple backing fields (when single one, can omit the setter)
-		// They may have different type than the property (but checked for compatibility if no setter is provided)
+		// They may have a different type than the property (but checked for compatibility if no setter is provided)
 		// Implicitly `private` class-wide, thus accessible via `this.backing`
 		var backing Int = 0
 		// Ultimately private and isolated inside the `{ getters/setters }` block, inaccessible via `this.secret`
@@ -2031,7 +2056,7 @@ class Rect {
 			width * height
 		}
 
-		// Optional setter -> does not return anything
+		// An optional setter -> does not return anything
 		set (v) { /* ... */ }
 
 		// Observers
@@ -2042,6 +2067,8 @@ class Rect {
 ```
 
 ### Destructuring
+
+Destructuring allows for unpacking values from objects and arrays into individual variables.
 
 ```hexa
 // NOTE `let` is required for clarity
@@ -2195,6 +2222,8 @@ switch sealedTag {
 
 ### Constant Enums
 
+Constant enums are collections of named constants.
+
 ```hexa
 // Some well-known constant (computable at compile time)
 let userRequest = 999 + 1
@@ -2321,7 +2350,7 @@ enum ExtendedColor Color {
 // Both normal and extended enums are compatible with each other
 var color Color = ExtendedColor.Yellow
 
-// Complex enums also use a runtime-known extensibility mechanism similar to the classes
+// Complex enums also use a runtime-known extensibility mechanism similar to that of classes
 let unknown Any = ExtendedColor.Yellow // Instance of `ExtendedColor` is an instance of `Color` too
 switch unknown {
 	// Runtime type check and a cast
@@ -2454,7 +2483,7 @@ switch value {
 	case Nested(color: Nested(color: Red)):
 		console.log("Nested Nested Red")
 
-	// Match both by internal value, fields and tag
+	// Match by internal value, fields, and tag
 	case Other(color: Red) { some: 123 }:
 		console.log("Other Red with some 123")
 }
@@ -2551,6 +2580,8 @@ switch value {
 
 #### Enum Flags Shorthands
 
+Convenience syntax for working with bit flags in conditional statements.
+
 ```hexa
 if value & A {
 	console.log("A")
@@ -2568,6 +2599,8 @@ if value & requiredFlags {
 ```
 
 ## Types
+
+Hexa features a robust type system including basic, dynamic, composite, and structural types.
 
 ### Basic Types
 
@@ -2623,7 +2656,7 @@ let otherVar Alias = some()
 
 Previous approach with infix operators was not very good for chaining and caused precedence confusion.
 
-Feedback from the community also shows some dissatisfaction with `as!` exclamation mark operator.
+Feedback from the community also shows some dissatisfaction with the `as!` exclamation mark operator.
 
 ```hexa
 // New way - good for chaining and avoids precedence confusion
@@ -2649,7 +2682,7 @@ expr.as(Type, cast)
 // Cast to an inferred known type `T` with `_` placeholder
 let some T? = expr.as(_)
 
-// Default cast behavior is `null` thus `is` operator may be emulated with `if let` or `switch` over type
+// Default cast behavior is `null`, therefore the `is` operator may be emulated with `if let` or `switch` over type
 if let some = expr.as(T) {
 	// ... handle some
 } else {
@@ -2767,7 +2800,7 @@ The `null`-safety is checked and enforced at compile-time.
 
 Important note: unpacking operator `!` is guaranteed to throw an exception immediately at the position of its use. Special syntax `null!` is provided to force null-initialization (or with some platform-default value, for unit-like behavior). Parsing treats `null!` as a single token, distinct from the postfix `!` operator.
 
-Even when platform does not throw exceptions for null-access normally, or optimizes null-access away (say, due to devirtualization), the compiler will generate extra code that throws an exception at runtime exactly at the position of the `!` operator.
+Even when the platform does not throw exceptions for null-access normally, or optimizes null-access away (say, due to devirtualization), the compiler will generate extra code that throws an exception at runtime exactly at the position of the `!` operator.
 
 Non-nullable types are checked at compile-time and do not have to be checked with `if obj != null` before use, leading to better performance.
 
@@ -2784,9 +2817,9 @@ hello(null!) // Valid in other value contexts when the type can be inferred
 // NOTE this syntax is not allowed
 // let z Int! = null // Error `T!` is not allowed
 
-a ?? defaultValue // Elvis operator (null coalescing)
 a ?? return 123 // Guard with return out of function if `a` is `null`
 a ?? throw Error("a is null") // Guard with throw out of function if `a` is `null`
+a ?? defaultValue // The Elvis operator (null coalescing)
 // NOTE `break` and `continue` are not allowed, this would lead to abuse in the loops making unreadable code
 
 // `value!` is the force unpack operator -> essentially independent postfix operator
@@ -2824,9 +2857,9 @@ x = value.meta.assumeNotNull // Removes the `?` from the type -> exception-free 
 
 Using one `import` per each module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
 
-Hexa files `.hexa` are listed in the `hexa.json` project file, their order within the project file affects the initialization order.
+Hexa files `.hexa` are listed in the `hexa.json` project file and their order within the project file affects the initialization order.
 
-Project file also controls the namespace of each module and which namespaces to export as a library (as long as the definition is not `private`).
+The project file also controls the namespace of each module and which namespaces to export as a library (as long as the definition is not `private`).
 
 ```hexa
 // The namespaces are always available, no need to import them
@@ -2896,7 +2929,7 @@ Conditional compilation is done at the AST level after parsing.
 
 The syntax preserves "preprocessor" look and feel (e.g. `#if`), but avoids parsing pitfalls.
 
-Conditions are contextually-evaluated while type checking (including templates instantiations).
+Conditions are evaluated contextually while type checking (including templates instantiations).
 
 Defined values are type checked.
 
@@ -2964,7 +2997,7 @@ hexa --define apiLevel=2 ...
 JSX syntax is first-class but the backend is decided per .hexa file or whole target (in the `hexa.json`):
 
 ```hexa
-// `fun TitleCase` is a special syntax for JSX, such function cannot be called directly
+// `fun TitleCase` is a special syntax for JSX (such a function cannot be called directly)
 fun TagName(props) {}
 
 // Usage
@@ -3003,7 +3036,7 @@ let element = <MyComponent>Hello, world!</MyComponent>
 
 Meta methods allow access to type information and other metadata at compile time (like size of structure akin to sizeof in C).
 
-NOTE due to Hexa targeting both C/C++ and JavaScript, having a built-in for `sizeof` is impractical. `meta` allows to have target-specific meta methods without polluting the language.
+NOTE due to Hexa targeting both C/C++ and JavaScript, having a built-in for `sizeof` is impractical. `meta` allows having target-specific meta methods without polluting the language.
 
 The `meta` is a keyword and cannot be used as an identifier. This syntax is LSP-friendly and great for discoverability.
 
@@ -3012,7 +3045,7 @@ let x = 1.meta.something // `.meta` is a special pseudo-field on any expression
 SomeClass.meta.something // Works on types as well
 meta.something // `meta` is a special pseudo-object
 meta.something(123) // callable pseudo-method
-meta.something(name: "value") // callable pseudo-method with named arguments
+meta.something(name: "value") // A callable pseudo-method with named arguments
 
 let value = someValue
 let sizeof = value.type.meta.sizeInBytes
@@ -3123,7 +3156,7 @@ It's like async but inverted. You write implicitly awaiting functions and inside
 Made for people who want async without coloring or script-like convenience (especially in the leaf code).
 
 ```hexa
-// Function that awaits by default
+// A function that awaits by default
 async('autoAwait') fun fetchData() {
 	let data = fetch("https://api.example.com/data") // Implicitly awaited
 	return data
@@ -3200,7 +3233,7 @@ let globalResources [Resource] = [] // Example global variable
 fun trackResource(
 	@local resource Resource // Can be reference-counted class or structure or anything else
 ) {
-	// Resource is tracked and guaranteed to never leave the call tree (effectively the stack)
+	// The resource is tracked and guaranteed to never leave the call tree (effectively the stack)
 
 	useResource(resource) // Fine, we know that `useResource` doesn't leak
 
@@ -3218,7 +3251,7 @@ let globalResource Resource = Resource()
 // Enables defensive programming via hiding sensitive intermediates
 fun loadDLL(name String) {
 	let env = "C:\\Windows\\System32\\"
-	let fullPath = env + @hide name // @hide is a decorator that marks the variable as hidden from the rest of the scope (it can be used in the other contexts too)
+	let fullPath = env + @hide name // @hide is a decorator that marks the variable as hidden from the rest of the scope (it can be used in other contexts too)
 
 	/// ... imagine lots of code lines obscuring the actual logic ...
 	readFile(fullPath)
@@ -3309,7 +3342,7 @@ z.z.y = 5
 
 ### Assertions/Debuggability
 
-Some decorators allow for compile-time checks performed:
+Some decorators allow compile-time checks to be performed:
 
 ```hexa
 @sizeOf(256)
@@ -3344,8 +3377,8 @@ Hexa deliberately excludes certain features to maintain minimalism, readability,
 
 - `goto` statements - avoided to encourage structured control flow and improve code safety
 - Multiple class inheritance - **single inheritance** combined with traits provides sufficient flexibility without the diamond problem's complexity
-- `finally` blocks in try/catch - omitted to keep exception handling syntax simple; resource management is encouraged via scope-based patterns or decorators
-- `protected` and `public` visibility - only `private` is supported; module-level exports control visibility, reducing access modifier noise
+- `finally` blocks in try/catch - omitted to keep exception handling syntax simple: resource management is encouraged via scope-based patterns or decorators
+- `protected` and `public` visibility - only `private` is supported: module-level exports control visibility, reducing access modifier noise
 - Inline macros or `comptime` blocks in regular code - metaprogramming is confined to **separate macro files** with explicit APIs to preserve clarity in main source files
 - Tuple types - in favor of `{ x, y }` short-hand syntax, structural objects and maps with **named fields** are preferred for better self-documentation and maintainability, positional destructuring is done by other means (like giving class field an index as an alias)
 
