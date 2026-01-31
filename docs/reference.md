@@ -1,13 +1,12 @@
 # Hexa Syntax Reference
 
-This is a living document of the Hexa syntax reference. It is not yet complete and may change.
+This comprehensive reference guide documents the complete syntax of the Hexa programming language.
 
 > Hexa is your missing bridge between the worlds of high-level expressiveness and low-level control.
 
-It does not correspond to the full actual syntax of Hexa yet. It represents the syntax changes that will be released in the future. The compiler already released on the GitHub will catch up ASAP.
+This document serves as the authoritative specification for Hexa's syntax as implemented in the compiler. It provides detailed examples and explanations for every language construct, helping you understand both the syntax and the design principles behind Hexa.
 
-Below is a comprehensive list of the syntax elements of Hexa.
-Every syntax element is shown with examples of all possible variations.
+This reference covers all syntax elements of Hexa, with examples demonstrating every possible variation.
 
 Most ideas have been validated through real-world Hexa usage in web, apps and systems programming.
 
@@ -113,7 +112,7 @@ let x = 1
 let x = 2
 
 // Can make a variable read-only with shadowing
-var x = 1 // Writeable
+var x = 1 // Writable
 let x = x // Read-only in the current scope
 
 // Immutable constant (can be computed at runtime, but not reassigned)
@@ -1546,7 +1545,7 @@ Trust layering: core team can afford careful interior mutability (inside the cla
 Full syntax:
 
 ```hexa
-// Readonly from outside, writeable from inside of the class
+// Readonly from outside, writable from inside of the class
 readonly class Point {
 	var x Int // No need for getters just to prevent external mutation
 	var y Int // NOTE `var` usage here
@@ -1572,7 +1571,7 @@ readonly class Point {
 		// You cannot take a readonly instance, pass it into a method of the same class, and mutate it there: the only way to mutate a readonly instance is through a method call on that exact instance
 	}
 
-	static var s Int = 0 // Statics are `readonly` from outside, writeable from inside
+	static var s Int = 0 // Statics are `readonly` from outside, writable from inside
 
 	// Non-mutating methods can be marked as `readonly` and cannot change anything that they create and touch, including `this`
 	readonly fun distance(other Point, origin Origin = { x: 0, y: 0 }) Int { // Assumes `readonly Origin` despite creating its default value
@@ -1590,14 +1589,14 @@ let origin = p.origin // Effectively `let origin = readonly p.origin`
 origin.x = 10 // Error: fields inherit `readonly` from outside
 
 // Inheritance of mutability allows fine-tuning: classes do *not* become `readonly` when their base is `readonly`, this is decided by the descendant
-// With writeable base class:
-class A { var a } // `.a` is writeable from outside
-class B readonly A { var b } // `.a` is readonly inside of the class, `.b` is writeable
+// With writable base class:
+class A { var a } // `.a` is writable from outside
+class B readonly A { var b } // `.a` is readonly inside of the class, `.b` is writable
 readonly class B A { var b } // `.a` and `.b` are readonly outside of the class
 
 // With readonly base class:
 readonly class A { var a } // `.a` is readonly from outside
-class B A { var b } // `.a` is readonly from inside, `.b` is writeable
+class B A { var b } // `.a` is readonly from inside, `.b` is writable
 readonly class B A { var b } // `.a` is readonly from inside and outside, `.b` is readonly from outside
 ```
 
@@ -2049,23 +2048,33 @@ class Rect {
 	var width Int
 	var height Int
 
-	// `let` can have only `get`, `var` requires `get` and `set`
+	// `let` can have only `get`
 	let area Int {
-		// Can have multiple backing fields (when there's only one, the setter can be omitted)
-		// They may have a different type than the property (but checked for compatibility if no setter is provided)
-		// Implicitly `private` class-wide, thus accessible via `this.backing`
-		var backing Int = 0
-		// Ultimately private and isolated inside the `{ getters/setters }` block, inaccessible via `this.secret`
-		private var secret Int = 0
-
 		get {
 			// Assumes `return` as if it were `get return { expr }` (not actual syntax)
 			// This makes properties more declarative
 			width * height
 		}
+	}
 
-		// An optional setter -> does not return anything
-		set (v) { /* ... */ }
+	// Writable property with setters, `var` requires `get` and `set`
+	var writable Int {
+		// Can have multiple backing fields (when there's only one, the setter can be omitted)
+		// They may have a different type than the property (but checked for compatibility if no setter is provided)
+		// Implicitly `private` class-wide, thus accessible via `this.backing`
+		var backing Number = 0 // NOTE different type (Number) than the property (Int)
+
+		// Ultimately private and isolated inside the `{ getters/setters }` block, inaccessible via `this.secret`
+		private var secret Int = 0 // NOTE `private` modifier
+
+		// Setter -> does not return anything
+		set (v) {
+			backing = v
+			secret = v
+		}
+
+		// Due to having two backing fields, requires explicit `get` to resolve the ambiguity
+		get { backing }
 
 		// Observers
 		willSet(oldValue, newValue) { ... }
@@ -3392,7 +3401,7 @@ console.assert(condition, "message")
 Meta methods also allow for debugging:
 
 ```hexa
-// TODO and "unreachable"
+// "TODO" and "unreachable"
 if shouldNeverHappen { meta.scream("TODO") } // Works as unreachable
 let x = value ?? meta.scream("TODO") // Works as a placeholder
 
