@@ -2868,7 +2868,7 @@ x = value.meta.assumeNotNull // Removes the `?` from the type -> exception-free 
 
 ## Modules
 
-Using one `import` per each module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
+Using one `import` per module allows cleaner syntax when imports are done within small scopes, compared to a bulky `import { /* lots of imports from many modules */ }` syntax.
 
 Hexa files `.hexa` are listed in the `hexa.json` project file and their order within the project file affects the initialization order.
 
