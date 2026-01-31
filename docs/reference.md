@@ -40,9 +40,9 @@ Hexa intentionally avoids "warnings" and instead relies solely either on "errors
 
 Keep in mind that Hexa is targeting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
 
-Semicolons are never required. Files are UTF-8 (with optional BOM skipping and optional shebang at the first line starting with `#!` also skipped). The `.hexa` file contains arbitrary number of top-level expressions without the strict ordering.
+Semicolons are never required. Files are UTF-8 (with optional BOM skipping and an optional shebang at the first line, starting with `#!`, also skipped). The `.hexa` file contains an arbitrary number of top-level expressions without strict ordering.
 
-Hexa is case-sensitive and prefers (token-efficient) tabs for indentation. Standard Library mostly follows `Node.js` API on the native platforms.
+Hexa is case-sensitive and prefers (token-efficient) tabs for indentation. The Standard Library mostly follows the `Node.js` API on native platforms.
 
 Inline // comments explain non-obvious aspects of each example. Always read them. They often clarify safety, performance, or constraints that emerge from Hexa semantics rather than its syntax.
 
@@ -295,6 +295,11 @@ Booleans represent truth values: `true` and `false`.
 ```hexa
 let t = true
 let f Bool = false
+
+// The `null` may work as a third value in a kind of tri-state
+// But better use enumerations for that
+// And use `null` as a "value is absent" flag
+let n Bool? = null // Generally zero-cost on native platforms: uses some plain integer value as a sentinel
 ```
 
 ### Null
@@ -460,7 +465,7 @@ switch map {
 		console.log("Match exactly with rest")
 	case [k: "value", ..._]: // Capture key as `k` for any key with value "value", useful for reverse lookups or schema validation
 		console.log("Match exactly by value", k)
-	case [_: v, ..._]: // Check if contains any key with value as `v`
+	case [_: v, ..._]: // Matches if the map contains *at least one* value `v` (any key)
 		console.log("Match at least one key with value", v)
 	case [k: v, ..._]: // Capture both
 		console.log("Match at least one key-value pair", k, v)
@@ -1199,13 +1204,13 @@ throw "any value" // When the target supports it, otherwise wrapped in an error
 // Allow throwing only a specific subset
 @throws(IOException, ParseError) // Compiler enforces that only these can escape
 // Alternatively disallow selected exception type and propagate others
-// @noThrow(TypeError)
+// @noThrow(TypeError) // Rule to disallow throwing TypeError
 fun readConfig(path String) Config {
 	if not exists(path) {
 		throw IOException("File not found")
 	}
 
-	// Also forces the user to catch other calls if they throw other exceptions
+	// Nested calls that throw force the caller to handle those exceptions according to the rules
 	try {
 		functionThatThrowsTypeError()
 	} catch e TypeError {
@@ -1237,7 +1242,7 @@ let callback @throws(Unknown) () => Void = fun () {
 
 Closures follow the same rules as JavaScript functions (capture by reference), including arrow functions.
 
-Function names follow same rules as identifiers: must start with a *lowercase* letter or underscore.
+Function names follow the same rules as identifiers: they must start with a *lowercase* letter or underscore.
 
 ```hexa
 // Function names must start with a lowercase letter or underscore
@@ -2072,7 +2077,7 @@ Destructuring allows for unpacking values from objects and arrays into individua
 
 ```hexa
 // NOTE `let` is required for clarity
-// Does not work with `var` for safety reasons: `var` could confuse the reader into thinking that the `Rect` object fields are being re-assigned
+// Does not work with `var` for safety reasons: `var` could confuse the reader into thinking that the `Rect` object's fields are being reassigned
 let {width, height} = Rect {width: 1, height: 2}
 
 // Nullables are fine
@@ -2389,7 +2394,7 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 		console.log("Regex")
 	case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
 		console.log("Other")
-	case null: // NOTE `null` checked in order of cases, and may shadow `nullable?` cases or vice versa
+	case null: // NOTE `null` is checked in the order of cases, and may shadow `nullable?` cases or vice versa
 		console.log("Null")
 
 	// Pattern guards & nullable binding
@@ -2464,8 +2469,8 @@ switch value {
 		// NOTE assumes `break` at the end of each case by default
 	case Green or Blue:
 		console.log("Green or Blue")
-	// Newer design allows for future extension of enum values, and avoids issues with positional matching when names can matched in the wrong order
 	// Names are not positional -> they were in the original design, now names are required to match and order is not important
+	// Newer design allows for future extension of enum values, and avoids issues with positional matching where names might be matched in the wrong order
 	case Other(r, g, b as blue):
 		// NOTE exact same names are required (i.e. `r` and `g`)
 		// NOTE order of parameters is NOT important due to names requirement above
@@ -2541,7 +2546,7 @@ switch flags {
 	case A | B | _:
 		// ...
 
-	// 5. DYNAMIC PARTIAL MATCH (Has at least *all* flags in `features` set, ignores others)
+	// 5. DYNAMIC PARTIAL MATCH (Has at least *all* flags set that are in `features`, ignoring others)
 	// Transpiles to: if ((flags & features) == features)
 	case (features) | _: // NOTE `features` is a variable used later in the pattern
 		// ...
@@ -2648,8 +2653,9 @@ type Immutable<T> = readonly T
 
 // Expression type reuse
 let someVar = some()
-type Alias = someVar.type // Should bind to `type` to re-use
+type Alias = someVar.type // Must bind the `.type` property to `type` alias to re-use
 let otherVar Alias = some()
+// let otherVar someVar.type // ERROR Cannot use `.type` as a type directly
 ```
 
 ### Casts
@@ -2776,14 +2782,14 @@ let y = Union { s: "2" }
 x.i = 2
 y.s = "3"
 
-// Runtime switch over the type is performed for `@union` values
+// A runtime switch over the type is performed for `@union` values
 switch x {
 	case Int(int):
 		console.log("Int", int)
 	case String(str):
 		console.log("String", str)
 	case _:
-		// `_` is a wildcard pattern that fallbacks when no other pattern matches
+		// `_` is a wildcard pattern that falls back when no other pattern matches
 		// Not enforced at compile-time, but may be useful for complex scenarios not handled by the default runtime type-matching algorithm
 
 		let other = x.as(Any) // Cast manually
@@ -3368,6 +3374,7 @@ let x = value ?? meta.scream("TODO") // Works as a placeholder
 // Positional and context information
 meta.line
 meta.functionName
+fun log(msg String, where = meta.functionName + ':' + meta.line)
 // etc
 
 // Debug with tracing the value and file position
