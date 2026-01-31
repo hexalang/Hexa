@@ -86,7 +86,7 @@ Unicode characters are not allowed. Only Latin alphabet is supported, with numbe
 ```hexa
 // Variable names must start with a lowercase letter or underscore
 var myVariable = 1 // Type is inferred
-var myVariable T = 1 // NOTE no `:` colons and no `;` semicolons (syntax is context-free so they are not required) -> no automatic semicolon insertion either
+var myVariable T = 1 // NOTE no `:` colons and no `;` semicolons allowed (syntax is context-free so they are not required) -> no automatic semicolon insertion either
 let _ssa = 2 // Read-only
 ```
 
@@ -2051,7 +2051,7 @@ class Rect {
 
 	// `let` can have only `get`, `var` requires `get` and `set`
 	let area Int {
-		// Can have multiple backing fields (when single one, can omit the setter)
+		// Can have multiple backing fields (when there's only one, the setter can be omitted)
 		// They may have a different type than the property (but checked for compatibility if no setter is provided)
 		// Implicitly `private` class-wide, thus accessible via `this.backing`
 		var backing Int = 0
@@ -3080,7 +3080,25 @@ printFields(Point(1, 2))
 
 ### Macros Metaprogramming
 
-Macros are a way to perform syntax tree manipulation in Hexa. They declare the `@decorator` which then calls into the macro callback.
+Macros are a way to perform syntax tree manipulation in Hexa. You declare the `@decorator` via compiler API which then calls into the macro callback.
+
+```hexa
+// Declaring a macro
+fun myMacro(node Node) {
+	// Manipulation of the AST node
+	/* ... */
+}
+
+// Registering the macro (simplified example)
+hexa.registerMacro("myMacro", myMacro)
+
+// Using the macro
+@myMacro // If registered as a custom decorator
+fun foo() {
+	console.log("Hello from macro!")
+	meta.myMacro() // If registered as a meta method
+}
+```
 
 Macros are not part of the syntax. They are compiled as separate sub-projects and `.hexa` files that define the macro are not included into the main project.
 
