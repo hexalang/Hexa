@@ -2513,8 +2513,10 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 	case _: // NOTE exhaustive match by default, requires `_` to be present if not all cases are covered
 		// NOTE only either `case wildcard?:` or `case _:` may be present
 		console.log("Other")
+	// Match `null` exactly
 	case null: // NOTE `null` is checked in the order of cases, and may shadow `nullable?` cases or vice versa
 		// NOTE only either `case wildcard?:` or `case null:` may be present
+		// This rule does *not* explicitly forbid `case null` and `case _` together
 		console.log("Null")
 
 	// Nullable binding
@@ -2676,7 +2678,7 @@ switch flags {
 
 	// 3. EXCLUSION (Has Flag A, maybe others, but DEFINITELY NOT Flag B)
 	// Transpiles to: if ((flags & Flags.A) == Flags.A && (flags & Flags.B) == 0)
-	case A | _ | not B:
+	case A | _ | not B: // Only a single exact flag per `not` for clarity
 		// ...
 
 	// 4. COMBINATION (Has at least Flag A AND Flag B)
@@ -2875,7 +2877,7 @@ switch value {
 	case String({ length }):
 		// Destructuring in type patterns
 		console.log("String.length", length)
-	case Array<Int>(captureAsArray): // NOTE generics too
+	case Array<Int>(captureAsArray): // NOTE generics too -> can be shallow cast on some platforms
 		console.log("Array of Int", captureAsArray)
 	case _:
 		console.log("Other")
@@ -3393,6 +3395,7 @@ switch string {
 		console.log("def")
 
 	// With named groups -> unnamed positional captures are not bound
+	// Named groups follow same naming rules as variables
 	// Guards allow for flexible checks without regex recompilation if values are dynamic
 	case /(?<name1>\w+) (?<name2>\w+) (?<name3>\w+)/ if name1 == "John", name2 == "Snow":
 		console.log("Perfect match for John Snow, name3 is captured as-is:", name3)
