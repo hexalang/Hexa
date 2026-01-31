@@ -284,7 +284,7 @@ str.ellipsis(maxLength, at: 'end', pattern: '…')
 str.align(maxLength, at: 'center', fill: ' ')
 // Native strings require a surrounding arena context for allocating methods
 // Assuming called in the @arena context
-cstr.padStart(5, '0') // OK: compiler knows we're in @arena
+cstr.padStart(5, '0') // Ok as compiler knows we're in @arena
 ```
 
 ### Booleans
@@ -1349,18 +1349,20 @@ callback = fun (args) return { expr } // NOTE name is optional, `return` is pref
 fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style
 // `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
 
+// Arrow functions are perfect for passing as arguments where the type is inferred
+[1, 2, 3].map((x, i) => x + i) // With index
 // Arrow functions are allowed to ignore the arguments they do not need
 [1, 2, 3].map(x => x * 2) // Without index
-[1, 2, 3].map((x, i) => x + i) // With index
 [1, 2, 3].forEach(_ => console.log("loop")) // `_ =>` ignores every argument (useful for events like onClick)
 
-// Arrow function lowering to a plain function
-// A lack of known types when assigned directly to a new constant causes lowering to a plain `fun` function:
-let plain = (x) => x * 2
-fun plain(x) { // NOTE preserves genericity
+// Arrow functions require known types when assigned directly to a new constant
+let plain = (x) => x * 2 // Error: named functions must use the `fun` keyword
+let plain (x Int) => Int = (x) => x * 2 // Ok but not preferred
+fun plain(x Int) Int { // Preferred
 	return x * 2
 }
 plain(1)
+// This encourages a searchable codebase where all named logic uses the `fun` keyword
 
 // Function type
 let func (x Int, y Int) => Int = add // NOTE arguments are required to be named for clarity
@@ -1410,7 +1412,9 @@ fun fooForString(s String) String {
 }
 
 // A function as a value
-let func = fooForInt
+let func = fooForInt // Ok for non-generic and non-overloaded functions
+let func = identity<Int> // Ok explicitly specialized
+let func (x String) => String = identity // Ok specialized via contextual type inference
 let func = fun (x Int) Int { return x } // NOTE can be named or unnamed
 func(123)
 
@@ -2304,14 +2308,14 @@ let bool = b == Bool32.True // Pattern `1 or _` disallows `==` operator over `Tr
 let bool = b == Bool32.False // Allowed as `False` is a fixed constant, not range
 
 // NOTE direct comparison (`==`, `!=`) of enum tag *constructors* is not allowed
-// Status.Ok == Status.Ok // ERROR Disallowed at compile time as not making any sense
-// Status.Ok != Status.Ok // ERROR too
+// Status.Ok == Status.Ok // Error: disallowed at compile time as not making any sense
+// Status.Ok != Status.Ok // Error: same as above
 
 {
 	// NOTE adding `()` parenthesis is required to workaround the `==` operator
 	(Status.Ok) == (Status.Ok) // Every tag is just a raw value with a name
 }
-var plain Int = Status.Ok // ERROR Sound type system disallows this
+var plain Int = Status.Ok // Error: sound type system disallows this
 
 // Tag as a type (NOTE still requires a `switch` to extract associated tag values if any)
 var status Status.Ok = Status.Ok // Well-known tag
@@ -2713,7 +2717,7 @@ type Immutable<T> = readonly T
 let someVar = some()
 type Alias = someVar.type // Must bind the `.type` property to `type` alias to re-use
 let otherVar Alias = some()
-// let otherVar someVar.type // ERROR Cannot use `.type` as a type directly
+// let otherVar someVar.type // Error: cannot use `.type` as a type directly
 ```
 
 ### Casts
@@ -2911,7 +2915,7 @@ a?[0] // Optional index access -> null if array is null
 a![0] // Force index access -> exception if array is null
 
 // Double exclamation mark is not allowed to type because it implies some other "not just !" operator exists to the reader
-// x = value!! // Error: Not allowed to avoid confusion
+// x = value!! // Error: not allowed to avoid confusion
 
 // Escape hatch
 x = value.meta.assumeNotNull // Removes the `?` from the type -> exception-free if value is null
