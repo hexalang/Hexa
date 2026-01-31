@@ -2483,9 +2483,13 @@ switch unknown {
 
 ## Pattern Matching
 
-Compared to the classic `switch` statement, pattern matching matches against patterns using the "more specific first" logic as an optimization. The order of cases is not important most of the time (i.e. when patterns do not depend on runtime values).
+Compared to the classic `switch` statement, pattern matching matches against patterns using the "more specific first" logic where possible as an optimization. The order of cases is not important most of the time (i.e. when patterns do not depend on runtime values).
+
+Developers shouldn't inherently seek side effects during pattern matching. Guards work as observations, limiting control flow via `@local` and `readonly` rules.
 
 ```hexa
+let other = 123 // Demo variable used in the wildcard pattern
+
 switch value { // uses `switch` keyword for pattern matching thus familiar to C-family developers
 	case 1:
 		console.log("One")
@@ -2504,10 +2508,22 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 	case null: // NOTE `null` is checked in the order of cases, and may shadow `nullable?` cases or vice versa
 		console.log("Null")
 
-	// Pattern guards & nullable binding
+	// Nullable binding
+	case value?: // NOTE adding the `?` to a binding satisfies the exhaustiveness check for nullable types `T?`, whereas a standard binding does not
+		console.log("Value:", value ?? "null")
+
+	// Pattern guards
 	// NOTE guards bind the values as `@local` and `readonly` within the `if` itself for safety, `if let` skips nulls
 	case value? if let value, value > 1, let alias = value: // In-guard bound values are available in the scope of the case
 		console.log("Greater than 1:", alias)
+
+	// Safety check for wildcard patterns that capture the original value as-is
+	// NOTE its a compile error to use a name that exists in the outer scope for a binding
+	// Here the `case other` has the same name as `let other` which is present in the same scope as `switch`
+	// Thus compiler requires either `(other)` syntax or renaming `case another`
+	// This protects the developer from accidentally capturing a value when they meant to compare it
+	case (other):
+		console.log("Value:", other)
 }
 
 // Postfix form `.switch` is allowed in an expression context:
@@ -2571,7 +2587,8 @@ enum Color {
 }
 
 switch value {
-	case Red: // NOTE `case Color.Red:` and `case .Red:` are NOT allowed
+	// NOTE `case Color.Red:` and `case .Red:` are NOT allowed
+	case Red: // Tag is always inferred from the type of `value`
 		console.log("Red")
 		// NOTE assumes `break` at the end of each case by default
 	case Green or Blue:
@@ -2641,7 +2658,7 @@ switch flags {
 
 	// 2. PARTIAL Match (Has at least Flag A set, ignores others)
 	// Transpiles to: if ((flags & Flags.A) == Flags.A)
-	case A | _:
+	case A | _: // The `_` is effectively a "rest" pattern for bits
 		// ...
 
 	// 3. EXCLUSION (Has Flag A, maybe others, but DEFINITELY NOT Flag B)
@@ -2661,7 +2678,7 @@ switch flags {
 
 	// 6. ALTERNATIVES (Matches pattern 1 OR pattern 2)
 	// Transpiles to: if ((flags == Flags.A) || (flags == (Flags.B | Flags.C)))
-	case A or B | C:
+	case A or B | C: // NOTE `|` is always bitwise OR, while `or` separates alternative patterns
 		// ...
 }
 ```
@@ -2676,8 +2693,15 @@ switch value {
 
 // Switch over multiple values
 switch value1, value2 {
+	// NOTE `|` is always bitwise OR (higher precedence than `or`)
+	// `or` separates alternative patterns
+	// `,` matches incoming separate subjects (here `value1, value2`)
 	case A | B or D | E, 123: // NOTE `123` matches `value2` because its separated by comma
 		console.log("Either exact (A | B and also 123) or exact (D | E and also 123)")
+
+	// Fallback `_, _` matches any value
+	// NOTE requires to match both subjects
+	case _, _:
 }
 ```
 
@@ -2815,16 +2839,24 @@ if let some = expr.as(T) {
 
 The captured variable is introduced in the narrowest possible scope. There's no extra `let` (you do not have to write `case let` or `case T(let v)`), and no chance to use the wrong cast later.
 
-Compile-time for known types (plays well with generics), runtime for `Any`.
+Compile-time for **types** (plays well with generics), runtime for **values** of `Any`/`Unknown` and `@union` kinds.
 
 ```hexa
-switch value.type {
+// NOTE the type of value is not fully known at compile time, thus triggering a runtime type match
+let value Any = some() // Demo value
+
+// NOTE the `value.type` would match over compile-time type itself, not a runtime type of a value
+switch value {
+	// Type Match
 	case Bool:
 		console.log("Bool")
-	case Int(captureAsInt): // NOTE captureAsInt is readonly and equals to `value` casted to Int
+	// Type-Narrowing Match
+	case Int(captureAsInt): // NOTE captureAsInt is read-only and equals to `value` casted to Int
 		console.log("Int", captureAsInt)
+		// captureAsInt = 123 // Error: read-only (like `let`)
 	case String(captureAsString):
 		console.log("String", captureAsString)
+	// Type + Deconstruct
 	case String({ length }):
 		// Destructuring in type patterns
 		console.log("String.length", length)
@@ -2839,7 +2871,7 @@ switch value.type {
 }
 
 // Works as expression too
-let result = switch value.type {
+let result = switch value {
 	case Int(captureAsInt):
 		"Int"
 	case String(captureAsString):
@@ -2862,7 +2894,10 @@ class MyArray<T> {
 	// ... omitted ...
 
 	fun resize(newCapacity Int) {
+		// NOTE here we match over the type itself, not value
+		// Therefore there's nothing to capture
 		switch T {
+			// Static Type Matching
 			case Bool:
 				// Allocate a single bit per value
 				storage = realloc(storage, newCapacity / 8)
@@ -3333,6 +3368,7 @@ async('autoAwait') fun fetchData() {
 Regular expressions are supported as patterns for advanced pattern matching:
 
 ```hexa
+// Requires string-typed value, not allowed over `Any`
 switch string {
 	// With or
 	case /abc/ or /def/:
