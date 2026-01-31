@@ -2520,6 +2520,7 @@ Enumerations can be marked as bit flags, allowing for bitwise operations.
 	C
 }
 
+// This is the only allowed operator because its too popular, unambiguous and easy to read
 var flags = Flags.A | Flags.B // NOTE `|` is used for bitwise OR
 flags |= Flags.C // Adds flag
 flags |= C // Inferred as `Flags.C`
@@ -2599,10 +2600,13 @@ switch value {
 
 #### Enum Flags Shorthands
 
-Convenience syntax for working with bit flags in conditional statements.
+Convenience syntax for working with bit flags.
+
+In C, `if (flags & FLAG == OTHER)` is a classic bug because `==` has higher precedence than `&`. By using `if flags.has(A)`, you eliminate an entire class of industrial bugs. The compiler can easily inline `.has(A)` into a single bitwise *AND* instruction during the optimization pass.
 
 ```hexa
-if value & A {
+// This syntax moves Hexa away from "clever" bit-manipulation and toward declarative intent
+if value.has(A) {
 	console.log("A")
 }
 
@@ -2612,7 +2616,7 @@ if value & (A | B) { // NOTE requires () because the (A | B) is a *value* not pa
 
 // Same as
 let requiredFlags = A | B
-if value & requiredFlags {
+if value.has(requiredFlags) {
 	console.log("A and B")
 }
 ```
