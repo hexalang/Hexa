@@ -288,10 +288,9 @@ str.align(maxLength, at: 'center', fill: ' ')
 cstr.padStart(5, '0') // OK: compiler knows we're in @arena
 ```
 
-#### Design Considerations (Strings)
-- **Raw strings**: Support for raw strings with `r"""` or `r""` or similar to format string with any number of quotes `style```some text````
-
 ### Booleans
+
+Booleans represent truth values: `true` and `false`.
 
 ```hexa
 let t = true
@@ -453,8 +452,8 @@ map.[
 // Switch with destructuring
 switch map {
 	// Key-value matching
-	case ["key": "value", "one": "two"]: // No trailing comma allowed in single-line patterns, exactly two keys present
-		console.log("Match exactly")
+	case ["key": "value", "one": "two"]: // No trailing comma allowed in single-line patterns
+		console.log("Match exactly") // Matching exactly two keys
 	case ["key": "value", ...rest]: // At least one key must match
 		console.log("Match exactly with rest", rest)
 	case ["key": "value", ..._]: // Match ignoring the rest without capturing
@@ -465,7 +464,7 @@ switch map {
 		console.log("Match at least one key with value", v)
 	case [k: v, ..._]: // Capture both
 		console.log("Match at least one key-value pair", k, v)
-	case [(variable): (expression), ..._]: // Any runtime computed expression in a `()` parenthesis works as a pattern
+	case [(variable): (expression), ..._]: // Any runtime computed expression in `()` parentheses works as a pattern
 		console.log("Match by dynamic pattern")
 	case [(variable) as a: (expression) as b, ..._]: // Save computed values for later use
 		console.log("Match by dynamic pattern", a, b)
@@ -619,7 +618,7 @@ object.{
 
 Decorators are a compile-time concept, like C++ attributes.
 
-Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their names are camelCase (like identifiers), any name is allowed (including reserved keywords).
+Decorators start with `@` and are placed before a declaration. Multiple decorators are allowed (in any order). Their names are camelCase (like identifiers), and any name is allowed (excluding reserved keywords).
 
 They may alter the behavior of the declaration they are attached to or even trigger compile-time actions like AST transformations via macros.
 
@@ -772,7 +771,7 @@ a **= b
 Hexa limits overloading to the logically complete operator sets. Operator sets are pre-defined and sole operators cannot be overloaded.
 
 ```hexa
-// Concept, actual operator sets are defined by the standard library and compiler
+// Actual operator sets are defined by the standard library and compiler
 type ArrayOperators<T> {
 	fun get(index Int) T
 	fun set(index Int, value T) Void
@@ -946,7 +945,7 @@ while let x = a, y < 10 {
 	y++
 }
 
-// Halting problem is error when solvable
+// The halting problem is an error when solvable
 let loop = true
 // When @infinite is present, the condition can be `true`, otherwise it is a compile-time error
 @infinite while loop {
@@ -1001,6 +1000,7 @@ for i in 100 { // NOTE a variable name is always required
 
 // Loops from n to m-1 (thus allows iterating over an array.length)
 for i in n ... m {}
+@step(2) // Step is optional, default is 1
 for i in 0 ... array.length {}
 
 // Shorthand for numbers - can omit 0
@@ -1180,7 +1180,7 @@ fun processFile(path String) IoResult {
 
 Hexa uses the concept of tracked exceptions. They are not checked until the exception boundary is reached.
 
-This design may handle such a complicated use case like zero-cost happy paths + silent tracking during recursion and complicated control flow + precise enforcement only at the edges.
+This design handles complicated use cases like zero-cost happy paths + silent tracking during recursion and complicated control flow + precise enforcement only at the edges.
 
 On native platforms, exceptions are translated to C++ exception ABI by default.
 
@@ -1449,8 +1449,8 @@ Fields of class-like types (`class`, `type`, `interface`, `enum`) start with a k
 
 ```hexa
 class Point {
-	var x Int // NOTE lack of `=` default value implies late init (definitive assignment analysis is applied)
-	private var y Int // NOTE only `private` is supported, it behaves like `protected` in other languages
+	var x Int // NOTE the lack of an `=` default value implies late init (definitive assignment analysis is applied)
+	private var y Int // NOTE only `private` is supported (it behaves like `protected` in other languages)
 
 	// Constructor
 	// Can be `private` (then only accessible from within the static methods and descendants)
@@ -1646,7 +1646,7 @@ class Point {
 	var y Int
 
 	// NOTE `new() {}` assumed by default
-	// Hiding constructor allows for "parse, don't validate" paradigm
+	// Hiding the constructor allows for the "parse, don't validate" paradigm
 	// `private new() {}` to disable construction outside, allowed to be called only from within static methods
 }
 
@@ -1770,7 +1770,7 @@ MyWorker<mode>() // Passing variable name that contains enum tag
 
 Traits reuse the `type` keyword but are overall parsed in the same way as a class.
 
-Usage of the `trait` keyword would reduce adoption and semantically does not fully match the concept of the `type`. The `type` fits better as in "structural typing". Types are a compile-time concept and the usage of `type` reinforces this.
+Usage of the `trait` keyword would reduce adoption and semantically does not fully match the concept of the `type`. The `type` fits better as in "structural typing". Types are a compile-time concept and the usage of the `type` keyword reinforces this.
 
 ```hexa
 // Parsing rules same as of classes
@@ -2309,8 +2309,8 @@ fun genericFunction<T>(value T) {
 Special case for `==` and `!=` operators:
 
 ```hexa
-// When enum is compared to a value within a `if` condition, it is parsed as a tag name without the `{}` part
 if value == Status.Ok { // NOTE otherwise would parse as `Status.Ok {}` class constructor
+// When enum is compared to a value within an `if` condition, it is parsed as a tag name without the `{}` part
 	console.log("Ok")
 }
 ```
@@ -2464,8 +2464,8 @@ switch value {
 		// NOTE assumes `break` at the end of each case by default
 	case Green or Blue:
 		console.log("Green or Blue")
-	// Names are not positional -> they were in original design, now names are required to match and order is not important
 	// Newer design allows for future extension of enum values, and avoids issues with positional matching when names can matched in the wrong order
+	// Names are not positional -> they were in the original design, now names are required to match and order is not important
 	case Other(r, g, b as blue):
 		// NOTE exact same names are required (i.e. `r` and `g`)
 		// NOTE order of parameters is NOT important due to names requirement above
@@ -2637,7 +2637,7 @@ let point interface { let x Int let y Int } = { x: 1, y: 2 }
 
 ### Type Aliases
 
-Type aliases are simple substitutions, they are not types in their own right.
+Type aliases are simple substitutions and they are not types in their own right.
 
 ```hexa
 type ID = String
@@ -2817,9 +2817,9 @@ hello(null!) // Valid in other value contexts when the type can be inferred
 // NOTE this syntax is not allowed
 // let z Int! = null // Error `T!` is not allowed
 
-a ?? return 123 // Guard with return out of function if `a` is `null`
-a ?? throw Error("a is null") // Guard with throw out of function if `a` is `null`
 a ?? defaultValue // The Elvis operator (null coalescing)
+a ?? return 123 // A guard with a return out of function if `a` is `null`
+a ?? throw Error("a is null") // A guard with a throw out of function if `a` is `null`
 // NOTE `break` and `continue` are not allowed, this would lead to abuse in the loops making unreadable code
 
 // `value!` is the force unpack operator -> essentially independent postfix operator
@@ -2867,7 +2867,7 @@ The project file also controls the namespace of each module and which namespaces
 Math.sin(1) // Can call into the namespace (here `Math`) directly
 
 // Instead the whole or partial content of the namespace can be imported
-import Math // Wildcard import of everything within the namespace (e.g. all static fields and associated types from the namespace)
+import Math // A wildcard import of everything within the namespace (e.g. all static fields and associated types from the namespace)
 sin(1) // The `sin` is now available in the current scope
 
 // Can import static fields into current scope and associated types (e.g. `sin()`)
@@ -3044,7 +3044,7 @@ The `meta` is a keyword and cannot be used as an identifier. This syntax is LSP-
 let x = 1.meta.something // `.meta` is a special pseudo-field on any expression
 SomeClass.meta.something // Works on types as well
 meta.something // `meta` is a special pseudo-object
-meta.something(123) // callable pseudo-method
+let value = meta.something // A callable pseudo-method
 meta.something(name: "value") // A callable pseudo-method with named arguments
 
 let value = someValue
@@ -3363,9 +3363,14 @@ Meta methods also allow for debugging:
 ```hexa
 // TODO and "unreachable"
 if shouldNeverHappen { meta.scream("TODO") } // Works as unreachable
-let x = value ?? meta.scream("TODO") // Works as placeholder
+let x = value ?? meta.scream("TODO") // Works as a placeholder
 
-// Debug with tracing value and file position
+// Positional and context information
+meta.line
+meta.functionName
+// etc
+
+// Debug with tracing the value and file position
 x = 1.meta.echo + 2.meta.echo("extra message") + 3.meta.dump // .echo and .dump just return value as-is
 ```
 
