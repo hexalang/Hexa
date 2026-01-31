@@ -34,11 +34,11 @@ Hexa features are designed to be mostly MISRA compliant, allowing it to satisfy 
 
 > Motor Industry Software Reliability Association (MISRA) is an automotive industry safety standard for systems programming languages.
 
-Hexa intentionally avoids "warnings" and instead relies solely either on "errors" or programmer wisdom and specific team practices (i.e. external tools). Every feature is either producing a compile-time error or is safe by default enough to trust the developer.
+Hexa intentionally avoids "warnings" and instead relies solely either on "errors" or programmer wisdom and specific team practices (i.e. external tools). Every feature either produces a compile-time error or is safe enough by default to trust the developer.
 
 # Syntax
 
-Keep in mind that Hexa is targeting output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. Syntax is designed to be as close to the output as possible both visually and semantically, yet still allows for automatic performance optimizations and advanced features.
+Keep in mind that Hexa targets output platforms like JavaScript/TypeScript, C/C++ and direct LLVM/WASM binaries. The syntax is designed to be as close to the output as possible both visually and semantically, while still allowing for automatic performance optimizations and advanced features.
 
 Semicolons are never required. Files are UTF-8 (with optional BOM skipping and an optional shebang at the first line, starting with `#!`, also skipped). The `.hexa` file contains an arbitrary number of top-level expressions without strict ordering.
 
@@ -893,7 +893,7 @@ let result = if x > 0 { "Positive" } else { "Non-positive" }
 
 // `=` assignment is not an expression
 if a = b { // Error
-	// Will not compile, eliminates typos from if (a = b) instead of if (a == b)
+	// Prevents the classic `if (a = b)` typo (assignment instead of comparison)
 }
 
 // `if` can be used as an expression with {} required, `else` is required
@@ -902,6 +902,8 @@ let result = if x > 0 { "Positive" } else { "Non-positive" }
 ```
 
 #### Ternary Operator
+
+A concise inline syntax for conditionally selecting between two values based on a boolean.
 
 ```hexa
 cond ? a : b // Ternary operator (NOTE nested ternary is not allowed)
@@ -1273,8 +1275,8 @@ add(
 // Indicate that not using the returned value is intentional
 _ = call() // Optional syntax, but some functions may enforce it
 
-add(a: 1, b: 2) // NOTE order is not required to match arguments - enabling custom evaluation order
 // Optionally can be called with the same argument names as in the function declaration (no need for separate named arguments set)
+add(a: 1, b: 2) // NOTE the argument order is not required to match - enabling custom evaluation order
 add(b: 1, a: 2) // Evaluate `b` first
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
 add(1, b: 2) // When not all names are provided, the order *must* match arguments
@@ -2010,7 +2012,7 @@ class Circle Shape Trait Interface {
 
 ### Interfaces
 
-Practice demonstrates that high-level tasks are better done with high-level constructs (like interfaces) and achieve better real-world performance by eliminating the mandatory manual plumbing/intermediate layers that low-level implementations must explicitly manage. That's one of the core reasons why Hexa provides interfaces.
+Practice demonstrates that high-level tasks are better achieved with high-level constructs (like interfaces) and yield better real-world performance by eliminating the mandatory manual plumbing/intermediate layers that low-level implementations must explicitly manage. That's one of the core reasons why Hexa provides interfaces.
 
 Compared to traits, an interface is a runtime feature (protocols via reflection and virtual methods if the platform supports it). Interfaces are parsed the same way as classes.
 
@@ -2644,6 +2646,8 @@ let point interface { let x Int let y Int } = { x: 1, y: 2 }
 
 Type aliases are simple substitutions and they are not types in their own right.
 
+To make a distinct type, check the @inline classes in the `Class Constructors` section.
+
 ```hexa
 type ID = String
 type Generic<T> = Other<T>
@@ -2681,7 +2685,7 @@ expr.as(Type, 'dynamic_cast')
 expr.as(Type, 'const_cast')
 expr.as(Type, 'reinterpret_cast')
 
-// Enables to do straight-forward casts with compile time known values
+// Enables straightforward casts with compile-time known values as options
 let cast = 'reinterpret_cast'
 expr.as(Type, cast)
 
@@ -2767,7 +2771,7 @@ class MyArray<T> {
 
 ### Unions
 
-Unions are a way to store different types of data in the same variable. Work on any platform, normally stored as `Any` but the exact implementation is platform-dependent. Enables JSON access and mixed types coming from the foreign languages.
+Unions are a way to store different types of data in the same variable. They work on any platform, normally stored as `Any` but the exact implementation is platform-dependent. Enables JSON access and mixed types coming from foreign languages.
 
 ```hexa
 @union
@@ -2804,7 +2808,7 @@ switch x {
 
 The `null`-safety is checked and enforced at compile-time.
 
-Important note: unpacking operator `!` is guaranteed to throw an exception immediately at the position of its use. Special syntax `null!` is provided to force null-initialization (or with some platform-default value, for unit-like behavior). Parsing treats `null!` as a single token, distinct from the postfix `!` operator.
+Important note: the unpacking operator `!` is guaranteed to throw an exception immediately at the position of its use. Special syntax `null!` is provided to force null-initialization (or with some platform-default value, for unit-like behavior). The parser treats `null!` as a single token, distinct from the postfix `!` operator.
 
 Even when the platform does not throw exceptions for null-access normally, or optimizes null-access away (say, due to devirtualization), the compiler will generate extra code that throws an exception at runtime exactly at the position of the `!` operator.
 
@@ -3217,7 +3221,7 @@ switch string {
 
 Future work may transform the whole `case /regex/` pattern set of a single `switch` into optimized parser code at compile time.
 
-The syntax assumes JavaScript RegExp subset as lowest common denominator, which may fallback to platform specific regex depending on the target at the code generation stage.
+The syntax assumes the JavaScript RegExp subset as the lowest common denominator, which may fall back to platform-specific regex depending on the target at the code generation stage.
 
 # Advanced Memory Management Beyond Ownership Model
 
