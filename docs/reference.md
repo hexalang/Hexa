@@ -450,7 +450,7 @@ let map = [
 map.[ "key": "value", "one": "two" ] // map["key"] = "value", map["one"] = "two"
 map.[
 	"key": "value",
-	"one" + "two": "two" // Indices can be expressions computed at runtime
+	("one" + "two"): "two" // Indices can be expressions computed at runtime
 ] == map // True, updates the original map in-place
 
 // Switch with destructuring
@@ -476,8 +476,46 @@ switch map {
 		console.log("Other")
 }
 
-// Any expression works as a key
-let map = [1 + 1: "two", 2 + 1: "three", getFour(): "four"]
+// Any expression works as a key, but must be wrapped in `()` to distinguish from plain literals and constants
+let keyVar = "dynamicKey"
+let map = [
+	// Plain literals can be used as keys without parentheses
+	"literal": 1,        // Plain string literal
+	123: 1,              // Plain number literal
+	true: 1,             // Plain boolean literal
+	null: 1,             // Plain null literal
+
+	// Enum tags can be used as keys without parentheses
+	Value: 3,            // Enum tag (inferred when type is known)
+
+	// Enum tag with full path must be wrapped in parentheses
+	(Enum.Value): 3,     // Indirectly enforces declarative approach where the type of the map is known
+
+	// Variables and expressions must be wrapped in parentheses as they are **dynamic**
+	(keyVar): 2,         // Variable key requires ()
+	(1 + 2): "three"     // Expression key requires ()
+	// The syntax mirrors pattern matching `case (variable)`
+]
+
+// Map spreading
+let base = ["a": 1, "b": 2]
+// Spread uses `...` and follows "Last-Write-Wins"
+let merged = [
+	// May specify default key values
+	"a": 0, // "a" appears in `base`, so its value is overwritten later
+
+	// Copy all key-value pairs from `base`
+	...base,
+
+	// Add new key-value pairs
+	"c": 3, // "c" does not appear in `base`, so it's added
+
+	// Override existing key-value pairs (aka update)
+	"b": 99 // "b" appears in `base`, so its value is updated
+]
+
+// Result:
+["a": 1, "b": 99, "c": 3] // This clearly demonstrates the "Last-Write-Wins" logic
 ```
 
 ### Objects
@@ -2610,7 +2648,7 @@ if value.has(A) {
 	console.log("A")
 }
 
-if value & (A | B) { // NOTE requires () because the (A | B) is a *value* not pattern
+if value.has(A | B) { // NOTE requires () because the (A | B) is a *value* not pattern
 	console.log("A and B")
 }
 
