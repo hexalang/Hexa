@@ -1797,7 +1797,7 @@ class Box<T, size T> { // NOTE camelCase is used to declare a constant generic a
 	}
 }
 
-let box = Box<Int, 1>(123)
+let box = Box<Int, 1>(123) // Name can be omitted, type parameters are positional
 let box = Box<Int, size: 1>(123) // Explicitly named constant generic
 
 // Default constant generic value
@@ -2782,13 +2782,13 @@ switch value.type {
 	case _:
 		console.log("Other")
 
-	// Optionally capture the value as-is
+	// Optionally capture the original value as-is
 	case other:
 		console.log("Other", other)
 }
 
 // Works as expression too
-let result = switch type value {
+let result = switch value.type {
 	case Int(captureAsInt):
 		"Int"
 	case String(captureAsString):
@@ -2798,7 +2798,7 @@ let result = switch type value {
 	case _:
 		"Other"
 
-	// Optionally capture the value as-is
+	// Optionally capture the original value as-is
 	case other:
 		console.log("Other", other)
 }
@@ -2811,7 +2811,7 @@ class MyArray<T> {
 	// ... omitted ...
 
 	fun resize(newCapacity Int) {
-		switch type T {
+		switch T {
 			case Bool:
 				// Allocate a single bit per value
 				storage = realloc(storage, newCapacity / 8)
@@ -2846,7 +2846,7 @@ y.s = "3"
 
 // A runtime switch over the type is performed for `@union` values
 switch x {
-	case Int(int):
+	case Int(int): // Behaves like `if let int = x.as(Int) { ... }`
 		console.log("Int", int)
 	case String(str):
 		console.log("String", str)
