@@ -2326,7 +2326,7 @@ switch sealedTag {
 	// Bind the sealed field as read-only
 	case Color.Sealed(value) { writableField }: console.log("Sealed: ", value, writableField)
 	// Bind whole tag as writable
-	case Color.Sealed(value) as sealed:
+	case Color.Sealed(value) as sealed: // `as` captures original object with narrowed type
 		sealed.writableField += 1 // Can modify writable fields
 		sealed.sealedMethod(123)
 }
@@ -2532,7 +2532,7 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 	case value? if let value, value > 1, let alias = value: // In-guard bound values are available in the scope of the case
 		console.log("Greater than 1:", alias)
 
-	// Safety check for **wildcard** patterns that capture the original value as-is
+	// Safety check for **top-level wildcard** patterns that capture the original value as-is
 	// NOTE its a compile error to use a name that exists in the outer scope for a binding
 	// Here the `case other` has the same name as `let other` which is present in the same scope as `switch`
 	// Thus compiler requires either `(other)` syntax or renaming `case another`
@@ -2678,7 +2678,7 @@ switch flags {
 
 	// 3. EXCLUSION (Has Flag A, maybe others, but DEFINITELY NOT Flag B)
 	// Transpiles to: if ((flags & Flags.A) == Flags.A && (flags & Flags.B) == 0)
-	case A | _ | not B: // Only a single exact flag per `not` for clarity
+	case A | _ | not B:
 		// ...
 
 	// 4. COMBINATION (Has at least Flag A AND Flag B)
