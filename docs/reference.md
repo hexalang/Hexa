@@ -86,7 +86,8 @@ Unicode characters are not allowed. Only Latin alphabet is supported, with numbe
 ```hexa
 // Variable names must start with a lowercase letter or underscore
 var myVariable = 1 // Type is inferred
-var myVariable T = 1 // NOTE no `:` colons and no `;` semicolons allowed (syntax is context-free so they are not required) -> no automatic semicolon insertion either
+var myVariable T = 1 // NOTE no `:` colons and no `;` semicolons allowed
+// (syntax is context-free so they are not required) -> no automatic semicolon insertion either
 let _ssa = 2 // Read-only
 ```
 
@@ -99,7 +100,8 @@ Hexa uses space-separated type annotations, never colons: `var name Type = value
 
 ```hexa
 // Mutable variable
-var x = 1 // NOTE initial assignment `=` is required for local variables (enforcing declarative style and definite assignment)
+var x = 1
+// NOTE initial assignment `=` is required for local variables (enforcing declarative style and definite assignment)
 x = 2 // Mutation via reassignment
 
 // Init multiple variables
@@ -169,7 +171,8 @@ Hexa supports integers and floating-point numbers.
 
 ```hexa
 // Integers
-let a = 123 // Defaults to universal `Number` (IEEE 754) when not inferred to a different type (when <=53 bits, otherwise requires a known type)
+let a = 123 // Defaults to universal `Number` (IEEE 754) when not inferred to a different type and fits 53 bit
+let huge UInt64 = 2**54 // When >53 bits, integer literal requires a known type
 let i Int = 123 // Explicitly inferred to signed 32-bit integer
 let u UInt64 = 123 // Explicitly inferred to unsigned 64-bit integer
 
@@ -195,7 +198,8 @@ exp + b // -> Double // Promotion to higher precision
 // Prefix
 let neg = -123 // Parsed as a single token
 // Token-wise, it allows proper inference of the integer size
-// (i.e. `let x Int16 = -123` would be `-123 of Int16` instead of `-n of Int 123`, and works well with `case -n` patterns and enum variants)
+// i.e. `let x Int16 = -123` would be `-123 of Int16` instead of `-n of Int 123`
+// and works well with `case -n` patterns and enum variants
 let neg = -123.45
 
 // BigInt
@@ -246,7 +250,8 @@ let s = "Hello {1 + 2} World"
 let s = "Hello \{ brackets \} World" // Print the `{}` brackets themselves: final string is "Hello { brackets } World"
 let s = "Hello {foo.bar} World" // Any expression is valid
 // `{}` allows avoiding reserving characters like `$` for interpolation and adding new syntax for strings themselves
-// `{}` is a clear group around an expression avoiding problems like "Hello $a + $b World" vs "Hello $(a + b) World" having only reliable "Hello {a + b} World" syntax
+// `{}` is a clear group around an expression avoiding problems like:
+// "Hello $a + $b World" vs "Hello $(a + b) World" having only reliable "Hello {a + b} World" syntax
 
 // Unicode escape
 let s = "\u1F600" // Four digits long
@@ -262,7 +267,8 @@ let s = "Hello {
 	var b = "2"
 	a + b // Works like a block
 } World"
-console.log("Something: {1 + (2 + 3)}") // Easier to type and read than `"Something: \(1 + (2 + 3))"` due to the lack of `(())` nesting
+console.log("Something: {1 + (2 + 3)}")
+// Easier to type and read than `"Something: \(1 + (2 + 3))"` due to the lack of `(())` nesting
 
 // Array-like access NOTE only 0...length are valid indices, otherwise `null` is returned
 let s = "Hello"[0] // "H"
@@ -497,7 +503,8 @@ switch map {
 		console.log("Match exactly with rest", rest)
 	case ["key": "value", ..._]: // Match ignoring the rest without capturing
 		console.log("Match exactly with rest")
-	case [k: "value", ..._]: // Capture key as `k` for any key with value "value", useful for reverse lookups or schema validation
+	case [k: "value", ..._]: // Capture key as `k` for any key with value "value"
+		// Useful for reverse lookups or schema validation
 		console.log("Match exactly by value", k)
 	case [_: v, ..._]: // Matches if the map contains *at least one* value `v` (any key)
 		console.log("Match at least one key with value", v)
@@ -638,7 +645,8 @@ point.{ x:1, x: 2 } // Error: `x` repeated
 
 // Returns an existing object with the fields updated:
 obj.{ x: 3, y: 4 }.x // 3
-// Distinct syntax from the `{ ...obj }` operator (copy-update) prevents accidental hidden mutations and makes intent crystal clear
+// Distinct syntax from the `{ ...obj }` operator (copy-update)
+// Prevents accidental hidden mutations and makes intent crystal clear
 obj == obj.{ x: 3, y: 4 } // True, same object returned
 
 // Configure then call a method with chaining:
@@ -762,7 +770,8 @@ some.field++
 
 // Overflow runtime check is optional and configurable
 let rule = 'wrapAround' // Can be obtained with `--define` and `meta` (say for tests/debug switch)
-let rule = 'clamp' // Clamp to min/max, useful for general code (e.g. in gamedev: HP never goes below `0` no matter the damage)
+let rule = 'clamp' // Clamp to min/max, useful for general code
+// (e.g. in gamedev: HP never goes below `0` no matter the damage)
 let rule = 'throw' // Catchable exception
 let rule = 'crash' // Abort/trap
 let rule = 'fast' // Similar to -fno-wrapv
@@ -1054,7 +1063,8 @@ let loop = true
 // Do-While
 do {
 	x++
-} while x < 10 // NOTE no () for consistency and no `,` after the condition to avoid unnecessary complications of `do while` loops (they are already pretty rare and confusing)
+} while x < 10 // NOTE no () for consistency and no `,` after the condition,
+// to avoid unnecessary complications of `do while` loops (they are already pretty rare and confusing)
 
 // For-In
 for item in items { // NOTE no `let` required but still creates a local read-only variable, `var` is not allowed
@@ -1347,7 +1357,8 @@ fun camelCase() Void { // Return type is optional and comes right after the argu
 
 // Basic function
 fun add(a Int, b Int = 5 + 5) Int { // Default arguments are allowed
-	return a + b // Braces `{}` around the body are required for clarity (when no `return` shorthand is used instead of the body itself)
+	return a + b // Braces `{}` around the body are required for clarity
+	// (when no `return` shorthand is used instead of the body itself)
 
 	// Nested functions
 	fun nested() {}
@@ -1368,7 +1379,8 @@ add(
 // Indicate that not using the returned value is intentional
 _ = call() // Optional syntax, but some functions may enforce it
 
-// Optionally can be called with the same argument names as in the function declaration (no need for separate named arguments set)
+// Optionally can be called with the same argument names as in the function declaration
+// (no need for separate named arguments set)
 add(a: 1, b: 2) // NOTE the argument order is not required to match - enabling custom evaluation order
 add(b: 1, a: 2) // Evaluate `b` first
 add(a: 1, 2) // Does not matter which one to name, developer decides for clarity at call site
@@ -1380,7 +1392,8 @@ fun identity(x) { // NOTE lack of type parameters (both <T> and T)
 	return x
 }
 
-// NOTE Implicit generics (functions without <T> in the signature) are only allowed within the project and cannot be exported outside (say, as a library installable via package manager)
+// NOTE Implicit generics (functions without <T> in the signature) are only allowed within the project
+// and cannot be exported outside (say, as a library installable via package manager)
 
 // Generic function is proactively type-checked with placeholder types
 // This enables partial type-checking even when the function is not used by the library itself anywhere
@@ -1402,7 +1415,8 @@ arg => expr // Arrow function short form
 // To use types, use anonymous function (as value expression) + immediate return:
 callback = fun (args) return { expr } // NOTE name is optional, `return` is preferred for clarity if not `Void`
 fun (args) return { expr } // NOTE shorthand for `fun (args) { return expr }` i.e. functional programming style
-// `{}` is required as we do not respect one-liners (arrow form already covers that), `{}` "enforces" putting the body on a new line
+// `{}` is required as we do not respect one-liners (arrow form already covers that),
+// while `{}` "enforces" putting the body on a new line
 
 // Arrow functions are perfect for passing as arguments where the type is inferred
 [1, 2, 3].map((x, i) => x + i) // With index
@@ -1536,7 +1550,8 @@ fun foo is fooForInt or fooForString // Allowed to define an overloading at the 
 // Overloads selected by argument types, names (when names are present) and their count
 foo(123) // Selects fooForInt
 foo("hello") // Selects fooForString
-// When a call uses named arguments (e.g. f(param: value)), only overloads that declare a parameter with that exact name are considered
+// When a call uses named arguments (e.g. f(param: value)),
+// only overloads that declare a parameter with that exact name are considered
 foo(s: "hello") // Selects fooForString
 foo(i: 123) // Selects fooForInt
 // To be taken as value, the type must be explicit
@@ -1648,7 +1663,8 @@ Full syntax:
 readonly class Point {
 	var x Int // No need for getters just to prevent external mutation
 	var y Int // NOTE `var` usage here
-	let origin Origin = { x: 0, y: 0 } // NOTE `let` can still be used to enforce immutability of the field even inside of the class
+	let origin Origin = { x: 0, y: 0 }
+	// NOTE `let` can still be used to enforce immutability of the field even inside of the class
 	// `Origin` is a nested object, it does not inherit `readonly` allowing mutation from the *inside*
 
 	// Enables efficient builder patterns due to in-place mutation
@@ -1667,13 +1683,16 @@ readonly class Point {
 		// Access to other (non-`this`) instance fields is still `readonly`
 		let other = Point(1, 2)
 		other.x = 10 // Error: cannot assign to readonly field
-		// You cannot take a readonly instance, pass it into a method of the same class, and mutate it there: the only way to mutate a readonly instance is through a method call on that exact instance
+		// You cannot take a readonly instance, pass it into a method of the same class, and mutate it there:
+		// The only way to mutate a readonly instance is through a method call on that exact instance
 	}
 
 	static var s Int = 0 // Statics are `readonly` from outside, writable from inside
 
-	// Non-mutating methods can be marked as `readonly` and cannot change anything that they create and touch, including `this`
-	readonly fun distance(other Point, origin Origin = { x: 0, y: 0 }) Int { // Assumes `readonly Origin` despite creating its default value
+	// Non-mutating methods can be marked as `readonly`
+	// and cannot change anything that they create and touch, including `this`
+	readonly fun distance(other Point, origin Origin = { x: 0, y: 0 }) Int {
+		// Assumes `readonly Origin` despite creating its default value
 		return (this.x - other.x) * (this.y - other.y)
 		// Cannot mutate `this` or any other instance fields
 		this.x = 10 // Error: cannot mutate `this`
@@ -2488,7 +2507,8 @@ switch unknown {
 		case Green: console.log("Green")
 		case Blue: console.log("Blue")
 
-		// NOTE at usage sites the `_` pattern is required to be present even if all cases are covered due to `@extensibleTags`
+		// NOTE at usage sites the `_` pattern is required to be present even if all cases are covered
+		// due to `@extensibleTags`
 		case _: console.log("Other")
 	}
 	case _: console.log("Other")
@@ -2534,7 +2554,9 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 		console.log("Null")
 
 	// Nullable binding
-	case value?: // NOTE adding the `?` to a binding satisfies the exhaustiveness check for nullable types `T?`, whereas a standard binding does not
+	case value?:
+		// NOTE adding the `?` to a binding satisfies the exhaustiveness check for nullable types `T?`,
+		// whereas a standard binding does not
 		console.log("Value:", value ?? "null")
 
 	// Named bindings are non-nullable and will require a corresponding nullable one for a nullable value
@@ -2625,8 +2647,10 @@ switch value {
 		// NOTE assumes `break` at the end of each case by default
 	case Green or Blue:
 		console.log("Green or Blue")
-	// Names are not positional -> they were in the original design, now names are required to match and order is not important
-	// Newer design allows for future extension of enum values, and avoids issues with positional matching where names might be matched in the wrong order
+	// Names are not positional
+	// They were in the original design, now names are required to match and order is not important
+	// Newer design allows for future extension of enum values
+	// And avoids issues with positional matching where names might be matched in the wrong order
 	case Other(r, g, b as blue):
 		// NOTE exact same names are required (i.e. `r` and `g`)
 		// NOTE order of parameters is NOT important due to names requirement above
@@ -2972,7 +2996,8 @@ switch x {
 		console.log("String", str)
 	case _:
 		// `_` is a wildcard pattern that falls back when no other pattern matches
-		// Not enforced at compile-time, but may be useful for complex scenarios not handled by the default runtime type-matching algorithm
+		// Not enforced at compile-time (when switch is not an expression),
+		// but may be useful for complex scenarios not handled by the default runtime type-matching algorithm
 
 		let other = x.as(Any) // Cast manually
 		console.log("Other", other)
@@ -3035,7 +3060,8 @@ a?.b?.c?() // Calls too with `?()` if the callback is nullable
 a?[0] // Optional index access -> null if array is null
 a![0] // Force index access -> exception if array is null
 
-// Double exclamation mark is not allowed to type because it implies some other "not just !" operator exists to the reader
+// Double exclamation mark is not allowed to type because
+// it would imply that some other "not just !" operator exists to the reader
 // x = value!! // Error: not allowed to avoid confusion
 
 // Escape hatch
