@@ -3668,7 +3668,7 @@ The `@verify` contract style focuses on **postconditions** and **invariants** th
 
 ```hexa
 // Demo of contract-style @verify checks (executed after the function returns or throws)
-let lastProcessed Int = 0 // Some variable outside of the function to simulate side effect
+var lastProcessed Int = 0 // Some variable outside of the function to simulate side effect
 
 // Contracts can be attached only to functions, classes and property accessors, once at the very beginning of the { body }
 fun process(value Int) Int {
@@ -3682,8 +3682,8 @@ fun process(value Int) Int {
 		// Those checks always execute after the function exits: returns or throws
 		lastProcessed >= 0
 
-		// Message is optional via `or` operator
-		lastProcessed >= 0 or "lastProcessed must be non-negative"
+		// Message is optional via `or` operator, string interpolations are allowed
+		lastProcessed >= 0 or "lastProcessed must be non-negative, but the value is {lastProcessed}"
 
 		// Can have inline blocks for complex checks
 		{
@@ -3721,6 +3721,68 @@ fun process(value Int) Int {
 	return computed
 }
 ```
+
+#### Statement-Level Protocol Enforcement via Flags
+
+Hexa introduces a lightweight, decorator-based flag system that statically enforces temporal ordering and usage protocols across function calls and statements—without requiring type changes, wrapper objects, or manual counters.
+
+Unlike typestate or ownership systems that tie protocols to individual values or objects, flags operate on the level of *actions and events*:
+they track what *happens* in the execution flow, making them ideal for protocols that span multiple objects, helpers, or subsystems.
+A flag can be emitted by any function, required by any consumer, and propagates naturally through the call stack, catching ordering violations, missing steps, or forgotten cleanups even across deep or conditional paths.
+
+This makes flags especially powerful for logic-heavy code—operating systems, game engines, security-critical paths—where the same conceptual step (e.g., "username validated") may be witnessed or required by many different operations,
+and where retrofitting safety into large existing codebases is essential.
+
+```hexa
+// Library code — annotate once
+@flagOnce("username_validated")
+fun validateUsername(user String) -> Bool {
+    // ... perform checks ...
+    return true
+}
+
+@flagRequireOnce("username_validated")
+fun sendWelcomeEmail(user String) { /* ... */ }
+
+@flagRequireOnce("username_validated")
+fun logAccess(user String) { /* ... */ }
+
+@flagRequireOnce("username_validated")
+fun createSession(user String) { /* ... */ }
+
+// Application code — no type changes needed
+fun handleLogin(user String) {
+    // validateUsername(user)  // ← forget this? Compiler error below
+    sendWelcomeEmail(user)     // error: missing required flag "username_validated"
+    logAccess(user)
+    createSession(user)
+}
+
+fun handleLoginCorrect(user String) {
+    if (validateUsername(user)) {   // emits the flag
+        sendWelcomeEmail(user)      // all good — flag is present
+        logAccess(user)
+        createSession(user)
+    }
+}
+
+// Even across helpers and deep calls
+fun processRequest(user String) {
+    validateUsername(user)          // flag emitted here
+    dispatchToModules(user)         // flag flows through arbitrary depth
+}
+
+@flagDeferRequireOnce("username_validated")  // enforce by function exit
+fun dispatchToModules(user String) {
+    sendWelcomeEmail(user)          // requires the flag
+    thirdPartyAnalytics(user)       // any helper can require it too
+}
+```
+
+Flags require zero runtime overhead, integrate seamlessly with existing code,
+and scale from simple validation checks to complex multi-resource ordering
+(e.g., nested critical sections or graphics API state machines):
+all while keeping the protocol enforcement at the statement level rather than tied to any single object's lifecycle.
 
 ---
 
