@@ -3660,11 +3660,13 @@ Hexa offers contract programming approaches to handle implementation bugs.
 
 We do not include **precondition**-style contracts specifically, as they are not a good fit for a "defensive by default" language philosophy:
 
-**Input** validation and caller-blame should be core, explicit code (via `guard`, `if let`, pattern matching, etc.), not *optional* annotations that might let people skip proper checks. Preconditions often become a crutch — "I'll just add a precondition and call it documented" — leading to fragile APIs and runtime surprises.
+**Input** validation and caller-blame should be core, explicit code (via `guard`, `if let`, pattern matching, etc.), not *optional* annotations that might let people skip proper checks.
+Preconditions often become a crutch "I'll just add a precondition and call it documented" leading to fragile APIs and runtime surprises.
 
 Instead, the developer is encouraged to use defensive programming approaches, like type-states, declarative control flow (like `return switch` that either returns correct value or fails), reasonable types and others.
 
-The `@verify` contract style focuses on **postconditions** and **invariants** that validate the internal logic of functions after execution, ensuring that the function's behavior aligns with its intended design. They still have access to the function arguments to enabling precondition-like checks if needed.
+The `@verify` contract style focuses on **postconditions** and **invariants** that validate the internal logic of functions after execution, ensuring that the function's behavior aligns with its intended design.
+They still have access to the function arguments to enabling precondition-like checks if needed.
 
 ```hexa
 // Demo of contract-style @verify checks (executed after the function returns or throws)
@@ -3724,24 +3726,29 @@ fun process(value Int) Int {
 
 #### Statement-Level Protocol Enforcement via Flags
 
-Hexa introduces a lightweight, decorator-based flag system that statically enforces temporal ordering and usage protocols across function calls and statements—without requiring type changes, wrapper objects, or manual counters.
+Hexa introduces a lightweight, decorator-based flag system that statically enforces temporal ordering and usage protocols across function calls and statements, without requiring type changes, wrapper objects, or manual counters.
 
 Unlike typestate or ownership systems that tie protocols to individual values or objects, flags operate on the level of *actions and events*:
 they track what *happens* in the execution flow, making them ideal for protocols that span multiple objects, helpers, or subsystems.
+
 A flag can be emitted by any function, required by any consumer, and propagates naturally through the call stack, catching ordering violations, missing steps, or forgotten cleanups even across deep or conditional paths.
 
-This makes flags especially powerful for logic-heavy code—operating systems, game engines, security-critical paths—where the same conceptual step (e.g., "username validated") may be witnessed or required by many different operations,
+This makes flags especially powerful for logic-heavy code: operating systems, game engines, security-critical paths, where the same conceptual step (e.g., "username validated") may be witnessed or required by many different operations,
 and where retrofitting safety into large existing codebases is essential.
 
+Here's a heavily simplified example of flags look and feel, with a more reasonable use-case being multi-resource management (e.g., graphics API state machines, nested critical sections, etc) provided later:
+
 ```hexa
-// Library code — annotate once
+// Library code may add annotations to functions without changing their types, nor semantics nor signatures
+// Flags are purely compile-time constructs with zero runtime overhead (if not requested otherwise)
 @flagOnce("username_validated")
-fun validateUsername(user String) -> Bool {
-    // ... perform checks ...
-    return true
+fun validateUsername(user String) Bool {
+	// ... perform checks ...
+	return true
 }
 
-@flagRequireOnce("username_validated")
+// Optional custom error message in the flag checks
+@flagRequireOnce("username_validated", "User must be validated before sending welcome email")
 fun sendWelcomeEmail(user String) { /* ... */ }
 
 @flagRequireOnce("username_validated")
@@ -3750,20 +3757,26 @@ fun logAccess(user String) { /* ... */ }
 @flagRequireOnce("username_validated")
 fun createSession(user String) { /* ... */ }
 
-// Application code — no type changes needed
+// Application code may continue using the library as-is, no type changes needed
 fun handleLogin(user String) {
-    // validateUsername(user)  // ← forget this? Compiler error below
-    sendWelcomeEmail(user)     // error: missing required flag "username_validated"
-    logAccess(user)
-    createSession(user)
+	// Assume you forgot to validate the username
+	// validateUsername(user)
+
+	// Compiler detects the missing flag and raises an error
+	// Error: missing required flag "username_validated"
+	// Also adds custom error message if provided in the annotation
+	// And proposes functions may be called to emit the required flag
+	sendWelcomeEmail(user)
+	logAccess(user)
+	createSession(user)
 }
 
 fun handleLoginCorrect(user String) {
-    if (validateUsername(user)) {   // emits the flag
-        sendWelcomeEmail(user)      // all good — flag is present
-        logAccess(user)
-        createSession(user)
-    }
+	if validateUsername(user) { // Emits the flag "username_validated"
+		sendWelcomeEmail(user) // All good because flag "username_validated" is present
+		logAccess(user)
+		createSession(user)
+	}
 }
 
 // Even across helpers and deep calls
@@ -3783,6 +3796,112 @@ Flags require zero runtime overhead, integrate seamlessly with existing code,
 and scale from simple validation checks to complex multi-resource ordering
 (e.g., nested critical sections or graphics API state machines):
 all while keeping the protocol enforcement at the statement level rather than tied to any single object's lifecycle.
+
+```hexa
+// Example: Enforcing correct nested mutex locking/unlocking order
+// Goal: Inner mutex MUST be unlocked BEFORE outer mutex is unlocked.
+// No runtime overhead as all checks are static.
+
+// Library / primitives (defined once, used everywhere)
+
+@flagOnce("outer_locked")
+fun lockOuter() {
+	// ... Actual mutex lock code ...
+}
+
+@flagOnce("inner_locked")
+@flagRequireOnce("outer_locked") // Cannot lock inner unless outer is already held
+fun lockInner() {
+	// ... Actual mutex lock code ...
+}
+
+@flagOnce("inner_unlocked")
+@flagRequireOnce("inner_locked") // Must have locked inner to unlock it
+@unflag("inner_locked")
+fun unlockInner() {
+	// ... Actual mutex unlock code ...
+}
+
+@flagOnce("outer_unlocked")
+@flagRequireOnce("outer_locked", "inner_unlocked") // Both must be true: outer was locked and inner already released
+@unflag("outer_locked")
+fun unlockOuter() {
+	// ... Actual mutex unlock code ...
+}
+
+// Usage in code: compiler will catch wrong order, missing unlocks, etc.
+
+fun doCriticalWork(data) {
+	lockOuter() // Emits "outer_locked"
+
+	lockInner() // Emits "inner_locked" (allowed because outer_locked exists)
+
+	// Protected section
+	modifySharedData(data)
+	readHardwareRegister()
+	// ... More work that needs both locks ...
+
+	unlockInner() // Emits "inner_unlocked", consumes "inner_locked"
+
+	// unlockOuter() // If you put this line here, ERROR:
+	//                requires "inner_unlocked" but we just emitted it
+	//                but more importantly the next line would complain
+
+	// Some final work while still holding outer lock
+	logAuditEvent()
+
+	unlockOuter() // Ok: sees both "outer_locked" and "inner_unlocked"
+}
+
+// Error cases the compiler will catch:
+
+fun brokenExample1() {
+	lockOuter()
+	lockInner()
+
+	unlockOuter() // ERROR: missing "inner_unlocked"
+	// unlockInner() would come too late and cause protocol violation
+}
+
+fun brokenExample2() {
+	lockOuter()
+	// Forgot lockInner()
+
+	unlockInner() // ERROR: missing "inner_locked"
+}
+
+fun brokenExample3() {
+	lockOuter()
+	lockInner()
+	unlockInner()
+
+	// Early return or exception path without unlocking outer
+	if someError {
+		return // ERROR: function exits while "outer_locked" is still active
+	}
+
+	unlockOuter()
+}
+
+// Helper function with nested locking (flag flows through calls)
+
+@flagDeferRequireOnce("inner_unlocked") // This function promises to balance inner lock
+fun workWithInner(data) {
+	lockInner() // Emits "inner_locked"
+	// ... Do stuff ...
+	unlockInner() // Emits "inner_unlocked"
+}
+
+fun nestedExample() {
+	lockOuter()
+
+	workWithInner(someData) // Inner flags are emitted + consumed inside helper
+
+	unlockOuter() // Ok: "inner_unlocked" was witnessed via the call
+}
+```
+
+This tiny example shows how flags can enforce **strict unlock ordering** across function boundaries and error paths without wrapper types, without changing any mutex API, and without runtime checks or counters.
 
 ---
 
