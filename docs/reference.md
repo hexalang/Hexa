@@ -1437,7 +1437,9 @@ plain(1)
 let func (x Int, y Int) => Int = add // NOTE arguments are required to be named for clarity
 
 // External function
-declare fun externalFunc() Void // NOTE no body
+// `= _` is optional argument handled by the other side (runtime or compile-time depending on platform)
+// `= 123` we can handle it on the Hexa side at compilation time (embeds the value at call sites)
+declare fun externalFunc(optional Int = _) Void // NOTE no body
 
 // Generic function - explicit
 fun identity<T>(x T) T {
@@ -1580,6 +1582,7 @@ class Point {
 		this.y = y
 	}
 
+	// `@final` may be applied to disallow override
 	fun move(dx Int, dy Int) {
 		this.x += dx
 		y += dy // NOTE `this` is optional when there are no name conflicts
@@ -2889,6 +2892,13 @@ if let some = expr.as(T) {
 	// ... handle null
 }
 
+// `.as` also can be applied to nullable values
+// This enables combination of null-check, unpacking and a cast
+let nullable T? = null
+if let value = nullable.as(Entity) {
+	// ... handle value
+}
+
 // Pure type checks are done with platform-specific means (e.g. `instanceof/typeof` in JS)
 ```
 
@@ -3234,7 +3244,7 @@ let element = <TagName>Hello, {
 	@props type { var primary Bool }
 
 	// CSS
-	background: {primary ? "red" : "blue"};
+	background: {primary ? "red" : "blue"}
 `
 
 // Desugared to (also works inside the blocks etc)
@@ -3642,6 +3652,74 @@ fun log(msg String, where = meta.functionName + ':' + meta.line)
 
 // Debug with tracing the value and file position
 x = 1.meta.echo + 2.meta.echo("extra message") + 3.meta.dump // .echo and .dump just return value as-is
+```
+
+#### Contracts and Verification
+
+Hexa offers contract programming approaches to handle implementation bugs.
+
+We do not include **precondition**-style contracts specifically, as they are not a good fit for a "defensive by default" language philosophy:
+
+**Input** validation and caller-blame should be core, explicit code (via `guard`, `if let`, pattern matching, etc.), not *optional* annotations that might let people skip proper checks. Preconditions often become a crutch — "I'll just add a precondition and call it documented" — leading to fragile APIs and runtime surprises.
+
+Instead, the developer is encouraged to use defensive programming approaches, like type-states, declarative control flow (like `return switch` that either returns correct value or fails), reasonable types and others.
+
+The `@verify` contract style focuses on **postconditions** and **invariants** that validate the internal logic of functions after execution, ensuring that the function's behavior aligns with its intended design. They still have access to the function arguments to enabling precondition-like checks if needed.
+
+```hexa
+// Demo of contract-style @verify checks (executed after the function returns or throws)
+let lastProcessed Int = 0 // Some variable outside of the function to simulate side effect
+
+// Contracts can be attached only to functions, classes and property accessors, once at the very beginning of the { body }
+fun process(value Int) Int {
+	// Simple boolean facts - one fact per statement
+	@verify {
+		// Save the states for later checks
+		@save lastProcessed as previousLastProcessed // Applies `readonly` to the saved variable
+
+		// Should evaluate to true, otherwise uses meta.scream to indicate a contract violation
+		// Multiple violations will be reported together
+		// Those checks always execute after the function exits: returns or throws
+		lastProcessed >= 0
+
+		// Message is optional via `or` operator
+		lastProcessed >= 0 or "lastProcessed must be non-negative"
+
+		// Can have inline blocks for complex checks
+		{
+			// Local variables are allowed
+			let nonNegative = lastProcessed >= 0
+			let even = (lastProcessed % 2) == 0
+			nonNegative and even // Last expression is the result
+		} or "lastProcessed must be non-negative and even"
+
+		// Result-aware verifier: receives the returned value as `result`
+		@returns {
+			// Inline block may contain multiple statements
+			// Returns the value of the last expression (boolean)
+			let nonNegative = result >= 0
+			// Can define multiple local variables with `let`, reassignment is not allowed
+			let even = (result % 2) == 0
+			nonNegative and even
+		}
+
+		// Exception-aware verifier: runs only if an exception was thrown
+		@throws {
+			// Validate that state did not change on exception
+			lastProcessed == previousLastProcessed or "lastProcessed must not change on exception"
+		}
+	}
+
+	// May throw
+	// Verify checks run after this function returns (or throws, as appropriate)
+	if value < 0 {
+		throw Error("negative value")
+	}
+
+	let computed = value * 2
+	lastProcessed = computed
+	return computed
+}
 ```
 
 ---
