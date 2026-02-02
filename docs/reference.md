@@ -64,7 +64,8 @@ Hexa supports single-line, multi-line, and documentation comments. It is assumed
 /// Documentation comment (single-line) present in the AST (attached to an expression/statement/node)
 /// Can have more lines - they will combine into a single doc comment
 /// They do not interact with decorators
-/// The [bar] doc prose-like tags look like this (LSP-supported, if one [param] is present, not mentioning others is a hard error)
+/// The [bar] doc prose-like tags look like this (LSP-supported)
+/// If one [param] is present, not mentioning others is a hard error
 // NOTE A documentation comment requires an expression/statement/node immediately below it:
 fun foo(
 	/// Documentation for `bar` parameter can be written inline
@@ -229,7 +230,9 @@ let s = " // Normal strings are multi-line by default
 	String
 " // NOTE newlines always converted into a \n
 let s = "Hello \n World"
-let s = "Hello \"World\"" + 'Hello \'World\'' // Concatenation with `+` operator
+
+// Concatenation with `+` operator
+let s = "Hello \"World\"" + 'Hello \'World\''
 // Anything can be concatenated with `+` as long as it has a `toString` method
 let s = "Hello " + 1 + " World" // "Hello 1 World"
 
@@ -1152,7 +1155,8 @@ switch value { // Plain integer is not exhaustive
 	case _:
 		console.log("Other")
 
-	// case 1: case 2: // Error when `case` on the same line to avoid confusion for C programmer (should use `case 1 or 2:` instead)
+	// case 1: case 2:
+	// Error when `case` on the same line to avoid confusion for C programmer (should use `case 1 or 2:` instead)
 }
 ```
 
@@ -1478,7 +1482,8 @@ fun fib(n Int) Int {
 }
 
 // Recursion with function by value
-let fibAsValue = fun fib(n Int) Int { // It needs a name to be recursive -> arrow function cannot be recursive but `fun` syntax is interchangeable
+let fibAsValue = fun fib(n Int) Int { // It needs a name to be recursive
+	// -> arrow function cannot be recursive, but `fun` syntax is interchangeable
 	if n <= 1 {
 		return n
 	}
@@ -1505,7 +1510,8 @@ fun variadic(arg Int, ...args Int) Int {
 }
 
 // Variadic templates (alternatively `fun forward<...T>(...args T)`)
-fun forward(...args) [args.meta.commonType] { // Every `args` value can be of any type as no singular `T` constraint is used
+fun forward(...args) [args.meta.commonType] {
+	// Every `args` value can be of any type as no singular `T` constraint is used
 	variadic(...args) // Forwarding
 	args.length
 
@@ -1681,7 +1687,8 @@ p.x = 10 // Error: cannot assign to readonly field
 let origin = p.origin // Effectively `let origin = readonly p.origin`
 origin.x = 10 // Error: fields inherit `readonly` from outside
 
-// Inheritance of mutability allows fine-tuning: classes do *not* become `readonly` when their base is `readonly`, this is decided by the descendant
+// Inheritance of mutability allows fine-tuning:
+// Classes do *not* become `readonly` when their base is `readonly`, this is decided by the descendant
 // With writable base class:
 class A { var a } // `.a` is writable from outside
 class B readonly A { var b } // `.a` is readonly inside of the class, `.b` is writable
@@ -1784,7 +1791,8 @@ let point = Point { x: 1, y: 2 } // Can omit `()` when `new` does not require an
 // Alternatively even more JSON-like
 let point Point = { x: 1, y: 2 } // Type inference -> Point type omitted on the right side
 let point Point = { "x": 1, y: 2 } // NOTE `"x"` is okay if corresponding field is called `x` too
-let point Point = { "x": 1, "y": 2 } // Enables copy-paste of actual JSON into the code -> field names are checked and should match
+let point Point = { "x": 1, "y": 2 } // Enables copy-paste of actual JSON into the code
+// -> field names are checked and should match
 
 // Making a copy (when `new` does not require any arguments)
 let point2 = { ...point }
@@ -1836,7 +1844,8 @@ let box3 = Box<Int, String>(123, "hello")
 Const generics allow the creation of types that depend on values.
 
 ```hexa
-class Box<T, size T> { // NOTE camelCase is used to declare a constant generic and can depend on other generics (e.g. `T`)
+// NOTE camelCase is used to declare a constant generic and can depend on other generics (e.g. `T`)
+class Box<T, size T> {
 	var value T
 
 	// Effectively associated constants (they will be compile-time well known)
@@ -1856,7 +1865,8 @@ class Box<T, size T = 123> { /* ... */ }
 
 // Enumerations can be used as constant generics -> they must be of a simple basic type
 enum AsyncMode Int { Async AutoAwait CallerDecides }
-class MyWorker<mode AsyncMode> { } // Do not select tag as a *type* (e.g. `<mode AsyncMode.Async>`) only enum type name itself
+// Do not select tag as a *type* (e.g. `<mode AsyncMode.Async>`) only enum type name itself
+class MyWorker<mode AsyncMode> { }
 MyWorker<AsyncMode.Async>() // The `<T.U>` syntax selects the enum tag
 let tag = AsyncMode.Async // May also store in the compile-time well known variable
 MyWorker<mode: tag>() // Passing variable name that contains enum tag
@@ -1914,7 +1924,9 @@ box.extension(123)
 enum Color BoxTrait<Int> { Red Green Blue fun box(value Int) Void { } }
 
 // Generic class with a trait as a type limit
-class Box<T BoxTrait<Int>> { // NOTE `BoxTrait<Int>` is a type limit placed after the type parameter with a space in between
+// NOTE `BoxTrait<Int>` is a type limit placed after the type parameter with a *space* in between
+class Box<T BoxTrait<Int>> {
+	// Type parameter `T` that conforms to `BoxTrait<Int>` is now available
 	var value T
 
 	new (value T) {
@@ -2182,7 +2194,8 @@ Destructuring allows for unpacking values from objects and arrays into individua
 
 ```hexa
 // NOTE `let` is required for clarity
-// Does not work with `var` for safety reasons: `var` could confuse the reader into thinking that the `Rect` object's fields are being reassigned
+// Does not work with `var` for safety reasons:
+// `var` could confuse the reader into thinking that the `Rect` object's fields are being reassigned
 let {width, height} = Rect {width: 1, height: 2}
 
 // Nullables are fine
@@ -2225,7 +2238,8 @@ switch value {
 		console.log("Rectangle width: ", rectangle.width)
 
 	// Capture the whole object if the fields match, and also capture the fields themselves
-	case SomeEnum(rect as rectangle: {width, height: 123}): // Capture `width` and `rect` as a variable `rectangle` if `height` is `123`
+	case SomeEnum(rect as rectangle: {width, height: 123}):
+		// Capture `width` and `rect` as a variable `rectangle` if `height` is `123`
 		console.log("Rectangle width: ", rectangle.width, "==", width)
 
 	// Advanced patterns
@@ -2529,7 +2543,8 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 
 	// Pattern guards
 	// NOTE guards bind the values as `@local` and `readonly` within the `if` itself for safety, `if let` skips nulls
-	case value? if let value, value > 1, let alias = value: // In-guard bound values are available in the scope of the case
+	case value? if let value, value > 1, let alias = value:
+		// In-guard bound values are available in the scope of the case
 		console.log("Greater than 1:", alias)
 
 	// Safety check for **top-level wildcard** patterns that capture the original value as-is
@@ -2542,7 +2557,8 @@ switch value { // uses `switch` keyword for pattern matching thus familiar to C-
 }
 
 // Postfix form `.switch` is allowed in an expression context:
-some = value.switch { // NOTE `switch` is a hard-reserved keyword (as per the Keywords list), the parser treats `value.switch { ... }` as a language construct
+some = value.switch { // NOTE `switch` is a hard-reserved keyword (as per the Keywords list)
+	// The parser treats `value.switch { ... }` as a language construct
 	case 1: true
 	case _: false
 }
@@ -2577,7 +2593,8 @@ let result = switch value { // NOTE no `()`
 	// Order of wildcard pattern does not matter and always acts as fallback
 	case _: // NOTE always checked last no matter where it is placed
 		"Other"
-	case 1 if value >= 1: // NOTE `if` is a runtime check, its executed when pattern is matched but if evaluates to `false` then next case is checked
+	case 1 if value >= 1: // NOTE `if` is a runtime check
+		// It's executed when pattern is matched but when `if` evaluates to `false` then next case is checked
 		"One"
 	// Switch over computable values
 	case (three): // NOTE `()` picks runtime value to match to
@@ -3001,7 +3018,8 @@ x = value! // Removes the `?` from the type -> exception if value is null
 x = value ?? throw "Value is required"
 
 // Those cases are not special operators, just `!` and then `.field`
-x = value!.field // Force unpack and then access the field -> exception if value is null (`value!.field` would throw anyway due to immediate null-dereference)
+x = value!.field // Force unpack and then access the field -> exception if value is null
+// (`value!.field` would throw anyway due to immediate null-dereference)
 
 // `value?` is an optional chaining operator that can only be used in a combination with some other operators
 value?.field // Optional chaining -> null if value is null
@@ -3038,7 +3056,8 @@ The project file also controls the namespace of each module and which namespaces
 Math.sin(1) // Can call into the namespace (here `Math`) directly
 
 // Instead the whole or partial content of the namespace can be imported
-import Math // A wildcard import of everything within the namespace (e.g. all static fields and associated types from the namespace)
+import Math // A wildcard import of everything within the namespace
+// (e.g. all static fields and associated types from the namespace)
 sin(1) // The `sin` is now available in the current scope
 
 // Can import static fields into current scope and associated types (e.g. `sin()`)
@@ -3414,7 +3433,10 @@ switch string {
 		console.log("Whole match:", whole)
 
 	// Guards -> allow extra checks and to re-bind/shadow with conversions
-	case /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/ if let year = parseInt(year), let month = parseInt(month), let day = parseInt(day):
+	case /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/
+		if let year = parseInt(year),
+		let month = parseInt(month),
+		let day = parseInt(day):
 		console.log("Date:", year, month, day)
 
 	// Repeated groups with `*`, `+`, `{n,m}`/`{n}`/`{n,}`, `*?`/`+?` (nullable) on a capturing group bind to arrays
@@ -3458,18 +3480,20 @@ let globalResource Resource = Resource()
 {
 	let localResource Resource = @local Resource() // Enforce local scope
 	trackResource(localResource) // We can pass it to a function that tracks resources
-	trackResource(globalResource) // Ok, @local is compatible with non-local resources because enforces the call-tree, not specifically the stack allocation
+	trackResource(globalResource) // Ok, @local is compatible with non-local resources
+	// Because it enforces the call-tree, not specifically the stack allocation
 }
 
 // Example of a consuming decorator
 // Enables defensive programming via hiding sensitive intermediates
 fun loadDLL(name String) {
 	let env = "C:\\Windows\\System32\\"
-	let fullPath = env + @hide name // @hide is a decorator that marks the variable as hidden from the rest of the scope (it can be used in other contexts too)
+	let fullPath = env + @hide name // `@hide` is a decorator that marks the variable as hidden from the rest of the scope
+	// (`@hide` can be used in other contexts too)
 
 	/// ... imagine lots of code lines obscuring the actual logic ...
 	readFile(fullPath)
-	// readFile(name) // Without the @hide it would be easy to make a mistake and pass the wrong variable
+	// readFile(name) // Without the `@hide` it would be easy to make a mistake and pass the wrong variable
 }
 
 loadDLL('kernel32.dll')
