@@ -3703,7 +3703,10 @@ fun process(value Int) Int {
 			// Can define multiple local variables with `let`, reassignment is not allowed
 			let even = (result % 2) == 0
 			nonNegative and even
-		}
+		} or "result must be non-negative and even"
+
+		// Can have multiple checks for result
+		@returns result > 5 or "result must be greater than 5"
 
 		// Exception-aware verifier: runs only if an exception was thrown
 		@throws {
@@ -3781,14 +3784,14 @@ fun handleLoginCorrect(user String) {
 
 // Even across helpers and deep calls
 fun processRequest(user String) {
-    validateUsername(user)          // flag emitted here
-    dispatchToModules(user)         // flag flows through arbitrary depth
+	validateUsername(user) // Flag "username_validated" emitted here
+	dispatchToModules(user) // Flag flows through arbitrary depth
 }
 
-@flagDeferRequireOnce("username_validated")  // enforce by function exit
+@flagDeferRequireOnce("username_validated") // Enforce by function exit
 fun dispatchToModules(user String) {
-    sendWelcomeEmail(user)          // requires the flag
-    thirdPartyAnalytics(user)       // any helper can require it too
+	sendWelcomeEmail(user) // Requires the flag
+	thirdPartyAnalytics(user) // Any helper can require it too
 }
 ```
 
