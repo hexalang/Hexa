@@ -553,6 +553,28 @@ let lightsCount = size
 let lights ArrayByValue<Light, lightsCount> = [1, 2, 3, 4, 5]
 ```
 
+### Arrays by Value Pattern Matching
+
+
+```hexa
+let arr ArrayByValue<Int, 3> = [1, 2, 3]
+
+switch arr {
+	case [1, 2, 3]: console.log("One")
+	case [1, 2, 5]: console.log("Three")
+	case _: console.log("Other")
+}
+```
+
+### Arrays by Value Iteration
+
+
+```hexa
+for x in arr {
+	console.log(x)
+}
+```
+
 #### Arrays by Value FFI
 
 The C representation of arrays by value is as follows:
