@@ -278,6 +278,14 @@ fun customMain() {
 ```hexa
 	// Safe access to memory without copying
 	for i in data.length {
+### Volatile Access
+
+The `@volatile` decorator is used for hardware register access where reads/writes should not be optimized away.
+
+```hexa
+@volatile var hwRegister UInt32 = 0x40000000.as(UInt32)
+```
+
 	}
 }
 
