@@ -42,6 +42,31 @@ On native platforms, Hexa exceptions are compatible with the C++ exception ABI. 
 ## Functions
 
 ```hexa
+### Stack vs Heap Allocation Tracking
+
+Hexa tracks structure allocations to prevent stack references from escaping:
+
+```hexa
+@struct
+class Buffer {
+	var data ArrayByValue<UInt8, 256>
+}
+
+fun process() {
+	// Stack allocation - tracked to ensure it doesn't escape
+	let stackBuffer = Buffer()
+
+	// Heap allocation - can be returned or stored
+	let heapBuffer = @heap Buffer()
+
+	// stackBuffer cannot be returned or stored in a field
+	// return stackBuffer // Error: stack reference would escape
+
+	// heapBuffer can be returned
+	return heapBuffer // OK
+}
+```
+
 ## Unions
 
 Unions allow multiple fields to share the same memory space, similar to C unions.
