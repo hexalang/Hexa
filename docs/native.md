@@ -26,7 +26,142 @@ let immutableVal Int = 10
 ## Functions
 
 ```hexa
+## Unions
+
+Unions allow multiple fields to share the same memory space, similar to C unions.
+
+### Tagged Structural Unions
+
+The `enum` in a combination with a `@struct` decorator can be used as a tagged union:
+
+```hexa
+@struct // Forces a struct layout with unmanaged allocation
+enum MyTaggedUnion {
+	Int(asInt Int)
+}
+
+// The tag is implicitly managed by the compiler
+// Allocation pattern in the same as for normal `@struct`
+let data MyTaggedUnion = MyTaggedUnion.Int(asInt: 123)
+
+// Access via switch is happens with a normal syntax
+switch data {
+	case Int(int):
+		console.log(int)
+	case Float(float):
+		console.log(float)
+}
 ```
+
+#### Tagged Structural Unions FFI
+
+The C representation of the tagged structural union is as follows:
+
+```c
+typedef enum {
+	MyTaggedUnion$Tag_Int,
+	MyTaggedUnion$Tag_Float
+} MyTaggedUnion$Tag;
+
+typedef struct {
+	MyTaggedUnion$Tag $tag;
+	union {
+		int asInt;
+		float asFloat;
+	} data;
+} MyTaggedUnion;
+```
+
+It may be generated for outside C bindings.
+
+
+### Untagged Structural Unions
+
+For direct memory overlay without tagging overhead, use plain `@union` with `@struct`:
+
+```hexa
+@union @struct
+class UntaggedUnion {
+	// Works exactly like C union
+	var asBytes ArrayByValue<UInt8, 4>
+	var asInt Int32
+	var asFloat Float32
+}
+
+// Manual tag placement - can be elsewhere
+// You would need to wrap the union into parent structure to place a tag
+// Or use a separate variable to store the tag
+var tag Int
+```
+
+Due to lack of tags, conventional access via `switch` should be performed with a guard:
+
+```hexa
+switch union {
+	// Compiler enforces `if` guard to be present for `@union @struct` types
+	case Int32(int) if tag == 0:
+		// In the scope of the `case`, `int` would have a type of `Int32`
+		console.log(int)
+	case Float32(float) if tag == 1:
+		console.log(float)
+	case _:
+		console.log("Fallback")
+}
+```
+
+#### Untagged Structural Unions FFI
+
+The C representation of the untagged structural union is as follows:
+
+```c
+typedef union {
+	uint8_t asBytes[4];
+	int32_t asInt;
+	float asFloat;
+} UntaggedUnion;
+```
+
+It may be generated for outside C bindings.
+
+
+## Enumeration Bit Flags
+
+Enums can be used as bit flags for efficient state management.
+
+```hexa
+@flags enum Permission Int {
+	Read    // 1 aka 0b001 aka 1 << 0
+	Write   // 2 aka 0b010 aka 1 << 1
+	Execute // 4 aka 0b100 aka 1 << 2
+}
+
+// Bitwise OR operator for combining flags
+var p = Permission.Read | Permission.Write
+
+// Pattern matching with flags
+switch p {
+	case Read | Write | ...: // Partial match (at least has both)
+		console.log("Can read and write")
+}
+```
+
+#### Enumeration Bit Flags FFI
+
+The C representation of the enumeration bit flags is as follows:
+
+```c
+typedef enum {
+	Permission_Read = 1,
+	Permission_Write = 2,
+	Permission_Execute = 4,
+
+	// Size enforcement to align with `Int` size
+	Permission_$padding = 2147483647
+} Permission;
+```
+
+It may be generated for outside C bindings.
+
 
 ## Control Flow
 
