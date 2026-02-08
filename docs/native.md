@@ -97,10 +97,92 @@ fun forwardToPrintf(format ClangString, ...args) Int {
 Seamless interoperability with C libraries through external function declarations and bindings.
 
 ```hexa
+### Function Pointers and Closures
+
+Functions in Hexa are just plain C functions without hidden overhead.
+But there's a special scenario for scope-capturing functions (closures), methods and function references.
+
+Consider this example:
+
+```hexa
+fun outer() {
+	let x = 10
+	let y = 20
+
+	// A closure that captures x and y
+	let closure = fun (z Int) Int {
+		return x + y + z
+	}
+
+	return closure
 }
+
+// Plain function call
+outer() // Zero overhead
+
+// Taking a function pointer to the normal function
+let funcPtr = outer // Default function pointer is non-capturing
+funcPtr() // Zero overhead
+
+// Inferred as non-capturing function pointer
+let funcPtr @noCapture () => Int = outer // Allowed, as outer doesn't capture anything
+funcPtr() // Zero overhead
+
+// Explicitly as capturing function reference
+let funcRef () => Int = outer // Explicitly as capturing (wrapper for outer is produced)
+funcRef() // Very likely to be optimized to zero overhead
+
+// Taking a function reference to the closure (from result of outer)
+let result = outer()
+
+// Calling the capturing function pointer
+result(10)
 ```
 
-## Native Structures (@struct)
+In this case, the closure is converted to a C struct that contains the captured variables.
+
+And a separate variable with a function pointer is also produced.
+
+Closure itself does not contain the function pointer. It only contains the captured variables.
+
+This is an optimization for the case where the closure is not captured.
+
+When the plain C function is taken as a reference (not just a pointer, i.e. it lacks `@noCapture` decorator), then extra wrapper-function is produced that *simply forwards arguments to the original function*. This wrapper-function is then used at compilation time, and used as a function pointer (one such function per each external C function). There's no closure being produced in this case (the reference to the closure itself is `null`) - no allocations are made.
+
+```c
+// The C struct that contains the captured variables
+typedef struct {
+	int x;
+	int y;
+} Closure;
+
+// The function pointer
+typedef int (*ClosureFunc)(Closure* closure, int z);
+
+// The function reference is split in two variables
+ClosureFunc result$funcPtr; // Plain pointer
+Closure* result$closure = outer(&result$funcPtr); // Managed reference
+
+// Calling the capturing function pointer with the closure as `this`
+int result = result$funcPtr(result$closure, 10);
+```
+
+### Function Pointers and Closures
+
+Use `@noCapture` decorator to explicitly mark a function or function pointer as non-capturing.
+This ensures C ABI compatibility for function pointers.
+
+```hexa
+// Non-capturing function (on the Hexa side, to ensure C ABI compatibility)
+@noCapture fun add(a Int, b Int) Int {
+	return a + b
+}
+
+// Non-capturing function pointer
+let funcPtr @noCapture (a Int, b Int) => Int = add
+```
+
+## Native Structures
 
 Unlike standard classes, `@struct` classes are designed for low-level memory layout control. They are passed by reference (native pointers) by default.
 
