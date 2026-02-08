@@ -206,13 +206,30 @@ It may be generated for outside C bindings.
 
 ## Arrays by Value
 
-### Creating Arrays by Value
+Arrays by value are fixed-size arrays that are allocated on the stack or within a structure (as a field).
+
+Various methods to create and initialize fixed-size arrays with compile-time size deduction and value filling.
 
 ```hexa
 // Creating an array by value with a 3 elements
 let arr ArrayByValue<Int, 3> = [1, 2, 3] // Using normal array syntax for initialization
 
+// Size of 0 is a special case for arrays of unknown length, they are not bounds checked
+@struct declare class FileHeader { // Assume some file format with arbitrary payload
+	let data Int // Some data
+	let payload ArrayByValue<UInt8, 0> // Payload of unknown length
+}
+
+// Size deduction
+let arr ArrayByValue<Int> = [1, 2, 3] // Size deduced from the initializer
+// TODO _?
+
+// Size from a compile time known value
+let size = 3
+let arr ArrayByValue<Int, size> = [1, 2, 3] // Size deduced from the compile time known value `size`
+
 // Zero-filled array by value
+// `0` is a special value that can be used to zero-fill an array by value of any type
 let arr ArrayByValue<Int, 3> = [...0] // Using `...` with a compile time known value
 
 // Fill an array by value with a compile time known value for all elements
@@ -222,8 +239,29 @@ let arr ArrayByValue<Int, 3> = [...42] // Using `...` with a compile time known 
 var x = 42 + other()
 let arr ArrayByValue<Int, 3> = [...x] // Using `...` with a runtime value
 
+// May be initialized with structures
+let arr ArrayByValue<MyStruct, 3> = [...{}] // Type of `{}` constructor is deduced from the array type
+// NOTE `{}` constructor is executed for every index independently
+
+// May be initialized with a callback
+let arr ArrayByValue<MyStruct, 3> = [...index => MyStruct(x: index, y: index)]
+// NOTE `index => result` callback is executed for every index independently
+// The computation is compile time if possible
+
+// Fill an array by value with a default value for all implicit elements
+let arr ArrayByValue<Int, 256> = [1, 2, 3, ...0]
+
 // Leave uninitialized
 let arr ArrayByValue<Int, 3> = [] // Must explicitly mark as uninitialized with `[]`
+// TODO error prone, also 0 is not valid value for structures etc, better:
+let arr ArrayByValue<Int, 3> = [1, 2, ...meta.zeroed] // Fine control
+let arr ArrayByValue<Int, 3> = [1, 2, ...meta.uninitialized]
+// TODO allow/sample [for] to return meta.zeroed and meta.uninitialized
+
+// String initialization (null terminated)
+let arr ArrayByValue<Char, 6> = "hello" // Using string initialization
+// TODO non-null terminated strings, UTF-8, UTF-16, plain integers
+// Maybe just end string with "\0" to make it null terminated?
 ```
 
 ### Copying Arrays by Value
