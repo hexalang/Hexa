@@ -308,6 +308,27 @@ class NativeStructure {
 // Compiler will error if the actual size doesn't match the expected size
 ```
 
+### Native Cast Types
+
+When targeting C++, Java, C#, and similar platforms, Hexa supports rich casting options:
+
+```hexa
+expr.as(Type, 'static_cast')
+
+// Dynamic cast (runtime type checking)
+expr.as(Type, 'dynamic_cast')
+
+// Const cast (remove const qualifier)
+expr.as(Type, 'const_cast')
+
+// Reinterpret cast (low-level bit reinterpretation)
+expr.as(Type, 'reinterpret_cast')
+
+// Using compile-time known values
+let cast = 'reinterpret_cast'
+expr.as(Type, cast)
+```
+
 ### Custom Entry Points
 
 Use the `@entry` decorator to define custom program entry points:
