@@ -75,12 +75,12 @@ The C representation of the tagged structural union is as follows:
 
 ```c
 typedef enum {
-	MyTaggedUnion$Tag_Int,
-	MyTaggedUnion$Tag_Float
-} MyTaggedUnion$Tag;
+	MyTaggedUnion$Int,
+	MyTaggedUnion$Float
+} MyTaggedUnion$tag;
 
 typedef struct {
-	MyTaggedUnion$Tag $tag;
+	MyTaggedUnion$tag $tag;
 	union {
 		int asInt;
 		float asFloat;
@@ -239,6 +239,14 @@ The C representation of arrays by value is as follows:
 ```c
 typedef int32_t ArrayByValue_Int_3[3];
 ```
+
+## Strings
+
+Hexa's own managed strings (aka `String`) are objects that exisits only in a single unique copy per string value.
+
+Essentially they a deduplicated and interned strings on creation. Default encoding is UTF-16.
+
+On the other hand, string literals implementation depends on the context they are used in.
 
 ### Native Strings
 
