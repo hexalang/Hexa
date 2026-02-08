@@ -249,6 +249,19 @@ SDL.createWindow("My Window".utf8(), /* ...etc */)
 SDL.createWindow("My Window".utf16(), /* ...etc */)
 ```
 
+### Native Strings Pattern Matching
+```hexa
+// ClangString is a native string pointer type that assumes the string is null terminated
+let str ClangString = "hello"
+
+switch str {
+	case "hello": console.log("hello")
+	case "world": console.log("world")
+	case /hi/i: console.log("hi") // Regex is fine too
+	case _: console.log("other")
+}
+```
+
 #### Native Strings FFI
 
 The C representation of native string types is as follows:
