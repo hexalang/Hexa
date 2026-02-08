@@ -34,6 +34,17 @@ On native platforms, Hexa exceptions are compatible with the C++ exception ABI. 
 | `UInt8`, `UInt16`, `UInt32`, `UInt64` | Unsigned Integers | 1, 2, 4, 8 bytes |
 | `Float32`, `Float64` | Floating Point | 4, 8 bytes |
 | `Bool` | Boolean | 1 byte |
+## Inline Functions
+
+The `@inline` decorator hints the compiler to inline a function call for performance optimization.
+
+```hexa
+// Hints the compiler to inline this function
+@inline fun add(a Int, b Int) Int {
+	return a + b
+}
+```
+
 
 
 ```hexa
