@@ -286,6 +286,21 @@ The `@volatile` decorator is used for hardware register access where reads/write
 @volatile var hwRegister UInt32 = 0x40000000.as(UInt32)
 ```
 
+Applicable to fields, variables and function arguments.
+
+### Packed Structures
+
+The `@packed` decorator removes padding between fields in structures for precise memory layout control.
+
+```hexa
+@packed
+@struct
+class PackedData {
+	var a UInt8
+	var b UInt32 // No padding between a and b
+}
+```
+
 	}
 }
 
