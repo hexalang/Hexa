@@ -265,6 +265,22 @@ Reference counting operations over `null` are ignored and are not tracked by mem
 
 Due to Hexa doing immediate null checks when using forced null dereference operator `!` and casts, the misuse of the `null` object is not a concern.
 
+### Compile-Time Assertions
+
+Hexa supports systems-programming specific compile-time assertions for ensuring code correctness or to follow external requirements.
+
+Use decorators like `@sizeOf` to enforce compile-time checks:
+
+```hexa
+@sizeOf(256)
+@struct
+class NativeStructure {
+	let bytes ArrayByValue<UInt8, 256> // @sizeOf enforces the total size of the structure
+}
+
+// Compiler will error if the actual size doesn't match the expected size
+```
+
 ### Custom Entry Points
 
 Use the `@entry` decorator to define custom program entry points:
