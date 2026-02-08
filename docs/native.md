@@ -232,6 +232,21 @@ let lightsCount = size
 let lights ArrayByValue<Light, lightsCount> = [1, 2, 3, 4, 5]
 ```
 
+### Compile-Time Known Values
+
+Compiler may use `let` variables when can prove that they are compile-time computable.
+
+```hexa
+// Can set size with a compile-time known value of a let variable
+let size = 256
+
+// May be evaluated at compile time from size
+let lightsCount = size * 2
+
+// Pass the array's size as a const generic parameter
+let lights ArrayByValue<Light, lightsCount> = [...0]
+```
+
 ## Null
 
 The `null` is a special object that can be assigned to any nullable and even non-nullable type.
