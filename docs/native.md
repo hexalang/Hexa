@@ -8,6 +8,24 @@ Hexa is a systems programming language designed for performance and safety. This
 
 Inline // comments explain non-obvious aspects of each example. Always read them. They often clarify safety, performance, or constraints that emerge from Hexa semantics rather than its syntax.
 
+## Stable ABI/API Promise
+
+
+## FFI
+
+Every section explores a relevant C or C++ counterpart on a by-example basis.
+
+You may see what headers Hexa produces for seamless interop with other programming languages.
+
+Please note, that Hexa will not generate headers until explicitly requested.
+
+## C++ Interoperability
+
+Hexa aims at limited, but pragmatic, C++ feature subset.
+Most of the time, adding a plain `@cpp` decorator to the subject would cause a C++ versions to be produced (for example, `enum class` instead of a plain `enum`).
+
+On native platforms, Hexa exceptions are compatible with the C++ exception ABI. On C targets, exceptions cause the program to panic (abort).
+
 ## Primitive Types
 
 | Type | Description | Size |
@@ -378,4 +396,6 @@ __declspec(restrict) uint8_t* allocateBuffer(size_t size);
 
 # Conclusion
 
-Hexa provides a robust foundation for systems programming by balancing high-level abstractions with low-level control. The features discussed—efficient value-based arrays and optimized null handling—demonstrate the language's commitment to performance, predictability, and memory safety.
+Hexa offers a powerful and pragmatic approach to systems programming, maintaining a C-like stable ABI/API while providing seamless FFI capabilities for interoperability with other languages. Through its comprehensive exploration of C and C++ counterparts in each section, developers can generate headers and bindings that integrate effortlessly into existing ecosystems.
+
+By combining advanced features with robust memory management and type safety, Hexa enables the creation of high-performance, reliable native applications that are both maintainable and interoperable.
