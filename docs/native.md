@@ -100,6 +100,74 @@ Seamless interoperability with C libraries through external function declaration
 }
 ```
 
+## Native Structures (@struct)
+
+Unlike standard classes, `@struct` classes are designed for low-level memory layout control. They are passed by reference (native pointers) by default.
+
+Users are not supposed to copy structures by value (copying structures by value is done with `ByValue` wrapper as a last resort).
+
+```hexa
+@struct
+@packed // No padding between fields
+@sizeOf(16) // Enforce specific size in bytes
+class NativePoint {
+	@bits(8) var x Int // Bit field support
+	@bits(8) var y Int = 0 // Default values are allowed
+
+	// May have a constructor
+	new (x Int, y Int) {
+		this.x = x
+		this.y = y
+	}
+
+	// Optionally decide custom virtual method table placement
+	// @virtualTable let vtable VirtualTable<NativePoint> = meta.vtable
+
+	// Methods on structures are not virtual and do not create a vtable
+	fun add(other NativePoint) {
+		this.x += other.x
+		this.y += other.y
+	}
+
+	// Virtual methods create a vtable when explicitly marked with `@virtual`
+	@virtual fun addVirtual(other NativePoint) {
+		this.x += other.x
+		this.y += other.y
+	}
+}
+
+// Allocated on the stack, enforced by the compiler not to leave the stack on the call tree
+let point = NativePoint(x: 1, y: 2) // Implies @local
+// Structure types are passed by reference, and they are tracked so as not to leak
+point.add(NativePoint(x: 3, y: 4))
+
+// Explicit heap allocation with @heap decorator
+let heapPoint = @heap NativePoint(x: 3, y: 4)
+// malloc
+let mallocPoint = malloc(NativePoint.meta.sizeOf).as(NativePoint)
+
+// Stack allocation using ByValue wrapper
+let byValue ByValue<NativePoint> = NativePoint(x: 123, y: 345)
+// Alternatively, value-ness can be inferred from the type
+let byValue ByValue<NativePoint> = @byValue NativePoint(x: 123, y: 345)
+
+// Accessing pointer from ByValue
+let ptr *NativePoint = byValue.ref
+
+// ByValue may be constructed directly to avoid calling the constructor
+let byValue ByValue<NativePoint> = ByValue<NativePoint>() // No arguments allowed
+// Has to be initialized manually
+byValue.ref.x = 123
+byValue.ref.y = 345
+
+// Copy from other one by-reference into by-value storage
+let point NativePoint = NativePoint(x: 123, y: 345) // By-reference
+let byValue ByValue<NativePoint> = point // By-value copy from a reference
+
+// Casting a raw address to a structure pointer
+let x = 0x1234.as(NativeStructure)
+```
+
 ### Stack vs Heap Allocation Tracking
 
 Hexa tracks structure allocations to prevent stack references from escaping:
