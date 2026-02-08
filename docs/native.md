@@ -232,6 +232,14 @@ let lightsCount = size
 let lights ArrayByValue<Light, lightsCount> = [1, 2, 3, 4, 5]
 ```
 
+#### Arrays by Value FFI
+
+The C representation of arrays by value is as follows:
+
+```c
+typedef int32_t ArrayByValue_Int_3[3];
+```
+
 ### Native Strings
 
 Plain string literals are encoded the way functions and variables expect them:
