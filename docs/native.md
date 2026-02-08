@@ -399,6 +399,44 @@ switch str {
 }
 ```
 
+### String Helpers and Operations
+
+Native string methods overloaded for compatibility with managed strings, supporting concatenation, indexing, and common string operations.
+
+Native string methods are overloaded to be compatible with dynamic `String`:
+
+```hexa
+let nativeString ClangString = "hello, world"
+let managedString String = "world"
+nativeString.indexOf(managedString) == 7 // NOTE assumes UTF-8 encoding because its not ClangWideString
+
+// Concatenation of managed string with native one (in any order) produces a new managed string
+let string String = managedString + nativeString
+
+// Concatenation of native strings is possible only within allocation arena context
+let string ClangString = nativeString + nativeString
+// NOTE UTF-16 always takes precedence over UTF-8 (similar logic to numbers, also UTF-8 can contain ASCII)
+let wideString ClangWideString = "!"
+let wide ClangWideString = nativeString + wideString
+
+// String interpolation (requirements same as for concatenation)
+let str ClangWideString = "hello, {managedString}"
+
+// All variaties of string methods are available (because native strings assume null-termination)
+nativeString.length()
+nativeString.indexOf("l")
+nativeString.lastIndexOf("l")
+nativeString.startsWith("he")
+nativeString.endsWith("lo")
+nativeString.includes("l")
+nativeString.indexOf("l", 2)
+nativeString.lastIndexOf("l", 2)
+nativeString.startsWith("he", 2)
+nativeString.endsWith("lo", 2)
+nativeString.includes("l", 2)
+// etc
+```
+
 #### Native Strings FFI
 
 The C representation of native string types is as follows:
