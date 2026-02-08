@@ -232,6 +232,23 @@ let lightsCount = size
 let lights ArrayByValue<Light, lightsCount> = [1, 2, 3, 4, 5]
 ```
 
+### Native Strings
+
+Plain string literals are encoded the way functions and variables expect them:
+
+```hexa
+// Passing a normal "string" literal to a function no matter what encoding it expects
+SDL.createWindow("My Window", 100, 100, 640, 480, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE)
+```
+
+If the string is a not a literal, then explicit encoding must be specified:
+
+```hexa
+// This creates a string copy attached to the string object with a requested encoding which will be reused in next calls (cached)
+SDL.createWindow("My Window".utf8(), /* ...etc */)
+SDL.createWindow("My Window".utf16(), /* ...etc */)
+```
+
 #### Native Strings FFI
 
 The C representation of native string types is as follows:
