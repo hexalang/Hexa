@@ -232,6 +232,16 @@ let lightsCount = size
 let lights ArrayByValue<Light, lightsCount> = [1, 2, 3, 4, 5]
 ```
 
+#### Native Strings FFI
+
+The C representation of native string types is as follows:
+
+```c
+typedef const char* ClangString;
+typedef const wchar_t* ClangWideString;
+```
+
+
 ### Compile-Time Known Values
 
 Compiler may use `let` variables when can prove that they are compile-time computable.
