@@ -472,6 +472,12 @@ void memcpy(restrict uint8_t* dest, restrict uint8_t* src, size_t size) {
 __declspec(restrict) uint8_t* allocateBuffer(size_t size);
 ```
 
+# COM Interop
+
+Component Object Model interoperability features for Windows component integration.
+
+TBA
+
 ```
 
 # Conclusion
