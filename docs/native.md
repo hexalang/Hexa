@@ -301,6 +301,20 @@ class PackedData {
 }
 ```
 
+#### Packed Structures FFI
+
+The C representation of packed structures is as follows:
+
+```c
+#pragma pack(1)
+typedef struct {
+    uint8_t a;
+    uint32_t b;
+} PackedData;
+#pragma pack()
+```
+
+
 ### Bit Fields
 
 The `@bits` decorator supports bit fields for efficient flag storage.
