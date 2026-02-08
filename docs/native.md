@@ -270,6 +270,19 @@ fun customMain() {
 @weak var weakRef SomeClass? = someInstance
 // weakRef may become null if someInstance is garbage collected
 ```
+
+### Span and Memory Views
+
+`Span<T>` provides a safe view over contiguous memory without ownership:
+
+```hexa
+	// Safe access to memory without copying
+	for i in data.length {
+	}
+}
+
+```
+
 # Conclusion
 
 Hexa provides a robust foundation for systems programming by balancing high-level abstractions with low-level control. The features discussed—efficient value-based arrays and optimized null handling—demonstrate the language's commitment to performance, predictability, and memory safety.
