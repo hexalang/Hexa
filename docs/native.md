@@ -35,10 +35,8 @@ On native platforms, Hexa exceptions are compatible with the C++ exception ABI. 
 | `Float32`, `Float64` | Floating Point | 4, 8 bytes |
 | `Bool` | Boolean | 1 byte |
 
-## Variable Declarations
 
 ```hexa
-let immutableVal Int = 10
 ```
 
 ## Functions
@@ -180,24 +178,6 @@ typedef enum {
 
 It may be generated for outside C bindings.
 
-
-## Control Flow
-
-```hexa
-if x > 0 {
-	// code
-} else {
-	// code
-}
-
-for i in 10 {
-	// code
-}
-
-while condition {
-	// code
-}
-```
 
 ## Arrays by Value
 
