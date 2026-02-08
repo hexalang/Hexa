@@ -88,10 +88,61 @@ fun forwardToPrintf(format ClangString, ...args) Int {
 
 // @nativeVariadic disables automatic array collection for direct C-style variadics
 @nativeVariadic
+## Pointers
+
+Hexa allows direct memory access through pointers and manual allocation (or use of external memory resources).
+
+Important to remember that Hexa does **not** have a "single" pointer type, because structural types (the ones that use `@struct`) are always referential and passed via pointers.
+
+This behaviour may be counter-acted via `ByValue<T>` wrapper.
+
+Hexa supports all kinds of memory representations for ultimate control over memory layout:
+
+```hexa
+// Array pointer of MyStruct pointers, same as `MyStruct**` in C:
+ArrayPointer<MyStruct> // Pointer to MyStruct pointers
+
+// Array pointer of MyStruct memory blocks by value, same as `MyStruct*` in C:
+ArrayPointer<ByValue<MyStruct>> // Pointer to MyStruct array
+
+// Array of MyStruct pointers, array itself is passed by value
+ArrayByValue<MyStruct, 256> // In C, this is `MyStruct *items[256]`
+
+// Array of MyStruct memory blocks by value, array itself is passed by value
+ArrayByValue<ByValue<MyStruct>, 256> // In C, this is `MyStruct items[256]`
+```
+
+To make an opaque pointer, simply create an emptry structure or just use `ArrayPointer<Void>`:
+
+```hexa
+@struct class Handle {} // Opaque pointer
+
+let handle Handle = getHandle()
+
+// Hexa has a strict type system
+let ptr ArrayPointer<Void> = handle // ERROR: Incompatible types
+let handle Handle = ptr // ERROR: Incompatible types
 ```
 
 
 ```hexa
+```
+
+#### Pointers FFI
+
+The C representation of pointer types is as follows:
+
+```c
+// ArrayPointer<Void>
+typedef void* VoidPointer;
+
+// ArrayPointer<Int>
+typedef int32_t* IntPointer;
+
+// ArrayPointer<ArrayPointer<Void>>
+typedef void** ArrayPointer;
+```
+
 
 Seamless interoperability with C libraries through external function declarations and bindings.
 
