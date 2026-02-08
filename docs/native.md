@@ -92,12 +92,11 @@ fun forwardToPrintf(format ClangString, ...args) Int {
 
 
 ```hexa
-## Foreign Functions
 
 Seamless interoperability with C libraries through external function declarations and bindings.
 
 ```hexa
-### Function Pointers and Closures
+#### Function Pointers and Closures FFI
 
 Functions in Hexa are just plain C functions without hidden overhead.
 But there's a special scenario for scope-capturing functions (closures), methods and function references.
@@ -702,6 +701,14 @@ The `@volatile` decorator is used for hardware register access where reads/write
 ```
 
 Applicable to fields, variables and function arguments.
+
+#### Volatile Access FFI
+
+The C representation of volatile access is as follows:
+
+```c
+volatile uint32_t hwRegister = (uint32_t)0x40000000;
+```
 
 ### Packed Structures
 
