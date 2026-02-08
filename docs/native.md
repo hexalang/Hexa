@@ -301,6 +301,33 @@ class PackedData {
 }
 ```
 
+### Bit Fields
+
+The `@bits` decorator supports bit fields for efficient flag storage.
+
+```hexa
+@struct
+class Flags {
+	@bits(1) var flag1 UInt8
+	@bits(1) var flag2 UInt8
+	@bits(6) var reserved UInt8
+}
+```
+
+#### Bit Fields FFI
+
+The C representation of bit fields is as follows:
+
+```c
+typedef struct {
+    uint8_t flag1 : 1;
+    uint8_t flag2 : 1;
+    uint8_t reserved : 6;
+} Flags;
+```
+
+It may be generated for outside C bindings.
+
 	}
 }
 
