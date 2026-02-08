@@ -252,6 +252,17 @@ Reference counting operations over `null` are ignored and are not tracked by mem
 
 Due to Hexa doing immediate null checks when using forced null dereference operator `!` and casts, the misuse of the `null` object is not a concern.
 
+### Custom Entry Points
+
+Use the `@entry` decorator to define custom program entry points:
+
+```hexa
+@entry
+fun customMain() {
+	// Custom entry point for the program
+	console.log("Starting from custom entry point")
+}
+```
 
 ### Weak References
 
