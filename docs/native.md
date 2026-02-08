@@ -28,12 +28,34 @@ On native platforms, Hexa exceptions are compatible with the C++ exception ABI. 
 
 ## Primitive Types
 
+Hexa provides a set of primitive types for low-level operations, with sizes and representations matching common C types.
+
 | Type | Description | Size |
 | :--- | :--- | :--- |
 | `Int8`, `Int16`, `Int32`, `Int64` | Signed Integers | 1, 2, 4, 8 bytes |
 | `UInt8`, `UInt16`, `UInt32`, `UInt64` | Unsigned Integers | 1, 2, 4, 8 bytes |
 | `Float32`, `Float64` | Floating Point | 4, 8 bytes |
+| `SizeOfPointer`, `SignedSizeOfPointer` | Integer with size of pointer | 4 or 8 bytes |
 | `Bool` | Boolean | 1 byte |
+| `Void` | No value | 0 bytes |
+
+#### Primitive Types FFI
+
+The C representation of primitive types is as follows:
+
+```c
+typedef int8_t Int8;
+typedef int16_t Int16;
+typedef int32_t Int32;
+typedef int64_t Int64;
+typedef uint8_t UInt8;
+typedef uint16_t UInt16;
+typedef uint32_t UInt32;
+typedef uint64_t UInt64;
+typedef double Float64;
+typedef void Void;
+```
+
 ## Inline Functions
 
 The `@inline` decorator hints the compiler to inline a function call for performance optimization.
