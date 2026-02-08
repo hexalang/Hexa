@@ -45,14 +45,39 @@ The `@inline` decorator hints the compiler to inline a function call for perform
 }
 ```
 
+### Variadic Functions
 
+Hexa supports variadic functions for handling variable numbers of arguments, essential for systems programming interfaces.
 
 ```hexa
+// Basic variadic function with ...args
+fun printf(format ClangString, ...args) Int {
+	// args is automatically converted to array for processing
+	for arg in args {
+		// Process each argument
+	}
+	return args.length
+}
+
+// Forwarding variadic arguments
+fun forwardToPrintf(format ClangString, ...args) Int {
+	return printf(format, ...args) // Spread operator forwards all arguments
+}
+
+// @nativeVariadic disables automatic array collection for direct C-style variadics
+@nativeVariadic
 ```
 
-## Functions
 
 ```hexa
+## Foreign Functions
+
+Seamless interoperability with C libraries through external function declarations and bindings.
+
+```hexa
+}
+```
+
 ### Stack vs Heap Allocation Tracking
 
 Hexa tracks structure allocations to prevent stack references from escaping:
