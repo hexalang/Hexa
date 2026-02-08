@@ -252,6 +252,13 @@ Reference counting operations over `null` are ignored and are not tracked by mem
 
 Due to Hexa doing immediate null checks when using forced null dereference operator `!` and casts, the misuse of the `null` object is not a concern.
 
+
+### Weak References
+
+```hexa
+@weak var weakRef SomeClass? = someInstance
+// weakRef may become null if someInstance is garbage collected
+```
 # Conclusion
 
 Hexa provides a robust foundation for systems programming by balancing high-level abstractions with low-level control. The features discussed—efficient value-based arrays and optimized null handling—demonstrate the language's commitment to performance, predictability, and memory safety.
