@@ -342,8 +342,37 @@ typedef struct {
 
 It may be generated for outside C bindings.
 
+### Pointer Restriction
+
+The `@restrict` decorator provides pointer aliasing optimization hints to the compiler. In C/C++ output, it translates to the `restrict` keyword (or `__restrict` depending on the compiler) for function arguments, and `__declspec(restrict)` for function return types (MSVC only).
+
+```hexa
+// When applied to function arguments, tells compiler that the pointer doesn't alias with other pointers
+fun memcpy(@restrict dest ArrayPointer<UInt8>, @restrict src ArrayPointer<UInt8>, size UIntSize) {
+	// Compiler can assume dest and src don't overlap
+	for i in size {
+		dest[i] = src[i]
 	}
 }
+
+// When applied to function return type, tells compiler returned pointer is freshly allocated
+// (MSVC only - produces __declspec(restrict))
+}
+```
+
+#### Pointer Restriction FFI
+
+The C representation of pointer restriction is as follows:
+
+```c
+void memcpy(restrict uint8_t* dest, restrict uint8_t* src, size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        dest[i] = src[i];
+    }
+}
+
+__declspec(restrict) uint8_t* allocateBuffer(size_t size);
+```
 
 ```
 
