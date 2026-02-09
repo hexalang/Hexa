@@ -11,11 +11,11 @@ Inline // comments explain non-obvious aspects of each example. Always read them
 ## Stable ABI/API Promise
 
 
-## FFI
+## Foreign Function Interface (FFI)
 
 Every section explores a relevant C or C++ counterpart on a by-example basis.
 
-You may see what headers Hexa produces for seamless interop with other programming languages.
+You may see what headers Hexa produces for seamless interop with other programming languages, not limited to C and C++.
 
 Please note, that Hexa will not generate headers until explicitly requested.
 
@@ -88,6 +88,8 @@ fun forwardToPrintf(format ClangString, ...args) Int {
 
 // @nativeVariadic disables automatic array collection for direct C-style variadics
 @nativeVariadic
+```
+
 ## Pointers
 
 Hexa allows direct memory access through pointers and manual allocation (or use of external memory resources).
@@ -144,12 +146,24 @@ typedef void** ArrayPointer;
 ```
 
 
-Seamless interoperability with C libraries through external function declarations and bindings.
+## External Functions
+
+Hexa provides seamless interoperability with C libraries through external function declarations and bindings.
 
 ```hexa
+```
+
+### External Functions FFI
+
+The C representation of external functions is as follows:
+
+```c
+```
+
 #### Function Pointers and Closures FFI
 
 Functions in Hexa are just plain C functions without hidden overhead.
+
 But there's a special scenario for scope-capturing functions (closures), methods and function references.
 
 Consider this example:
@@ -234,7 +248,7 @@ let funcPtr @noCapture (a Int, b Int) => Int = add
 
 ## Native Structures
 
-Unlike standard classes, `@struct` classes are designed for low-level memory layout control. They are passed by reference (native pointers) by default.
+Unlike standard classes, `@struct` classes are designed for precise memory layout control. By default, they are referential and handled via native pointers. The order of the fields is guaranteed to be the same as in the declaration.
 
 Users are not supposed to copy structures by value (copying structures by value is done with `ByValue` wrapper as a last resort).
 
@@ -331,7 +345,7 @@ Unions allow multiple fields to share the same memory space, similar to C unions
 
 ### Tagged Structural Unions
 
-The `enum` in a combination with a `@struct` decorator can be used as a tagged union:
+The `enum` keyword combined with the `@struct` decorator creates a tagged union with a predictable memory layout:
 
 ```hexa
 @struct // Forces a struct layout with unmanaged allocation
@@ -376,7 +390,7 @@ It may be generated for outside C bindings.
 
 ### Untagged Structural Unions
 
-For direct memory overlay without tagging overhead, use plain `@union` with `@struct`:
+For direct memory overlay without the overhead of a tag, use `@union` in conjunction with `@struct`. This mimics the behavior of a standard C `union`.
 
 ```hexa
 @union @struct
@@ -568,6 +582,7 @@ switch arr {
 
 ### Arrays by Value Iteration
 
+Iterating over `ArrayByValue` is done using standard `for` loops, just like managed arrays.
 
 ```hexa
 for x in arr {
@@ -609,6 +624,11 @@ SDL.createWindow("My Window".utf16(), /* ...etc */)
 ```
 
 ### Native Strings Pattern Matching
+
+Native strings support pattern matching with literal comparisons, regular expressions, and other patterns.
+
+This is possible due to assumption that native strings are null-terminated.
+
 ```hexa
 // ClangString is a native string pointer type that assumes the string is null terminated
 let str ClangString = "hello"
@@ -624,7 +644,6 @@ switch str {
 ### String Helpers and Operations
 
 Native string methods overloaded for compatibility with managed strings, supporting concatenation, indexing, and common string operations.
-
 Native string methods are overloaded to be compatible with dynamic `String`:
 
 ```hexa
@@ -684,7 +703,7 @@ let lightsCount = size * 2
 let lights ArrayByValue<Light, lightsCount> = [...0]
 ```
 
-## Null
+## Null Handling
 
 The `null` is a special object that can be assigned to any nullable and even non-nullable type.
 
@@ -696,15 +715,15 @@ Note that `null` is not used for `@struct` references, as they are native pointe
 
 Due to `null` (including `null!`) being a well known, always present in memory object, we can avoid null-checks in the reference counting operations.
 
-This avoids a common source of performance bottlenecks in languages with reference counting.
+This avoids a common source of performance bottlenecks in languages with automatic reference counting.
 
 Reference counting operations over `null` are ignored and are not tracked by memory manager.
 
 Due to Hexa doing immediate null checks when using forced null dereference operator `!` and casts, the misuse of the `null` object is not a concern.
 
-### Compile-Time Assertions
 
 Hexa supports systems-programming specific compile-time assertions for ensuring code correctness or to follow external requirements.
+### Compile-Time Assertions
 
 Use decorators like `@sizeOf` to enforce compile-time checks:
 
@@ -741,7 +760,7 @@ expr.as(Type, cast)
 
 ### Custom Entry Points
 
-Use the `@entry` decorator to define custom program entry points:
+You can define alternative program entry points using the `@entry` decorator. This is useful for scenarios like building DLLs or custom execution environments.
 
 ```hexa
 @entry
@@ -752,6 +771,8 @@ fun customMain() {
 ```
 
 ### Weak References
+
+The `@weak` decorator creates references that do not prevent collection, which is essential for breaking circular dependencies in managed code.
 
 ```hexa
 @weak var weakRef SomeClass? = someInstance
@@ -765,9 +786,20 @@ fun customMain() {
 ```hexa
 	// Safe access to memory without copying
 	for i in data.length {
+```
+
+### SIMD Support
+
+Hexa provides support for platform-specific SIMD (Single Instruction, Multiple Data) operations for performance-critical parallel processing.
+
+```hexa
+// SIMD types and operations are platform-specific
+// Consult platform documentation for available SIMD types
+```
+
 ### Volatile Access
 
-The `@volatile` decorator is used for hardware register access where reads/writes should not be optimized away.
+The `@volatile` decorator prevents the compiler from optimizing away memory accesses. This is critical when interacting with hardware registers or memory-mapped I/O.
 
 ```hexa
 @volatile var hwRegister UInt32 = 0x40000000.as(UInt32)
@@ -785,7 +817,7 @@ volatile uint32_t hwRegister = (uint32_t)0x40000000;
 
 ### Packed Structures
 
-The `@packed` decorator removes padding between fields in structures for precise memory layout control.
+The `@packed` decorator removes padding between fields within a structure, providing precise control over memory layout for protocol compliance or memory-constrained environments.
 
 ```hexa
 @packed
@@ -812,7 +844,7 @@ typedef struct {
 
 ### Bit Fields
 
-The `@bits` decorator supports bit fields for efficient flag storage.
+The `@bits` decorator enables bit-level field storage, allowing multiple values to be packed into a single primitive type for maximum space efficiency.
 
 ```hexa
 @struct
@@ -839,7 +871,9 @@ It may be generated for outside C bindings.
 
 ### Pointer Restriction
 
-The `@restrict` decorator provides pointer aliasing optimization hints to the compiler. In C/C++ output, it translates to the `restrict` keyword (or `__restrict` depending on the compiler) for function arguments, and `__declspec(restrict)` for function return types (MSVC only).
+The `@restrict` decorator provides aliasing optimization hints to the compiler, indicating that a pointer is the sole means of accessing its target data in a given scope.
+
+In C/C++ output, it translates to the `restrict` keyword (or `__restrict` depending on the compiler) for function arguments, and `__declspec(restrict)` for function return types (MSVC only).
 
 ```hexa
 // When applied to function arguments, tells compiler that the pointer doesn't alias with other pointers
