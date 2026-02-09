@@ -39,7 +39,7 @@ Hexa provides a set of primitive types for low-level operations, with sizes and 
 | `Bool` | Boolean | 1 byte |
 | `Void` | No value | 0 bytes |
 
-#### Primitive Types FFI
+### Primitive Types FFI
 
 The C representation of primitive types is as follows:
 
@@ -67,7 +67,7 @@ The `@inline` decorator hints the compiler to inline a function call for perform
 }
 ```
 
-### Variadic Functions
+## Variadic Functions
 
 Hexa supports variadic functions for handling variable numbers of arguments, essential for systems programming interfaces.
 
@@ -130,7 +130,7 @@ let handle Handle = ptr // ERROR: Incompatible types
 ```hexa
 ```
 
-#### Pointers FFI
+### Pointers FFI
 
 The C representation of pointer types is as follows:
 
@@ -160,7 +160,7 @@ The C representation of external functions is as follows:
 ```c
 ```
 
-#### Function Pointers and Closures FFI
+## Function Pointers and Closures
 
 Functions in Hexa are just plain C functions without hidden overhead.
 
@@ -231,7 +231,7 @@ Closure* result$closure = outer(&result$funcPtr); // Managed reference
 int result = result$funcPtr(result$closure, 10);
 ```
 
-### Function Pointers and Closures
+### Function Pointers and Closures FFI
 
 Use `@noCapture` decorator to explicitly mark a function or function pointer as non-capturing.
 This ensures C ABI compatibility for function pointers.
@@ -314,7 +314,7 @@ let byValue ByValue<NativePoint> = point // By-value copy from a reference
 let x = 0x1234.as(NativeStructure)
 ```
 
-### Stack vs Heap Allocation Tracking
+## Stack vs Heap Allocation Tracking
 
 Hexa tracks structure allocations to prevent stack references from escaping:
 
@@ -339,11 +339,9 @@ fun process() {
 }
 ```
 
-## Unions
+## Tagged Structural Unions
 
 Unions allow multiple fields to share the same memory space, similar to C unions.
-
-### Tagged Structural Unions
 
 The `enum` keyword combined with the `@struct` decorator creates a tagged union with a predictable memory layout:
 
@@ -366,7 +364,7 @@ switch data {
 }
 ```
 
-#### Tagged Structural Unions FFI
+### Tagged Structural Unions FFI
 
 The C representation of the tagged structural union is as follows:
 
@@ -381,14 +379,14 @@ typedef struct {
 	union {
 		int asInt;
 		float asFloat;
-	} data;
+	} $payload;
 } MyTaggedUnion;
 ```
 
 It may be generated for outside C bindings.
 
 
-### Untagged Structural Unions
+## Untagged Structural Unions
 
 For direct memory overlay without the overhead of a tag, use `@union` in conjunction with `@struct`. This mimics the behavior of a standard C `union`.
 
@@ -422,7 +420,7 @@ switch union {
 }
 ```
 
-#### Untagged Structural Unions FFI
+### Untagged Structural Unions FFI
 
 The C representation of the untagged structural union is as follows:
 
@@ -458,7 +456,7 @@ switch p {
 }
 ```
 
-#### Enumeration Bit Flags FFI
+### Enumeration Bit Flags FFI
 
 The C representation of the enumeration bit flags is as follows:
 
@@ -554,7 +552,7 @@ arr = [...42] // Re-initialize with a compile time known value other than `0`
 arr = copy // Re-initialize with a copy of another array by value
 ```
 
-### Creating Arrays by Value with Compile Time Known Size
+### Arrays by Value with Compile Time Known Size
 
 ```hexa
 // Can set size with a compile time known value of a `let` variable
@@ -590,7 +588,7 @@ for x in arr {
 }
 ```
 
-#### Arrays by Value FFI
+### Arrays by Value FFI
 
 The C representation of arrays by value is as follows:
 
@@ -678,7 +676,7 @@ nativeString.includes("l", 2)
 // etc
 ```
 
-#### Native Strings FFI
+### Native Strings FFI
 
 The C representation of native string types is as follows:
 
@@ -687,8 +685,8 @@ typedef const char* ClangString;
 typedef const wchar_t* ClangWideString;
 ```
 
+## Compile-Time Known Values
 
-### Compile-Time Known Values
 
 Compiler may use `let` variables when can prove that they are compile-time computable.
 
@@ -721,11 +719,12 @@ Reference counting operations over `null` are ignored and are not tracked by mem
 
 Due to Hexa doing immediate null checks when using forced null dereference operator `!` and casts, the misuse of the `null` object is not a concern.
 
+## Compile-Time Assertions
 
 Hexa supports systems-programming specific compile-time assertions for ensuring code correctness or to follow external requirements.
-### Compile-Time Assertions
 
 Use decorators like `@sizeOf` to enforce compile-time checks:
+### @sizeOf
 
 ```hexa
 @sizeOf(256)
@@ -737,11 +736,11 @@ class NativeStructure {
 // Compiler will error if the actual size doesn't match the expected size
 ```
 
-### Native Cast Types
 
 When targeting C++, Java, C#, and similar platforms, Hexa supports rich casting options:
 
 ```hexa
+## Native Cast Types
 expr.as(Type, 'static_cast')
 
 // Dynamic cast (runtime type checking)
@@ -758,7 +757,7 @@ let cast = 'reinterpret_cast'
 expr.as(Type, cast)
 ```
 
-### Custom Entry Points
+## Custom Entry Points
 
 You can define alternative program entry points using the `@entry` decorator. This is useful for scenarios like building DLLs or custom execution environments.
 
@@ -770,7 +769,7 @@ fun customMain() {
 }
 ```
 
-### Weak References
+## Weak References
 
 The `@weak` decorator creates references that do not prevent collection, which is essential for breaking circular dependencies in managed code.
 
@@ -779,16 +778,18 @@ The `@weak` decorator creates references that do not prevent collection, which i
 // weakRef may become null if someInstance is garbage collected
 ```
 
-### Span and Memory Views
+## Span and Memory Views
 
 `Span<T>` provides a safe view over contiguous memory without ownership:
 
 ```hexa
 	// Safe access to memory without copying
 	for i in data.length {
+	}
+}
 ```
 
-### SIMD Support
+## SIMD Support
 
 Hexa provides support for platform-specific SIMD (Single Instruction, Multiple Data) operations for performance-critical parallel processing.
 
@@ -797,7 +798,7 @@ Hexa provides support for platform-specific SIMD (Single Instruction, Multiple D
 // Consult platform documentation for available SIMD types
 ```
 
-### Volatile Access
+## Volatile Access
 
 The `@volatile` decorator prevents the compiler from optimizing away memory accesses. This is critical when interacting with hardware registers or memory-mapped I/O.
 
@@ -807,7 +808,7 @@ The `@volatile` decorator prevents the compiler from optimizing away memory acce
 
 Applicable to fields, variables and function arguments.
 
-#### Volatile Access FFI
+### Volatile Access FFI
 
 The C representation of volatile access is as follows:
 
@@ -815,7 +816,7 @@ The C representation of volatile access is as follows:
 volatile uint32_t hwRegister = (uint32_t)0x40000000;
 ```
 
-### Packed Structures
+## Packed Structures
 
 The `@packed` decorator removes padding between fields within a structure, providing precise control over memory layout for protocol compliance or memory-constrained environments.
 
@@ -828,21 +829,21 @@ class PackedData {
 }
 ```
 
-#### Packed Structures FFI
+### Packed Structures FFI
 
 The C representation of packed structures is as follows:
 
 ```c
 #pragma pack(1)
 typedef struct {
-    uint8_t a;
-    uint32_t b;
+	uint8_t a;
+	uint32_t b;
 } PackedData;
 #pragma pack()
 ```
 
 
-### Bit Fields
+## Bit Fields
 
 The `@bits` decorator enables bit-level field storage, allowing multiple values to be packed into a single primitive type for maximum space efficiency.
 
@@ -855,21 +856,21 @@ class Flags {
 }
 ```
 
-#### Bit Fields FFI
+### Bit Fields FFI
 
 The C representation of bit fields is as follows:
 
 ```c
 typedef struct {
-    uint8_t flag1 : 1;
-    uint8_t flag2 : 1;
-    uint8_t reserved : 6;
+	uint8_t flag1 : 1;
+	uint8_t flag2 : 1;
+	uint8_t reserved : 6;
 } Flags;
 ```
 
 It may be generated for outside C bindings.
 
-### Pointer Restriction
+## Pointer Restriction
 
 The `@restrict` decorator provides aliasing optimization hints to the compiler, indicating that a pointer is the sole means of accessing its target data in a given scope.
 
@@ -889,26 +890,32 @@ fun memcpy(@restrict dest ArrayPointer<UInt8>, @restrict src ArrayPointer<UInt8>
 }
 ```
 
-#### Pointer Restriction FFI
+### Pointer Restriction FFI
 
 The C representation of pointer restriction is as follows:
 
 ```c
 void memcpy(restrict uint8_t* dest, restrict uint8_t* src, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        dest[i] = src[i];
-    }
+	for (size_t i = 0; i < size; i++) {
+		dest[i] = src[i];
+	}
 }
 
 __declspec(restrict) uint8_t* allocateBuffer(size_t size);
 ```
 
-# COM Interop
+## COM Interop
 
 Component Object Model interoperability features for Windows component integration.
 
 TBA
 
+## Live Programming
+
+TBA
+
+
+```hexa
 ```
 
 # Conclusion
