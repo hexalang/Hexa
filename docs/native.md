@@ -738,9 +738,18 @@ class NativeStructure {
 
 
 When targeting C++, Java, C#, and similar platforms, Hexa supports rich casting options:
+## Meta Methods
+
+Low-level type information and metadata can be accessed at compile time via the `meta` keyword.
 
 ```hexa
+// Access meta information on types
+let size = NativePoint.meta.sizeOf
+```
+
 ## Native Cast Types
+
+```hexa
 expr.as(Type, 'static_cast')
 
 // Dynamic cast (runtime type checking)
