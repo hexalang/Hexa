@@ -49,46 +49,46 @@ class Typer {
 
 		// Fill exports first to allow recursive imports
 		for info in project.moduleInfo {
-				let nodes = info.nodes
+			let nodes = info.nodes
 
-				for e in nodes {
-					// TODO just use `case ... or ...:`
-					var named = true
-					switch e {
-						case Var(_):
-						case Enum(_):
-						case Function(_):
-						case Class(_):
-						case TypeAlias(_):
+			for e in nodes {
+				// TODO just use `case ... or ...:`
+				var named = true
+				switch e {
+					case Var(_):
+					case Enum(_):
+					case Function(_):
+					case Class(_):
+					case TypeAlias(_):
 						// TODO type alias
-						case _:
-							named = false
-					}
+					case _:
+						named = false
+				}
 
-					if named {
-						let name = DataHelper.nameOf(e)
-						checkOverrides(info, name, e)
-						info.exported.set(name, e)
-						project.mapModules.set(e, info)
-					}
+				if named {
+					let name = DataHelper.nameOf(e)
+					checkOverrides(info, name, e)
+					info.exported.set(name, e)
+					project.mapModules.set(e, info)
 				}
 			}
+		}
 
-			// Imports & expressions
-			for info in project.moduleInfo {
-				let nodes = info.nodes
-				pushScope()
+		// Imports & expressions
+		for info in project.moduleInfo {
+			let nodes = info.nodes
+			pushScope()
 
-				var doneImports = false
-				for e in nodes {
-					var named = true
-					var lastOne = nodes[0]
-					switch e {
-						case Import(els, path):
-							if doneImports {
-								fail(
-									'Imports should follow before expressions\n'
-									+ positionOf(lastOne) + 'Expression is here',
+			var doneImports = false
+			for e in nodes {
+				var named = true
+				var lastOne = nodes[0]
+				switch e {
+					case Import(els, path):
+						if doneImports {
+							fail(
+								'Imports should follow before expressions\n'
+								+ positionOf(lastOne) + 'Expression is here',
 								e)
 							}
 
@@ -313,7 +313,7 @@ class Typer {
 											// TODO supposedly un-inferred `=[:]` and `=[]`
 										} else {
 											parents.set(cloned, cloned)
-											//pushScope()
+											// pushScope()
 											// TODO in future, this should be done on demand,
 											// in the instantiation place, due to type inference
 											// of function return types etc
@@ -341,7 +341,7 @@ class Typer {
 												switch known[0] as! Type {
 													case Unknown(handle): type = handle.value
 													case UnknownNullable(handle): type = handle.value
-													case Generic(_): //type = null // Not supposed to be typed TODO is this okay?
+													case Generic(_): // type = null // Not supposed to be typed TODO is this okay?
 													case _: type = known[0]
 												}
 
@@ -368,10 +368,10 @@ class Typer {
 								}
 							}
 
-						case TypeAlias(_):
-						case Enum(_):
-						case _:
 					}
+					case TypeAlias(_):
+					case Enum(_):
+					case _:
 				}
 
 				popScope()
@@ -510,13 +510,13 @@ class Typer {
 					instanceOf.instances.push(type)
 				}
 
-				types.set(node, Type.Class(type))
+			types.set(node, Type.Class(type))
 
-				// Solve race condition
-				// TODO do only for std lib
-				if let setup = callback {
-					setup(type)
-				}
+			// Solve race condition
+			// TODO do only for std lib
+			if let setup = callback {
+				setup(type)
+			}
 
 				// TODO detect only in root module
 				// probably create them upfront and assign definition later?
@@ -562,18 +562,18 @@ class Typer {
 					case 'BigInt': typeBigInt = type.instantiate()
 				}
 
-				let classDecorators = project.mapDecorators.get(node)
-				fun getRename(f: Node, name: String, globalDecorators: [Decorator]): String? {
-					let atts = project.mapDecorators.get(f)
-					let renamingStrategy = getRenamingStrategy(atts) ?? getRenamingStrategy(globalDecorators)
+			let classDecorators = project.mapDecorators.get(node)
+			fun getRename(f: Node, name: String, globalDecorators: [Decorator]): String? {
+				let atts = project.mapDecorators.get(f)
+				let renamingStrategy = getRenamingStrategy(atts) ?? getRenamingStrategy(globalDecorators)
 
-					if let native = DataHelper.getDecorator(atts, 'rename') {
-						// TODO `@asIs` disallows `@rename`
-						if native.values.length != 1 {
-							// TODO wrap `throw` into `fail`
-							throw '@rename takes one string argument'
-						}
-						if native != null { switch native.values[0] {
+				if let native = DataHelper.getDecorator(atts, 'rename') {
+					// TODO `@asIs` disallows `@rename`
+					if native.values.length != 1 {
+						// TODO wrap `throw` into `fail`
+						throw '@rename takes one string argument'
+					}
+					if native != null { switch native.values[0] {
 							case String(s): return s
 							case _: throw '@rename takes string as argument'
 						}}
@@ -606,16 +606,16 @@ class Typer {
 								}
 						}
 
-						if let ext = extend {
-							// TODO cannot extend self or recursively in circle
-							// TODO limit nesting depth
-							type.extend = toType(ext, node)
-						}
-						for impl in implement {
-							// TODO
-							type.implement.push(toType(impl, node))
-						}
-						pushScope()
+					if let ext = extend {
+						// TODO cannot extend self or recursively in circle
+						// TODO limit nesting depth
+						type.extend = toType(ext, node)
+					}
+					for impl in implement {
+						// TODO
+						type.implement.push(toType(impl, node))
+					}
+					pushScope()
 
 						var genericParamIndex = 0
 						for genericParam in type.genericParams {
@@ -684,15 +684,15 @@ class Typer {
 							parents.set(field, node)
 						}
 
-						// Fill fields with non-ambiguous types
-						for field in f { switch field {
+					// Fill fields with non-ambiguous types
+					for field in f { switch field {
 							// `var\let a: known T`
 							case Var(name, t, e, const):
 								if let t = t {
 									types.set(field, toType(t, field))
 								}
 
-							// `function a(args with known types or no args): known ret type`
+								// `function a(args with known types or no args): known ret type`
 							case Function(name, expr, vars, rettype, _, variadic):
 								if let rettype = rettype {
 									types.set(
@@ -710,11 +710,11 @@ class Typer {
 								}
 
 							case Static(f): switch f {
-								case Function(name, expr, vars, rettype, _, variadic):
-									if let rettype = rettype {
-										types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
-										types.set(field, types.get(f))
-									}
+									case Function(name, expr, vars, rettype, _, variadic):
+										if let rettype = rettype {
+											types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
+											types.set(field, types.get(f))
+										}
 
 								case Var(name, t, e, const):
 									if let t = t {
@@ -724,8 +724,8 @@ class Typer {
 							}
 						}}
 
-						// Fill expressions
-						for field in f { switch field {
+					// Fill expressions
+					for field in f { switch field {
 							// Instance method
 							case Function(name, expr, vars, rettype, _, variadic):
 								if name == 'new' {
@@ -766,7 +766,7 @@ class Typer {
 								insideClassMethod = _insideClassMethod
 								allowSuper = _allowSuper
 
-							// Field of `var` or `let`
+								// Field of `var` or `let`
 							case Var(name, t, e, const):
 								if external, e != null {
 									fail('External class field `var \(name)` cannot have `= value`', field)
@@ -780,7 +780,7 @@ class Typer {
 								mixVarTypes(t, e, field)
 								type.fieldInitialized[type.fieldNames.indexOf(name)] = true
 								if types.get(field) == null {
-									fail('Field `var \(name)` initialized, but got no type '+e, field)
+									fail('Field `var \(name)` initialized, but got no type ' + e, field)
 								}
 
 							// The thing with getters and setters
@@ -862,8 +862,8 @@ class Typer {
 				type.name = DataHelper.nameOf(node)
 				types.set(node, Type.Enum(type))
 
-				switch node {
-					case Enum(t, f, valuesType, extend):
+			switch node {
+				case Enum(t, f, valuesType, extend):
 					pushScope()
 					if let valuesType = valuesType {
 						type.fieldsTypeSimple = toType(valuesType, node)
@@ -1046,8 +1046,8 @@ class Typer {
 													fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
 												}
 
-												numbers.push(number)
-												names.push(name)
+														numbers.push(number)
+														names.push(name)
 
 												case String(string):
 												if type.fieldsTypeSimple != typeString {
@@ -1061,8 +1061,8 @@ class Typer {
 													fail('Combination `\(name) = \(string)` already defined as `\(named) = \(string)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
 												}
 
-												strings.push(string)
-												names.push(name)
+														strings.push(string)
+														names.push(name)
 
 												case _:
 													fail('Wrong enum constructor format, should be `Name = value`', b)
@@ -1198,8 +1198,8 @@ class Typer {
 			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
 		}
 
-		/// Produces type `[T]` from same looking node, and other cases
-		static fun nodeToNodeType(node: Node): NodeType { switch node {
+	/// Produces type `[T]` from same looking node, and other cases
+	static fun nodeToNodeType(node: Node): NodeType { switch node {
 			case Array(el):
 				if el.length > 1 {
 					fail('Array type `[T]` cannot have more than 1 parameter `T`', el[1])
@@ -1226,19 +1226,19 @@ class Typer {
 					}
 				case Private(node): switch node {
 					case Class(t, _): switch t {
-						case Type(name): return name
-						case ParametricType(name): return name
-					}
+							case Type(name): return name
+							case ParametricType(name): return name
+						}
 				}
-				case Class(t, _): switch t {
+			case Class(t, _): switch t {
 					case Type(name): return name
 					case ParametricType(name): return name
 				}
-				case Enum(t, _): switch t {
+			case Enum(t, _): switch t {
 					case Type(name): return name
 					case ParametricType(name): return name
 				}
-				case TypeAlias(t, _): switch t {
+			case TypeAlias(t, _): switch t {
 					case Type(name): return name
 					case ParametricType(name): return name
 				}
@@ -1273,14 +1273,14 @@ class Typer {
 			scopeTypes.push([:])
 		}
 
-		private fun popScope(): Void {
-			scopes.pop()
-			scopeTypes.pop()
-		}
 
 		private fun addScope(name: String, node: Node): Void {
 			scopes[scopes.length - 1].set(name, node)
 		}
+	private fun popScope(): Void {
+		scopes.pop()
+		scopeTypes.pop()
+	}
 
 		private fun addScopeType(name: String, type: Type): Void {
 			scopeTypes[scopeTypes.length - 1].set(name, type)
@@ -1395,17 +1395,17 @@ class Typer {
 					}
 			}
 
-			var toNullable = isNullable(to)
-			var fromNullable = isNullable(fromValue)
+		var toNullable = isNullable(to)
+		var fromNullable = isNullable(fromValue)
 
 			//if (fromNullable, !toNullable, Type.stringify)
 			//	fail('Cannot assign nullable type `\(Type.stringify(fromValue))` to non-nullable `\(Type.stringify(to))`', node)
 
-			var toInstance = instanceOfClass(to)
-			var fromInstance = instanceOfClass(fromValue)
+		var toInstance = instanceOfClass(to)
+		var fromInstance = instanceOfClass(fromValue)
 
-			var toEnumInstance = instanceOfEnum(to)
-			var fromEnumInstance = instanceOfEnum(fromValue)
+		var toEnumInstance = instanceOfEnum(to)
+		var fromEnumInstance = instanceOfEnum(fromValue)
 
 			if
 				(toInstance == null and toEnumInstance == null)
@@ -1434,53 +1434,53 @@ class Typer {
 					typeFloat32,
 					typeInt
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeFloat32, [
+			if to == typeFloat32, [
 					typeUInt16,
 					typeUInt8,
 
 					typeInt16,
 					typeInt8
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeUInt16, [
+			if to == typeUInt16, [
 					typeUInt8 // TODO just one case? is it useful?
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeInt16, [
+			if to == typeInt16, [
 					typeUInt8,
 					typeInt8
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeUInt64, [
+			if to == typeUInt64, [
 					typeUInt8,
 					typeUInt16,
 					typeUInt32
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeInt64, fromValue == typeInt {
-					return to // Larger type
-				}
+			if to == typeInt64, fromValue == typeInt {
+				return to // Larger type
+			}
 
-				if to == typeInt64, fromValue == typeInt32 {
-					return to // Larger type
-				}
+			if to == typeInt64, fromValue == typeInt32 {
+				return to // Larger type
+			}
 
-				if to == typeInt64, fromValue == typeUInt32 {
-					return to // Larger type
-				}
+			if to == typeInt64, fromValue == typeUInt32 {
+				return to // Larger type
+			}
 
-				if to == typeInt64, [
+			if to == typeInt64, [
 					typeInt8,
 					typeInt16,
 					typeInt32,
@@ -1489,22 +1489,22 @@ class Typer {
 					typeUInt16,
 					typeUInt32
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeUInt64, fromValue == typeUInt32 {
-					return to // Larger type
-				}
+			if to == typeUInt64, fromValue == typeUInt32 {
+				return to // Larger type
+			}
 
-				if to == typeUInt32, fromValue == typeUInt8 {
-					return to // Larger type
-				}
+			if to == typeUInt32, fromValue == typeUInt8 {
+				return to // Larger type
+			}
 
-				if to == typeUInt32, fromValue == typeUInt16 {
-					return to // Larger type
-				}
+			if to == typeUInt32, fromValue == typeUInt16 {
+				return to // Larger type
+			}
 
-				if to == typeInt32 or to == typeInt, [
+			if to == typeInt32 or to == typeInt, [
 					typeUInt8,
 					typeInt8,
 
@@ -1513,45 +1513,45 @@ class Typer {
 
 					typeInt
 				].includes(fromValue) {
-					return to // Larger type
-				}
+				return to // Larger type
+			}
 
-				if to == typeInt32, fromValue == typeUInt16 {
-					return to // Larger type
-				}
+			if to == typeInt32, fromValue == typeUInt16 {
+				return to // Larger type
+			}
 
-				if (to == typeInt32 and fromValue == typeInt) or (to == typeInt and fromValue == typeInt32) {
-					return typeInt32 // More specific
-				}
+			if (to == typeInt32 and fromValue == typeInt) or (to == typeInt and fromValue == typeInt32) {
+				return typeInt32 // More specific
+			}
 
-				// TODO should check for 32-bits limit for 32-bit platforms?
-				if to == typeSignedSizeOfPointer,
-					fromValue == typeInt
-					or fromValue == typeInt64
-					or fromValue == typeInt32
-					or fromValue == typeInt16
-					or fromValue == typeInt8
-					or fromValue == typeUInt32
-					or fromValue == typeUInt16
-					or fromValue == typeUInt8
-					// NOTE not u64
-				{
-					return to // Safe to do so
-				}
+			// TODO should check for 32-bits limit for 32-bit platforms?
+			if to == typeSignedSizeOfPointer,
+				fromValue == typeInt
+				or fromValue == typeInt64
+				or fromValue == typeInt32
+				or fromValue == typeInt16
+				or fromValue == typeInt8
+				or fromValue == typeUInt32
+				or fromValue == typeUInt16
+				or fromValue == typeUInt8
+				// NOTE not u64
+			{
+				return to // Safe to do so
+			}
 
-				if to == typeSizeOfPointer,
-					fromValue == typeUInt64
-					or fromValue == typeUInt32
-					or fromValue == typeUInt16
-					or fromValue == typeUInt8
-				{
-					return to // Safe to do so
-				}
+			if to == typeSizeOfPointer,
+				fromValue == typeUInt64
+				or fromValue == typeUInt32
+				or fromValue == typeUInt16
+				or fromValue == typeUInt8
+			{
+				return to // Safe to do so
+			}
 
-				// Here we try to infer type of a constant expression
-				switch node {
-					case Int(value):
-						if value == 0 && [
+			// Here we try to infer type of a constant expression
+			switch node {
+				case Int(value):
+					if value == 0 and [
 							typeInt64,
 							typeInt32,
 							typeInt16,
@@ -1564,8 +1564,8 @@ class Typer {
 
 							typeInt
 						].includes(fromValue) {
-							return to
-						}
+						return to
+					}
 
 						// TODO more cases
 						if to == typeUInt8, value >= 0, value < 256 {
