@@ -279,7 +279,7 @@ class Typer {
 											}
 										}
 
-										return -1
+										return - 1
 									}
 
 									let genericCache = classType.genericCache.map(fun (knownParams: [Type]): [Type] {
@@ -362,7 +362,8 @@ class Typer {
 											} else {
 												delayedInstance = null
 											}
-											//popScope()
+											// console.log('--< pop', DataHelper.nameOf(cloned))
+											// popScope() TODO
 										}
 									}
 								}
@@ -419,25 +420,16 @@ class Typer {
 			} else {
 				names.map(name => '`' + name + '`').join(', ')
 			}
+		// TODO limit `what` to `types` and `...whatever`
+		// TODO if `types` must recommend only UpperCased ones
+		// TODO ^ lower for otherwise
+		let available = 'Available \(what) are: ' + ten
+		let subject = subject.toLowerCase()
+		let charSubj = subject.split('')
+		var bestValue = 0
+		var bestName = ''
 
-			// TODO limit `what` to `types` and `...whatever`
-			// TODO if `types` must recommend only UpperCased ones
-			// TODO ^ lower for otherwise
-			let available = 'Available \(what) are: ' + ten
-			let subject = subject.toLowerCase()
-			let charSubj = subject.split('')
-			var bestValue = 0
-			var bestName = ''
-
-
-				var index = 0
-				var thisValue = 0
-				// TODO for name : index in _ _
-				for char in named.split('') {
-					if char == charSubj[index] {
-						thisValue++
 					}
-					index++
 				}
 		// TODO for name : index in _ _
 		for name in names {
@@ -449,7 +441,14 @@ class Typer {
 				if thisValue > bestValue {
 					bestValue = thisValue
 					bestName = name
+			var index = 0
+			var thisValue = 0
+			// TODO for name : index in _ _
+			for char in named.split('') {
+				if char == charSubj[index] {
+					thisValue++
 				}
+				index++
 			}
 
 			// Avoid really useless proposals
@@ -518,10 +517,6 @@ class Typer {
 				setup(type)
 			}
 
-				// TODO detect only in root module
-				// probably create them upfront and assign definition later?
-				switch type.name {
-					case 'Int': //typeInt = type.instantiate()
 					case 'Bool': typeBool = type.instantiate()
 					case 'Float':
 						typeFloat = type.instantiate()
@@ -561,6 +556,10 @@ class Typer {
 
 					case 'BigInt': typeBigInt = type.instantiate()
 				}
+			// TODO detect only in root module
+			// probably create them upfront and assign definition later?
+			switch type.name {
+				case 'Int': // typeInt = type.instantiate() TODO
 
 			let classDecorators = project.mapDecorators.get(node)
 			fun getRename(f: Node, name: String, globalDecorators: [Decorator]): String? {
@@ -1682,11 +1681,11 @@ class Typer {
 				fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
-			if toEnumInstance != fromEnumInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
-				// TODO
-				//fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
+		if toEnumInstance != fromEnumInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
+			// TODO
+			// fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 		}
 
 		fun findType(name: String): Node? {
@@ -2164,8 +2163,6 @@ class Typer {
 		popScope()
 
 				} else {
-					unify(types.get(expr), ret, expr)
-				}
 		ret = functionReturnsAType // Inferred
 		if arrow {
 			if arrow, ret == null, expr != null {
@@ -2178,6 +2175,8 @@ class Typer {
 					// To handle arrow
 					fail('Function expects result of `\(Type.stringify(ret))` but never does `return value`', node)
 				}
+				unify(types.get(expr), ret, expr)
+			}
 			}
 
 		// Restore stack
@@ -2696,23 +2695,24 @@ class Typer {
 							fail('Ranges `...range` are not supported here yet', range)
 						}
 
-							pushScope()
-							fillExpression(over)
-							// TODO reuse code from for-as-statement
-							let overType: Type = types.get(over)
-							switch overType {
-								case ClassInstance(type, generic):
-									// Extract Array<T>
-									// TODO check type == typeArray
-									if generic != null, generic.length == 1 {
-										types.set(el[0], generic[0])
-									} else if overType == typeInt {
-										types.set(el[0], typeInt)
-									} else if ((overType == typeUInt32) || (overType == typeUInt64)) {
-										types.set(el[0], overType)
-									} else {
-										fail('Type of iterable is neither `Int` nor `Array`, but `' + Type.stringify(overType) + '`', over)
-									}
+						pushScope()
+						fillExpression(over)
+						// types.set(el[0], types.get(over))
+						// TODO reuse code from for-as-statement
+						let overType: Type = types.get(over)
+						switch overType {
+							case ClassInstance(type, generic):
+								// Extract Array<T>
+								// TODO check type == typeArray
+								if generic != null, generic.length == 1 {
+									types.set(el[0], generic[0])
+								} else if overType == typeInt {
+									types.set(el[0], typeInt)
+								} else if ((overType == typeUInt32) or (overType == typeUInt64)) {
+									types.set(el[0], overType)
+								} else {
+									fail('Type of iterable is neither `Int` nor `Array`, but `' + Type.stringify(overType) + '`', over)
+								}
 
 							case Nullable(_):
 								fail('Type of iterable should not be nullable', over)
