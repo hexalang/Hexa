@@ -715,13 +715,13 @@ class Typer {
 											types.set(field, types.get(f))
 										}
 
-						}}
 									case Var(name, t, e, const):
 										if let t = t {
 											types.set(f, toType(t, f))
 											types.set(field, types.get(f))
 										}
 								}
+						} }
 
 					// Fill expressions
 					for field in f { switch field {
@@ -795,25 +795,16 @@ class Typer {
 												fillExpression(e)
 											}
 											insideClassMethod = _insideClassMethod
-											mixVarTypes(t, e, f)
-											type.fieldInitialized[type.fieldNames.indexOf(name)] = true
-											if types.get(f) == null {
-											}
-											types.set(field, types.get(f))
+										mixVarTypes(t, e, f)
+										type.fieldInitialized[type.fieldNames.indexOf(name)] = true
+										if types.get(f) == null {
 											fail('Property `\(name)` initialized, but got no type ' + e, field)
+										}
+										types.set(field, types.get(f))
 								}
 
 								// `static f`
 							case Static(f): switch f {
-								case Function(name, expr, vars, rettype, _, variadic):
-									if external, expr != null {
-										fail('External class field `static fun \(name)` cannot have a body', field)
-									}
-									let _insideClassMethod = insideClassMethod
-									insideClassMethod = false
-									if !external {
-										fillFunction(f, expr, vars, rettype)
-									}
 									if external {
 									}
 									insideClassMethod = _insideClassMethod
@@ -831,16 +822,25 @@ class Typer {
 									mixVarTypes(t, e, f)
 									types.set(field, types.get(f))
 							}
+									case Function(name, expr, vars, rettype, _, variadic):
+										if external, expr != null {
+											fail('External class field `static fun \(name)` cannot have a body', field)
+										}
+										let _insideClassMethod = insideClassMethod
+										insideClassMethod = false
+										if not external {
+											fillFunction(f, expr, vars, rettype)
+										}
 											types.set(f, Type.Function(varTypes(vars), rettype != null? toType(rettype, f) : typeVoid, variadic))
 
 							case _:
 								fail('Wrong class field format', node)
-						}}
 
 						popScope()
 					case _:
 						fail('ClassType expects (declare) class node, but got ' + node, node)
 				}
+						} }
 
 			}
 
@@ -1141,7 +1141,7 @@ class Typer {
 						case Binop(_): // TODO validate them
 						case _:
 							fail('Unknown enum field format', field)
-					}}
+						} }
 					popScope()
 					case _:
 						fail('EnumType expects (declare) enum node, but got ' + node, node)
@@ -1151,13 +1151,13 @@ class Typer {
 			}
 		}
 
-		static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
-		//static let/var failures: [{msg: String, node: Node?}] = []
-		// TODO ^ push withinStaticFun = true/pop (crashed at runtime cause non-static accessed from static or vise-versa)
-		var failures: [{msg: String, node: Node?}] = []
 
 		// TODO node: Node = null error
 		fun fail(msg: String, node: Node = null): Void {
+	static let never = '. This should never happen. Probably incomplete feature was used. Ping a compiler developer with a code sample.'
+	// static let/var failures: [{msg: String, node: Node?}] = []
+	// TODO ^ push withinStaticFun = true/pop (crashed at runtime cause non-static accessed from static or vise-versa)
+	var failures: [{ msg: String, node: Node? }] = []
 			failNonFatal(msg, node)
 
 			// TODO wrong kind of error for trailing `,` `if let currentlyInstantiating = currentlyInstantiating, {`
@@ -1212,7 +1212,7 @@ class Typer {
 				return NodeType.Object(names, types)
 			case _:
 				fail('Cannot nodeToNodeType of ' + Node.stringify(node), node)
-		}}
+		} }
 
 		// Takes only nodes valid for `module { node }`
 		fun nameOfModuleItem(node: Node): String {
@@ -1741,7 +1741,6 @@ class Typer {
 							registerEnumType(nodeType)
 						case null:
 						case _:
-					}}
 					// TODO ^ fix indentation
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch type {
@@ -1760,6 +1759,7 @@ class Typer {
 							return type
 						case null:
 							let available = []
+					} }
 
 							for name in currentModule.imported.keys() {
 								available.push(name)
@@ -1800,7 +1800,6 @@ class Typer {
 							currentModule = mod
 						case Enum(_):
 							registerEnumType(nodeType)
-					}}
 					let type: Type? = findActualType(name) ?? types.get(nodeType)
 					switch type {
 						case Class(type):
@@ -1810,6 +1809,7 @@ class Typer {
 							if type.genericParams.length != params.length {
 								fail('The type `\(type.name)` requires `<\(type.genericParams)>` generic parameters', node)
 							}
+					} }
 
 						let instanceParams = [for p in params toType(p, node)]
 
@@ -2360,7 +2360,7 @@ class Typer {
 							fail('Cannot reassign `super`', node)
 						case _:
 							fail('`=` not implemented for: ' + parent, node)
-					}}
+					} }
 
 				// `break`
 			case Break:
@@ -2805,7 +2805,7 @@ class Typer {
 					pushScope()
 					for i in el.length { if (i < el.length - 1) {
 							fill(el[i])
-						}}
+						} }
 					let latest = el[el.length - 1]
 					fillExpression(latest)
 					types.set(node, types.get(latest))
@@ -2961,7 +2961,6 @@ class Typer {
 							switch type.parent {
 								case Enum(t, fields, valuesType):
 									for field in fields { switch field {
-									}}
 											case Call(_):
 											case NodeTypeValue(_):
 											case Binop(_):
@@ -2970,6 +2969,7 @@ class Typer {
 													types.set(node, types.get(field))
 													parents.set(node, field)
 												}
+										} }
 								case _:
 									fail('type.parent not an enum, internal error', type.parent)
 							}
@@ -3025,9 +3025,9 @@ class Typer {
 							fail('Cannot access `.\(n)` of function type `\(Type.stringify(etype))`', node)
 						case _:
 							fail('Cannot access `.\(n)` due to type being unhandled `\(Type.stringify(etype))`, seems to be internal compiler error', node)
-					}} else {
-						types.set(node, typeAny)
-					}
+					} } else {
+					types.set(node, typeAny)
+				}
 
 				// `e.N`
 			case DotUpper(e, n):
@@ -3692,8 +3692,6 @@ class Typer {
 
 				types.set(node, types.get(e))
 
-					let mutates = op == Token.Increment || op == Token.Decrement
-					// TODO ^ must allow only integer ++/--
 					if not mutates { return }
 					var parent: Node = parents.get(e)
 					switch parent {
@@ -3707,6 +3705,8 @@ class Typer {
 						case Function(name, _):
 							fail('Cannot `\(Token.stringify(op))` a function `\(name)`', node)
 						case For(name, _):
+				let mutates = op == Token.Increment or op == Token.Decrement
+				// TODO ^ must allow only integer ++/--
 							fail(
 								'Cannot change iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
@@ -3795,7 +3795,7 @@ class Typer {
 							// TODO is this even reachable?
 							fail('`value[i]` expects `i` only of type `Int` or similar, but got `' + Type.stringify(iType) + '`', e)
 						case null:
-					}}
+					} }
 
 					// For now, only `Array[i]` and `Map[k]` supported
 					switch eType {
