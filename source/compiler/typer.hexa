@@ -3717,25 +3717,31 @@ class Typer {
 							case Var(name, _, _, const):
 								if const {
 									fail(
-									'Cannot change a constant `static let \(name)`, redefine it as `static var \(name)` to allow value changes\n'
-									+ positionOf(parent) + '`static let \(name)` is defined here',
-									node)
+										'Cannot change a constant `static let \(name)`, redefine it as `static var \(name)` to allow value changes\n'
+										+ positionOf(parent) + '`static let \(name)` is defined here',
+										node)
 								}
 						}
-						case _:
-							switch e {
-								case Index(_):
-									// Ok
-									// Sets NaN to `[n]` in JavaScript if `[n] == null` and returns NaN
-									// TODO maybe require `a[i] == a[i] ?? n + 1` instead?
-									// cause also string/etc arrays...
-								case _:
-									let ops = Token.Increment? 'increment `++`' : 'decrement `--`'
-									fail('You can \(ops) only a variable, .field or array element', node)
-									// TODO `x={i:123} x.i++` <- by type and const factor
-							}
-					}
+					case _:
+						switch e {
+							case Index(_):
+								// Ok
+								// Sets NaN to `[n]` in JavaScript if `[n] == null` and returns NaN
+								// TODO maybe require `a[i] == a[i] ?? n + 1` instead?
+								// cause also string/etc arrays...
+							case _:
+								let ops = Token.Increment? 'increment `++`' : 'decrement `--`'
+								fail('You can \(ops) only a variable, .field or array element', node)
+								// TODO `x={i:123} x.i++` <- by type and const factor
+						}
+				}
 
+				// var hha = 1 // {i:1}
+				{
+					// TODO hha.i++
+					// {++hha}
+					// {hha}++
+				}
 
 				// `e[i]`
 			case Index(e, i):
@@ -3797,58 +3803,59 @@ class Typer {
 						case null:
 					} }
 
-					// For now, only `Array[i]` and `Map[k]` supported
-					switch eType {
-						case ClassInstance(type, generic):
-							if generic != null, generic.length >= 1 {
-								// TODO check actual types
-								if type.name == 'Map' {
-									types.set(node, generic[1])
-								} else {
-									types.set(node, generic[0])
-								}
-								// TODO check actual types
-							} else if ['Buffer','Uint8Array','Uint32Array'].includes(type.name) {
-								types.set(node, toType(NodeType.Type("Int", null), node))
-								// TODO check actual types
-							} else if ['Any'].includes(type.name) {
-								types.set(node, toType(NodeType.Type("Any", null), node))
+				// For now, only `Array[i]` and `Map[k]` supported
+				switch eType {
+					case ClassInstance(type, generic):
+						if generic != null, generic.length >= 1 {
+							// TODO check actual types
+							if type.name == 'Map' {
+								types.set(node, generic[1])
 							} else {
-								fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` is not indexable', e)
+								types.set(node, generic[0])
 							}
-						case _:
+							// TODO check actual types
+						} else if ['Buffer', 'Uint8Array', 'Uint32Array'].includes(type.name) {
+							types.set(node, toType(NodeType.Type("Int", null), node))
+							// TODO check actual types
+						} else if ['Any'].includes(type.name) {
+							types.set(node, toType(NodeType.Type("Any", null), node))
+						} else {
 							fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` is not indexable', e)
-						case null:
-							fail('Cannot index `\(Node.stringify(e))` because its type cannot be inferred', e)
-					}
+							// fail('value[i] generic is null or >1', e) TODO
+						}
+					case _:
+						fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` is not indexable', e)
+					case null:
+						fail('Cannot index `\(Node.stringify(e))` because its type cannot be inferred', e)
+				}
 
 				// `a op= b`
-				case AssignOp(a, op, b):
-					// `===`
-					if op == Token.Equal {
-						fail('`===` not supported, use `strictEqual`', node)
-					}
-					// `!==`
-					if op == Token.Equal {
-						fail('`!==` not supported, use `strictNotEqual`', node)
-					}
+			case AssignOp(a, op, b):
+				// `===`
+				if op == Token.Equal {
+					fail('`===` not supported, use `strictEqual`', node)
+				}
+				// `!==`
+				if op == Token.Equal {
+					fail('`!==` not supported, use `strictNotEqual`', node)
+				}
 
-					fillExpression(a)
-					let parent: Node = parents.get(a)
-					switch parent {
-						case Var(name, _, _, const):
-							if const {
-								fail(
-									'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
-									+ positionOf(parent) + '`let \(name)` is defined here',
-								node)
-							}
-						case Function(name, _):
-							fail('Cannot reassign a function `\(name)`', node)
-						case For(name, _):
+				fillExpression(a)
+				let parent: Node = parents.get(a)
+				switch parent {
+					case Var(name, _, _, const):
+						if const {
 							fail(
-								'Cannot change iterator value `\(name)` of for loop\n'
-								+ positionOf(parent) + '`for \(name) in ...` is defined here',
+								'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
+								+ positionOf(parent) + '`let \(name)` is defined here',
+								node)
+						}
+					case Function(name, _):
+						fail('Cannot reassign a function `\(name)`', node)
+					case For(name, _):
+						fail(
+							'Cannot change iterator value `\(name)` of for loop\n'
+							+ positionOf(parent) + '`for \(name) in ...` is defined here',
 							node)
 					case _: // Ok
 				}
@@ -3878,6 +3885,13 @@ class Typer {
 					fail('Cannot access `this` in the static method', node)
 				}
 
+				// switch thisType {
+				// case Class(_): fail('not instance ' + Type.stringify(thisType), node)
+				// case ClassInstance(t, g):
+				// if t.name == 'Array', g[0] == null {
+				// //fail('!instance ' + Type.stringify(thisType), node)
+				// }
+				// } TODO
 				types.set(node, thisType)
 				parents.set(node, thisNode)
 
@@ -3886,45 +3900,45 @@ class Typer {
 				fail('Cannot use `super` as value', node)
 
 				// `return e`
-				case Return(e):
-					// TODO cannot return from constructor
-					switch e {
-						case Var(name, _, _, const):
-							let prefix = const? 'let' : 'var'
-							fail(
-								'This `return` tries to return a variable `\(prefix) \(name)`. Try to wrap it into braces like this `{ return } \(prefix) \(name)`',
-								node
-							)
-						case Return(_):
-							fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
+			case Return(e):
+				// TODO cannot return from constructor
+				switch e {
+					case Var(name, _, _, const):
+						let prefix = const? 'let' : 'var'
+						fail(
+							'This `return` tries to return a variable `\(prefix) \(name)`. Try to wrap it into braces like this `{ return } \(prefix) \(name)`',
+							node
+						)
+					case Return(_):
+						fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
+				}
+				if not insideFunction {
+					fail('Cannot use `return` outside of function', node)
+				}
+				if e != null {
+					if functionReturnsAType == typeVoid {
+						fail('Function returns `Void`, cannot return a value here', e)
 					}
-					if not insideFunction {
-						fail('Cannot use `return` outside of function', node)
+					fillExpression(e)
+					let ret = types.get(e)
+					if ret == typeVoid {
+						fail('Cannot `return` a `Void` non-value', node)
 					}
-					if e != null {
-						if functionReturnsAType == typeVoid {
-							fail('Function returns `Void`, cannot return a value here', e)
-						}
-						fillExpression(e)
-						let ret = types.get(e)
-						if ret == typeVoid {
-							fail('Cannot `return` a `Void` non-value', node)
-						}
 
 					// TODO test this `return null`
 					inferNullType(ret, functionReturnsAType)
 
-						functionReturnsAType = unify(functionReturnsAType, ret, e)
-						functionActuallyReturns = true
-					} else {
-						if let ret = functionReturnsAType {
-							if ret != typeVoid {
-								fail('Expected `return value` of type `\(Type.stringify(ret))`', node)
-							}
-						} else {
-							functionReturnsAType = typeVoid
+					functionReturnsAType = unify(functionReturnsAType, ret, e)
+					functionActuallyReturns = true
+				} else {
+					if let ret = functionReturnsAType {
+						if ret != typeVoid {
+							fail('Expected `return value` of type `\(Type.stringify(ret))`', node)
 						}
+					} else {
+						functionReturnsAType = typeVoid
 					}
+				}
 
 				// Errors
 			case Underscore:
@@ -3934,30 +3948,37 @@ class Typer {
 			case Private(_):
 				fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
 			case Module(_):
+				// fail('Modules should be at a file upper scope', node) TODO
 
 				// Not expressions
-				case Break:
-					fail('Cannot use `break` as a value', node)
-				case Continue:
-					fail('Cannot use `continue` as a value', node)
-				case Class(_):
-					fail('Cannot use `class` as a value', node)
-				case Enum(_):
-					fail('Cannot use `enum` as a value', node)
-				case TypeAlias(_):
-					fail('Cannot use `declare` as a value', node)
-				case Import(_):
-					fail('Cannot use `import` as a value', node)
-				case Var(name, _, _, const):
-					let prefix = const? 'let' : 'var'
-					fail('Cannot use `\(prefix) \(name)` as a value', node)
-				case Switch(_):
-					fillSwitch(node, true)
-				case While(_):
-					fail('Cannot use `while` as a value', node)
-				case For(_):
-					fail('Cannot use `for` as a value. To build array from loop, surround with `[for]` brackets.', node)
+			case Break:
+				fail('Cannot use `break` as a value', node)
+			case Continue:
+				fail('Cannot use `continue` as a value', node)
+			case Class(_):
+				fail('Cannot use `class` as a value', node)
+			case Enum(_):
+				fail('Cannot use `enum` as a value', node)
+			case TypeAlias(_):
+				fail('Cannot use `declare` as a value', node)
+			case Import(_):
+				fail('Cannot use `import` as a value', node)
+			case Var(name, _, _, const):
+				let prefix = const? 'let' : 'var'
+				fail('Cannot use `\(prefix) \(name)` as a value', node)
+			case Switch(_):
+				fillSwitch(node, true)
+			case While(_):
+				fail('Cannot use `while` as a value', node)
+			case For(_):
+				fail('Cannot use `for` as a value. To build array from loop, surround with `[for]` brackets.', node)
 
+				//// Fallback
+				// case ParametricIdent(name, params):
+				// // TODO
+				// let fallback = Node.Ident(name)
+				// project.data.set(fallback, project.data.get(node))
+				// fillExpression(fallback)
 				// Fails
 			case null:
 				fail('Got null node' + never, node)
@@ -4051,89 +4072,90 @@ class Typer {
 					typeString
 				]
 
-					if switchable.includes(etype) {
-						// Okay
-					} else if etype == typeFloat {
-						fail('Due to imprecise nature of `Float` type, switching over it is not allowed', exprs[0])
+				if switchable.includes(etype) {
+					// Okay
+				} else if etype == typeFloat {
+					fail('Due to imprecise nature of `Float` type, switching over it is not allowed', exprs[0])
+				} else {
+					switch etype {
+						case Enum(type):
+							enumType = type
+						case EnumInstance(type, _):
+							enumType = type
+						case _:
+							fail('Cannot switch over `\(Type.stringify(etype))` type', exprs[0])
+					}
+				}
+
+				// TODO if typeof(expr) == typeInt ... special code path
+				// same for simple enums
+				// and special for complex enums
+				// and error on typeVoid, type unknown (not inferred) and etc
+				// same for Normalizer
+
+				// TODO support for simple (exhaustive checked) nested patterns
+				// like A(true) A(false) and A(NonComplexEnum)
+				// complex enums may break readability... but helpful for
+				// shader langs? meh.. they require some computations
+				// (like case normalization)
+				// between pattern matching anyway
+
+				// TODO guards
+				// let expr = if (let expr = exprs[0]) expr else return
+				// @guard let expr = exprs[0]
+				// Node.TMacroExpansion <- for simple debug and print of
+				// result of evaluated syntax @macro
+
+				// TODO exprs is a positive array like
+				// : [T, 1 ...] 1 or more elements, so [0] != don't require null check
+
+				// TODO error on not-all-matched patterns of enum by default,
+				// but @hint makes it only a hint and @ok to ignore
+
+				// var matched: [String] = [] TODO
+				var tags: [String] = []
+				var i = 0
+
+				// Avoid repeating tags `case Tag:` and values `case 123:`
+				fun tagCheck(currentTag: String, e: Node) {
+					if tags.includes(currentTag) {
+						fail('Tag `\(currentTag)` already matched', e)
+						// TODO .. at line
 					} else {
-						switch etype {
-							case Enum(type):
-								enumType = type
-							case EnumInstance(type, _):
-								enumType = type
-							case _:
-								fail('Cannot switch over `\(Type.stringify(etype))` type', exprs[0])
-						}
+						tags.push(currentTag)
 					}
+				}
 
-					// TODO if typeof(expr) == typeInt ... special code path
-					// same for simple enums
-					// and special for complex enums
-					// and error on typeVoid, type unknown (not inferred) and etc
-					// same for Normalizer
+				while i < cases.length {
+					pushScope()
+					var e = conds[i]
+					// Fill case condition `case pattern:`
+					var currentType: EnumType? = null
+					var currentTag: String? = null
+					var currentTagBind = 0
+					var interval = false
 
-					// TODO support for simple (exhaustive checked) nested patterns
-					// like A(true) A(false) and A(NonComplexEnum)
-					// complex enums may break readability... but helpful for
-					// shader langs? meh.. they require some computations
-					// (like case normalization)
-					// between pattern matching anyway
+					fun follow(e: Node) {
+						switch e {
+							// `case E.T:`
+							case DotUpper(ex, name):
+								fillExpression(e)
+								switch types.get(ex) as! Type {
+									case Enum(type):
+										currentType = type
+										// TODO currentType = 123
+										currentTag = name
 
-					// TODO guards
-					// let expr = if (let expr = exprs[0]) expr else return
-					// @guard let expr = exprs[0]
-					// Node.TMacroExpansion <- for simple debug and print of
-					// result of evaluated syntax @macro
+										// This syntax is not supported anymore
+										fail('Use `case \(currentTag)` instead of `case \(type.name).\(currentTag)`', e)
 
-					// TODO exprs is a positive array like
-					// : [T, 1 ...] 1 or more elements, so [0] != don't require null check
-
-					// TODO error on not-all-matched patterns of enum by default,
-					// but @hint makes it only a hint and @ok to ignore
-
-					var tags: [String] = []
-					var i = 0
-
-					// Avoid repeating tags `case Tag:` and values `case 123:`
-					fun tagCheck(currentTag: String, e: Node) {
-						if tags.includes(currentTag) {
-							fail('Tag `\(currentTag)` already matched', e)
-							// TODO .. at line
-						} else {
-							tags.push(currentTag)
-						}
-					}
-
-					while i < cases.length {
-						pushScope()
-						var e = conds[i]
-						// Fill case condition `case pattern:`
-						var currentType: EnumType? = null
-						var currentTag: String? = null
-						var currentTagBind = 0
-						var interval = false
-
-						fun follow(e: Node) {
-							switch e {
-								// `case E.T:`
-								case DotUpper(ex, name):
-									fillExpression(e)
-									switch types.get(ex) as! Type {
-										case Enum(type):
-											currentType = type
-											// TODO currentType = 123
-											currentTag = name
-
-											// This syntax is not supported anymore
-											fail('Use `case \(currentTag)` instead of `case \(type.name).\(currentTag)`', e)
-
-											if tags.includes(currentTag) {
-												fail('Tag `\(currentTag)` already matched', e)
-												// TODO .. at line
-											} else {
-												tags.push(currentTag)
-											}
-									}
+										if tags.includes(currentTag) {
+											fail('Tag `\(currentTag)` already matched', e)
+											// TODO .. at line
+										} else {
+											tags.push(currentTag)
+										}
+								}
 							case Parenthesis(e): { fill(e) }
 								// `case _:` default case
 							case Underscore: { }
@@ -4212,21 +4234,21 @@ class Typer {
 										}
 
 										switch ee {
-										case Ident(name):
-											follow(ee)
-											currentTagBind++
-										case Underscore:
-											if
-												let enumType = enumType,
-												shortHandSyntax == true,
-												let i = enumType.fieldNames.indexOf(currentTag),
-												let binds = enumType.tagBindVarsNames[i],
-												binds.length <= currentTagBind
-											{
-												fail('Too many bindings ignored with `_` for `F` tag, use `...` syntax to ignore all future bindings', e)
-											}
 											case Interval:
 												interval = true
+											case Ident(name):
+												follow(ee)
+												currentTagBind++
+											case Underscore:
+												if
+													let enumType = enumType,
+													shortHandSyntax == true,
+													let i = enumType.fieldNames.indexOf(currentTag),
+													let binds = enumType.tagBindVarsNames[i],
+													binds.length <= currentTagBind
+												{
+													fail('Too many bindings ignored with `_` for `F` tag, use `...` syntax to ignore all future bindings', e)
+												}
 
 												currentTagBind++
 											case _:
@@ -4236,30 +4258,36 @@ class Typer {
 								}
 
 								// case TagName:
-								case NodeTypeValue(t):
-									shortHandSyntax = true
-									switch t {
-										case Type(name):
-											// TODO `enumType ?? earlyTyping`
-											if let enumType = enumType {
-												if let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true {
-													currentType = enumType
-													currentTag = name
-													if tags.includes(currentTag) {
-														fail('Tag `\(currentTag)` already matched', e)
-														// TODO .. at line
-													} else {
-														tags.push(currentTag)
-													}
+							case NodeTypeValue(t):
+								shortHandSyntax = true
+								switch t {
+									case Type(name):
+										// TODO `enumType ?? earlyTyping`
+										if let enumType = enumType {
+											if let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true {
+												currentType = enumType
+												currentTag = name
+												if tags.includes(currentTag) {
+													fail('Tag `\(currentTag)` already matched', e)
+													// TODO .. at line
 												} else {
-													fail('The `\(name)` is not an enum constructor of `\(enumType.name)`', e)
+													tags.push(currentTag)
 												}
 											} else {
-												fail('This case pattern is not supported over non-enum types', e)
+												fail('The `\(name)` is not an enum constructor of `\(enumType.name)`', e)
+												// fail('Available constructors are: ' + [
+												// for (i in enumType.fieldNames.length) if (enumType.fieldEnumConstructor) {
+												//
+												// }
+												// ].join(', '), e) TODO
 											}
-										case _:
-											fail('This case pattern is not supported', e)
-									}
+										} else {
+											fail('This case pattern is not supported over non-enum types', e)
+										}
+									case _:
+										fail('This case pattern is not supported', e)
+								}
+								// fail('This case pattern is not supported'+DataHelper.extractTypeName(t), e) TODO
 
 							case Ident(name): // Bind (var)
 								{
@@ -4277,8 +4305,9 @@ class Typer {
 
 											let type =
 												currentType.tagBindVarsTypes[indexOf][currentTagBind]
-												??
-												typesOfTagArguments(currentType, indexOf)[currentTagBind]
+											??
+											typesOfTagArguments(currentType, indexOf)[currentTagBind]
+											// let nodeType = currentType.tagBindVars[indexOf][currentTagBind] TODO
 											let name = currentType.tagBindVarsNames[indexOf][currentTagBind]
 
 											if name == null {
@@ -4290,6 +4319,7 @@ class Typer {
 											}
 
 											if type != null {
+												// types.set(e, toType(type, e)) TODO
 												types.set(e, type)
 											} else {
 												fail('Internal error: tagBindVars has no type for ' + name, e)
@@ -4299,20 +4329,19 @@ class Typer {
 										}
 									}
 								}
-								case Binop(a, op, b):
-									if op == Token.BitwiseOr {
-										follow(a)
-										follow(b)
-									} else {
-										fail('This case pattern is not supported', e)
-									}
-								case If(econd, _, _):
-									pushScope()
-									fill(econd[0])
-									popScope()
-								case _:
+							case Binop(a, op, b):
+								if op == Token.BitwiseOr {
+									follow(a)
+									follow(b)
+								} else {
 									fail('This case pattern is not supported', e)
-							}
+								}
+							case If(econd, _, _):
+								pushScope()
+								fill(econd[0])
+								popScope()
+							case _:
+								fail('This case pattern is not supported', e)
 						}
 					}
 					follow(e)
