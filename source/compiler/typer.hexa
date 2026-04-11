@@ -283,12 +283,12 @@ class Typer {
 									}
 
 									let genericCache = classType.genericCache.map(fun (knownParams: [Type]): [Type] {
-										let known = knownParams.slice()
-										// Remove the class itself (it was pushed here in the cache)
-										known.shift()
-										// Unwrap
-										return known.map(unwrap)
-									})
+											let known = knownParams.slice()
+											// Remove the class itself (it was pushed here in the cache)
+											known.shift()
+											// Unwrap
+											return known.map(unwrap)
+										})
 									// Clear unwrapped
 									// TODO `as!` here is just for native target
 									.filter(known => not (known as! [Type]).includes(null))
@@ -305,7 +305,7 @@ class Typer {
 										switch known[0] as! Type {
 											case Unknown(handle): type = handle.value
 											case UnknownNullable(handle): type = handle.value
-											case Generic(_): // Not supposed to be typed TODO is this okay?
+											case Generic(_): // type = null // Not supposed to be typed TODO is this okay?
 											case _: type = known[0]
 										}
 
@@ -576,13 +576,12 @@ class Typer {
 					if native != null { switch native.values[0] {
 							case String(s): return s
 							case _: throw '@rename takes string as argument'
-						}}
-					} else {
-						switch renamingStrategy {
-							case AsTitleCase: return Hint.toTitleCase(name)
-							case AsIs: return name
-							case null:
-						}
+						} }
+				} else {
+					switch renamingStrategy {
+						case AsTitleCase: return Hint.toTitleCase(name)
+						case AsIs: return name
+						case null:
 					}
 
 					return null
@@ -678,11 +677,11 @@ class Typer {
 										type.fieldStatic[type.fieldNames.length - 1] = true
 										addScope(name, field)
 								}
-								case _:
-									fail('Wrong class field format', field)
-							}
-							parents.set(field, node)
+							case _:
+								fail('Wrong class field format', field)
 						}
+						parents.set(field, node)
+					}
 
 					// Fill fields with non-ambiguous types
 					for field in f { switch field {
@@ -716,13 +715,13 @@ class Typer {
 											types.set(field, types.get(f))
 										}
 
-								case Var(name, t, e, const):
-									if let t = t {
-										types.set(f, toType(t, f))
-										types.set(field, types.get(f))
-									}
-							}
 						}}
+									case Var(name, t, e, const):
+										if let t = t {
+											types.set(f, toType(t, f))
+											types.set(field, types.get(f))
+										}
+								}
 
 					// Fill expressions
 					for field in f { switch field {
@@ -783,7 +782,7 @@ class Typer {
 									fail('Field `var \(name)` initialized, but got no type ' + e, field)
 								}
 
-							// The thing with getters and setters
+								// The thing with getters and setters
 							case Property(f, _, _):
 									switch f {
 										case Var(name, t, e, const):
@@ -804,7 +803,7 @@ class Typer {
 											fail('Property `\(name)` initialized, but got no type ' + e, field)
 								}
 
-							// `static f`
+								// `static f`
 							case Static(f): switch f {
 								case Function(name, expr, vars, rettype, _, variadic):
 									if external, expr != null {
@@ -843,24 +842,25 @@ class Typer {
 						fail('ClassType expects (declare) class node, but got ' + node, node)
 				}
 
-				thisType = _thisType
-				thisNode = _thisNode
-				return type
 			}
+
+			thisType = _thisType
+			thisNode = _thisNode
+			return type
 		}
 
-		// `enum T {}`
-		fun registerEnumType(node: Node): EnumType {
-			if let type = types.get(node) {
-				switch type as! Type {
-					// Avoid typing if already typed
-					case Enum(t): return t
-				}
-			} else {
-				let type = new EnumType()
-				type.parent = node
-				type.name = DataHelper.nameOf(node)
-				types.set(node, Type.Enum(type))
+	// `enum T {}`
+	fun registerEnumType(node: Node): EnumType {
+		if let type = types.get(node) {
+			switch type as! Type {
+				// Avoid typing if already typed
+				case Enum(t): return t
+			}
+		} else {
+			let type = new EnumType()
+			type.parent = node
+			type.name = DataHelper.nameOf(node)
+			types.set(node, Type.Enum(type))
 
 			switch node {
 				case Enum(t, f, valuesType, extend):
@@ -919,7 +919,7 @@ class Typer {
 									fail('Wrong enum constructor format, should be `Name`', node)
 							}
 
-							// `enum E { A(b C) }`
+								// `enum E { A(b C) }`
 							case Call(e, args, argNames):
 								if valuesType != null {
 									throw fail('Cannot use `Value(args)` format for simple enum', node)
@@ -968,8 +968,8 @@ class Typer {
 									}
 								}
 
-							// `enum E { A = b }`
-							// TODO allow BigInt as possible enum value type?
+								// `enum E { A = b }`
+								// TODO allow BigInt as possible enum value type?
 							case Binop(a, op, b):
 								if op != Token.Assign {
 									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
@@ -1190,13 +1190,13 @@ class Typer {
 			}
 		}
 
-		fun positionOf(node: Node) {
-			let data = project.data.get(node)
-			if data == null {
-				return "[Unknown]: "
-			}
-			return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
+	fun positionOf(node: Node) {
+		let data = project.data.get(node)
+		if data == null {
+			return "[Unknown]: "
 		}
+		return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
+	}
 
 	/// Produces type `[T]` from same looking node, and other cases
 	static fun nodeToNodeType(node: Node): NodeType { switch node {
@@ -1263,20 +1263,17 @@ class Typer {
 			return null
 		}
 
-		// Scopes
-		private let scopes: [[String : Node]] = [[:]]
-		private let scopeTypes: [[String : Type]] = [[:]]
-		let parents: [Node : Node] = [:]
 
-		private fun pushScope(): Void {
-			scopes.push([:])
-			scopeTypes.push([:])
-		}
+	// Scopes
+	private let scopes: [[String : Node]] = [[:]]
+	private let scopeTypes: [[String : Type]] = [[:]]
+	let parents: [Node : Node] = [:]
 
+	private fun pushScope(): Void {
+		scopes.push([:])
+		scopeTypes.push([:])
+	}
 
-		private fun addScope(name: String, node: Node): Void {
-			scopes[scopes.length - 1].set(name, node)
-		}
 	private fun popScope(): Void {
 		scopes.pop()
 		scopeTypes.pop()
@@ -1285,6 +1282,9 @@ class Typer {
 		private fun addScopeType(name: String, type: Type): Void {
 			scopeTypes[scopeTypes.length - 1].set(name, type)
 		}
+	private fun addScope(name: String, node: Node): Void {
+		scopes[scopes.length - 1].set(name, node)
+	}
 
 		// Types
 		private let types: [Node : Type] = [:]
@@ -1342,18 +1342,18 @@ class Typer {
 				return to
 			}
 
-			if to == typeAny {
-				return to
-			}
 
-			if fromValue == typeVoid {
-				fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`', node)
-			}
+		if to == typeAny {
+			return to
+		}
 
 			// `Int` is assignable to `Float`
 			if to == typeFloat, fromValue == typeInt {
 				return typeFloat
 			}
+		if fromValue == typeVoid {
+			fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`', node)
+		}
 
 			// Nullability
 			fun isNullable(t: Type): Bool {
@@ -1370,55 +1370,55 @@ class Typer {
 					case Class(t):
 						fail('Cannot take classes `class \(t.name)` as values', node)
 					// TODO case Enum(t):
-				}
-				return null
 					// fail('Cannot take enums `enum \(t.name)` as values', node)
 			}
+			return null
+		}
 
-			fun instanceOfEnum(t: Type): EnumType? {
-				switch Type.unwrapNullable(t) {
-					case EnumInstance(t, _): return t
-					case Enum(t): return t
 				}
-				return null
+		fun instanceOfEnum(t: Type): EnumType? {
+			switch Type.unwrapNullable(t) {
+				case EnumInstance(t, _): return t
+				case Enum(t): return t
 			}
+			return null
 
-			// Fill unknown nullable
-			switch to {
-				case UnknownNullable(handle):
-					if (handle.value == null) {
-						handle.value = switch fromValue {
-							case UnknownNullable(handle): handle.value
-							case Nullable(t): t
-							case _: fromValue
 						}
+		// Fill unknown nullable
+		switch to {
+			case UnknownNullable(handle):
+				if (handle.value == null) {
+					handle.value = switch fromValue {
+						case UnknownNullable(handle): handle.value
+						case Nullable(t): t
+						case _: fromValue
 					}
-			}
+		}
 
 		var toNullable = isNullable(to)
 		var fromNullable = isNullable(fromValue)
 
-			//if (fromNullable, !toNullable, Type.stringify)
-			//	fail('Cannot assign nullable type `\(Type.stringify(fromValue))` to non-nullable `\(Type.stringify(to))`', node)
+		// if (fromNullable, !toNullable, Type.stringify)
+		// fail('Cannot assign nullable type `\(Type.stringify(fromValue))` to non-nullable `\(Type.stringify(to))`', node)
 
 		var toInstance = instanceOfClass(to)
 		var fromInstance = instanceOfClass(fromValue)
 
 		var toEnumInstance = instanceOfEnum(to)
 		var fromEnumInstance = instanceOfEnum(fromValue)
+
+		if
+			(toInstance == null and toEnumInstance == null)
 			or
+			(fromInstance == null and fromEnumInstance == null)
+		{
+			return to ?? fromValue
+		}
 
-			if
-				(toInstance == null and toEnumInstance == null)
-				(fromInstance == null and fromEnumInstance == null)
-			{
-				return to ?? fromValue
-			}
-
-			if toInstance != fromInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
-				// Cannot assign signed to unsigned
-				// TODO OK by known positive values and zero `: UInt64 = 123`
-				// TODO same for comparisons `if UInt64 == 0 {}`
+		if toInstance != fromInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
+			// Cannot assign signed to unsigned
+			// TODO OK by known positive values and zero `: UInt64 = 123`
+			// TODO same for comparisons `if UInt64 == 0 {}`
 
 			// Float is 64-bit signed
 			// `UInt64` & `Int64` are too large or too precise
@@ -1647,7 +1647,7 @@ class Typer {
 												}
 										}
 								}
-						}
+					}
 
 					// TODO respect generics
 					var extended = type.extend
@@ -1665,17 +1665,16 @@ class Typer {
 								return to
 							}
 
-								switch extend {
-									case ClassInstance(type, generic):
-										extended = type.extend
-									case Class(type):
-										extended = type.extend
-									case _:
-										extended = null
-								}
-							} else {
-								break
+							switch extend {
+								case ClassInstance(type, generic):
+									extended = type.extend
+								case Class(type):
+									extended = type.extend
+								case _:
+									extended = null
 							}
+						} else {
+							break
 						}
 				}
 
@@ -1688,7 +1687,6 @@ class Typer {
 				//fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
 			}
 
-			return to ?? fromValue
 		}
 
 		fun findType(name: String): Node? {
@@ -1696,11 +1694,12 @@ class Typer {
 				if let subj = scopes[scopes.length - i - 1].get(name) {
 					return subj
 				}
+		return to ?? fromValue
 			}
 			return findInNamespaceRoots(name)
 		}
+	}
 
-				}
 	fun findActualType(name: String): Type? {
 		for i in scopeTypes.length {
 			if let subj = scopeTypes[scopeTypes.length - i - 1].get(name) {
@@ -1766,9 +1765,9 @@ class Typer {
 								available.push(name)
 							}
 
-							for name in currentModule.exported.keys() {
-								available.push(name)
-							}
+						for name in currentModule.exported.keys() {
+							available.push(name)
+						}
 
 						for name in project.globals.keys() {
 							available.push(name)
@@ -1778,12 +1777,12 @@ class Typer {
 								'Cannot find type `\(name)`\n'
 								+ proposeSimilar(available.filter((named) => DataHelper.isTitleCase(named)), name, 'types', name),
 							 node)
-						case Alias(alias):
-							return toType(alias.value, node)
 						case _:
 							if type == typeAny {
 								return typeAny
 							}
+					case Alias(alias):
+						return toType(alias.value, node)
 
 						switch type {
 							case Generic(_):
@@ -1814,14 +1813,14 @@ class Typer {
 
 						let instanceParams = [for p in params toType(p, node)]
 
-							// Fix C forward declaration order
-							if name == 'ByValue' {
-								switch instanceParams[0] {
-									case ClassInstance(type):
-										// TODO is it even useful here? Or just keep in normalizer?
-										type.usedByValueDepth = 1
-								}
+						// Fix C forward declaration order
+						if name == 'ByValue' {
+							switch instanceParams[0] {
+								case ClassInstance(type):
+									// TODO is it even useful here? Or just keep in normalizer?
+									type.usedByValueDepth = 1
 							}
+						}
 
 							return type.instantiateGeneric(instanceParams)
 						case null:
@@ -1860,6 +1859,7 @@ class Typer {
 					fail('Unsupported node type ' + t + never, node)
 			}
 		}
+	}
 
 	// Infer `var a [T] = []`
 	fun inferEmptyArray(t: Type, e: Node?) {
@@ -1971,10 +1971,10 @@ class Typer {
 				return true
 			}
 
-			switch left {
-				case Generic(_): return true
-			}
 
+		switch left {
+			case Generic(_): return true
+		}
 
 			// TODO check that `unsigned < -10` makes no sense
 			let numerical = [
@@ -2134,23 +2134,23 @@ class Typer {
 
 		let atts = project.mapDecorators.get(node)
 
-			if let noThrow = DataHelper.getDecorator(atts, 'noThrow') {
-				if (noThrow.values.length > 0) {
-					fail('Decorator `@noThrow` should have no parameters', node)
-				}
-				functionAllowedToThrow = false
-			} else {
-				functionAllowedToThrow = true
+		if let noThrow = DataHelper.getDecorator(atts, 'noThrow') {
+			if (noThrow.values.length > 0) {
+				fail('Decorator `@noThrow` should have no parameters', node)
 			}
+			functionAllowedToThrow = false
+		} else {
+			functionAllowedToThrow = true
+		}
 
-			if let throws = DataHelper.getDecorator(atts, 'throws') {
-				if (functionAllowedToThrow == false) {
-					fail('Decorator `@noThrow` cannot be used with `@throws`', node)
-				}
-				functionThrows = true
-			} else {
-				functionThrows = false
+		if let throws = DataHelper.getDecorator(atts, 'throws') {
+			if (functionAllowedToThrow == false) {
+				fail('Decorator `@noThrow` cannot be used with `@throws`', node)
 			}
+			functionThrows = true
+		} else {
+			functionThrows = false
+		}
 
 		insideFunction = true
 		insideTry = false
@@ -2294,14 +2294,14 @@ class Typer {
 				addScope(name, node)
 
 				// `a = b` as a statement
-				case Binop(a, op, b):
-					fillExpression(node)
+			case Binop(a, op, b):
+				fillExpression(node)
 
-					var parent: Node = parents.get(a)
-					// `a = b`
-					// TODO separate assign node? or just nested pattern...
-					if op == Token.Assign {
-						switch parent {
+				var parent: Node = parents.get(a)
+				// `a = b`
+				// TODO separate assign node? or just nested pattern...
+				if op == Token.Assign {
+					switch parent {
 						case null:
 							switch a {
 								case Ident(_): // Ok
@@ -2442,17 +2442,17 @@ class Typer {
 
 				// `function name(vars): rettype {expr}`
 				// `vars` are `Var(name, t, ...)` where `function(name: t)`
-				case Function(name, expr, vars, rettype, external):
-						fail('Non-external function `\(name)` should have a body', node)
-					}
-					if external, rettype == null {
-						fail('External function `\(name)` should have a returning type', node)
-					}
-					addScope(name, node)
-					pushFuncParamsIfRequired(node) // Do this before `expr` typing
-					fillFunction(node, expr, vars, rettype)
-					if false {
+			case Function(name, expr, vars, rettype, external):
 				if not external, expr == null {
+					fail('Non-external function `\(name)` should have a body', node)
+				}
+				if external, rettype == null {
+					fail('External function `\(name)` should have a returning type', node)
+				}
+				addScope(name, node)
+				pushFuncParamsIfRequired(node) // Do this before `expr` typing
+				fillFunction(node, expr, vars, rettype)
+				if false {
 
 					// Save stack
 					let _insideFunction = insideFunction
@@ -2634,16 +2634,16 @@ class Typer {
 						types.set(node, type)
 					}
 
-					if let params = params {
-						for param in params {
-							types.set(param, toType(param, node))
-						}
+				if let params = params {
+					for param in params {
+						types.set(param, toType(param, node))
 					}
+				}
 
 				// `(args) => {expr}`
-				case Arrow(expr, vars, rettype):
-					fillFunction(node, expr, vars, rettype, arrow: true)
-					if false {
+			case Arrow(expr, vars, rettype):
+				fillFunction(node, expr, vars, rettype, arrow: true)
+				if false {
 					pushScope()
 					// Save stack
 					let _insideFunction = insideFunction
@@ -2658,14 +2658,14 @@ class Typer {
 				}
 
 				// `fun name(vars) rettype {expr}`
-				case Function(name, expr, vars, rettype, external):
-					if external {
-						fail('External function `declare fun \(name)` cannot be taken as a value', node)
-					}
+			case Function(name, expr, vars, rettype, external):
+				if external {
+					fail('External function `declare fun \(name)` cannot be taken as a value', node)
+				}
 
-					fillFunction(node, expr, vars, rettype)
+				fillFunction(node, expr, vars, rettype)
 
-					if false {
+				if false {
 					pushScope()
 					addScope(name, node)
 
@@ -2685,16 +2685,16 @@ class Typer {
 				}
 
 				// `[a,b,c]`
-				case Array(el):
-					// `[for name in over ... range by]`
-					switch el[0] {
-						case For(name, over, by, range):
-							if (el.length > 1) {
-								fail('Cannot use loop `for` within array of more than one element `[for, ...]`', el[1])
-							}
-							if (range != null) {
-								fail('Ranges `...range` are not supported here yet', range)
-							}
+			case Array(el):
+				// `[for name in over ... range by]`
+				switch el[0] {
+					case For(name, over, by, range):
+						if (el.length > 1) {
+							fail('Cannot use loop `for` within array of more than one element `[for, ...]`', el[1])
+						}
+						if (range != null) {
+							fail('Ranges `...range` are not supported here yet', range)
+						}
 
 							pushScope()
 							fillExpression(over)
@@ -2714,16 +2714,16 @@ class Typer {
 										fail('Type of iterable is neither `Int` nor `Array`, but `' + Type.stringify(overType) + '`', over)
 									}
 
-								case Nullable(_):
-									fail('Type of iterable should not be nullable', over)
+							case Nullable(_):
+								fail('Type of iterable should not be nullable', over)
 
-								case UnknownNullable(_):
-									fail('Type of iterable should not be nullable', over)
+							case UnknownNullable(_):
+								fail('Type of iterable should not be nullable', over)
 
-								case null:
-								case _:
-									fail('Type of iterable is neiter Int nor Array', over)
-							}
+							case null:
+							case _:
+								fail('Type of iterable is neiter Int nor Array', over)
+						}
 
 							addScope(name, el[0])
 							let _allowBreakAndContinue = allowBreakAndContinue
@@ -2738,18 +2738,18 @@ class Typer {
 								let e = el[i]
 								fillExpression(e)
 
-								if let elementsType = types.get(el[0]), i != 0 {
-									unify(elementsType, types.get(e), e)
 								}
+							if let elementsType = types.get(el[0]), i != 0 {
+								unify(elementsType, types.get(e), e)
 							}
-							types.set(node, typeArray.instantiateGeneric([
-								if (el.length > 0) {
-									types.get(el[0])
-								} else {
-									Type.Unknown({ value: null })
-								}
-							]))
-					}
+						types.set(node, typeArray.instantiateGeneric([
+									if (el.length > 0) {
+										types.get(el[0])
+									} else {
+										Type.Unknown({ value: null })
+									}
+								]))
+				}
 
 				// `[k:v, k:v]`
 			case Map(keys, values):
@@ -2771,62 +2771,62 @@ class Typer {
 				// `e as  t`
 				// `e as! t`
 				// `e as? t`
-				case As(e, kind, t):
-					// TODO error position must not a node, but at node type (`x as __here__` not `__here__ as tt`)
-					let type = toType(t, node)
-					if (type == typeVoid) {
-						fail('Conversion `as Void` makes no sense', e)
-					}
-					fillExpression(e)
-					if (types.get(e) == typeVoid) {
-						fail('Conversion of `value as \(Type.stringify(t))` where `value` is of type `Void` makes no sense', e)
-					}
-					types.set(t, type)
-					types.set(node, type)
+			case As(e, kind, t):
+				// TODO error position must not a node, but at node type (`x as __here__` not `__here__ as tt`)
+				let type = toType(t, node)
+				if (type == typeVoid) {
+					fail('Conversion `as Void` makes no sense', e)
+				}
+				fillExpression(e)
+				if (types.get(e) == typeVoid) {
+					fail('Conversion of `value as \(Type.stringify(t))` where `value` is of type `Void` makes no sense', e)
+				}
+				types.set(t, type)
+				types.set(node, type)
 
 				// `e is t`
-				case Is(e, t):
-					let type = toType(t, node)
-					if (type == typeAny) {
-						fail('Comparing `is Any` makes no sense, always true', e)
-					}
-					if (type == typeVoid) {
-						fail('Comparing `is Void` makes no sense', e)
-					}
-					fillExpression(e)
-					types.set(t, type)
-					types.set(node, typeBool)
+			case Is(e, t):
+				let type = toType(t, node)
+				if (type == typeAny) {
+					fail('Comparing `is Any` makes no sense, always true', e)
+				}
+				if (type == typeVoid) {
+					fail('Comparing `is Void` makes no sense', e)
+				}
+				fillExpression(e)
+				types.set(t, type)
+				types.set(node, typeBool)
 
 				// `{...}`
-				case Block(el):
-					if (el.length == 0) {
-						types.set(node, Type.Struct([], []))
-					} else {
-						pushScope()
-						for i in el.length { if (i < el.length - 1) {
+			case Block(el):
+				if (el.length == 0) {
+					types.set(node, Type.Struct([], []))
+				} else {
+					pushScope()
+					for i in el.length { if (i < el.length - 1) {
 							fill(el[i])
 						}}
-						let latest = el[el.length - 1]
-						fillExpression(latest)
-						types.set(node, types.get(latest))
-						popScope()
-					}
+					let latest = el[el.length - 1]
+					fillExpression(latest)
+					types.set(node, types.get(latest))
+					popScope()
+				}
 
 				// `e.n`
-				case Dot(e, n):
-					switch e {
-						case Super:
-							if not allowSuper {
-								fail('Cannot access `super` here', node)
-							}
+			case Dot(e, n):
+				switch e {
+					case Super:
+						if not allowSuper {
+							fail('Cannot access `super` here', node)
+						}
 
-						case NodeTypeValue(_):
-							fillExpression(e, false)
+					case NodeTypeValue(_):
+						fillExpression(e, false)
 
-						case _:
-							fillExpression(e)
-					}
-					if let etype = types.get(e) as! Type? { switch etype {
+					case _:
+						fillExpression(e)
+				}
+				if let etype = types.get(e) as! Type? { switch etype {
 						case ClassInstance(type, generic): // Non-static fields
 							type.useless = false
 							if etype == typeAny {
@@ -2869,14 +2869,14 @@ class Typer {
 															return typeAny
 														}
 														return generic[genericParamIndex]
-													// `: [T]`
+														// `: [T]`
 													case ClassInstance(type, generics):
 														if let general = generics {
 															return type.instantiateGeneric([for item in general genericFixup(item, generic)])
 														} else {
 															return ofType
 														}
-													// `: T?`
+														// `:  T?`
 													case Nullable(type):
 														return asNullable(genericFixup(type, generic))
 													case Function(args, returns, variadic):
@@ -2961,15 +2961,15 @@ class Typer {
 							switch type.parent {
 								case Enum(t, fields, valuesType):
 									for field in fields { switch field {
-										case Call(_):
-										case NodeTypeValue(_):
-										case Binop(_):
-										case _:
-										if DataHelper.nameOf(field) == n {
-											types.set(node, types.get(field))
-											parents.set(node, field)
-										}
 									}}
+											case Call(_):
+											case NodeTypeValue(_):
+											case Binop(_):
+											case _:
+												if DataHelper.nameOf(field) == n {
+													types.set(node, types.get(field))
+													parents.set(node, field)
+												}
 								case _:
 									fail('type.parent not an enum, internal error', type.parent)
 							}
@@ -3171,25 +3171,25 @@ class Typer {
 					fillExpression(e)
 				}
 
-					switch type {
-						case ClassInstance(type):
-							if type.constructor == -1 {
-								fail('Cannot construct class without `new () {}` constructor', node)
-							}
-							type.useless = false
-						case _:
-							fail('Constructor `new` may instantiate only classes', node)
-					}
+				switch type {
+					case ClassInstance(type):
+						if type.constructor == -1 {
+							fail('Cannot construct class without `new () {}` constructor', node)
+						}
+						type.useless = false
+					case _:
+						fail('Constructor `new` may instantiate only classes', node)
+				}
 
 				types.set(node, type)
 
 				// `{names:el, ...}`
-				case Object(names, el):
-					for name in names.length {
-						if names.indexOf(names[name]) != name {
-							fail('Field `\(names[name])` already exists', node)
-						}
+			case Object(names, el):
+				for name in names.length {
+					if names.indexOf(names[name]) != name {
+						fail('Field `\(names[name])` already exists', node)
 					}
+				}
 
 				for e in el {
 					fillExpression(e)
@@ -3199,34 +3199,34 @@ class Typer {
 				types.set(node, Type.Struct(names, els))
 
 				// `try { ... value } catch e: T { ... value }`
-				case Try(e, t, v, ca):
-					// Save stack
-					let _insideTry = insideTry
-					// Reset stack
-					insideTry = true
-					fillExpression(e)
-					// Restore stack
-					insideTry = _insideTry
+			case Try(e, t, v, ca):
+				// Save stack
+				let _insideTry = insideTry
+				// Reset stack
+				insideTry = true
+				fillExpression(e)
+				// Restore stack
+				insideTry = _insideTry
 
-					for i in ca.length {
-						pushScope()
-						scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
-						fill(ca[i])
-						popScope()
-					}
-					types.set(node, types.get(e))
+				for i in ca.length {
+					pushScope()
+					scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
+					fill(ca[i])
+					popScope()
+				}
+				types.set(node, types.get(e))
 
 				// `if (econd) eif else eelse`
-				case If(econd, eif, eelse, ternary):
-					if econd.length > 1 {
-						fail('More than one condition is not yet supported', econd[1])
-					}
-					switch econd[0] {
-						case Var(_):
-							fail('Variable bindings in ternary conditions are not yet supported', econd[0])
-					}
-					if eelse == null {
-						fail('Expression `if` should have an `else` clause', eif)
+			case If(econd, eif, eelse, ternary):
+				if econd.length > 1 {
+					fail('More than one condition is not yet supported', econd[1])
+				}
+				switch econd[0] {
+					case Var(_):
+						fail('Variable bindings in ternary conditions are not yet supported', econd[0])
+				}
+				if eelse == null {
+					fail('Expression `if` should have an `else` clause', eif)
 					}
 					fillExpression(econd[0])
 					if ternary == false {
@@ -3241,9 +3241,9 @@ class Typer {
 								fail('Ternary `else` should have a `{ block }` as a body', eelse)
 						}
 					}
-					fillExpression(eif)
-					fillExpression(eelse)
-					types.set(node, unify(types.get(eif), types.get(eelse), eelse))
+				fillExpression(eif)
+				fillExpression(eelse)
+				types.set(node, unify(types.get(eif), types.get(eelse), eelse))
 
 				// Simple nodes
 				// `null`
@@ -3315,11 +3315,11 @@ class Typer {
 							fail('Cannot access `super` here', node)
 						}
 
-							// TODO better idea
 					case NodeTypeValue(t):
 						// Constructor
 						// TODO handle `<T>`
 						let typeToCreate = toType(t, e)
+						// TODO better idea
 						let subj = find(DataHelper.extractTypeName(t))
 						parents.set(node, subj)
 
@@ -3465,15 +3465,15 @@ class Typer {
 							fail('Use syntax without empty `()`', node)
 						}
 
-							evaluateArguments(el, typesOfTagArguments(type, tag))
-				 			types.set(node, Type.EnumInstance(type, tag))
-				 		case null:
-							evaluateArguments(el, [])
+						evaluateArguments(el, typesOfTagArguments(type, tag))
+						types.set(node, Type.EnumInstance(type, tag))
+					case null:
+						evaluateArguments(el, [])
 
-				 			// TODO
-							//fail('Calling null ' + Node.stringify(e), e)
-				 		case _:
-							evaluateArguments(el, [])
+						// TODO
+						// fail('Calling null ' + Node.stringify(e), e)
+					case _:
+						evaluateArguments(el, [])
 
 						if types.get(e) == typeAny {
 							types.set(node, typeAny)
@@ -3483,21 +3483,20 @@ class Typer {
 				}
 
 				// `a op b` like `a + b`
-				case Binop(a, op, b):
-					fillExpression(a)
-					fillExpression(b)
-
-					let typeA = types.get(a)
-					let typeB = types.get(b)
-
-					inferNullType(typeA, typeB, a)
-					inferNullType(typeB, typeA, b)
+			case Binop(a, op, b):
+				fillExpression(a)
+				fillExpression(b)
 
 					// Anything + String = String
 					if op == Token.Add, typeA == typeString {
 						types.set(node, typeString)
 					} else
 					if (
+				let typeA = types.get(a)
+				let typeB = types.get(b)
+
+				inferNullType(typeA, typeB, a)
+				inferNullType(typeB, typeA, b)
 						op == Token.LogicalAnd or op == Token.LogicalOr
 					) {
 						let token = op == Token.LogicalAnd? 'and' : 'or'
@@ -3548,14 +3547,13 @@ class Typer {
 					if not comparable, not booleans, not covariant, not nullable {
 						let tokenString = Token.stringify(op)
 
-
-							// TODO optimize in normalizer those simple returnable switches
-							let leftString = switch a {
-								case Null:
-									'null'
-								case _:
-									Type.stringify(typeA)
-							}
+						// TODO optimize in normalizer those simple returnable switches
+						let leftString = switch a {
+							case Null:
+								'null'
+							case _:
+								Type.stringify(typeA)
+						}
 
 						let rightString = switch b {
 							case Null:
@@ -3564,12 +3562,12 @@ class Typer {
 								Type.stringify(typeB)
 						}
 
-							// TODO `null == null` should error cause no sense
-							if leftString != 'null', rightString != 'null' {
-								// TODO recommend `.address` for pointers
-								fail('Operator `a \(tokenString) b` requires `a` and `b` of comparable types, but got `\(leftString)` and `\(rightString)`', b)
-							}
+						// TODO `null == null` should error cause no sense
+						if leftString != 'null', rightString != 'null' {
+							// TODO recommend `.address` for pointers
+							fail('Operator `a \(tokenString) b` requires `a` and `b` of comparable types, but got `\(leftString)` and `\(rightString)`', b)
 						}
+					}
 
 					types.set(node, typeBool)
 				} else
@@ -3757,15 +3755,15 @@ class Typer {
 							indexableIsAny = true
 						}
 
-							if type.name == 'Map' { // TODO
-								indexableIsMap = true
-								mapKey = generic[0]
-							}
-						case Nullable(_):
-							fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` can be null, try to extract its value with `if let value = \(Node.stringify(e))`', e)
-						case UnknownNullable(handle):
-							fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` can be null, try to extract its value with `if let value = \(Node.stringify(e))`', e)
-					}
+						if type.name == 'Map' { // TODO
+							indexableIsMap = true
+							mapKey = generic[0]
+						}
+					case Nullable(_):
+						fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` can be null, try to extract its value with `if let value = \(Node.stringify(e))`', e)
+					case UnknownNullable(handle):
+						fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` can be null, try to extract its value with `if let value = \(Node.stringify(e))`', e)
+				}
 
 				if not indexableIsAny {
 					switch iType {
@@ -4136,7 +4134,7 @@ class Typer {
 												tags.push(currentTag)
 											}
 									}
-								case Parenthesis(e): {fill(e)}
+							case Parenthesis(e): { fill(e) }
 								// `case _:` default case
 							case Underscore: { }
 
