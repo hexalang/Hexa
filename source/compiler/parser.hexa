@@ -117,15 +117,19 @@ class Parser {
 				}
 				project.mapDecorators.set(f, atts)
 				fields.push(f)
+
+				// TODO could be that dedicated fields parsing in non-needed when `new` is only for constructors (and slow parser)
 			case KNew:
 				i++
 				// TODO `var expr = null` infer type
 				var expr: Node? = null
+				var positions: [NodeData] = []
 				var vars: [String] = []
 				var types = []
 				var values = []
 				step(Token.CallOpen)
 				if tok() != Token.CallClose { while true {
+					positions.push(new NodeData(lex.line[i], lex.column[i], lex.fileName))
 					vars.push(getgo(Token.Identifier))
 					var expr = null
 					var t = null
@@ -166,6 +170,7 @@ class Parser {
 				if
 					tok() != Token.BlockClose,
 					tok() != Token.KFun
+					// && tok() != KStatic
 				{
 					i = tmp
 					expr = parseExpr()
@@ -177,6 +182,8 @@ class Parser {
 				for i in vars.length {
 					// TODO reuse function arguments parser, to check for duplicate argument names, arrow functions etc
 					let argument = Node.Var(vars[i], types[i], values[i], true, false)
+					// TODO decorators
+					project.data.set(argument, positions[i])
 					v.push(argument)
 				}
 				switch expr {
@@ -319,7 +326,9 @@ class Parser {
 			console.log("Please, issue a developer (with a sample code).")
 			fail(lex.fileName + ": Parser internal error: out of token space")
 		}
+		//var t = lex.token[i]
 		if (lasttok != i) {
+			// Process.stdout.write(lex.token[i].stringify(lex.value[i]))
 			lasttok = i
 			lasttokchecks = 1000
 		} else {
@@ -330,6 +339,59 @@ class Parser {
 		}
 		#end
 
+//		// Nested #end
+//		if t == Token.Sharp, lex.value[i + 1] == 'end' { if (endif > 0) {
+//			i++ // #
+//			i++ // end
+//			endif--
+//			//t = lex.token[i]
+//			tok()
+//		} else {
+//			fail("Unexpected `#end`")
+//		}}
+//
+//		// #if
+//		if t == Token.Sharp, offset(1) == Token.KIf {
+//			i++ // #
+//			i++ // if
+//			let defName = getgo(Token.Identifier)
+//			let def = project.defines[defName]
+//			if def == null {
+//			//if def == null, lint == false {
+//				i-- // Cause `getgo`
+//				fail(
+//				"`#if` looks for the `" + defName + "` parameter which is *not* defined in project file." +
+//				' Add `"define": { "\(defName)": false }` to `hexa.json` or `--define \(defName)=false` to suppress this message.')
+//			}
+//
+//			if (def == true) {
+//				endif++
+//			}
+//
+//			//if (def == false || lint == true) {
+//			if (def == false) {
+//				var endifs = 1
+//				while (i < lex.length) {
+//					if offset(0) == Token.Sharp, offset(1) == Token.KIf {
+//						i++ // #
+//						i++ // if
+//						endifs++
+//						continue
+//					}
+//					if offset(0) == Token.Sharp, lex.value[i + 1] == 'end' {
+//						i++ // #
+//						i++ // end
+//						endifs--
+//						if (endifs == 0) {
+//							break
+//						}
+//						continue
+//					}
+//					i++
+//				}
+//			}
+//			tok()
+//		}
 		return lex.token[i] as! Token
 	}
 
@@ -779,7 +841,17 @@ class Parser {
 		case Increment | Decrement | KNot | BitwiseNot | Subtract:
 			let id = lex.token[i] as! Token
 			i++
+			//result = Node.Unop(id, false, parseExpr())
 			let value = parseExpr()
+			//result = Node.Unop(id, false, value)
+		//	fun fix() {
+		//	switch value {
+		//		case Binop(aa, op, bb):
+		//			result = Node.Binop(Node.Unop(id, false, aa), op, bb)
+		//			fix()
+		//		case _: result = Node.Unop(id, false, value)
+		//	}
+		//}
 
 			// All unops have larger priority than binops
 			fun fix(value: Node) {
@@ -792,6 +864,7 @@ class Parser {
 				}
 			}
 
+			//result = fix(Node.Unop(id, false, value))
 			result = fix(value)
 
 		case FloatingPoint:
@@ -985,6 +1058,7 @@ class Parser {
 			}
 
 			var el: [ImportNode] = []
+			//var path: String = []
 
 			while true {
 				// TODO pos
@@ -993,6 +1067,7 @@ class Parser {
 				} else if (tok() == Token.Title) {
 					el.push(ImportNode.Upper(getgo(Token.Title)))
 				} else if (tok() == Token.Multiply) {
+					//el.push(ImportNode.AllTheThings)
 					i++
 					step(Token.KAs)
 					el.push(ImportNode.As(ImportNode.AllTheThings, ImportNode.Lower(getgo(Token.Identifier))))
@@ -1020,8 +1095,33 @@ class Parser {
 
 			step(Token.KIn)
 
+			//var offset = lex.column[i]
+			//while (true) {
+			//	if (tok() == Token.Eof) {
+			//		break
+			//	}
+			//	let value = print()
+			//	path.push(value)
+			//	i++
+			//	if (lex.column[i] != offset + value.length) {
+			//		break
+			//	}
+			//	offset += value.length
+			//	//if (tok() == Token.Identifier) path.push(getgo(Token.Identifier))
+			//	//else if (tok() == Token.Title) path.push(getgo(Token.Title))
+			//	//else if (tok() == Token.Dot) { path.push('.') i++ }
+			//	//else if (tok() == Token.Divide) { path.push('/') i++ }
+			//	//else if (tok() > 1 && tok() < 60) { path.push(print()) i++ }
+			//	//else break
+			//}
+			//if (path.length == 0) {
+			//	fail('Path to file expected, found nothing')
+			//}
+			//console.log(path)
+			//console.log(el)
 
 			result = Node.Import(el, getgo(Token.QuotedString))
+			//result = Node.Import(path.join(''), el)
 			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 			return result
 
@@ -1482,6 +1582,7 @@ class Parser {
 			switch tok() {
 			case Eof: done = true
 			case IndexOpen:
+				//let failAt = i
 				i++
 				var index = parseExpr()
 				if tok() == Token.Comma {
@@ -1492,6 +1593,18 @@ class Parser {
 					)
 				}
 				step(Token.IndexClose)
+
+				/*switch result {
+					case Ident(_): // Ok
+					case Dot(_): // Ok
+					case Index(_): // Ok
+					case _:
+						let temp = i
+						i = failAt
+						failHint('Cannot index `[]` expression `\(Node.stringify(result))`')
+						i = temp
+				}*/
+
 				result = Node.Index(result, index)
 			case KIs:
 				i++
@@ -1645,10 +1758,14 @@ class Parser {
 					bp = bp % 100
 					if bp > tp {
 						let eb = Node.Binop(result, t, aa)
+						//project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
 						project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
+						//project.data.set(eb, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 						result = Node.Binop(eb, op, bb)
+						//project.data.set(result, project.data.get(b))
 					} else {
 						result = Node.Binop(result, t, b)
+						//project.data.set(result, project.data.get(b))
 					}
 				// Ternary operator has the lowest precedence
 				case If(econd, eif, eelse, ternary):
@@ -1656,9 +1773,11 @@ class Parser {
 						result = Node.If([Node.Binop(result, t, econd[0])], eif, eelse, true)
 					} else {
 						result = Node.Binop(result, t, b)
+						//project.data.set(result, project.data.get(b))
 					}
 				case _:
 					result = Node.Binop(result, t, b)
+					//project.data.set(result, project.data.get(b))
 				}
 			} else {
 				done = true
@@ -1682,6 +1801,7 @@ class Parser {
 
 	fun parseBlock(): Node {
 		// TODO handle EOF
+		// TODO i++ leftover
 		step(Token.BlockOpen)
 		if tok() == Token.BlockClose { // Empty block {}
 			i++
@@ -1789,6 +1909,7 @@ class Parser {
 				token == Token.Title or // `T` TODO rename `Title` to `TitleCase`, `Identifier` to `CamelCase`
 				token == Token.CallOpen // `()=>T` TODO rename `CallOpen` to `CallOpen`
 			{
+				// TODO i++ leftover
 				type = parseType()
 			}
 
@@ -1837,7 +1958,22 @@ class Parser {
 			return Node.EnumExtract(path, bind, expr)
 		}
 
+// TODO deprecated
+//		while (true) {
+//
+//			if (tok() == Token.Title || (tok() == Token.Identifier && offset(1) == Token.Dot)) {
+//				vars.push(parseSingleBinding())
+//			} else {
 				vars.push(parseSingleVar())
+//			}
+//
+//			// Multiple variables var a, b, c
+//			if (tok() == Token.Comma && offset(1) == Token.Identifier && (offset(2) == Token.Assign || offset(2) == Token.Colon)) {
+//				i++
+//			} else {
+//				break
+//			}
+//		}
 
 		return vars
 
@@ -1853,9 +1989,11 @@ class Parser {
 
 					var varname = getgo(Token.Identifier)
 					if (varname.endsWith("___")) {
+						// TODO still applies?
 						fail("Variables can't end with `___`, it is reserved.")
 					}
 
+					// TODO disallow `expr if/for/etc` because its confusing for Python programmers
 					var type = null if (tok() == Token.Colon) { i++ type = parseType() }
 					var expr = null if (tok() == Token.Assign) { i++ expr = parseExpr() }
 					vars.push(Node.Var(varname, type, expr, const, external))
@@ -1887,6 +2025,7 @@ class Parser {
 							}
 							step(Token.Assign)
 							var varname = getgo(Token.Identifier)
+							// vars.push(EnumExtract(res, args, varname))
 						case Assign:
 							//warning Extracting empty enum
 						case _:
@@ -1960,9 +2099,16 @@ class Parser {
 					// TODO ^ vs hexa [[navigation]] on ctrl-click and hover over comment
 					// ^ make it fuzzy so no need for full [[path.path.path]]
 					// ^ RMB or DnD from Outline to code to make link
+					// t = parseType() // Leftover
 				}
 
 				// TODO well `tok()` could be just `@inline let token { get }` or something
+				// if tok() == Token.At { TODO rethink this limitation
+				// 	i++
+				// 	let decName = print() // TODO `getgo(Token.Identifier)` + `failHintAt`
+				// 	i--
+				// 	fail("Decorators should be placed at argument's declaration like `@\(decName) \(name)` instead of their type.")
+				// }
 				let token = tok()
 
 				if
@@ -2079,6 +2225,16 @@ class Parser {
 			project.mapFuncParams.set(result, params)
 		}
 		return result
+	}
+
+	// TODO JS/other code gen problem `\` escaping
+	fun backtickOr(prefix: String, value: String?, placeholder: String): String {
+		if let value = value {
+			// TOOD fix `\` gen return prefix + `\` + value + `\`
+			return prefix + '`' + value + '`'
+		}
+
+		return placeholder
 	}
 
 	fun parseClass(external: Bool = false): Node {
@@ -2304,6 +2460,12 @@ class Parser {
 		}
 
 		// Types
+		// TODO NameSpace.NameSpace.T parsing
+		//var path = []
+		//while (tok() == Token.Identifier && offset(1) == Token.Dot) {
+		//	path.push(getgo(Token.Identifier))
+		//	i++
+		//}
 
 		let path: String? = if (tok() == Token.Identifier && offset(1) == Token.Dot) {
 			let result = getgo(Token.Identifier)
@@ -2318,6 +2480,9 @@ class Parser {
 		switch tok() {
 		case Title:
 			var name = getgo(Token.Title)
+			//if (path.length != 0) {
+			//	name = path.join('.') + '.' + name
+			//}
 			while tok() == Token.Dot {
 				i++
 				// TODO why?
@@ -2343,6 +2508,7 @@ class Parser {
 					case _: unexpected()
 				}
 				if parametricTypeNesting < 0 {
+					// TODO better error (internal)
 					fail("parametricTypeNesting < 0")
 				}
 
@@ -2435,13 +2601,16 @@ class Parser {
 			var args = []
 			while tok() != Token.CallClose {
 				if tok() == Token.Identifier {
+					// TODO save identifier name
 					step(Token.Identifier)
 					if tok() == Token.Colon {
 						// TODO colon-less
 						i++
 					}
 				}
+				// TODO combine into single object type+name (NodeType.FunctionArg) instead of two arrays (simplicity + optimization)
 				args.push(parseType())
+				// TODO parse default value
 				if tok() == Token.Comma {
 					i++
 				}
@@ -2450,8 +2619,10 @@ class Parser {
 			step(Token.RightArrow)
 			result = NodeType.Function(args, parseType())
 
-		// var.invar
-		// var.Invar
+		// TODO deprecated
+		// name: T (parsing of function arguments directly via `parseType`)
+		// name.T
+		// name.name.T (recursion)
 		case Identifier:
 			var res: NodeType? = null
 			switch offset(1) {
