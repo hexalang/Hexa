@@ -1215,28 +1215,44 @@ class Parser {
 			var guards = []
 
 			while tok() != Token.BlockClose {
+				// `case conds:` and `case cond, cond, cond:`
 				step(Token.KCase)
 				if tok() == Token.Underscore {
+					// `case _:`
 					conds.push(Node.Underscore)
 					i++
 				} else {
+					// `case expr:`
+					// TODO handle `case cond, cond, cond:`
 					conds.push(parseExpr())
 				}
 
+				// `case conds if guard:`
 				if tok() == Token.KIf {
 					i++
 					guards.push(parseExpr())
 				} else {
+					// No guard
 					guards.push(null)
 				}
 
+				// `case ...:`
 				step(Token.Colon)
+				// `case ...: expr expr expr`
 				var exs = []
-				// TODO , instead of &&
+				// TODO , instead of && ie `while a, b` new syntax here
 				while tok()!=Token.KCase && tok()!=Token.BlockClose {
 					exs.push(parseExpr())
 				}
-				cases.push(Node.Block(exs))
+
+				// Also assumes `0` expressions (ie `0 != 1`) thus makes a block with empty array
+				if exs.length != 1 {
+					// Collect them into a block
+					// TODO is this really needed by the typer?
+					cases.push(Node.Block(exs))
+				} else {
+					cases.push(exs[0])
+				}
 			}
 
 			step(Token.BlockClose)
@@ -1426,6 +1442,8 @@ class Parser {
 			next()
 			let fieldExpr = parseExpr()
 			result = Node.Static(fieldExpr)
+			// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
+			project.data.set(result, project.data.get(fieldExpr))
 
 		case KPrivate:
 			// TODO consume in the same way @decorators are consumed (global flag)
@@ -1435,6 +1453,8 @@ class Parser {
 			next()
 			let fieldExpr = parseExpr()
 			result = Node.Private(fieldExpr)
+			// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
+			project.data.set(result, project.data.get(fieldExpr))
 
 		case _: unexpected()
 		}
@@ -1444,6 +1464,8 @@ class Parser {
 			fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
 		}
 
+		// Save original starting position before any sub-parsing (postfix can advance i): final map uses prefix location for the whole expression
+		// TODO test with complex expressions like `a.b[c](d).e ?? f` to verify positions
 		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
 
 		if atts.length > 0 {
@@ -2298,6 +2320,7 @@ class Parser {
 			var name = getgo(Token.Title)
 			while tok() == Token.Dot {
 				i++
+				// TODO why?
 				getgo(Token.Title)
 			}
 			var sresult = if tok() == Token.Less {
