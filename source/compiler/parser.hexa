@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// TODO `<fast Bool>` use `true` by default, and fallback to `false` for stuff like `enum A : B` ie `:` nice errors
 @final
 class Parser {
 	// Parsing result
@@ -42,6 +43,9 @@ class Parser {
 
 	static fun parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
 		let parser = new Parser(lexe, project, lint)
+
+		// TODO wrap this into try{}catch and when error like `;` or `:` happens,
+		// show proper error message with more context
 
 		if parser.hints.length > 0 {
 			throw new CompilerErrors(parser.hints)
@@ -429,6 +433,7 @@ class Parser {
 				case KVar | KLet:
 					let parsed = parseVar(external: true)
 					if parsed.length > 1 {
+						// TODO result = Node.Vars(parsed)
 					} else {
 						result = parsed[0]
 					}
@@ -743,6 +748,10 @@ class Parser {
 				case KCase: result = Node.Return(null)
 				case KBreak: result = Node.Return(null)
 				case KContinue: result = Node.Return(null)
+
+				// TODO infer non-returning function right in parser
+				// (so it is instantly guessed to be Void)
+				// seems incompatible with macro
 				case KReturn: result = Node.Return(null)
 				case _: result = Node.Return(parseExpr())
 			}
@@ -1401,6 +1410,9 @@ class Parser {
 			result = Node.Static(fieldExpr)
 
 		case KPrivate:
+			// TODO consume in the same way @decorators are consumed (global flag)
+			// so when Var() constructed it passes Var(isPrivate)
+			// Typer should disallow `private` over disallowed places
 			// TODO convert to simple flags instead of separate expr
 			next()
 			let fieldExpr = parseExpr()
