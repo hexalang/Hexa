@@ -1,0 +1,292 @@
+// The Hexa Compiler
+// Copyright (C) 2026 Oleh Petrenko
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, version 3 of the License.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+/// The formatter (format.hexa) is a token-based, opinionated formatter that:
+/// 1. Normalizes spacing around operators and keywords.
+/// 2. Collapses multiple blank lines into a single one.
+/// 3. Enforces hanging indents for multi-line assignments, returns, and logical expressions.
+/// 4. Converts symbols like `&&`, `||` into their keyword equivalents (`and`, `or`).
+/// 5. Preserves user-defined line breaks to maintain intended code layouts.
+class TestFormat {
+	static fun test() {
+		console.log("TestFormat begin")
+
+		// Empty and whitespace-only inputs
+		shouldFormat("", "\n")
+		shouldFormat(" ", "\n")
+		shouldFormat("\t", "\n")
+
+		// Single-line basics
+		shouldFormat("1", "1\n") // NOTE auto-format adds newline
+		shouldFormat("x", "x\n")
+		shouldFormat("'hello'", "'hello'\n")
+		shouldFormat("\"hello\"", "\"hello\"\n")
+
+		// Operators get spaces
+		shouldFormat("a+b", "a + b\n")
+		shouldFormat("a- b", "a - b\n") // NOTE space before `-` is preserved
+		shouldFormat("a*b", "a * b\n")
+		shouldFormat("a/b", "a / b\n")
+		shouldFormat("a==b", "a == b\n")
+		shouldFormat("a!=b", "a != b\n")
+		shouldFormat("a<b", "a<b\n") // NOTE spacing around `<`, `>` is preserved because also used for types
+		shouldFormat("a < b", "a < b\n")
+		shouldFormat("a< b", "a< b\n")
+		shouldFormat("a>b", "a> b\n")
+		shouldFormat("a> b", "a> b\n")
+		shouldFormat("a<=b", "a <= b\n")
+		shouldFormat("a>=b", "a >= b\n")
+
+		// Logical operators become keywords
+		shouldFormat("a&&b", "a and b\n")
+		shouldFormat("a||b", "a or b\n")
+
+		// Assignment operators — no space before `=` suffix
+		shouldFormat("a+=b", "a += b\n")
+		shouldFormat("a-=b", "a -= b\n")
+		shouldFormat("a*=b", "a *= b\n")
+		shouldFormat("a/=b", "a /= b\n")
+		shouldFormat("a&=b", "a &= b\n")
+		shouldFormat("a|=b", "a |= b\n")
+		shouldFormat("a^=b", "a ^= b\n")
+
+		// Unary negation
+		shouldFormat("-x", "-x\n") // NOTE space before `-` is decided from context
+		shouldFormat("- x", "-x\n")
+		shouldFormat("(\n- x\n)", "(\n\t-x\n)\n")
+		shouldFormat("{\n- x\n}", "{\n\t-x\n}\n")
+		shouldFormat("[\n- x\n]", "[\n\t-x\n]\n")
+		shouldFormat("-1", "-1\n")
+		shouldFormat("- 1", "-1\n")
+		shouldFormat("-1n", "-1n\n")
+		shouldFormat("- 1n", "-1n\n")
+		shouldFormat("-1.0", "-1.0\n")
+		shouldFormat("- 1.0", "-1.0\n")
+		shouldFormat("-(x)", "-(x)\n")
+		shouldFormat("- ( x )", "-(x)\n")
+		shouldFormat("(-(x))", "(-(x))\n")
+		shouldFormat("( - (x))", "(-(x))\n")
+		shouldFormat("var x = -1", "var x = -1\n")
+		shouldFormat("var x = - 1", "var x = -1\n")
+		shouldFormat("var x = -1n", "var x = -1n\n")
+		shouldFormat("var x = - 1n", "var x = -1n\n")
+		shouldFormat("var x = -1.0", "var x = -1.0\n")
+		shouldFormat("var x = - 1.0", "var x = -1.0\n")
+		shouldFormat("var x = -x", "var x = -x\n")
+		shouldFormat("var x = - x", "var x = -x\n")
+		shouldFormat("var x = -x.y", "var x = -x.y\n")
+		shouldFormat("var x = - x.y", "var x = -x.y\n")
+		shouldFormat("var x = x - 1", "var x = x - 1\n")
+		shouldFormat("var x = x - x", "var x = x - x\n")
+		shouldFormat("var x = 1 - x", "var x = 1 - x\n")
+		shouldFormat("var x = 1 - 1n", "var x = 1 - 1n\n")
+		shouldFormat("var x = 1n - 1", "var x = 1n - 1\n")
+		shouldFormat("var x = 1n - 1n", "var x = 1n - 1n\n")
+		shouldFormat("var x = x-1", "var x = x - 1\n")
+		shouldFormat("var x = x - (1)", "var x = x - (1)\n")
+		shouldFormat("var x = x-(1)", "var x = x - (1)\n")
+		shouldFormat("return -1", "return -1\n")
+		shouldFormat("return - 1", "return -1\n")
+		shouldFormat("throw -1", "throw -1\n")
+		shouldFormat("throw - 1", "throw -1\n")
+		shouldFormat("case -1:", "case -1:\n")
+		shouldFormat("case - 1:", "case -1:\n")
+		shouldFormat("x and -y", "x and -y\n")
+		shouldFormat("x or -y", "x or -y\n")
+		shouldFormat("not -x", "not -x\n")
+		shouldFormat("--x", "-- x\n") // NOTE Hexa does not support prefix decrements
+		shouldFormat("- -x", "- -x\n")
+		shouldFormat("x + -y", "x + -y\n")
+		shouldFormat("x - -y", "x - -y\n")
+		shouldFormat("x * -y", "x * -y\n")
+		shouldFormat("x / -y", "x / -y\n")
+		shouldFormat("x \\ -y", "x \\ -y\n")
+		shouldFormat("x % -y", "x % -y\n")
+		shouldFormat("x & -y", "x & -y\n")
+		shouldFormat("x | -y", "x | -y\n")
+		shouldFormat("x ^ -y", "x ^ -y\n")
+		shouldFormat("x << -y", "x << -y\n")
+		shouldFormat("x >> -y", "x >> -y\n")
+		shouldFormat("x >>> -y", "x >>> -y\n")
+
+		// Unary — no extra space
+		shouldFormat("~x", "~x\n")
+		shouldFormat("not x", "not x\n")
+		shouldFormat("i++", "i++\n") // NOTE only postfix form supported
+		shouldFormat("i--", "i--\n")
+
+		// Bitwise
+		shouldFormat("a&b", "a & b\n")
+		shouldFormat("a|b", "a | b\n")
+		shouldFormat("a^b", "a ^ b\n")
+		shouldFormat("a<<b", "a << b\n")
+		shouldFormat("a>>b", "a>> b\n") // NOTE `>>` is also used for types
+		shouldFormat("a >>b", "a >> b\n")
+		shouldFormat("a>>>b", "a >>> b\n")
+
+		// Literals
+		shouldFormat("1", "1\n")
+		shouldFormat("1.0", "1.0\n")
+		shouldFormat("1n", "1n\n")
+
+		// Dot — no spaces around `.`
+		shouldFormat("a.b", "a.b\n")
+		shouldFormat("a.b.c", "a.b.c\n")
+
+		// Call — no space between callee and `(`
+		shouldFormat("f()", "f()\n")
+		shouldFormat("f(a)", "f(a)\n")
+		shouldFormat("f(a,b)", "f(a, b)\n")
+		shouldFormat("f(a, b)", "f(a, b)\n")
+
+		// Index — no space between value and `[`
+		shouldFormat("a[0]", "a[0]\n")
+		shouldFormat("a[i]", "a[i]\n")
+
+		// Negative literal in call
+		shouldFormat("f(-1)", "f(-1)\n")
+		shouldFormat("f(-1,-2)", "f(-1, -2)\n")
+
+		// `as!` — no space between `as` and `!`
+		shouldFormat("x as! T", "x as! T\n")
+		shouldFormat("x as? T", "x as? T\n")
+		shouldFormat("x as T", "x as T\n")
+
+		// `not` keyword
+		shouldFormat("not(x)", "not (x)\n")
+
+		// Block — braces on same line, body indented
+		shouldFormat("if x {}", "if x { }\n")
+		shouldFormat("if x { y }", "if x { y }\n")
+
+		// `var` / `let` declarations
+		shouldFormat("var x = 1", "var x = 1\n")
+		shouldFormat("let x = 1", "let x = 1\n")
+		shouldFormat("var x: Int = 1", "var x: Int = 1\n")
+
+		// `return`
+		shouldFormat("return x", "return x\n")
+		shouldFormat("return(x)", "return (x)\n")
+		shouldFormat("return{x}", "return { x }\n")
+		shouldFormat("return", "return\n")
+
+		// Comments — line comments are normalized
+		shouldFormat("// hello", "// hello\n")
+		shouldFormat("//hello", "// hello\n")
+		shouldFormat("//  hello\n", "// hello\n")
+
+		// Block comment preserves spacing
+		shouldFormat("/*hello  */", "/*hello  */\n")
+		shouldFormat("/* /*hello */ */", "/* /*hello */ */\n")
+		// TODO need to fix this + idempotency
+		// shouldFormat("/* /*hello */*/", "/* /*hello */*/*/\n")
+
+		// Vertical whitespace management
+		shouldFormat("let x = 1\n\n\n\nlet y = 2", "let x = 1\n\nlet y = 2\n")
+
+		// Hanging indents for assignment, return, and logical operators
+		shouldFormat("let x =\n1", "let x =\n\t1\n")
+		shouldFormat("return\nfalse", "return\n\tfalse\n")
+
+		// NOTE places next line at same indentation for this pattern:
+
+		/*
+			if
+				a or
+				b or
+				c
+			{ }
+		*/
+		shouldFormat("a and\nb", "a and\nb\n")
+		shouldFormat("a or\nb", "a or\nb\n")
+		shouldFormat("{\na and\nb\n}", "{\n\ta and\n\tb\n}\n")
+		shouldFormat("{\na or\nb\n}", "{\n\ta or\n\tb\n}\n")
+
+		// Generics and Nested Generics
+		shouldFormat("List<Int>", "List<Int>\n")
+		shouldFormat("Map<String, List<Int>>", "Map<String, List<Int>>\n")
+
+		// Compiler directives (#)
+		shouldFormat("#if DEBUG\t{let x = 1}", "#if DEBUG { let x = 1 }\n")
+		shouldFormat("#if DEBUG\n{\n\t\t\t\tlet x = 2}\n", "#if DEBUG\n\t{\n\t\tlet x = 2 }\n")
+		// TODO this is critical, better parse `#` as a separate token instead of `#if`
+		shouldFormat("#if DEBUG\t{\n\t\t\t\tlet x = 3}\n", "#if DEBUG {\n\t\tlet x = 3 }\n")
+		shouldFormat("#if DEBUG {\n        let x = 4\n}\n", "#if DEBUG {\n\t\tlet x = 4\n\t}\n")
+		shouldFormat("#if DEBUG\t{let x = 5}\telse\t{let y = 2}\t", "#if DEBUG { let x = 5 } else { let y = 2 }\n")
+		shouldFormat("#if DEBUG\t\t{\nlet x = 6}\nelse if\n{let y = 2}\nelse\n{let z = 3}\n", "#if DEBUG {\n\t\tlet x = 6 }\n\telse if\n\t{ let y = 2 }\n\telse\n\t{ let z = 3 }\n")
+
+		/*#if debug {
+				let x = 3
+			}*/
+		// Control Flow (Switch/Case)
+		shouldFormat("switch x { case 1: y }", "switch x { case 1: y }\n")
+		shouldFormat("switch x {\n case 1: y }", "switch x {\n\tcase 1: y }\n")
+		shouldFormat("switch x {\n case 1: y \n}", "switch x {\n\tcase 1: y\n}\n")
+
+		// Nested block indentation
+		shouldFormat("if a {\nif b {\nx\n}\n}", "if a {\n\tif b {\n\t\tx\n\t}\n}\n")
+
+		// Annotations and Rest params
+		shouldFormat("@component(id: 1) class X {}", "@component(id: 1) class X { }\n")
+		shouldFormat("fun f(...args) {}", "fun f(...args) { }\n")
+
+		// String interpolation
+		shouldFormat("\"hello \\(name)\"", "\"hello \\(name)\"\n")
+
+		for fail in failMessages {
+			console.log(fail)
+		}
+
+		let percent = Math.round((passed / overall) * 100)
+		console.log("TestFormat done \(percent)% (\(passed)/\(overall))")
+
+		if failMessages.length > 0 {
+			throw "TestFormat failed with \(overall - passed) tests"
+		}
+	}
+
+	static var passed = 0
+	static var overall = 0
+	static var failMessages: [String] = []
+
+	/// Checks that format(input) == expected
+	/// AND format(expected) == expected (output is stable under re-formatting)
+	static fun shouldFormat(input: String, expected: String) {
+		overall++
+		let result = autoFormatWholeFile(input)
+		if result != expected {
+			failMessages.push('TestFormat FAIL: format(`\(renderInvisibleChars(input))`)')
+			failMessages.push('  Expected: `\(renderInvisibleChars(expected))`')
+			failMessages.push('  Got:      `\(renderInvisibleChars(result))`')
+			return
+		}
+		let resultAgain = autoFormatWholeFile(result)
+		if result != resultAgain {
+			failMessages.push('TestFormat idempotency FAIL: format(format(`\(renderInvisibleChars(input))`))')
+			failMessages.push('  format(in):         `\(renderInvisibleChars(result))`')
+			failMessages.push('  format(format(in)):  `\(renderInvisibleChars(resultAgain))`')
+			return
+		}
+		passed++
+	}
+
+	/// Fix invisible chars like \t\r\n for readable error messages
+	static fun renderInvisibleChars(input: String): String {
+		return input
+		.split('\r').join('\\r')
+		.split('\n').join('\\n')
+		.split('\t').join('\\t')
+	}
+}
