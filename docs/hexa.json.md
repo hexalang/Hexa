@@ -23,7 +23,7 @@ Inline // comments explain aspects of each example. Always read them.
 	"author": "Oleh (PeyTy)",
 
 	// Project license (SPDX format recommended: "MIT", "LGPL-3.0-only", etc.)
-	"license": "LGPL-3.0-only",
+	"license": "MPL-2.0",
 
 	// [REQUIRED FOR BUILD] List of backend configurations
 	"targets": [
