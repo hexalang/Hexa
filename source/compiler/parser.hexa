@@ -61,7 +61,7 @@ class Parser {
 
 		nodes = []
 		// TODO
-		while i < lex.length && tok() != Token.Eof {
+		while i < lex.length and tok() != Token.Eof {
 			nodes.push(parseExpr())
 		}
 	}
@@ -85,313 +85,313 @@ class Parser {
 			}
 
 			switch tok() {
-			case KPrivate:
-				// TODO
-				i++
-			case KVar:
-				var f = parseExpr()
-				project.data.set(f, pos)
-				if _static {
-					f = Node.Static(f)
+				case KPrivate:
+					// TODO
+					i++
+				case KVar:
+					var f = parseExpr()
 					project.data.set(f, pos)
-				}
-
-				project.mapDecorators.set(f, atts)
-				fields.push(f)
-			case KFun:
-				var f = parseExpr()
-				project.data.set(f, pos)
-				if _static {
-					f = Node.Static(f)
-					project.data.set(f, pos)
-				}
-				project.mapDecorators.set(f, atts)
-				fields.push(f)
-
-			case KLet:
-				var f = parseExpr()
-				project.data.set(f, pos)
-				if _static {
-					f = Node.Static(f)
-					project.data.set(f, pos)
-				}
-				project.mapDecorators.set(f, atts)
-				fields.push(f)
-
-				// TODO could be that dedicated fields parsing in non-needed when `new` is only for constructors (and slow parser)
-			case KNew:
-				i++
-				// TODO `var expr = null` infer type
-				var expr: Node? = null
-				var positions: [NodeData] = []
-				var vars: [String] = []
-				var types = []
-				var values = []
-				step(Token.CallOpen)
-				if tok() != Token.CallClose { while true {
-					positions.push(new NodeData(lex.line[i], lex.column[i], lex.fileName))
-					vars.push(getgo(Token.Identifier))
-					var expr = null
-					var t = null
-					if tok() == Token.Colon {
-						i++
-						// TODO colon-less
-						t = parseType()
-					} else {
-						let token = tok()
-						if
-							token == Token.IndexOpen or
-							token == Token.BlockOpen or
-							token == Token.Title or
-							token == Token.CallOpen
-						{
-							t = parseType()
-						}
-					}
-					if tok() == Token.Assign {
-						i++
-						expr = parseExpr()
-					}
-					types.push(t)
-					values.push(expr)
-					if tok() == Token.Comma {
-						i++
-					} else {
-						break
-					}
-				}}
-				step(Token.CallClose)
-				// TODO Decorators parsing breaks this
-				var tmp = i
-				while tok() == Token.At {
-					parseDecorator()
-				}
-
-				if
-					tok() != Token.BlockClose,
-					tok() != Token.KFun
-					// && tok() != KStatic
-				{
-					i = tmp
-					expr = parseExpr()
-				} else {
-					i = tmp
-				}
-
-				var v = []
-				for i in vars.length {
-					// TODO reuse function arguments parser, to check for duplicate argument names, arrow functions etc
-					let argument = Node.Var(vars[i], types[i], values[i], true, false)
-					// TODO decorators
-					project.data.set(argument, positions[i])
-					v.push(argument)
-				}
-				switch expr {
-					case null:
-					case Block(_):
-					case _:
-						i--
-						fail('Constructor `new` should have a `{ block }` as a body')
-				}
-				let field = Node.Function('new', expr, v, null, false, variadic: false)
-				project.data.set(field, pos)
-				fields.push(field)
-			case Identifier:
-				let name = getgo(Token.Identifier)
-				// JavaScript's `get field()` to property
-				if name == 'get', tok() == Token.Identifier {
-					let field = getgo(Token.Identifier)
-					fail('Use property `var \(field) { get { return value } }` instead of `get \(field)()`')
-				}
-
-				// JavaScript's `set field(value)` to property
-				if name == 'set', tok() == Token.Identifier {
-					let field = getgo(Token.Identifier)
-					step(Token.CallOpen)
-					let value = getgo(Token.Identifier)
-					fail('Use property `var \(field) { set(\(value)) { ... } }` instead of `set \(field)(\(value))`')
-				}
-
-				// JavaScript's `method()` to `function method()`
-				if tok() == Token.CallOpen {
-					if name == 'constructor' {
-						fail('Use `new()` syntax instead of `constructor()`')
-					}
 					if _static {
-						fail('Use `static fun ' + name + '()` syntax for static methods')
-					} else {
-						fail('Use `function ' + name + '()` syntax for methods')
+						f = Node.Static(f)
+						project.data.set(f, pos)
 					}
-				}
-				fail('Fields should start with `var ' + name + '` or `let ' + name + '`')
-			case Title:
-				// TODO toCamelCase
-				fail('Fields cannot start with uppercase character `' + print() + '` -> `' + print().toLowerCase() + '`')
-			case BlockOpen:
-				let pos = { line: lex.line[i], column: lex.column[i] }
-				let field: Node? = fields.pop()
-				var v = null
-				var t = null
-				var n = null
-				var onlyGet = false
-				switch field {
-					case Var(name, type, expr, const):
-						if (expr != null) {
-							fail('Property should not have a `= value`')
-						}
 
-						v = field
-						t = type
-						n = name
-						onlyGet = const
-					case _:
-						fail('Only `var` and `let` fields may have a getter `let v: T { get() ... }`')
-				}
-				i++
-				// `get` is always first
-				if (print() == 'set') {
-					fail('Expected `get` before `set`')
-				}
+					project.mapDecorators.set(f, atts)
+					fields.push(f)
+				case KFun:
+					var f = parseExpr()
+					project.data.set(f, pos)
+					if _static {
+						f = Node.Static(f)
+						project.data.set(f, pos)
+					}
+					project.mapDecorators.set(f, atts)
+					fields.push(f)
 
-				if (print() != 'get') {
-					fail('Expected `get`')
-				}
+				case KLet:
+					var f = parseExpr()
+					project.data.set(f, pos)
+					if _static {
+						f = Node.Static(f)
+						project.data.set(f, pos)
+					}
+					project.mapDecorators.set(f, atts)
+					fields.push(f)
 
-				let kind = print()
-				var getterExpr = null
-
-				if (kind == 'get') {
+					// TODO could be that dedicated fields parsing in non-needed when `new` is only for constructors (and slow parser)
+				case KNew:
 					i++
-					getterExpr = parseExpr()
-				}
-
-				let kind = print()
-				var setterExpr = null
-				var setterVar = null
-
-				if kind == 'set', onlyGet {
-					fail('Constants `let` may have only getter `get`')
-				}
-
-				if kind == 'set' {
-					i++
+					// TODO `var expr = null` infer type
+					var expr: Node? = null
+					var positions: [NodeData] = []
+					var vars: [String] = []
+					var types = []
+					var values = []
 					step(Token.CallOpen)
-					setterVar = getgo(Token.Identifier)
+					if tok() != Token.CallClose { while true {
+							positions.push(new NodeData(lex.line[i], lex.column[i], lex.fileName))
+							vars.push(getgo(Token.Identifier))
+							var expr = null
+							var t = null
+							if tok() == Token.Colon {
+								i++
+								// TODO colon-less
+								t = parseType()
+							} else {
+								let token = tok()
+								if
+									token == Token.IndexOpen or
+									token == Token.BlockOpen or
+									token == Token.Title or
+									token == Token.CallOpen
+								{
+									t = parseType()
+								}
+							}
+							if tok() == Token.Assign {
+								i++
+								expr = parseExpr()
+							}
+							types.push(t)
+							values.push(expr)
+							if tok() == Token.Comma {
+								i++
+							} else {
+								break
+							}
+						} }
 					step(Token.CallClose)
-					setterExpr = parseExpr()
-				}
+					// TODO Decorators parsing breaks this
+					var tmp = i
+					while tok() == Token.At {
+						parseDecorator()
+					}
 
-				if setterExpr == null, !onlyGet {
-					fail('Variables `var` should have both getter `get` and setter `set`')
-				}
+					if
+						tok() != Token.BlockClose,
+						tok() != Token.KFun
+						// && tok() != KStatic
+					{
+						i = tmp
+						expr = parseExpr()
+					} else {
+						i = tmp
+					}
 
-				step(Token.BlockClose)
+					var v = []
+					for i in vars.length {
+						// TODO reuse function arguments parser, to check for duplicate argument names, arrow functions etc
+						let argument = Node.Var(vars[i], types[i], values[i], true, false)
+						// TODO decorators
+						project.data.set(argument, positions[i])
+						v.push(argument)
+					}
+					switch expr {
+						case null:
+						case Block(_):
+						case _:
+							i--
+							fail('Constructor `new` should have a `{ block }` as a body')
+					}
+					let field = Node.Function('new', expr, v, null, false, variadic: false)
+					project.data.set(field, pos)
+					fields.push(field)
+				case Identifier:
+					let name = getgo(Token.Identifier)
+					// JavaScript's `get field()` to property
+					if name == 'get', tok() == Token.Identifier {
+						let field = getgo(Token.Identifier)
+						fail('Use property `var \(field) { get { return value } }` instead of `get \(field)()`')
+					}
 
-				let getter: Node? = (getterExpr == null)? null : Node.Function('get_' + n, getterExpr, [], t, false, variadic: false)
-				let setter: Node? = (setterExpr == null)? null : Node.Function('set_' + n, setterExpr, [
-						Node.Var(setterVar, t, null, true, false)
-					], null, false, variadic: false)
-				let property = Node.Property(
-					field,
-					getter,
-					setter
-				)
-				project.data.set(property, new NodeData(pos.line, pos.column, lex.fileName))
-				project.data.set(getter, new NodeData(pos.line, pos.column, lex.fileName))
-				project.data.set(setter, new NodeData(pos.line, pos.column, lex.fileName))
-				fields.push(property)
-				if let getter = getter {
-					fields.push(getter)
-				}
-				if let setter = setter {
-					fields.push(setter)
-				}
-			case _:
-				fail('Fields cannot start with `' + print() + '`')
+					// JavaScript's `set field(value)` to property
+					if name == 'set', tok() == Token.Identifier {
+						let field = getgo(Token.Identifier)
+						step(Token.CallOpen)
+						let value = getgo(Token.Identifier)
+						fail('Use property `var \(field) { set(\(value)) { ... } }` instead of `set \(field)(\(value))`')
+					}
+
+					// JavaScript's `method()` to `function method()`
+					if tok() == Token.CallOpen {
+						if name == 'constructor' {
+							fail('Use `new()` syntax instead of `constructor()`')
+						}
+						if _static {
+							fail('Use `static fun ' + name + '()` syntax for static methods')
+						} else {
+							fail('Use `function ' + name + '()` syntax for methods')
+						}
+					}
+					fail('Fields should start with `var ' + name + '` or `let ' + name + '`')
+				case Title:
+					// TODO toCamelCase
+					fail('Fields cannot start with uppercase character `' + print() + '` -> `' + print().toLowerCase() + '`')
+				case BlockOpen:
+					let pos = { line: lex.line[i], column: lex.column[i] }
+					let field: Node? = fields.pop()
+					var v = null
+					var t = null
+					var n = null
+					var onlyGet = false
+					switch field {
+						case Var(name, type, expr, const):
+							if (expr != null) {
+								fail('Property should not have a `= value`')
+							}
+
+							v = field
+							t = type
+							n = name
+							onlyGet = const
+						case _:
+							fail('Only `var` and `let` fields may have a getter `let v: T { get() ... }`')
+					}
+					i++
+					// `get` is always first
+					if (print() == 'set') {
+						fail('Expected `get` before `set`')
+					}
+
+					if (print() != 'get') {
+						fail('Expected `get`')
+					}
+
+					let kind = print()
+					var getterExpr = null
+
+					if (kind == 'get') {
+						i++
+						getterExpr = parseExpr()
+					}
+
+					let kind = print()
+					var setterExpr = null
+					var setterVar = null
+
+					if kind == 'set', onlyGet {
+						fail('Constants `let` may have only getter `get`')
+					}
+
+					if kind == 'set' {
+						i++
+						step(Token.CallOpen)
+						setterVar = getgo(Token.Identifier)
+						step(Token.CallClose)
+						setterExpr = parseExpr()
+					}
+
+					if setterExpr == null, not onlyGet {
+						fail('Variables `var` should have both getter `get` and setter `set`')
+					}
+
+					step(Token.BlockClose)
+
+					let getter: Node? = (getterExpr == null)? null : Node.Function('get_' + n, getterExpr, [], t, false, variadic: false)
+					let setter: Node? = (setterExpr == null)? null : Node.Function('set_' + n, setterExpr, [
+							Node.Var(setterVar, t, null, true, false)
+						], null, false, variadic: false)
+					let property = Node.Property(
+						field,
+						getter,
+						setter
+					)
+					project.data.set(property, new NodeData(pos.line, pos.column, lex.fileName))
+					project.data.set(getter, new NodeData(pos.line, pos.column, lex.fileName))
+					project.data.set(setter, new NodeData(pos.line, pos.column, lex.fileName))
+					fields.push(property)
+					if let getter = getter {
+						fields.push(getter)
+					}
+					if let setter = setter {
+						fields.push(setter)
+					}
+				case _:
+					fail('Fields cannot start with `' + print() + '`')
 			}
 		}
 		return fields
 	}
 
-	//------------------
-	//     HELPERS
-	//------------------
+	// ------------------
+	// HELPERS
+	// ------------------
 
 	// Current token
 	fun tok(): Token {
 		#if debug
-		if (i > lex.length) {
-			console.log("Parser is out of token space!")
-			console.log("This should NOT happen.")
-			console.log("Please, issue a developer (with a sample code).")
-			fail(lex.fileName + ": Parser internal error: out of token space")
-		}
-		//var t = lex.token[i]
-		if (lasttok != i) {
-			// Process.stdout.write(lex.token[i].stringify(lex.value[i]))
-			lasttok = i
-			lasttokchecks = 1000
-		} else {
-			lasttokchecks--
-			if (lasttokchecks < 0) {
-				fail("Parser internal error: same token parsed too many times: " + '`\(print())`')
+			if (i > lex.length) {
+				console.log("Parser is out of token space!")
+				console.log("This should NOT happen.")
+				console.log("Please, issue a developer (with a sample code).")
+				fail(lex.fileName + ": Parser internal error: out of token space")
 			}
-		}
+			// var t = lex.token[i]
+			if (lasttok != i) {
+				// Process.stdout.write(lex.token[i].stringify(lex.value[i]))
+				lasttok = i
+				lasttokchecks = 1000
+			} else {
+				lasttokchecks--
+				if (lasttokchecks < 0) {
+					fail("Parser internal error: same token parsed too many times: " + '`\(print())`')
+				}
+			}
 		#end
 
-//		// Nested #end
-//		if t == Token.Sharp, lex.value[i + 1] == 'end' { if (endif > 0) {
-//			i++ // #
-//			i++ // end
-//			endif--
-//			//t = lex.token[i]
-//			tok()
-//		} else {
-//			fail("Unexpected `#end`")
-//		}}
-//
-//		// #if
-//		if t == Token.Sharp, offset(1) == Token.KIf {
-//			i++ // #
-//			i++ // if
-//			let defName = getgo(Token.Identifier)
-//			let def = project.defines[defName]
-//			if def == null {
-//			//if def == null, lint == false {
-//				i-- // Cause `getgo`
-//				fail(
-//				"`#if` looks for the `" + defName + "` parameter which is *not* defined in project file." +
-//				' Add `"define": { "\(defName)": false }` to `hexa.json` or `--define \(defName)=false` to suppress this message.')
-//			}
-//
-//			if (def == true) {
-//				endif++
-//			}
-//
-//			//if (def == false || lint == true) {
-//			if (def == false) {
-//				var endifs = 1
-//				while (i < lex.length) {
-//					if offset(0) == Token.Sharp, offset(1) == Token.KIf {
-//						i++ // #
-//						i++ // if
-//						endifs++
-//						continue
-//					}
-//					if offset(0) == Token.Sharp, lex.value[i + 1] == 'end' {
-//						i++ // #
-//						i++ // end
-//						endifs--
-//						if (endifs == 0) {
-//							break
-//						}
-//						continue
-//					}
-//					i++
-//				}
-//			}
-//			tok()
-//		}
+		// // Nested #end
+		// if t == Token.Sharp, lex.value[i + 1] == 'end' { if (endif > 0) {
+		// i++ // #
+		// i++ // end
+		// endif--
+		// //t = lex.token[i]
+		// tok()
+		// } else {
+		// fail("Unexpected `#end`")
+		// }}
+		//
+		// // #if
+		// if t == Token.Sharp, offset(1) == Token.KIf {
+		// i++ // #
+		// i++ // if
+		// let defName = getgo(Token.Identifier)
+		// let def = project.defines[defName]
+		// if def == null {
+		// //if def == null, lint == false {
+		// i-- // Cause `getgo`
+		// fail(
+		// "`#if` looks for the `" + defName + "` parameter which is *not* defined in project file." +
+		// ' Add `"define": { "\(defName)": false }` to `hexa.json` or `--define \(defName)=false` to suppress this message.')
+		// }
+		//
+		// if (def == true) {
+		// endif++
+		// }
+		//
+		// //if (def == false || lint == true) {
+		// if (def == false) {
+		// var endifs = 1
+		// while (i < lex.length) {
+		// if offset(0) == Token.Sharp, offset(1) == Token.KIf {
+		// i++ // #
+		// i++ // if
+		// endifs++
+		// continue
+		// }
+		// if offset(0) == Token.Sharp, lex.value[i + 1] == 'end' {
+		// i++ // #
+		// i++ // end
+		// endifs--
+		// if (endifs == 0) {
+		// break
+		// }
+		// continue
+		// }
+		// i++
+		// }
+		// }
+		// tok()
+		// }
 		return lex.token[i] as! Token
 	}
 
@@ -443,9 +443,9 @@ class Parser {
 		return lex.token[i + v] as! Token
 	}
 
-	//------------
-	//   ERRORS
-	//------------
+	// ------------
+	// ERRORS
+	// ------------
 
 	fun unexpected() {
 		var token = Token.stringify(lex.token[i] as! Token, lex.value[i])
@@ -464,9 +464,9 @@ class Parser {
 		fail('Expected `\(str)` before `\(token)`')
 	}
 
-	//-----------------
-	//   EXPRESSIONS
-	//-----------------
+	// -----------------
+	// EXPRESSIONS
+	// -----------------
 
 	var classExternal = false
 	fun parseExpr(): Node {
@@ -476,42 +476,43 @@ class Parser {
 			atts.push(decorator)
 		}
 		var node = tok()
-		//-------------
+		// -------------
 		// PREFIX STEP
-		//-------------
+		// -------------
 		var nodePosition = { line: lex.line[i], column: lex.column[i] }
 		var result: Node? = null
 		switch node {
-		// declare class C {}
-		// declare T = V
-		// declare class
-		// declare let
-		// declare var
-		// declare fun
-		case KDeclare:
-			i++
-			switch tok() {
-				case KFun:
-					result = parseFunction(false, external: true)
-				case KVar | KLet:
-					let parsed = parseVar(external: true)
-					if parsed.length > 1 {
-						// TODO result = Node.Vars(parsed)
-					} else {
-						result = parsed[0]
-					}
-				case KClass | KInterface:
-					result = parseClass(external: true)
-				case Title:
-					let alias = parseType()
-					step(Token.Assign)
-					let value = parseType()
-					result = Node.TypeAlias(alias, value)
-				case _:
-					// TODO `declare enum`
-					fail('Wrong `declare` format, got `\(Token.stringify(tok()))`')
-			}
-/*
+			// declare class C {}
+			// declare T = V
+			// declare class
+			// declare let
+			// declare var
+			// declare fun
+			case KDeclare:
+				i++
+				switch tok() {
+					case KFun:
+						result = parseFunction(false, external: true)
+					case KVar | KLet:
+						let parsed = parseVar(external: true)
+						if parsed.length > 1 {
+							// TODO result = Node.Vars(parsed)
+						} else {
+							result = parsed[0]
+						}
+					case KClass | KInterface:
+						result = parseClass(external: true)
+					case Title:
+						let alias = parseType()
+						step(Token.Assign)
+						let value = parseType()
+						result = Node.TypeAlias(alias, value)
+					case _:
+						// TODO `declare enum`
+						fail('Wrong `declare` format, got `\(Token.stringify(tok()))`')
+				}
+
+				/*
 			i++
 			var e = null
 			switch tok() {
@@ -584,451 +585,420 @@ class Parser {
 			// Having name is ok here, coz we search by name in scopes
 			result = Node.TDeclare(name, e)
 */
-			//switch tok() {
-			//	case Title:
-			//		var name = getgo(Title)
-			//		step(Assign)
-			//		TDeclare(name, parseExpr())
-			//	// case Identifier:
-			//	// 	var name = getgo(Identifier)
-			//	// 	step(Assign)
-			//	// 	TDeclare(name, parseExpr())
-			//	case KClass:
-			//	classExternal = true
-			//	var f = parseExpr()
-			//	classExternal = false
-			//	f
-			//	case KFunction | KFun:
-			//	var name = lex.value[i+1]
-			//	TDeclare(name, parseExpr())
-			//	case KVar, KLet:
-			// 	var name = lex.value[i+1]
-			// 	if (name == null) throw new CompilerError(Fail.ParserError, 'TDeclare name null')
-			// //	TDeclare(name, parseExpr())
+				// switch tok() {
+				// case Title:
+				// var name = getgo(Title)
+				// step(Assign)
+				// TDeclare(name, parseExpr())
+				// // case Identifier:
+				// // 	var name = getgo(Identifier)
+				// // 	step(Assign)
+				// // 	TDeclare(name, parseExpr())
+				// case KClass:
+				// classExternal = true
+				// var f = parseExpr()
+				// classExternal = false
+				// f
+				// case KFunction | KFun:
+				// var name = lex.value[i+1]
+				// TDeclare(name, parseExpr())
+				// case KVar, KLet:
+				// var name = lex.value[i+1]
+				// if (name == null) throw new CompilerError(Fail.ParserError, 'TDeclare name null')
+				// //	TDeclare(name, parseExpr())
 
-			// 	case _: // ParseDeclareError?
-			// 		throw new CompilerError(Fail.ParserError, "declare expects name or type")
-			//}
+				// case _: // ParseDeclareError?
+				// throw new CompilerError(Fail.ParserError, "declare expects name or type")
+				// }
 
-		// {}
-		case BlockOpen:
-			// TODO handle EOF
-			let startsAt = i
-			i++
-			if tok() == Token.BlockClose { // Empty block {}
+				// {}
+			case BlockOpen:
+				// TODO handle EOF
+				let startsAt = i
 				i++
-				result = Node.Block([])
-			} else if (tok() == Token.Identifier && offset(1) == Token.Colon) { // Object { k:v }
-				var names: [String] = []
-				var el: [Node] = []
-				while true {
-					names.push(getgo(Token.Identifier))
-					step(Token.Colon)
+				if tok() == Token.BlockClose { // Empty block {}
+					i++
+					result = Node.Block([])
+				} else if (tok() == Token.Identifier and offset(1) == Token.Colon) { // Object { k:v }
+					var names: [String] = []
+					var el: [Node] = []
+					while true {
+						names.push(getgo(Token.Identifier))
+						step(Token.Colon)
 
-					el.push(parseExpr())
-					if tok() == Token.Comma { // Object { k:v, ... }
-						i++
-						if tok() == Token.BlockClose { // Object { k:v, }
-							fail("Unexpected `}`, remove trailing `,` comma")
+						el.push(parseExpr())
+						if tok() == Token.Comma { // Object { k:v, ... }
+							i++
+							if tok() == Token.BlockClose { // Object { k:v, }
+								fail("Unexpected `}`, remove trailing `,` comma")
+							}
+							continue
+						} else {
+							break
 						}
-						continue
-					} else {
-						break
+					}
+					if tok() != Token.BlockClose {
+						fail('Expected `}` or `,` before `\(print())`')
+					}
+					step(Token.BlockClose)
+					result = Node.Object(names, el)
+				} else { // Block { expr expr expr }
+					var el = []
+					while tok() != Token.BlockClose {
+						if tok() == Token.Eof {
+							i = startsAt
+							fail('The block `{` has got unclosed to the end of the file')
+						}
+						el.push(parseExpr())
+					}
+					step(Token.BlockClose)
+					result = Node.Block(el)
+				}
+				// if econd { eif }
+				// if econd { eif } else { eelse }
+			case KIf:
+				i++
+				var econd = [parseExpr()]
+				while tok() == Token.Comma {
+					next()
+					econd.push(parseExpr())
+				}
+				var eif: Node? = null
+				var eifAt = i
+				if tok() != Token.Colon {
+					eif = parseExpr()
+				}
+				var eelse: Node? = null
+				var eelseAt = i
+				if tok() == Token.KElse {
+					i++
+					switch tok() {
+						case KIf: eelse = parseExpr()
+						case _: eelse = parseBlock()
 					}
 				}
-				if tok() != Token.BlockClose {
-					fail('Expected `}` or `,` before `\(print())`')
+				if eif != null {
+					switch eif {
+						case Block(_):
+						case _:
+							let temp = i
+							i = eifAt
+							failHint('`if` body must be a `{` block `}`')
+							switch eif {
+								case Call(_, args):
+									// TODO at args[0] if present
+									// TODO same for `[`
+									failHint('Seems like you have `()` after `{` block `}` like `}(`')
+							}
+							i = temp
+					}
 				}
-				step(Token.BlockClose)
-				result = Node.Object(names, el)
-			} else { // Block { expr expr expr }
-				var el = []
-				while tok() != Token.BlockClose {
+				if eelse != null {
+					switch eelse {
+						case Block(_):
+						case If(_): // Allow `else if`
+						case _:
+							let temp = i
+							i = eelseAt
+							failHint('`else` body must be a `{` block `}`')
+							i = temp
+					}
+				}
+				result = Node.If(econd, eif, eelse, false)
+				// while e {}
+			case KWhile:
+				i++
+				var econd = parseExpr()
+				var eAt = i
+				var e = parseExpr()
+				switch e {
+					case Block(_):
+					case _:
+						let temp = i
+						i = eAt
+						failHint('`while` body must be a `{` block `}`')
+						i = temp
+				}
+				result = Node.While(econd, e, true)
+				// do {} while e
+			case KDo:
+				i++
+				var eAt = i
+				var e = parseExpr()
+				switch e {
+					case Block(_):
+					case _:
+						let temp = i
+						i = eAt
+						failHint('`do` body must be a `{` block `}`')
+						i = temp
+				}
+				step(Token.KWhile)
+				var econd = parseExpr()
+				result = Node.While(econd, e, false)
+				// (e) just parenthesis
+				// (e) =>
+				// () =>
+			case CallOpen:
+				let startsAt = i
+				next()
+				if (
+						// () =>
+						(tok() == Token.CallClose and offset(1) == Token.RightArrow) or
+						// (a, ...) =>
+						(tok() == Token.Identifier and offset(1) == Token.Comma) or
+						// (a: ...) =>
+						// TODO colon-less
+						(tok() == Token.Identifier and offset(1) == Token.Colon) or
+						// (a T) =>
+						(tok() == Token.Identifier and offset(1) == Token.Title) or
+						// (a) =>
+						(tok() == Token.Identifier and offset(1) == Token.CallClose and offset(2) == Token.RightArrow)
+					) {
+					var vars: [String] = []
+					var types = []
+					var values = []
+					while tok() != Token.CallClose {
+						vars.push(getgo(Token.Identifier))
+						if tok() == Token.Colon {
+							// TODO colon-less
+							i++
+							types.push(parseType())
+						}
+						if tok() == Token.Title {
+							types.push(parseType())
+						}
+						if tok() == Token.Assign {
+							i++
+							values.push(parseExpr())
+						}
+						if tok() == Token.Comma {
+							i++
+						}
+					}
+					step(Token.CallClose)
+					step(Token.RightArrow)
+					var v = []
+					for i in vars.length {
+						v.push(Node.Var(vars[i], types[i], values[i], true, false))
+					}
+					result = Node.Arrow(parseExpr(), v, null)
+				} else {
+					// TODO move into reusable function
 					if tok() == Token.Eof {
 						i = startsAt
-						fail('The block `{` has got unclosed to the end of the file')
+						fail('The parenthesis `(` has got unclosed to the end of the file')
 					}
-					el.push(parseExpr())
+					var expr = parseExpr()
+					// TODO add same checks for other {} () []
+					// ^ something like pushUbclosed('(') < saves i somewhere,
+					// and `step` uses this var if Eof
+					if tok() == Token.Eof {
+						i = startsAt
+						fail('The parenthesis `(` has got unclosed to the end of the file')
+					}
+					step(Token.CallClose)
+					result = Node.Parenthesis(expr)
 				}
-				step(Token.BlockClose)
-				result = Node.Block(el)
-			}
-		// if econd { eif }
-		// if econd { eif } else { eelse }
-		case KIf:
-			i++
-			var econd = [parseExpr()]
-			while tok() == Token.Comma {
-				next()
-				econd.push(parseExpr())
-			}
-			var eif: Node? = null
-			var eifAt = i
-			if tok() != Token.Colon {
-				eif = parseExpr()
-			}
-			var eelse: Node? = null
-			var eelseAt = i
-			if tok() == Token.KElse {
+				// return e
+				// return
+			case KReturn:
 				i++
 				switch tok() {
-					case KIf: eelse = parseExpr()
-					case _: eelse = parseBlock()
+					// TODO `throw` etc?
+					case BlockClose: result = Node.Return(null)
+					case KVar: result = Node.Return(null)
+					case KLet: result = Node.Return(null)
+					case KCase: result = Node.Return(null)
+					case KBreak: result = Node.Return(null)
+					case KContinue: result = Node.Return(null)
+
+						// TODO infer non-returning function right in parser
+						// (so it is instantly guessed to be Void)
+						// seems incompatible with macro
+					case KReturn: result = Node.Return(null)
+					case _: result = Node.Return(parseExpr())
 				}
-			}
-			if eif != null {
-				switch eif {
-					case Block(_):
-					case _:
-						let temp = i
-						i = eifAt
-						failHint('`if` body must be a `{` block `}`')
-						switch eif {
-							case Call(_, args):
-								// TODO at args[0] if present
-								// TODO same for `[`
-								failHint('Seems like you have `()` after `{` block `}` like `}(`')
+			case KThrow:
+				i++
+				result = Node.Throw(parseExpr())
+			case KContinue:
+				i++
+				result = Node.Continue
+			case KBreak:
+				i++
+				result = Node.Break
+			case Underscore:
+				i++
+				result = Node.Underscore
+			case Interval:
+				i++
+				result = Node.Interval
+				// ++i TODO deprecate (but detect in slow-parser)
+				// --i
+				// !i
+				// ~i
+				// -i
+			case Increment | Decrement | KNot | BitwiseNot | Subtract:
+				let id = lex.token[i] as! Token
+				i++
+				// result = Node.Unop(id, false, parseExpr())
+				let value = parseExpr()
+				// result = Node.Unop(id, false, value)
+				// fun fix() {
+				// switch value {
+				// case Binop(aa, op, bb):
+				// result = Node.Binop(Node.Unop(id, false, aa), op, bb)
+				// fix()
+				// case _: result = Node.Unop(id, false, value)
+				// }
+				// }
+
+				// All unops have larger priority than binops
+				fun fix(value: Node) {
+					switch value {
+						case Binop(aa, op, bb):
+							let out = Node.Binop(fix(aa), op, bb)
+							project.data.set(out, project.data.get(value))
+							return out
+						case _: return Node.Unop(id, false, value)
+					}
+				}
+
+				// result = fix(Node.Unop(id, false, value))
+				result = fix(value)
+
+			case FloatingPoint:
+				// TODO handle Meta
+				let meta = lex.meta[i]
+				result = Node.Float(parseFloat(getgo(Token.FloatingPoint)), meta)
+			case Integer:
+				let meta = lex.meta[i]
+				let value = getgo(Token.Integer)
+				switch meta {
+					// TODO rename `Default` token to `Empty`
+					case Default:
+						let at = i
+						// TODO encode 0b flag into Meta
+						let v = value.startsWith('0b') ? parseInt(value.substr(2), 2) : parseInt(value)
+						if v > 2147483647 or v < -2147483647 {
+							i = at - 1
+							fail('Integer `\(value)` is too large for *signed* 32 bit, use `\(value)u32` or `\(value)n`')
+							// TODO recommend i64/u64 depending on value size
 						}
-						i = temp
-				}
-			}
-			if eelse != null {
-				switch eelse {
-					case Block(_):
-					case If(_): // Allow `else if`
+						result = Node.Int(v)
+					case UInt8:
+						let at = i
+						let v = parseBigInt(value)
+						if v >= 256n or v < 0n {
+							i = at - 1
+							fail('Integer `\(value)` is negative or too large for *unsigned* 8 bit, use `\(value)u16` or `\(value)n`')
+							// TODO shorter way to write all those checks for all type combinations
+							// TODO separate message for negative numbers
+						}
+						result = Node.MetaInt(v, meta)
+					case UInt16:
+						let at = i
+						let v = parseBigInt(value)
+						if v >= 65536n or v < 0n {
+							i = at - 1
+							fail('Integer `\(value)` is negative or too large for *unsigned* 16 bit, use `\(value)u32` or `\(value)n`')
+							// TODO shorter way to write all those checks for all type combinations
+							// TODO separate message for negative numbers
+							// TODO correctly propose uXX with XX large enough for provided number
+						}
+						result = Node.MetaInt(v, meta)
+					case UInt32:
+						let at = i
+						let v = parseBigInt(value)
+						if v >= 4294967296n or v < 0n {
+							i = at - 1
+							fail('Integer `\(value)` is negative or too large for *unsigned* 32 bit, use `\(value)u64` or `\(value)n`')
+							// TODO shorter way to write all those checks for all type combinations
+							// TODO separate message for negative numbers
+						}
+						result = Node.MetaInt(v, meta)
 					case _:
-						let temp = i
-						i = eelseAt
-						failHint('`else` body must be a `{` block `}`')
-						i = temp
+						result = Node.MetaInt(parseBigInt(value), meta)
 				}
-			}
-			result = Node.If(econd, eif, eelse, false)
-		// while e {}
-		case KWhile:
-			i++
-			var econd = parseExpr()
-			var eAt = i
-			var e = parseExpr()
-			switch e {
-				case Block(_):
-				case _:
-					let temp = i
-					i = eAt
-					failHint('`while` body must be a `{` block `}`')
-					i = temp
-			}
-			result = Node.While(econd, e, true)
-		// do {} while e
-		case KDo:
-			i++
-			var eAt = i
-			var e = parseExpr()
-			switch e {
-				case Block(_):
-				case _:
-					let temp = i
-					i = eAt
-					failHint('`do` body must be a `{` block `}`')
-					i = temp
-			}
-			step(Token.KWhile)
-			var econd = parseExpr()
-			result = Node.While(econd, e, false)
-		// (e) just parenthesis
-		// (e) =>
-		// () =>
-		case CallOpen:
-			let startsAt = i
-			next()
-			if (
-				// () =>
-				(tok() == Token.CallClose && offset(1) == Token.RightArrow) ||
-				// (a, ...) =>
-				(tok() == Token.Identifier && offset(1) == Token.Comma) ||
-				// (a: ...) =>
-				// TODO colon-less
-				(tok() == Token.Identifier && offset(1) == Token.Colon) ||
-				// (a T) =>
-				(tok() == Token.Identifier && offset(1) == Token.Title) ||
-				// (a) =>
-				(tok() == Token.Identifier && offset(1) == Token.CallClose && offset(2) == Token.RightArrow)
-			) {
-				var vars: [String] = []
-				var types = []
-				var values = []
-				while tok() != Token.CallClose {
-					vars.push(getgo(Token.Identifier))
-					if tok() == Token.Colon {
-						// TODO colon-less
-						i++
-						types.push(parseType())
-					}
-					if tok() == Token.Title {
-						types.push(parseType())
-					}
-					if tok() == Token.Assign {
-						i++
-						values.push(parseExpr())
-					}
-					if tok() == Token.Comma {
-						i++
-					}
-				}
-				step(Token.CallClose)
-				step(Token.RightArrow)
-				var v = []
-				for i in vars.length {
-					v.push(Node.Var(vars[i], types[i], values[i], true, false))
-				}
-				result = Node.Arrow(parseExpr(), v, null)
-			} else {
-				// TODO move into reusable function
-				if tok() == Token.Eof {
-					i = startsAt
-					fail('The parenthesis `(` has got unclosed to the end of the file')
-				}
-				var expr = parseExpr()
-				// TODO add same checks for other {} () []
-				// ^ something like pushUbclosed('(') < saves i somewhere,
-				// and `step` uses this var if Eof
-				if tok() == Token.Eof {
-					i = startsAt
-					fail('The parenthesis `(` has got unclosed to the end of the file')
-				}
-				step(Token.CallClose)
-				result = Node.Parenthesis(expr)
-			}
-		// return e
-		// return
-		case KReturn:
-			i++
-			switch tok() {
-				// TODO `throw` etc?
-				case BlockClose: result = Node.Return(null)
-				case KVar: result = Node.Return(null)
-				case KLet: result = Node.Return(null)
-				case KCase: result = Node.Return(null)
-				case KBreak: result = Node.Return(null)
-				case KContinue: result = Node.Return(null)
 
-				// TODO infer non-returning function right in parser
-				// (so it is instantly guessed to be Void)
-				// seems incompatible with macro
-				case KReturn: result = Node.Return(null)
-				case _: result = Node.Return(parseExpr())
-			}
-		case KThrow:
-			i++
-			result = Node.Throw(parseExpr())
-		case KContinue:
-			i++
-			result = Node.Continue
-		case KBreak:
-			i++
-			result = Node.Break
-		case Underscore:
-			i++
-			result = Node.Underscore
-		case Interval:
-			i++
-			result = Node.Interval
-		// ++i TODO deprecate (but detect in slow-parser)
-		// --i
-		// !i
-		// ~i
-		// -i
-		case Increment | Decrement | KNot | BitwiseNot | Subtract:
-			let id = lex.token[i] as! Token
-			i++
-			//result = Node.Unop(id, false, parseExpr())
-			let value = parseExpr()
-			//result = Node.Unop(id, false, value)
-		//	fun fix() {
-		//	switch value {
-		//		case Binop(aa, op, bb):
-		//			result = Node.Binop(Node.Unop(id, false, aa), op, bb)
-		//			fix()
-		//		case _: result = Node.Unop(id, false, value)
-		//	}
-		//}
-
-			// All unops have larger priority than binops
-			fun fix(value: Node) {
-				switch value {
-					case Binop(aa, op, bb):
-						let out = Node.Binop(fix(aa), op, bb)
-						project.data.set(out, project.data.get(value))
-						return out
-					case _: return Node.Unop(id, false, value)
-				}
-			}
-
-			//result = fix(Node.Unop(id, false, value))
-			result = fix(value)
-
-		case FloatingPoint:
-			// TODO handle Meta
-			let meta = lex.meta[i]
-			result = Node.Float(parseFloat(getgo(Token.FloatingPoint)), meta)
-		case Integer:
-			let meta = lex.meta[i]
-			let value = getgo(Token.Integer)
-			switch meta {
-				// TODO rename `Default` token to `Empty`
-				case Default:
-					let at = i
-					// TODO encode 0b flag into Meta
-					let v = value.startsWith('0b') ? parseInt(value.substr(2), 2) : parseInt(value)
-					if v > 2147483647 || v < -2147483647 {
-						i = at - 1
-						fail('Integer `\(value)` is too large for *signed* 32 bit, use `\(value)u32` or `\(value)n`')
-						// TODO recommend i64/u64 depending on value size
-					}
-					result = Node.Int(v)
-				case UInt8:
-				let at = i
-					let v = parseBigInt(value)
-					if v >= 256n || v < 0n {
-						i = at - 1
-						fail('Integer `\(value)` is negative or too large for *unsigned* 8 bit, use `\(value)u16` or `\(value)n`')
-						// TODO shorter way to write all those checks for all type combinations
-						// TODO separate message for negative numbers
-					}
-					result = Node.MetaInt(v, meta)
-				case UInt16:
-				let at = i
-					let v = parseBigInt(value)
-					if v >= 65536n || v < 0n {
-						i = at - 1
-						fail('Integer `\(value)` is negative or too large for *unsigned* 16 bit, use `\(value)u32` or `\(value)n`')
-						// TODO shorter way to write all those checks for all type combinations
-						// TODO separate message for negative numbers
-						// TODO correctly propose uXX with XX large enough for provided number
-					}
-					result = Node.MetaInt(v, meta)
-				case UInt32:
-				let at = i
-					let v = parseBigInt(value)
-					if v >= 4294967296n || v < 0n {
-						i = at - 1
-						fail('Integer `\(value)` is negative or too large for *unsigned* 32 bit, use `\(value)u64` or `\(value)n`')
-						// TODO shorter way to write all those checks for all type combinations
-						// TODO separate message for negative numbers
-					}
-					result = Node.MetaInt(v, meta)
-				case _:
-					result = Node.MetaInt(parseBigInt(value), meta)
-			}
-
-		// `T`
-		// `T?`
-		// `T<T>`
-		case Title:
-			if offset(1) == Token.Less {
-				let res = parseType()
-				result = Node.NodeTypeValue(res)
-			} else if offset(1) == Token.Question {
-				let name = getgo(Token.Title)
-				i++
-				result = Node.NodeTypeValue(NodeType.Optional(NodeType.Type(name, null)))
-			} else {
-				let name = getgo(Token.Title)
-				result = Node.NodeTypeValue(NodeType.Type(name, null))
-			}
-		// `varName`
-		// `arrow => body`
-		// `genericCall<A, B>(args)`
-		case Identifier:
-			let pos = lex.column[i]
-			let name = getgo(Token.Identifier)
-			if tok() == Token.RightArrow {
-				next()
-				result = Node.Arrow(parseExpr(), [Node.Var(name, null, null, true, false)], null)
-			} else if tok() == Token.Less, lex.column[i] == pos + name.length {
-				i++
-				let params: [NodeType] = [parseType()]
-				// TODO reusable code
-				while tok() == Token.Comma {
+				// `T`
+				// `T?`
+				// `T<T>`
+			case Title:
+				if offset(1) == Token.Less {
+					let res = parseType()
+					result = Node.NodeTypeValue(res)
+				} else if offset(1) == Token.Question {
+					let name = getgo(Token.Title)
 					i++
-					params.push(parseType())
+					result = Node.NodeTypeValue(NodeType.Optional(NodeType.Type(name, null)))
+				} else {
+					let name = getgo(Token.Title)
+					result = Node.NodeTypeValue(NodeType.Type(name, null))
 				}
-				step(Token.Greater)
-				// TODO result = Node.ParametricIdent(name, params)
-				result = Node.Ident(name, params)
-			} else {
-				result = Node.Ident(name, null)
-			}
-		case Backtick:
-			result = Node.String(getgo(Token.Backtick))
-		case QuotedString:
-			let str = getgo(Token.QuotedString)
-			// TODO Check have interpolations in string
-			if hasInterpolation(str) {
-				result = Node.Parenthesis(parseInterpolations(str))
-			} else {
-				result = Node.String(str)
-			}
-		case KTrue:
-			i++ result = Node.Bool(true)
-		case KFalse:
-			i++ result = Node.Bool(false)
-		// `this`
-		case KThis:
-			i++ result = Node.This
-		case KNull:
-			i++ result = Node.Null
-		case KSuper:
-			i++ result = Node.Super
-		case KVar:
-			var parsed = parseVar()
-			if parsed.length > 1 {
-				// TODO old code `result = Node.Vars(parsed)`
-				// ^ make just single-var parser
-			} else {
-				result = parsed[0]
-			}
-		case KLet:
-			var parsed = parseVar()
-			if parsed.length > 1 {
-				// TODO old code `result = Node.Vars(parsed)`
-			} else {
-				result = parsed[0]
-			}
-		// `try { } catch e : T { } catch e : T { }`
-		case KTry:
-			i++
-			let exprAt = i
-			let expr = parseExpr()
-			switch expr {
-				case Block(_):
-				case _:
-					let temp = i
-					i = exprAt
-					failHint('`try` body must be a `{` block `}`')
-					i = temp
-			}
-			var vars = []
-			var t = []
-			var v = []
-			var catches = []
-			while tok() == Token.KCatch {
-				step(Token.KCatch)
-				// TODO slow parser
-				//if (tok() == Token.CallOpen) {
-				//	step(Token.CallOpen)
-				//}
+				// `varName`
+				// `arrow => body`
+				// `genericCall<A, B>(args)`
+			case Identifier:
+				let pos = lex.column[i]
 				let name = getgo(Token.Identifier)
-				vars.push(name)
-				// TODO colon-less
-				step(Token.Colon)
-				let type = parseType()
-				t.push(type)
-				v.push(Node.Var(name, type, null, true, false))
-				// TODO slow parser
-				//if (tok() == Token.CallClose) {
-				//	step(Token.CallClose)
-				//}
+				if tok() == Token.RightArrow {
+					next()
+					result = Node.Arrow(parseExpr(), [Node.Var(name, null, null, true, false)], null)
+				} else if tok() == Token.Less, lex.column[i] == pos + name.length {
+					i++
+					let params: [NodeType] = [parseType()]
+					// TODO reusable code
+					while tok() == Token.Comma {
+						i++
+						params.push(parseType())
+					}
+					step(Token.Greater)
+					// TODO result = Node.ParametricIdent(name, params)
+					result = Node.Ident(name, params)
+				} else {
+					result = Node.Ident(name, null)
+				}
+			case Backtick:
+				result = Node.String(getgo(Token.Backtick))
+			case QuotedString:
+				let str = getgo(Token.QuotedString)
+				// TODO Check have interpolations in string
+				if hasInterpolation(str) {
+					result = Node.Parenthesis(parseInterpolations(str))
+				} else {
+					result = Node.String(str)
+				}
+			case KTrue:
+				i++ result = Node.Bool(true)
+			case KFalse:
+				i++ result = Node.Bool(false)
+				// `this`
+			case KThis:
+				i++ result = Node.This
+			case KNull:
+				i++ result = Node.Null
+			case KSuper:
+				i++ result = Node.Super
+			case KVar:
+				var parsed = parseVar()
+				if parsed.length > 1 {
+					// TODO old code `result = Node.Vars(parsed)`
+					// ^ make just single-var parser
+				} else {
+					result = parsed[0]
+				}
+			case KLet:
+				var parsed = parseVar()
+				if parsed.length > 1 {
+					// TODO old code `result = Node.Vars(parsed)`
+				} else {
+					result = parsed[0]
+				}
+				// `try { } catch e : T { } catch e : T { }`
+			case KTry:
+				i++
 				let exprAt = i
 				let expr = parseExpr()
 				switch expr {
@@ -1036,527 +1006,558 @@ class Parser {
 					case _:
 						let temp = i
 						i = exprAt
-						failHint('`catch` body must be a `{` block `}`')
+						failHint('`try` body must be a `{` block `}`')
 						i = temp
 				}
-				catches.push(expr)
-			}
+				var vars = []
+				var t = []
+				var v = []
+				var catches = []
+				while tok() == Token.KCatch {
+					step(Token.KCatch)
+					// TODO slow parser
+					// if (tok() == Token.CallOpen) {
+					// step(Token.CallOpen)
+					// }
+					let name = getgo(Token.Identifier)
+					vars.push(name)
+					// TODO colon-less
+					step(Token.Colon)
+					let type = parseType()
+					t.push(type)
+					v.push(Node.Var(name, type, null, true, false))
+					// TODO slow parser
+					// if (tok() == Token.CallClose) {
+					// step(Token.CallClose)
+					// }
+					let exprAt = i
+					let expr = parseExpr()
+					switch expr {
+						case Block(_):
+						case _:
+							let temp = i
+							i = exprAt
+							failHint('`catch` body must be a `{` block `}`')
+							i = temp
+					}
+					catches.push(expr)
+				}
 
-			if catches.length == 0 {
-				failHint('`try` must have at least one `catch` block')
-			}
+				if catches.length == 0 {
+					failHint('`try` must have at least one `catch` block')
+				}
 
-			result = Node.Try(expr, t, v, catches)
+				result = Node.Try(expr, t, v, catches)
 
-		case KImport:
-			i++
+			case KImport:
+				i++
 
-			if (tok() == Token.QuotedString) {
-				result = Node.Import([], getgo(Token.QuotedString))
+				if (tok() == Token.QuotedString) {
+					result = Node.Import([], getgo(Token.QuotedString))
+					project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+					return result
+				}
+
+				var el: [ImportNode] = []
+				// var path: String = []
+
+				while true {
+					// TODO pos
+					if tok() == Token.Identifier {
+						el.push(ImportNode.Lower(getgo(Token.Identifier)))
+					} else if (tok() == Token.Title) {
+						el.push(ImportNode.Upper(getgo(Token.Title)))
+					} else if (tok() == Token.Multiply) {
+						// el.push(ImportNode.AllTheThings)
+						i++
+						step(Token.KAs)
+						el.push(ImportNode.As(ImportNode.AllTheThings, ImportNode.Lower(getgo(Token.Identifier))))
+					} else {
+						fail('Incorrect `import` syntax')
+					}
+
+					if (tok() == Token.KAs) {
+						i++
+						if (tok() == Token.Identifier) {
+							el.push(ImportNode.As(el.pop(), ImportNode.Lower(getgo(Token.Identifier))))
+						} else if (tok() == Token.Title) {
+							el.push(ImportNode.As(el.pop(), ImportNode.Upper(getgo(Token.Title))))
+						} else {
+							fail('Incorrect `import x as y` syntax')
+						}
+					}
+
+					if (tok() == Token.Comma) {
+						i++
+					} else {
+						break
+					}
+				}
+
+				step(Token.KIn)
+
+				// var offset = lex.column[i]
+				// while (true) {
+				// if (tok() == Token.Eof) {
+				// break
+				// }
+				// let value = print()
+				// path.push(value)
+				// i++
+				// if (lex.column[i] != offset + value.length) {
+				// break
+				// }
+				// offset += value.length
+				// //if (tok() == Token.Identifier) path.push(getgo(Token.Identifier))
+				// //else if (tok() == Token.Title) path.push(getgo(Token.Title))
+				// //else if (tok() == Token.Dot) { path.push('.') i++ }
+				// //else if (tok() == Token.Divide) { path.push('/') i++ }
+				// //else if (tok() > 1 && tok() < 60) { path.push(print()) i++ }
+				// //else break
+				// }
+				// if (path.length == 0) {
+				// fail('Path to file expected, found nothing')
+				// }
+				// console.log(path)
+				// console.log(el)
+
+				result = Node.Import(el, getgo(Token.QuotedString))
+				// result = Node.Import(path.join(''), el)
 				project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 				return result
-			}
 
-			var el: [ImportNode] = []
-			//var path: String = []
-
-			while true {
-				// TODO pos
-				if tok() == Token.Identifier {
-					el.push(ImportNode.Lower(getgo(Token.Identifier)))
-				} else if (tok() == Token.Title) {
-					el.push(ImportNode.Upper(getgo(Token.Title)))
-				} else if (tok() == Token.Multiply) {
-					//el.push(ImportNode.AllTheThings)
-					i++
-					step(Token.KAs)
-					el.push(ImportNode.As(ImportNode.AllTheThings, ImportNode.Lower(getgo(Token.Identifier))))
-				} else {
-					fail('Incorrect `import` syntax')
-				}
-
-				if (tok() == Token.KAs) {
-					i++
-					if (tok() == Token.Identifier) {
-						el.push(ImportNode.As(el.pop(), ImportNode.Lower(getgo(Token.Identifier))))
-					} else if (tok() == Token.Title) {
-						el.push(ImportNode.As(el.pop(), ImportNode.Upper(getgo(Token.Title))))
-					} else {
-						fail('Incorrect `import x as y` syntax')
-					}
-				}
-
-				if (tok() == Token.Comma) {
-					i++
-				} else {
-					break
-				}
-			}
-
-			step(Token.KIn)
-
-			//var offset = lex.column[i]
-			//while (true) {
-			//	if (tok() == Token.Eof) {
-			//		break
-			//	}
-			//	let value = print()
-			//	path.push(value)
-			//	i++
-			//	if (lex.column[i] != offset + value.length) {
-			//		break
-			//	}
-			//	offset += value.length
-			//	//if (tok() == Token.Identifier) path.push(getgo(Token.Identifier))
-			//	//else if (tok() == Token.Title) path.push(getgo(Token.Title))
-			//	//else if (tok() == Token.Dot) { path.push('.') i++ }
-			//	//else if (tok() == Token.Divide) { path.push('/') i++ }
-			//	//else if (tok() > 1 && tok() < 60) { path.push(print()) i++ }
-			//	//else break
-			//}
-			//if (path.length == 0) {
-			//	fail('Path to file expected, found nothing')
-			//}
-			//console.log(path)
-			//console.log(el)
-
-			result = Node.Import(el, getgo(Token.QuotedString))
-			//result = Node.Import(path.join(''), el)
-			project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
-			return result
-
-		case KEnum:
-			// Consume decorators
-			let att = atts
-			atts = []
-
-			i++
-			var t = parseType()
-			var valuesType = null
-			if tok() == Token.Colon {
-				i++
-				// TODO colon-less
-				valuesType = parseType()
-			}
-			var extend = null
-			if tok() == Token.KExtends {
-				i++
-				extend = parseType()
-			}
-			step(Token.BlockOpen)
-			var names = []
-			while tok() != Token.BlockClose {
-				while tok() == Token.At {
-					atts.push(parseDecorator())
-				}
-
-				// TODO implement decorators transfer
+			case KEnum:
+				// Consume decorators
+				let att = atts
 				atts = []
 
-				switch tok() {
-					case Title:
-						let pos = new NodeData(lex.line[i], lex.column[i], lex.fileName)
-						var tag = Node.NodeTypeValue(NodeType.Type(getgo(Token.Title), null))
-						if tok() == Token.CallOpen {
-							i++
-							// TODO `let args [] = []` causes no error and `let args [test] = []` too
-							let args: [Node] = []
-							let argNames: [String] = []
-							while true {
-								argNames.push(getgo(Token.Identifier))
-
-								// TODO drop
-								if tok() == Token.Colon {
-									i++
-								}
-
-								args.push(
-									Node.NodeTypeValue(parseType())
-								)
-
-								if tok() == Token.Comma {
-									i++
-								} else {
-									break
-								}
-							}
-							step(Token.CallClose)
-							project.data.set(tag, pos)
-							tag = Node.Call(tag, args, argNames)
-						} else if tok() == Token.Assign {
-							i++
-							project.data.set(tag, pos)
-							tag = Node.Binop(tag, Token.Assign, parseExpr())
-						}
-
-						project.data.set(tag, pos)
-						names.push(tag)
-					case _:
-						names.push(parseExpr())
-				}
-			}
-			step(Token.BlockClose)
-			result = Node.Enum(t, names, valuesType, extend)
-			project.mapDecorators.set(result, att)
-
-		case KClass | KInterface:
-			// Consume decorators
-			let att = atts
-			atts = [] // Reset before parsing the fields and other confinements
-
-			let me = parseClass()
-			project.mapDecorators.set(me, att)
-			result = me
-		case KFun:
-			// TODO decorators? seems no need
-			result = parseFunction()
-
-		case IndexOpen: // [a, b, c]
-			i++
-			var el = []
-			var values = []
-			var isMap = false
-
-			if tok() != Token.IndexClose { while true {
-				if tok() == Token.Colon { // [:]
-					isMap = true
-					next()
-					break
-				}
-				el.push(parseExpr())
-				if tok() == Token.Colon { // [k:v]
-					i++
-					values.push(parseExpr())
-					isMap = true
-				}
-				if tok() == Token.Comma {
-					i++
-					// Trailing comma [a,]
-					if tok() == Token.IndexClose {
-						fail('Unexpected `]`, remove trailing comma `,` before `]` or add a value after `,` if required')
-					}
-				} else {
-					break
-				}
-			}}
-			step(Token.IndexClose)
-
-			if isMap {
-				result = Node.Map(el, values)
-			} else {
-				result = Node.Array(el)
-			}
-		case KNew:
-			i++
-			var t = parseType()
-			var names: [String] = []
-			var values: [Node] = []
-			if tok() == Token.BlockOpen { // {}
 				i++
-				if tok() == Token.BlockClose { // Empty {}
-					step(Token.BlockClose)
-				} else if (tok() == Token.Identifier && offset(1) == Token.Colon) { // Object { k:v }
-					while tok() != Token.BlockClose {
-						names.push(getgo(Token.Identifier))
-						step(Token.Colon)
-						values.push(parseExpr())
+				var t = parseType()
+				var valuesType = null
+				if tok() == Token.Colon {
+					i++
+					// TODO colon-less
+					valuesType = parseType()
+				}
+				var extend = null
+				if tok() == Token.KExtends {
+					i++
+					extend = parseType()
+				}
+				step(Token.BlockOpen)
+				var names = []
+				while tok() != Token.BlockClose {
+					while tok() == Token.At {
+						atts.push(parseDecorator())
+					}
+
+					// TODO implement decorators transfer
+					atts = []
+
+					switch tok() {
+						case Title:
+							let pos = new NodeData(lex.line[i], lex.column[i], lex.fileName)
+							var tag = Node.NodeTypeValue(NodeType.Type(getgo(Token.Title), null))
+							if tok() == Token.CallOpen {
+								i++
+								// TODO `let args [] = []` causes no error and `let args [test] = []` too
+								let args: [Node] = []
+								let argNames: [String] = []
+								while true {
+									argNames.push(getgo(Token.Identifier))
+
+									// TODO drop
+									if tok() == Token.Colon {
+										i++
+									}
+
+									args.push(
+										Node.NodeTypeValue(parseType())
+									)
+
+									if tok() == Token.Comma {
+										i++
+									} else {
+										break
+									}
+								}
+								step(Token.CallClose)
+								project.data.set(tag, pos)
+								tag = Node.Call(tag, args, argNames)
+							} else if tok() == Token.Assign {
+								i++
+								project.data.set(tag, pos)
+								tag = Node.Binop(tag, Token.Assign, parseExpr())
+							}
+
+							project.data.set(tag, pos)
+							names.push(tag)
+						case _:
+							names.push(parseExpr())
+					}
+				}
+				step(Token.BlockClose)
+				result = Node.Enum(t, names, valuesType, extend)
+				project.mapDecorators.set(result, att)
+
+			case KClass | KInterface:
+				// Consume decorators
+				let att = atts
+				atts = [] // Reset before parsing the fields and other confinements
+
+				let me = parseClass()
+				project.mapDecorators.set(me, att)
+				result = me
+			case KFun:
+				// TODO decorators? seems no need
+				result = parseFunction()
+
+			case IndexOpen: // [a, b, c]
+				i++
+				var el = []
+				var values = []
+				var isMap = false
+
+				if tok() != Token.IndexClose { while true {
+						if tok() == Token.Colon { // [:]
+							isMap = true
+							next()
+							break
+						}
+						el.push(parseExpr())
+						if tok() == Token.Colon { // [k:v]
+							i++
+							values.push(parseExpr())
+							isMap = true
+						}
 						if tok() == Token.Comma {
 							i++
-						}
-					}
-					step(Token.BlockClose)
-				}
-			}
-			step(Token.CallOpen)
-			var args = []
-			var argNames: [String] = []
-			if tok() != Token.CallClose { while true {
-				switch tok() {
-					case CallClose:
-						fail("Unexpected `)`, remove trailing `,` comma")
-					case Title:
-						argNames.push(null)
-						args.push(parseExpr())
-						if tok() == Token.Colon {
-							step(Token.Colon)
-							parseType()
-						}
-					case _:
-						if offset(1) == Token.Colon {
-							argNames.push(getgo(Token.Identifier))
-							step(Token.Colon)
-						}
-						else {
-							argNames.push(null)
-						}
-						args.push(parseExpr())
-				}
-				if tok() == Token.Comma {
-					i++
-				} else {
-					break
-				}
-			}}
-			step(Token.CallClose)
-
-			result = Node.New([], t, args, names, values, argNames)
-		case KSwitch:
-			i++
-			// TODO multiple
-			var exprs = [parseExpr()]
-			while tok() == Token.Comma {
-				i++
-				exprs.push(parseExpr())
-			}
-			step(Token.BlockOpen)
-
-			var cases = []
-			var conds = []
-			var guards = []
-
-			while tok() != Token.BlockClose {
-				// `case conds:` and `case cond, cond, cond:`
-				step(Token.KCase)
-				if tok() == Token.Underscore {
-					// `case _:`
-					conds.push(Node.Underscore)
-					i++
-				} else {
-					// `case expr:`
-					// TODO handle `case cond, cond, cond:`
-					conds.push(parseExpr())
-				}
-
-				// `case conds if guard:`
-				if tok() == Token.KIf {
-					i++
-					guards.push(parseExpr())
-				} else {
-					// No guard
-					guards.push(null)
-				}
-
-				// `case ...:`
-				step(Token.Colon)
-				// `case ...: expr expr expr`
-				var exs = []
-				// TODO , instead of && ie `while a, b` new syntax here
-				while tok()!=Token.KCase && tok()!=Token.BlockClose {
-					exs.push(parseExpr())
-				}
-
-				// Also assumes `0` expressions (ie `0 != 1`) thus makes a block with empty array
-				if exs.length != 1 {
-					// Collect them into a block
-					// TODO is this really needed by the typer?
-					cases.push(Node.Block(exs))
-				} else {
-					cases.push(exs[0])
-				}
-			}
-
-			step(Token.BlockClose)
-			result = Node.Switch(exprs, conds, guards, cases)
-
-		case KFor:
-			i++
-			// TODO slow parser
-			//if (tok() == Token.CallOpen) {
-			//	step(Token.CallOpen)
-			//}
-
-			if tok() == Token.KLet or tok() == Token.KVar {
-				i++
-				var name = getgo(Token.Identifier)
-
-				// Approximately detect `for (let/var field of/in fields)`
-				// TODO write tests for this with proper validation of err message
-				// TODO quick fix support in vs hexa
-				{
-					if print() == 'of' or print() == 'in' {
-						i++
-						var values = print()
-						i++
-						while tok() != Token.CallClose and tok() != Token.Eof {
-							if tok() == Token.Subtract or tok() == Token.Add {
-								values += ' ' + print() + ' '
-							} else {
-								values += print()
+							// Trailing comma [a,]
+							if tok() == Token.IndexClose {
+								fail('Unexpected `]`, remove trailing comma `,` before `]` or add a value after `,` if required')
 							}
-							i++
-						}
-						// TODO test those messages (with English local)
-						fail("This loop should be replaced to `for \(name) in \(values)`")
-					}
-				}
-
-				// Approximately detect `for (let i = 0; i < count; i++)`
-				// TODO `++i` `const i` `var i` `auto i` `int i`
-				// TODO ensure `i` name is the same at all places
-				var classic = true
-				if tok() == Token.Assign {
-					i++
-				} else {
-					classic = false
-				}
-
-				var specialCase = ''
-				if tok() == Token.Integer, lex.value[i] == '0' {
-					i++
-				} else { // TODO always consume values, and compare iwht '0'
-					// `Blah.blah().blah - 1 + 1`
-					// TODO cache to `tok()` + `switch`
-					while
-						tok() == Token.Identifier ||
-						tok() == Token.Title ||
-						tok() == Token.CallOpen ||
-						tok() == Token.CallClose ||
-						tok() == Token.Add ||
-						tok() == Token.Subtract ||
-						tok() == Token.Integer ||
-						tok() == Token.Multiply ||
-						tok() == Token.Dot
-					{
-						// `a-1` -> `a - 1`
-						if tok() == Token.Subtract or tok() == Token.Add {
-							specialCase += ' ' + print() + ' '
 						} else {
-							specialCase += print()
+							break
 						}
-						i++
-					}
-				}
+					} }
+				step(Token.IndexClose)
 
-				if tok() == Token.Semicolon {
-					i++
+				if isMap {
+					result = Node.Map(el, values)
 				} else {
-					classic = false
+					result = Node.Array(el)
 				}
-
-				if tok() == Token.Identifier, lex.value[i] == name {
-					i++
-				} else {
-					classic = false
-				}
-
-				var lesserOrEqual = false
-				if tok() == Token.Less {
-					i++
-				} else if tok() == Token.LessOrEqual {
-					i++
-					lesserOrEqual = true
-				} else {
-					classic = false
-				}
-
-				var values = print()
+			case KNew:
 				i++
-
-				// `Blah.blah().blah - 1 + 1`
-				while
-					tok() == Token.Identifier ||
-					tok() == Token.Title ||
-					tok() == Token.CallOpen || // TODO align || in formatter
-					tok() == Token.CallClose ||
-					tok() == Token.Add ||
-					tok() == Token.Subtract ||
-					tok() == Token.Integer ||
-					tok() == Token.Multiply ||
-					tok() == Token.Dot
-				{
-					// `a-1` -> `a - 1`
-					if (tok() == Token.Subtract || tok() == Token.Add) {
-						values += ' ' + print() + ' '
-					} else {
-						values += print()
+				var t = parseType()
+				var names: [String] = []
+				var values: [Node] = []
+				if tok() == Token.BlockOpen { // {}
+					i++
+					if tok() == Token.BlockClose { // Empty {}
+						step(Token.BlockClose)
+					} else if (tok() == Token.Identifier and offset(1) == Token.Colon) { // Object { k:v }
+						while tok() != Token.BlockClose {
+							names.push(getgo(Token.Identifier))
+							step(Token.Colon)
+							values.push(parseExpr())
+							if tok() == Token.Comma {
+								i++
+							}
+						}
+						step(Token.BlockClose)
 					}
+				}
+				step(Token.CallOpen)
+				var args = []
+				var argNames: [String] = []
+				if tok() != Token.CallClose { while true {
+						switch tok() {
+							case CallClose:
+								fail("Unexpected `)`, remove trailing `,` comma")
+							case Title:
+								argNames.push(null)
+								args.push(parseExpr())
+								if tok() == Token.Colon {
+									step(Token.Colon)
+									parseType()
+								}
+							case _:
+								if offset(1) == Token.Colon {
+									argNames.push(getgo(Token.Identifier))
+									step(Token.Colon)
+								}
+								else {
+									argNames.push(null)
+								}
+								args.push(parseExpr())
+						}
+						if tok() == Token.Comma {
+							i++
+						} else {
+							break
+						}
+					} }
+				step(Token.CallClose)
+
+				result = Node.New([], t, args, names, values, argNames)
+			case KSwitch:
+				i++
+				// TODO multiple
+				var exprs = [parseExpr()]
+				while tok() == Token.Comma {
 					i++
+					exprs.push(parseExpr())
+				}
+				step(Token.BlockOpen)
+
+				var cases = []
+				var conds = []
+				var guards = []
+
+				while tok() != Token.BlockClose {
+					// `case conds:` and `case cond, cond, cond:`
+					step(Token.KCase)
+					if tok() == Token.Underscore {
+						// `case _:`
+						conds.push(Node.Underscore)
+						i++
+					} else {
+						// `case expr:`
+						// TODO handle `case cond, cond, cond:`
+						conds.push(parseExpr())
+					}
+
+					// `case conds if guard:`
+					if tok() == Token.KIf {
+						i++
+						guards.push(parseExpr())
+					} else {
+						// No guard
+						guards.push(null)
+					}
+
+					// `case ...:`
+					step(Token.Colon)
+					// `case ...: expr expr expr`
+					var exs = []
+					// TODO , instead of && ie `while a, b` new syntax here
+					while tok() != Token.KCase and tok() != Token.BlockClose {
+						exs.push(parseExpr())
+					}
+
+					// Also assumes `0` expressions (ie `0 != 1`) thus makes a block with empty array
+					if exs.length != 1 {
+						// Collect them into a block
+						// TODO is this really needed by the typer?
+						cases.push(Node.Block(exs))
+					} else {
+						cases.push(exs[0])
+					}
 				}
 
-				if lesserOrEqual {
-					values += ' + 1'
-				}
+				step(Token.BlockClose)
+				result = Node.Switch(exprs, conds, guards, cases)
 
-				if tok() == Token.Semicolon {
-					i++
-				} else {
-					classic = false
-				}
+			case KFor:
+				i++
+				// TODO slow parser
+				// if (tok() == Token.CallOpen) {
+				// step(Token.CallOpen)
+				// }
 
-				// `i++`
-				if tok() == Token.Identifier, lex.value[i] == name {
+				if tok() == Token.KLet or tok() == Token.KVar {
 					i++
-					if (tok() == Token.Increment) {
+					var name = getgo(Token.Identifier)
+
+					// Approximately detect `for (let/var field of/in fields)`
+					// TODO write tests for this with proper validation of err message
+					// TODO quick fix support in vs hexa
+					{
+						if print() == 'of' or print() == 'in' {
+							i++
+							var values = print()
+							i++
+							while tok() != Token.CallClose and tok() != Token.Eof {
+								if tok() == Token.Subtract or tok() == Token.Add {
+									values += ' ' + print() + ' '
+								} else {
+									values += print()
+								}
+								i++
+							}
+							// TODO test those messages (with English local)
+							fail("This loop should be replaced to `for \(name) in \(values)`")
+						}
+					}
+
+					// Approximately detect `for (let i = 0; i < count; i++)`
+					// TODO `++i` `const i` `var i` `auto i` `int i`
+					// TODO ensure `i` name is the same at all places
+					var classic = true
+					if tok() == Token.Assign {
 						i++
 					} else {
 						classic = false
 					}
-				} else
 
-				// `++i`
-				if (tok() == Token.Increment) {
-					i++
+					var specialCase = ''
+					if tok() == Token.Integer, lex.value[i] == '0' {
+						i++
+					} else { // TODO always consume values, and compare iwht '0'
+						// `Blah.blah().blah - 1 + 1`
+						// TODO cache to `tok()` + `switch`
+						while
+						tok() == Token.Identifier or
+						tok() == Token.Title or
+						tok() == Token.CallOpen or
+						tok() == Token.CallClose or
+						tok() == Token.Add or
+						tok() == Token.Subtract or
+						tok() == Token.Integer or
+						tok() == Token.Multiply or
+						tok() == Token.Dot
+						{
+							// `a-1` -> `a - 1`
+							if tok() == Token.Subtract or tok() == Token.Add {
+								specialCase += ' ' + print() + ' '
+							} else {
+								specialCase += print()
+							}
+							i++
+						}
+					}
+
+					if tok() == Token.Semicolon {
+						i++
+					} else {
+						classic = false
+					}
+
 					if tok() == Token.Identifier, lex.value[i] == name {
 						i++
 					} else {
 						classic = false
 					}
-				} else {
-					classic = false
+
+					var lesserOrEqual = false
+					if tok() == Token.Less {
+						i++
+					} else if tok() == Token.LessOrEqual {
+						i++
+						lesserOrEqual = true
+					} else {
+						classic = false
+					}
+
+					var values = print()
+					i++
+
+					// `Blah.blah().blah - 1 + 1`
+					while
+					tok() == Token.Identifier or
+					tok() == Token.Title or
+					tok() == Token.CallOpen or // TODO align || in formatter
+					tok() == Token.CallClose or
+					tok() == Token.Add or
+					tok() == Token.Subtract or
+					tok() == Token.Integer or
+					tok() == Token.Multiply or
+					tok() == Token.Dot
+					{
+						// `a-1` -> `a - 1`
+						if (tok() == Token.Subtract or tok() == Token.Add) {
+							values += ' ' + print() + ' '
+						} else {
+							values += print()
+						}
+						i++
+					}
+
+					if lesserOrEqual {
+						values += ' + 1'
+					}
+
+					if tok() == Token.Semicolon {
+						i++
+					} else {
+						classic = false
+					}
+
+					// `i++`
+					if tok() == Token.Identifier, lex.value[i] == name {
+						i++
+						if (tok() == Token.Increment) {
+							i++
+						} else {
+							classic = false
+						}
+					} else
+
+					// `++i`
+					if (tok() == Token.Increment) {
+						i++
+						if tok() == Token.Identifier, lex.value[i] == name {
+							i++
+						} else {
+							classic = false
+						}
+					} else {
+						classic = false
+					}
+
+					if (tok() == Token.CallClose) { } else {
+						classic = false
+					}
+
+					if classic, specialCase == '' {
+						// `for (let i = 0; i < count; i++)` -> `for i in count`
+						fail("This loop should be replaced to `for \(name) in \(values)`")
+					}
+
+					if classic {
+						fail("This loop should be replaced to `for \(name) in \(specialCase) ... \(values)`")
+					}
+
+					fail("Hexa has only `for \(name) in values` syntax")
 				}
-
-				if (tok() == Token.CallClose) {} else {
-					classic = false
+				var name = getgo(Token.Identifier)
+				step(Token.KIn)
+				var values = parseExpr()
+				// let range = if (tok() == Token.Interval) { TODO not works!
+				var range = null
+				if tok() == Token.Interval {
+					i++
+					range = parseExpr()
 				}
+				// TODO slow parser
+				// if (tok() == Token.CallClose) {
+				// step(Token.CallClose)
+				// }
+				var expression = parseExpr()
+				result = Node.For(name, values, expression, range)
 
-				if classic, specialCase == '' {
-					// `for (let i = 0; i < count; i++)` -> `for i in count`
-					fail("This loop should be replaced to `for \(name) in \(values)`")
-				}
+			case KStatic:
+				// TODO consume in the same way @decorators are consumed (global flag)
+				// TODO convert to simple flags instead of separate expr
+				next()
+				let fieldExpr = parseExpr()
+				result = Node.Static(fieldExpr)
+				// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
+				project.data.set(result, project.data.get(fieldExpr))
 
-				if classic {
-					fail("This loop should be replaced to `for \(name) in \(specialCase) ... \(values)`")
-				}
+			case KPrivate:
+				// TODO consume in the same way @decorators are consumed (global flag)
+				// so when Var() constructed it passes Var(isPrivate)
+				// Typer should disallow `private` over disallowed places
+				// TODO convert to simple flags instead of separate expr
+				next()
+				let fieldExpr = parseExpr()
+				result = Node.Private(fieldExpr)
+				// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
+				project.data.set(result, project.data.get(fieldExpr))
 
-				fail("Hexa has only `for \(name) in values` syntax")
-			}
-			var name = getgo(Token.Identifier)
-			step(Token.KIn)
-			var values = parseExpr()
-			//let range = if (tok() == Token.Interval) { TODO not works!
-			var range = null
-			if tok() == Token.Interval {
-				i++
-				range = parseExpr()
-			}
-			// TODO slow parser
-			//if (tok() == Token.CallClose) {
-			//	step(Token.CallClose)
-			//}
-			var expression = parseExpr()
-			result = Node.For(name, values, expression, range)
-
-		case KStatic:
-			// TODO consume in the same way @decorators are consumed (global flag)
-			// TODO convert to simple flags instead of separate expr
-			next()
-			let fieldExpr = parseExpr()
-			result = Node.Static(fieldExpr)
-			// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
-			project.data.set(result, project.data.get(fieldExpr))
-
-		case KPrivate:
-			// TODO consume in the same way @decorators are consumed (global flag)
-			// so when Var() constructed it passes Var(isPrivate)
-			// Typer should disallow `private` over disallowed places
-			// TODO convert to simple flags instead of separate expr
-			next()
-			let fieldExpr = parseExpr()
-			result = Node.Private(fieldExpr)
-			// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
-			project.data.set(result, project.data.get(fieldExpr))
-
-		case _: unexpected()
+			case _: unexpected()
 		}
 
 		if result == null {
@@ -1573,28 +1574,28 @@ class Parser {
 			atts = []
 		}
 
-		//--------------
+		// --------------
 		// POSTFIX STEP
-		//--------------
+		// --------------
 		var done = i >= lex.length
 		while not done {
 			project.data.set(result, new NodeData(lex.line[i], lex.column[i], lex.fileName))
 			switch tok() {
-			case Eof: done = true
-			case IndexOpen:
-				//let failAt = i
-				i++
-				var index = parseExpr()
-				if tok() == Token.Comma {
-					fail(
-						"Expected `]` instead of `,` comma. Hexa supports only one `[index]` value.\n" +
-						"Note, you are indexing this expression: `\(Node.stringify(result))[\(Node.stringify(index))]`\n" +
-						"To create array here, wrap it with `{` as `{[\(Node.stringify(index)), ...]}` so it doesn't index previous expression."
-					)
-				}
-				step(Token.IndexClose)
+				case Eof: done = true
+				case IndexOpen:
+					// let failAt = i
+					i++
+					var index = parseExpr()
+					if tok() == Token.Comma {
+						fail(
+							"Expected `]` instead of `,` comma. Hexa supports only one `[index]` value.\n" +
+							"Note, you are indexing this expression: `\(Node.stringify(result))[\(Node.stringify(index))]`\n" +
+							"To create array here, wrap it with `{` as `{[\(Node.stringify(index)), ...]}` so it doesn't index previous expression."
+						)
+					}
+					step(Token.IndexClose)
 
-				/*switch result {
+					/*switch result {
 					case Ident(_): // Ok
 					case Dot(_): // Ok
 					case Index(_): // Ok
@@ -1604,184 +1605,183 @@ class Parser {
 						failHint('Cannot index `[]` expression `\(Node.stringify(result))`')
 						i = temp
 				}*/
-
-				result = Node.Index(result, index)
-			case KIs:
-				i++
-				switch tok() {
-					case Title:
-						result = Node.Is(result, parseType())
-					case _:
-						fail("Cannot parse type `" + Token.stringify(tok()) + "`")
-				}
-			case KAs:
-				i++
-				var kind = tok()
-				if (tok() == Token.KNot) {
+					result = Node.Index(result, index)
+				case KIs:
 					i++
-				} else if (tok() == Token.Question) {
-					i++
-				} else {
-					kind = Token.Default
-				}
-				result = Node.As(result, kind, parseType())
-			case CallOpen: { // `call(a, name: b, c)`
-				var args: [Node] = []
-				var argNames: [String] = []
-				i++
-				if tok() != Token.CallClose { while true {
 					switch tok() {
-						case CallClose:
-							fail("Unexpected `)`, remove trailing `,` comma")
 						case Title:
-							argNames.push(null)
-							args.push(parseExpr())
-							if (tok() == Token.Colon) {
-								step(Token.Colon)
-								parseType()
-							}
+							result = Node.Is(result, parseType())
 						case _:
-							if tok() == Token.Identifier, offset(1) == Token.Colon {
-								argNames.push(getgo(Token.Identifier))
-								step(Token.Colon)
-							} else {
-								argNames.push(null)
-							}
-							args.push(parseExpr())
+							fail("Cannot parse type `" + Token.stringify(tok()) + "`")
 					}
-					if (tok() == Token.Comma) {
+				case KAs:
+					i++
+					var kind = tok()
+					if (tok() == Token.KNot) {
+						i++
+					} else if (tok() == Token.Question) {
 						i++
 					} else {
-						break
+						kind = Token.Default
 					}
-				}}
-				step(Token.CallClose)
-				result = Node.Call(result, args, argNames)
-			}
-			case RightArrow:
-				next()
-				result = Node.Arrow(parseExpr(), [result], null)
+					result = Node.As(result, kind, parseType())
+				case CallOpen: { // `call(a, name: b, c)`
+						var args: [Node] = []
+						var argNames: [String] = []
+						i++
+						if tok() != Token.CallClose { while true {
+								switch tok() {
+									case CallClose:
+										fail("Unexpected `)`, remove trailing `,` comma")
+									case Title:
+										argNames.push(null)
+										args.push(parseExpr())
+										if (tok() == Token.Colon) {
+											step(Token.Colon)
+											parseType()
+										}
+									case _:
+										if tok() == Token.Identifier, offset(1) == Token.Colon {
+											argNames.push(getgo(Token.Identifier))
+											step(Token.Colon)
+										} else {
+											argNames.push(null)
+										}
+										args.push(parseExpr())
+								}
+								if (tok() == Token.Comma) {
+									i++
+								} else {
+									break
+								}
+							} }
+						step(Token.CallClose)
+						result = Node.Call(result, args, argNames)
+					}
+				case RightArrow:
+					next()
+					result = Node.Arrow(parseExpr(), [result], null)
 
-			// i++
-			case Increment:
-				switch result {
-					case Unop(_): return result
-				}
-				i++
-				result = Node.Unop(Token.Increment, true, result)
-
-			// i--
-			case Decrement:
-				switch result {
-					case Unop(_): return result
-				}
-				i++
-				result = Node.Unop(Token.Decrement, true, result)
-
-			// a.b
-			// a.B
-			case Dot:
-				i++
-				switch tok() {
-					case Title:
-						result = Node.DotUpper(result, getgo(Token.Title))
-					case _:
-						result = Node.Dot(result, getgo(Token.Identifier))
-				}
-
-			// a ? b : c
-			// a ?? b
-			// a ?. b
-			case Question:
-				i++
-				// TODO Probably keep just Token.OptionalChain? or only this?
-				// This way it allows to parse `a? .xx()? .yy()` on separate lines
-				if tok() == Token.Dot {
-					// a ?. b
-					var name = getgo(Token.Identifier)
-					// TODO Node.Chain()
-					result = Node.Dot(result, name)
-				} else if (tok() == Token.Question) {
-					// a ?? b
+					// i++
+				case Increment:
+					switch result {
+						case Unop(_): return result
+					}
 					i++
-					result = Node.Elvis(result, parseExpr())
-				} else {
+					result = Node.Unop(Token.Increment, true, result)
+
+					// i--
+				case Decrement:
+					switch result {
+						case Unop(_): return result
+					}
+					i++
+					result = Node.Unop(Token.Decrement, true, result)
+
+					// a.b
+					// a.B
+				case Dot:
+					i++
+					switch tok() {
+						case Title:
+							result = Node.DotUpper(result, getgo(Token.Title))
+						case _:
+							result = Node.Dot(result, getgo(Token.Identifier))
+					}
+
 					// a ? b : c
-					var eif = parseExpr()
-					step(Token.Colon)
-					var eelse = parseExpr()
-					result = Node.If([result], eif, eelse, true)
-				}
-			// a ?. b
-			case OptionalChain:
-				i++
-				// TODO
-				result = parseExpr()
-			// a += b
-			case _:
-			let failAt = i
-			let t = tok()
-			if isBinop(t) && offset(1) == Token.Assign {
-				var op = tok()
-				i++
-				i++
-				var b = parseExpr()
-
-				switch result {
-					case Ident(_): // Ok
-					case Dot(_): // Ok
-					case Index(_): // Ok
-					case _:
-						let temp = i
-						i = failAt
-						failHint('Cannot reassign `=` expression `\(Node.stringify(result))`')
-						i = temp
-				}
-
-				result = Node.AssignOp(result, op, b)
-			}
-			// a + b
-			else if isBinop(t) {
-				i++
-				//if (tok() == Assign) { // +=
-				//	i++
-				//}
-				var b = parseExpr()
-				var a = result
-				switch b {
-				case Binop(aa, op, bb):
-					var tp = precedence(t)
-					var tLeft = tp > 99
-					tp = tp % 100
-					var bp = precedence(op)
-					var bLeft = bp > 99
-					bp = bp % 100
-					if bp > tp {
-						let eb = Node.Binop(result, t, aa)
-						//project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
-						project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
-						//project.data.set(eb, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
-						result = Node.Binop(eb, op, bb)
-						//project.data.set(result, project.data.get(b))
+					// a ?? b
+					// a ?. b
+				case Question:
+					i++
+					// TODO Probably keep just Token.OptionalChain? or only this?
+					// This way it allows to parse `a? .xx()? .yy()` on separate lines
+					if tok() == Token.Dot {
+						// a ?. b
+						var name = getgo(Token.Identifier)
+						// TODO Node.Chain()
+						result = Node.Dot(result, name)
+					} else if (tok() == Token.Question) {
+						// a ?? b
+						i++
+						result = Node.Elvis(result, parseExpr())
 					} else {
-						result = Node.Binop(result, t, b)
-						//project.data.set(result, project.data.get(b))
+						// a ? b : c
+						var eif = parseExpr()
+						step(Token.Colon)
+						var eelse = parseExpr()
+						result = Node.If([result], eif, eelse, true)
 					}
-				// Ternary operator has the lowest precedence
-				case If(econd, eif, eelse, ternary):
-					if ternary == true && t != Token.Assign {
-						result = Node.If([Node.Binop(result, t, econd[0])], eif, eelse, true)
-					} else {
-						result = Node.Binop(result, t, b)
-						//project.data.set(result, project.data.get(b))
-					}
+					// a ?. b
+				case OptionalChain:
+					i++
+					// TODO
+					result = parseExpr()
+					// a += b
 				case _:
-					result = Node.Binop(result, t, b)
-					//project.data.set(result, project.data.get(b))
-				}
-			} else {
-				done = true
-			}
+					let failAt = i
+					let t = tok()
+					if isBinop(t) and offset(1) == Token.Assign {
+						var op = tok()
+						i++
+						i++
+						var b = parseExpr()
+
+						switch result {
+							case Ident(_): // Ok
+							case Dot(_): // Ok
+							case Index(_): // Ok
+							case _:
+								let temp = i
+								i = failAt
+								failHint('Cannot reassign `=` expression `\(Node.stringify(result))`')
+								i = temp
+						}
+
+						result = Node.AssignOp(result, op, b)
+					}
+					// a + b
+					else if isBinop(t) {
+						i++
+						// if (tok() == Assign) { // +=
+						// i++
+						// }
+						var b = parseExpr()
+						var a = result
+						switch b {
+							case Binop(aa, op, bb):
+								var tp = precedence(t)
+								var tLeft = tp > 99
+								tp = tp % 100
+								var bp = precedence(op)
+								var bLeft = bp > 99
+								bp = bp % 100
+								if bp > tp {
+									let eb = Node.Binop(result, t, aa)
+									// project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
+									project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
+									// project.data.set(eb, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
+									result = Node.Binop(eb, op, bb)
+									// project.data.set(result, project.data.get(b))
+								} else {
+									result = Node.Binop(result, t, b)
+									// project.data.set(result, project.data.get(b))
+								}
+								// Ternary operator has the lowest precedence
+							case If(econd, eif, eelse, ternary):
+								if ternary == true and t != Token.Assign {
+									result = Node.If([Node.Binop(result, t, econd[0])], eif, eelse, true)
+								} else {
+									result = Node.Binop(result, t, b)
+									// project.data.set(result, project.data.get(b))
+								}
+							case _:
+								result = Node.Binop(result, t, b)
+								// project.data.set(result, project.data.get(b))
+						}
+					} else {
+						done = true
+					}
 			}
 		}
 
@@ -1806,7 +1806,7 @@ class Parser {
 		if tok() == Token.BlockClose { // Empty block {}
 			i++
 			return Node.Block([])
-		} else if (tok() == Token.Identifier && offset(1) == Token.Colon) { // Object { k:v }
+		} else if (tok() == Token.Identifier and offset(1) == Token.Colon) { // Object { k:v }
 			var names: [String] = []
 			var el: [Node] = []
 			while true {
@@ -1880,21 +1880,21 @@ class Parser {
 
 			// TODO drop support for type-level decorators
 			// if token == Token.At {
-			// 	// TODO soft parsing error
-			// 	i++
-			// 	let name = print() // TODO `getgo(Token.Identifier)`
-			// 	// TODO `failHintAt` but consume decorator first with `parserDec` cause may have parameters
-			// 	i--
-			// 	// TODO should know if it `var`, `let` or function argument
-			// 	fail("Decorators should be placed at variable's declaration like `@\(name) var \(varName)` instead of their type.")
-			// 	// TODO it may happen that decorator is applied to next var if current is type-less
-			// 	// ^ recommend `///` to split expressions
+			// // TODO soft parsing error
+			// i++
+			// let name = print() // TODO `getgo(Token.Identifier)`
+			// // TODO `failHintAt` but consume decorator first with `parserDec` cause may have parameters
+			// i--
+			// // TODO should know if it `var`, `let` or function argument
+			// fail("Decorators should be placed at variable's declaration like `@\(name) var \(varName)` instead of their type.")
+			// // TODO it may happen that decorator is applied to next var if current is type-less
+			// // ^ recommend `///` to split expressions
 			// }
 
 			// TODO reuse in inline function `fun isStartOfType(token)`
 			// ^ to be used in [[parseFunction]]
 			if
-			//	token == Token.Colon or // `: T`
+				// token == Token.Colon or // `: T`
 				(
 					token == Token.At and (
 						// `var name <single space here> @decorator Type`
@@ -1926,7 +1926,7 @@ class Parser {
 		fun parseSingleBinding(): Node {
 			var path = []
 			// Path let path.path.path.
-			while tok() == Token.Identifier && offset(1) == Token.Dot {
+			while tok() == Token.Identifier and offset(1) == Token.Dot {
 				path.push(getgo(Token.Identifier))
 				i++
 			}
@@ -1937,7 +1937,7 @@ class Parser {
 			path.push(getgo(Token.Title))
 
 			// Enum bind vars or none
-			if (tok() == Token.CallOpen && offset(1) == Token.CallClose) {
+			if (tok() == Token.CallOpen and offset(1) == Token.CallClose) {
 				fail("Don't use empty parenthesis for `let " + path.join('.') + '()` bindings')
 			}
 			var bind = [] // Variables T(var, var, var)
@@ -1958,22 +1958,22 @@ class Parser {
 			return Node.EnumExtract(path, bind, expr)
 		}
 
-// TODO deprecated
-//		while (true) {
-//
-//			if (tok() == Token.Title || (tok() == Token.Identifier && offset(1) == Token.Dot)) {
-//				vars.push(parseSingleBinding())
-//			} else {
-				vars.push(parseSingleVar())
-//			}
-//
-//			// Multiple variables var a, b, c
-//			if (tok() == Token.Comma && offset(1) == Token.Identifier && (offset(2) == Token.Assign || offset(2) == Token.Colon)) {
-//				i++
-//			} else {
-//				break
-//			}
-//		}
+		// TODO deprecated
+		// while (true) {
+		//
+		// if (tok() == Token.Title || (tok() == Token.Identifier && offset(1) == Token.Dot)) {
+		// vars.push(parseSingleBinding())
+		// } else {
+		vars.push(parseSingleVar())
+		// }
+		//
+		// // Multiple variables var a, b, c
+		// if (tok() == Token.Comma && offset(1) == Token.Identifier && (offset(2) == Token.Assign || offset(2) == Token.Colon)) {
+		// i++
+		// } else {
+		// break
+		// }
+		// }
 
 		return vars
 
@@ -1998,39 +1998,39 @@ class Parser {
 					var expr = null if (tok() == Token.Assign) { i++ expr = parseExpr() }
 					vars.push(Node.Var(varname, type, expr, const, external))
 
-					if (tok() == Token.Comma && offset(1) == Token.Identifier && (offset(2) == Token.Assign || offset(2) == Token.Colon)) {
+					if (tok() == Token.Comma and offset(1) == Token.Identifier and (offset(2) == Token.Assign or offset(2) == Token.Colon)) {
 						i++
 					} else {
 						break
 					}
 				}
-			// var Left
+				// var Left
 			case Title:
 				// if (offset(1) != Dot) {
-				// 	fail("Please use lowercase for variable")
+				// fail("Please use lowercase for variable")
 				// }
 				// // var Left.B
 				// else {
-					var left = Node.Ident(getgo(Token.Title), null)
-					var res = left
-					// var Left.B.C.D...
-					while tok() == Token.Dot {
-						res = Node.Dot(res, getgo(Token.Title))
-					}
-					switch tok() {
-						case CallOpen:
-							var args: [String] = []
-							while tok() != Token.CallClose {
-								args.push(getgo(Token.Identifier))
-							}
-							step(Token.Assign)
-							var varname = getgo(Token.Identifier)
-							// vars.push(EnumExtract(res, args, varname))
-						case Assign:
-							//warning Extracting empty enum
-						case _:
-							fail("Wrong syntax")
-					}
+				var left = Node.Ident(getgo(Token.Title), null)
+				var res = left
+				// var Left.B.C.D...
+				while tok() == Token.Dot {
+					res = Node.Dot(res, getgo(Token.Title))
+				}
+				switch tok() {
+					case CallOpen:
+						var args: [String] = []
+						while tok() != Token.CallClose {
+							args.push(getgo(Token.Identifier))
+						}
+						step(Token.Assign)
+						var varname = getgo(Token.Identifier)
+						// vars.push(EnumExtract(res, args, varname))
+					case Assign:
+						// warning Extracting empty enum
+					case _:
+						fail("Wrong syntax")
+				}
 				// }
 			case _:
 				fail("Wrong syntax")
@@ -2078,70 +2078,70 @@ class Parser {
 			if tok() != Token.CallClose {
 				// TODO indent properly
 				while true {
-				let decorators: [Decorator] = []
+					let decorators: [Decorator] = []
 
-				while tok() == Token.At {
-					decorators.push(parseDecorator())
-				}
-
-				var expr = null
-				var t = null
-				if tok() == Token.Interval {
-					variadic = true
-					i++
-				}
-				pos.push({ line: lex.line[i], column: lex.column[i] })
-				let name = getgo(Token.Identifier)
-				if tok() == Token.Colon {
-					// TODO no colon
-					i++
-					// TODO decorator before argument name like at [[parseVar.parseSingleVar]]
-					// TODO ^ vs hexa [[navigation]] on ctrl-click and hover over comment
-					// ^ make it fuzzy so no need for full [[path.path.path]]
-					// ^ RMB or DnD from Outline to code to make link
-					// t = parseType() // Leftover
-				}
-
-				// TODO well `tok()` could be just `@inline let token { get }` or something
-				// if tok() == Token.At { TODO rethink this limitation
-				// 	i++
-				// 	let decName = print() // TODO `getgo(Token.Identifier)` + `failHintAt`
-				// 	i--
-				// 	fail("Decorators should be placed at argument's declaration like `@\(decName) \(name)` instead of their type.")
-				// }
-				let token = tok()
-
-				if
-					// NOTE don't do it like that! Some type syntax uses lowercases
-					//tok() != Token.Assign and
-					//tok() != Token.CallClose and
-					//tok() != Token.Comma
-					token == Token.At or
-					token == Token.IndexOpen or
-					token == Token.BlockOpen or
-					token == Token.Title or
-					token == Token.CallOpen
-				{
-					t = parseType()
-				}
-
-				if tok() == Token.Assign {
-					i++
-					expr = parseExpr()
-				}
-				vars.push(name)
-				atts.push(decorators)
-				types.push(t)
-				values.push(expr)
-				if tok() == Token.Comma {
-					i++
-					if variadic {
-						fail('Variadic `...\(name)` argument must be the last argument')
+					while tok() == Token.At {
+						decorators.push(parseDecorator())
 					}
-				} else {
-					break
-				}
-			}}
+
+					var expr = null
+					var t = null
+					if tok() == Token.Interval {
+						variadic = true
+						i++
+					}
+					pos.push({ line: lex.line[i], column: lex.column[i] })
+					let name = getgo(Token.Identifier)
+					if tok() == Token.Colon {
+						// TODO no colon
+						i++
+						// TODO decorator before argument name like at [[parseVar.parseSingleVar]]
+						// TODO ^ vs hexa [[navigation]] on ctrl-click and hover over comment
+						// ^ make it fuzzy so no need for full [[path.path.path]]
+						// ^ RMB or DnD from Outline to code to make link
+						// t = parseType() // Leftover
+					}
+
+					// TODO well `tok()` could be just `@inline let token { get }` or something
+					// if tok() == Token.At { TODO rethink this limitation
+					// i++
+					// let decName = print() // TODO `getgo(Token.Identifier)` + `failHintAt`
+					// i--
+					// fail("Decorators should be placed at argument's declaration like `@\(decName) \(name)` instead of their type.")
+					// }
+					let token = tok()
+
+					if
+						// NOTE don't do it like that! Some type syntax uses lowercases
+						// tok() != Token.Assign and
+						// tok() != Token.CallClose and
+						// tok() != Token.Comma
+						token == Token.At or
+						token == Token.IndexOpen or
+						token == Token.BlockOpen or
+						token == Token.Title or
+						token == Token.CallOpen
+					{
+						t = parseType()
+					}
+
+					if tok() == Token.Assign {
+						i++
+						expr = parseExpr()
+					}
+					vars.push(name)
+					atts.push(decorators)
+					types.push(t)
+					values.push(expr)
+					if tok() == Token.Comma {
+						i++
+						if variadic {
+							fail('Variadic `...\(name)` argument must be the last argument')
+						}
+					} else {
+						break
+					}
+				} }
 			step(Token.CallClose)
 		}
 		// TODO `retType`
@@ -2163,42 +2163,42 @@ class Parser {
 		}
 
 		if parseBody { switch tok() {
-			case KNew: if (offset(1) == Token.CallOpen) {} else {
-				expr = parseExpr()
-			}
-			case BlockClose: {}
-			case KStatic: {}
-			case KPrivate: {}
-			case KFun: {}
-			case KVar: {}
-			case KLet: {}
-			case At: {
-				var tmp = i
-				while tok() == Token.At {
-					parseDecorator()
-				}
+				case KNew: if (offset(1) == Token.CallOpen) { } else {
+						expr = parseExpr()
+					}
+				case BlockClose: { }
+				case KStatic: { }
+				case KPrivate: { }
+				case KFun: { }
+				case KVar: { }
+				case KLet: { }
+				case At: {
+						var tmp = i
+						while tok() == Token.At {
+							parseDecorator()
+						}
 
-				if
-					tok() != Token.BlockClose
-					&& tok() != Token.KStatic
-					&& tok() != Token.KPrivate
-					&& tok() != Token.KFun
-				{
-					i = tmp
-					expr = parseExpr()
-				} else {
-					i = tmp
-				}
-			}
-			case Eof:
-				// TODO top-level (non-external) functions cannot be unnamed
-				if let name = name {
-					fail('Function `fun \(name)` should have a `{ block }` as a body or must be marked as `declare fun \(name)`')
-				} else {
-					fail('Unnamed functions should have a `{ block }` as a body')
-				}
-			case _: expr = parseBlock()
-		}}
+						if
+							tok() != Token.BlockClose
+							and tok() != Token.KStatic
+							and tok() != Token.KPrivate
+							and tok() != Token.KFun
+						{
+							i = tmp
+							expr = parseExpr()
+						} else {
+							i = tmp
+						}
+					}
+				case Eof:
+					// TODO top-level (non-external) functions cannot be unnamed
+					if let name = name {
+						fail('Function `fun \(name)` should have a `{ block }` as a body or must be marked as `declare fun \(name)`')
+					} else {
+						fail('Unnamed functions should have a `{ block }` as a body')
+					}
+				case _: expr = parseBlock()
+			} }
 
 		var v = []
 		for i in vars.length {
@@ -2220,7 +2220,7 @@ class Parser {
 				i--
 				fail('Function `\(named)` should have a `{ block }` as a body')
 		}
-		let result = Node.Function(name, expr, v, rettype, external/*, TODO params*/, variadic: variadic)
+		let result = Node.Function(name, expr, v, rettype, external /*, TODO params*/, variadic: variadic)
 		if let params = params {
 			project.mapFuncParams.set(result, params)
 		}
@@ -2259,8 +2259,8 @@ class Parser {
 		var ext = if (tok() == Token.KExtends) {
 			i++
 			parseType()
-		//} else (null as! NodeType) TODO not works this way!
-		} else {null as! NodeType}
+			// } else (null as! NodeType) TODO not works this way!
+		} else { null as! NodeType }
 
 		var impl = []
 		while tok() == Token.KImplements {
@@ -2281,10 +2281,10 @@ class Parser {
 		var i = 0
 		while i < chars.length {
 			if (chars[i] == "\\") {
-				if (i+1 < chars.length) {
-					if (chars[i+1] == "\\") {
+				if (i + 1 < chars.length) {
+					if (chars[i + 1] == "\\") {
 						i++
-					} else if (chars[i+1] == "(") {
+					} else if (chars[i + 1] == "(") {
 						return true
 					}
 				}
@@ -2339,7 +2339,7 @@ class Parser {
 			}
 			var result = ['"']
 			while i < s.length {
-				if s.charAt(i) == '\\' && s.charAt(i+1) == '(' {
+				if s.charAt(i) == '\\' and s.charAt(i + 1) == '(' {
 					result.push('" + ')
 					out.push('" + (')
 					var ii = i + 1
@@ -2381,13 +2381,13 @@ class Parser {
 		if tok() == Token.CallOpen and (lex.column[i] == lex.value[i - 1].length + lex.column[i - 1]) {
 			i++
 			if tok() != Token.CallClose { while true {
-				values.push(parseExpr())
-				if tok() == Token.Comma {
-					i++
-				} else {
-					break
-				}
-			}}
+					values.push(parseExpr())
+					if tok() == Token.Comma {
+						i++
+					} else {
+						break
+					}
+				} }
 			step(Token.CallClose)
 		}
 		return new Decorator(name, values)
@@ -2461,13 +2461,13 @@ class Parser {
 
 		// Types
 		// TODO NameSpace.NameSpace.T parsing
-		//var path = []
-		//while (tok() == Token.Identifier && offset(1) == Token.Dot) {
-		//	path.push(getgo(Token.Identifier))
-		//	i++
-		//}
+		// var path = []
+		// while (tok() == Token.Identifier && offset(1) == Token.Dot) {
+		// path.push(getgo(Token.Identifier))
+		// i++
+		// }
 
-		let path: String? = if (tok() == Token.Identifier && offset(1) == Token.Dot) {
+		let path: String? = if (tok() == Token.Identifier and offset(1) == Token.Dot) {
 			let result = getgo(Token.Identifier)
 			i++
 			result
@@ -2478,172 +2478,172 @@ class Parser {
 
 		var result: NodeType? = null
 		switch tok() {
-		case Title:
-			var name = getgo(Token.Title)
-			//if (path.length != 0) {
-			//	name = path.join('.') + '.' + name
-			//}
-			while tok() == Token.Dot {
-				i++
-				// TODO why?
-				getgo(Token.Title)
-			}
-			var sresult = if tok() == Token.Less {
-				i++
-				parametricTypeNesting++
-				var params: [NodeType] = [parseType()]
-				while tok() == Token.Comma {
+			case Title:
+				var name = getgo(Token.Title)
+				// if (path.length != 0) {
+				// name = path.join('.') + '.' + name
+				// }
+				while tok() == Token.Dot {
 					i++
-					params.push(parseType())
+					// TODO why?
+					getgo(Token.Title)
+				}
+				var sresult = if tok() == Token.Less {
+					i++
+					parametricTypeNesting++
+					var params: [NodeType] = [parseType()]
+					while tok() == Token.Comma {
+						i++
+						params.push(parseType())
+					}
+
+					if parametricTypeNestingToken == Token.Eof {
+						parametricTypeNestingToken = tok()
+					}
+
+					switch parametricTypeNestingToken {
+						case Greater: parametricTypeNesting -= 1 parametricTypeNestingToken = Token.Eof i++
+						case BitwiseRightShift: parametricTypeNesting -= 1 parametricTypeNestingToken = Token.Greater
+						case UnsignedRightShift: parametricTypeNesting -= 1 parametricTypeNestingToken = Token.UnsignedRightShift
+						case _: unexpected()
+					}
+					if parametricTypeNesting < 0 {
+						// TODO better error (internal)
+						fail("parametricTypeNesting < 0")
+					}
+
+					NodeType.ParametricType(name, params, path)
+				} else {
+					NodeType.Type(name, path)
 				}
 
-				if parametricTypeNestingToken == Token.Eof {
-					parametricTypeNestingToken = tok()
+				// `A => B`
+				if tok() == Token.RightArrow {
+					i++
+					sresult = NodeType.Function([sresult], parseType())
 				}
 
-				switch parametricTypeNestingToken {
-					case Greater: parametricTypeNesting-=1 parametricTypeNestingToken = Token.Eof i++
-					case BitwiseRightShift: parametricTypeNesting-=1 parametricTypeNestingToken = Token.Greater
-					case UnsignedRightShift: parametricTypeNesting-=1 parametricTypeNestingToken = Token.UnsignedRightShift
-					case _: unexpected()
-				}
-				if parametricTypeNesting < 0 {
-					// TODO better error (internal)
-					fail("parametricTypeNesting < 0")
+				result = sresult
+				// `[Type]`
+			case IndexOpen:
+				if path != null {
+					fail("This path syntax is incorrect")
 				}
 
-				NodeType.ParametricType(name, params, path)
-			} else {
-				NodeType.Type(name, path)
-			}
-
-			// `A => B`
-			if tok() == Token.RightArrow {
 				i++
-				sresult = NodeType.Function([sresult], parseType())
-			}
-
-			result = sresult
-		// `[Type]`
-		case IndexOpen:
-			if path != null {
-				fail("This path syntax is incorrect")
-			}
-
-			i++
-			var res: NodeType? = null
-			switch tok() {
-				case IndexClose:
-					i++
-					res = NodeType.ParametricType("Array", [NodeType.Object([], [])], path)
-				case Colon:
-					i++
-					if (tok() == Token.IndexClose) {
+				var res: NodeType? = null
+				switch tok() {
+					case IndexClose:
 						i++
-						res = NodeType.ParametricType("Map", [NodeType.Object([], []), NodeType.Object([], [])], path)
-					}
-					else {
-						res = NodeType.ParametricType("Map", [NodeType.Object([], []), parseType()], path)
-					}
-				case _:
-					var key = parseType()
-					var innerRes = if (tok() == Token.Colon) { // Map
+						res = NodeType.ParametricType("Array", [NodeType.Object([], [])], path)
+					case Colon:
 						i++
-						NodeType.ParametricType("Map", [key, parseType()], path)
-					} else {
-						NodeType.ParametricType("Array", [key], path)
-					}
-					step(Token.IndexClose)
-					if (tok() == Token.RightArrow) {
-						i++
-						innerRes = NodeType.Function([res], parseType())
-					}
-					res = innerRes
-			}
-			result = res
-		// `{}`
-		case BlockOpen:
-			if path != null {
-				fail("This path syntax is incorrect")
-			}
-
-			i++
-			var sresult = if (tok() == Token.BlockClose) { // Empty
-				NodeType.Object([], [])
-			} else {
-				var names: [String] = []
-				var types: [NodeType] = []
-				while tok() != Token.BlockClose {
-					names.push(getgo(Token.Identifier))
-					if (tok() == Token.Colon) {
-						i++
-						types.push(parseType())
-					}
-					if (tok() == Token.Comma) {
-						i++
-					}
+						if (tok() == Token.IndexClose) {
+							i++
+							res = NodeType.ParametricType("Map", [NodeType.Object([], []), NodeType.Object([], [])], path)
+						}
+						else {
+							res = NodeType.ParametricType("Map", [NodeType.Object([], []), parseType()], path)
+						}
+					case _:
+						var key = parseType()
+						var innerRes = if (tok() == Token.Colon) { // Map
+							i++
+							NodeType.ParametricType("Map", [key, parseType()], path)
+						} else {
+							NodeType.ParametricType("Array", [key], path)
+						}
+						step(Token.IndexClose)
+						if (tok() == Token.RightArrow) {
+							i++
+							innerRes = NodeType.Function([res], parseType())
+						}
+						res = innerRes
 				}
-				NodeType.Object(names, types)
-			}
-			step(Token.BlockClose)
-			if (tok() == Token.RightArrow) {
+				result = res
+				// `{}`
+			case BlockOpen:
+				if path != null {
+					fail("This path syntax is incorrect")
+				}
+
 				i++
-				sresult = NodeType.Function([sresult], parseType())
-			}
-			result = sresult
-		// `()`
-		case CallOpen:
-			if path != null {
-				fail("This path syntax is incorrect")
-			}
+				var sresult = if (tok() == Token.BlockClose) { // Empty
+					NodeType.Object([], [])
+				} else {
+					var names: [String] = []
+					var types: [NodeType] = []
+					while tok() != Token.BlockClose {
+						names.push(getgo(Token.Identifier))
+						if (tok() == Token.Colon) {
+							i++
+							types.push(parseType())
+						}
+						if (tok() == Token.Comma) {
+							i++
+						}
+					}
+					NodeType.Object(names, types)
+				}
+				step(Token.BlockClose)
+				if (tok() == Token.RightArrow) {
+					i++
+					sresult = NodeType.Function([sresult], parseType())
+				}
+				result = sresult
+				// `()`
+			case CallOpen:
+				if path != null {
+					fail("This path syntax is incorrect")
+				}
 
-			i++
-			var args = []
-			while tok() != Token.CallClose {
-				if tok() == Token.Identifier {
-					// TODO save identifier name
-					step(Token.Identifier)
-					if tok() == Token.Colon {
-						// TODO colon-less
+				i++
+				var args = []
+				while tok() != Token.CallClose {
+					if tok() == Token.Identifier {
+						// TODO save identifier name
+						step(Token.Identifier)
+						if tok() == Token.Colon {
+							// TODO colon-less
+							i++
+						}
+					}
+					// TODO combine into single object type+name (NodeType.FunctionArg) instead of two arrays (simplicity + optimization)
+					args.push(parseType())
+					// TODO parse default value
+					if tok() == Token.Comma {
 						i++
 					}
 				}
-				// TODO combine into single object type+name (NodeType.FunctionArg) instead of two arrays (simplicity + optimization)
-				args.push(parseType())
-				// TODO parse default value
-				if tok() == Token.Comma {
-					i++
-				}
-			}
-			step(Token.CallClose)
-			step(Token.RightArrow)
-			result = NodeType.Function(args, parseType())
+				step(Token.CallClose)
+				step(Token.RightArrow)
+				result = NodeType.Function(args, parseType())
 
-		// TODO deprecated
-		// name: T (parsing of function arguments directly via `parseType`)
-		// name.T
-		// name.name.T (recursion)
-		case Identifier:
-			var res: NodeType? = null
-			switch offset(1) {
-				case Colon: {
-					var argName = getgo(tok())
-					step(Token.Colon)
-					var argType = parseType()
-					res = NodeType.FunctionArg(argName, argType, null)
+				// TODO deprecated
+				// name: T (parsing of function arguments directly via `parseType`)
+				// name.T
+				// name.name.T (recursion)
+			case Identifier:
+				var res: NodeType? = null
+				switch offset(1) {
+					case Colon: {
+							var argName = getgo(tok())
+							step(Token.Colon)
+							var argType = parseType()
+							res = NodeType.FunctionArg(argName, argType, null)
+						}
+						// case Dot: {
+						// i += 2
+						// parseType()
+						// }
+					case _: {
+							fail("Type name `\(print())` cannot start with lowercase")
+						}
 				}
-				//case Dot: {
-				//	i += 2
-				//	parseType()
-				//}
-				case _: {
-					fail("Type name `\(print())` cannot start with lowercase")
-				}
-			}
-			result = res
+				result = res
 
-		case _:
-			fail("Expected type, parsed `" + Token.stringify(tok()) + "`")
+			case _:
+				fail("Expected type, parsed `" + Token.stringify(tok()) + "`")
 		}
 
 		if tok() == Token.Question {
@@ -2668,7 +2668,7 @@ class Parser {
 			case Divide: return 1 + left
 			case IntegerDivide: return 1 + left
 			case Add: return 2 + left
-			//case Question: return 100 + right
+				// case Question: return 100 + right
 			case Subtract: return 2 + left
 			case BitwiseLeftShift: return 3 + left
 			case BitwiseRightShift: return 3 + left
@@ -2692,29 +2692,29 @@ class Parser {
 
 	static fun isBinop(t: Token): Bool {
 		switch t {
-		//case Question: return true
-		case Add: return true
-		case Multiply: return true
-		case Divide: return true
-		case IntegerDivide: return true
-		case Subtract: return true
-		case Assign: return true
-		case Equal: return true
-		case Unequal: return true
-		case Greater: return true
-		case GreaterOrEqual: return true
-		case Less: return true
-		case LessOrEqual: return true
-		case BitwiseAnd: return true
-		case BitwiseOr: return true
-		case BitwiseXor: return true
-		case LogicalAnd: return true
-		case LogicalOr: return true
-		case BitwiseLeftShift: return true
-		case BitwiseRightShift: return true
-		case UnsignedRightShift: return true
-		case Remainder: return true
-		case _: return false
+			// case Question: return true
+			case Add: return true
+			case Multiply: return true
+			case Divide: return true
+			case IntegerDivide: return true
+			case Subtract: return true
+			case Assign: return true
+			case Equal: return true
+			case Unequal: return true
+			case Greater: return true
+			case GreaterOrEqual: return true
+			case Less: return true
+			case LessOrEqual: return true
+			case BitwiseAnd: return true
+			case BitwiseOr: return true
+			case BitwiseXor: return true
+			case LogicalAnd: return true
+			case LogicalOr: return true
+			case BitwiseLeftShift: return true
+			case BitwiseRightShift: return true
+			case UnsignedRightShift: return true
+			case Remainder: return true
+			case _: return false
 		}
 	}
 }
