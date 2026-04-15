@@ -337,6 +337,7 @@ class Parser {
 		return Token.stringify(lex.token[i] as! Token, lex.value[i])
 	}
 
+	// TODO `, reason = "Case expects : at the end like..."`
 	fun expect(t) {
 		if t != tok() {
 			expected(Token.stringify(t))
@@ -770,7 +771,7 @@ class Parser {
 		case Interval:
 			i++
 			result = Node.Interval
-		// ++i
+		// ++i TODO deprecate (but detect in slow-parser)
 		// --i
 		// !i
 		// ~i
@@ -880,6 +881,7 @@ class Parser {
 					params.push(parseType())
 				}
 				step(Token.Greater)
+				// TODO result = Node.ParametricIdent(name, params)
 				result = Node.Ident(name, params)
 			} else {
 				result = Node.Ident(name, null)
@@ -939,6 +941,10 @@ class Parser {
 			var catches = []
 			while tok() == Token.KCatch {
 				step(Token.KCatch)
+				// TODO slow parser
+				//if (tok() == Token.CallOpen) {
+				//	step(Token.CallOpen)
+				//}
 				let name = getgo(Token.Identifier)
 				vars.push(name)
 				// TODO colon-less
@@ -946,6 +952,10 @@ class Parser {
 				let type = parseType()
 				t.push(type)
 				v.push(Node.Var(name, type, null, true, false))
+				// TODO slow parser
+				//if (tok() == Token.CallClose) {
+				//	step(Token.CallClose)
+				//}
 				let exprAt = i
 				let expr = parseExpr()
 				switch expr {
@@ -1092,7 +1102,7 @@ class Parser {
 		case KClass | KInterface:
 			// Consume decorators
 			let att = atts
-			atts = []
+			atts = [] // Reset before parsing the fields and other confinements
 
 			let me = parseClass()
 			project.mapDecorators.set(me, att)
@@ -1234,6 +1244,10 @@ class Parser {
 
 		case KFor:
 			i++
+			// TODO slow parser
+			//if (tok() == Token.CallOpen) {
+			//	step(Token.CallOpen)
+			//}
 
 			if tok() == Token.KLet or tok() == Token.KVar {
 				i++
@@ -1399,6 +1413,10 @@ class Parser {
 				i++
 				range = parseExpr()
 			}
+			// TODO slow parser
+			//if (tok() == Token.CallClose) {
+			//	step(Token.CallClose)
+			//}
 			var expression = parseExpr()
 			result = Node.For(name, values, expression, range)
 
@@ -1472,7 +1490,7 @@ class Parser {
 					kind = Token.Default
 				}
 				result = Node.As(result, kind, parseType())
-			case CallOpen: { // call(a, name: b, c)
+			case CallOpen: { // `call(a, name: b, c)`
 				var args: [Node] = []
 				var argNames: [String] = []
 				i++
@@ -2301,7 +2319,7 @@ class Parser {
 					case UnsignedRightShift: parametricTypeNesting-=1 parametricTypeNestingToken = Token.UnsignedRightShift
 					case _: unexpected()
 				}
-				if (parametricTypeNesting < 0) {
+				if parametricTypeNesting < 0 {
 					fail("parametricTypeNesting < 0")
 				}
 
