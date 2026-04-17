@@ -276,6 +276,19 @@ class TestParser {
 				'[[:]]': 'Array([Map([],[])])'
 			])
 
+		// New syntax
+		shouldAllEqual([
+				// 7. Decorators
+				'@inline fun foo() {}' : 'Decorator(inline,[],Function(foo,Block([]),[],null,false,false))',
+			])
+
+		// Decorators
+		shouldAllEqual([
+				'@local var a = 1' : 'Decorator(local,[],Var(a,null,Int(1),false,false))',
+				'@tag(\'div\') fun f() {}' : 'Decorator(tag,[String(div)],Function(f,Block([]),[],null,false,false))',
+				'@flagOnce("locked") fun f() {}' : 'Decorator(flagOnce,[String(locked)],Function(f,Block([]),[],null,false,false))'
+			])
+
 
 		for fail in failMessages {
 			console.log(fail)
@@ -291,6 +304,7 @@ class TestParser {
 
 	static var passed = 0
 	static var overall = 0
+	static var project Project = null // new Project() TODO
 	static let failMessages: [String] = []
 
 	//
@@ -309,7 +323,8 @@ class TestParser {
 		overall++
 		try {
 			var lexed = Lexer.tokenize(Buffer.from(input), "TEST")
-			var parsed = Parser.toNode(Parser.parseNodes(lexed, new Project()))
+			project = new Project()
+			var parsed = Parser.toNode(Parser.parseNodes(lexed, project))
 			var res = stringify(parsed)
 			if test != res {
 				failMessages.push('TestParser test fail: `\(renderInvisibleChars(input))`')
@@ -346,7 +361,8 @@ class TestParser {
 		overall++
 		try {
 			var lexed = Lexer.tokenize(Buffer.from(input), "TEST")
-			var parser = Parser.toNode(Parser.parseNodes(lexed, new Project()))
+			project = new Project()
+			var parser = Parser.toNode(Parser.parseNodes(lexed, project))
 		}
 		catch e: Any {
 			passed++
@@ -370,6 +386,20 @@ class TestParser {
 
 	/// Creates a testable consistent string representation of node
 	static fun stringify(node: Node): String {
+		if node == null {
+			return 'null'
+		}
+		var res = stringifyInternal(node)
+		let decorators = project.mapDecorators.get(node)
+		if let decorators = decorators, decorators.length > 0 {
+			for d in decorators {
+				res = 'Decorator(' + d.name + ',[' + [for v in d.values stringify(v)].join(',') + '],' + res + ')'
+			}
+		}
+		return res
+	}
+
+	static fun stringifyInternal(node: Node): String {
 		switch node {
 			case null: return 'null'
 
@@ -493,6 +523,20 @@ class TestParser {
 
 	/// Creates a testable consistent string representation of type
 	static fun stringifyType(node: NodeType): String {
+		if node == null {
+			return 'null'
+		}
+		var res = stringifyTypeInternal(node)
+		let decorators = project.typeDecorators.get(node)
+		if let decorators = decorators, decorators.length > 0 {
+			for d in decorators {
+				res = 'Decorator(' + d.name + ',[' + [for v in d.values stringify(v)].join(',') + '],' + res + ')'
+			}
+		}
+		return res
+	}
+
+	static fun stringifyTypeInternal(node: NodeType): String {
 		switch node {
 			case Type(name, path): return 'Type(\(name)' + (path != null ? ',\(path)' : '') + ')'
 			case ParametricType(name, params, path): return 'ParametricType(\(name),[' + [for p in params stringifyType(p)].join(',') + ']' + (path != null ? ',\(path)' : '') + ')'
