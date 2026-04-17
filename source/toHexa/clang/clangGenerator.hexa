@@ -144,9 +144,9 @@ class ClangGenerator {
 		if qualType.endsWith(' __attribute__((stdcall))') {
 			let clear = qualType.substr(0, qualType.length - ' __attribute__((stdcall))'.length).trim()
 
-			let type = typeToNodeType(clear)
-			typeDecorators.get(type).push(new Decorator('stdcall', []))
-			return type
+			let kind = typeToNodeType(clear)
+			typeDecorators.get(kind).push(new Decorator('stdcall', []))
+			return kind
 		}
 
 		// Function pointer type
@@ -316,7 +316,7 @@ class ClangGenerator {
 			// TODO bug `case ImplicitCastExpr: return getAssumedValueType` fun type accepted as String!
 			case ImplicitCastExpr: return getAssumedValueType(node.inner[0])
 			case MemberExpr: return getAssumedValueType(node.inner[0])
-			case DeclRefExpr: return node.type.qualType
+			case DeclRefExpr: return node.dataType.qualType
 		}
 
 		return null
@@ -361,8 +361,8 @@ class ClangGenerator {
 				}
 		}
 
-		let qualType = node.type.qualType
-		let desugaredQualType = node.type.desugaredQualType ?? '?'
+		let qualType = node.dataType.qualType
+		let desugaredQualType = node.dataType.desugaredQualType ?? '?'
 		let primitives = [
 			// Also assumes `INT`, `unsigned` and others
 			"int", "long", "short"
@@ -397,9 +397,9 @@ class ClangGenerator {
 			// Roots
 			case VarDecl: {
 					let name = toCamelCase(node.name)
-					// TODO let readonly = node.type!.qualType.endsWith('const')
-					let readonly = node.type.qualType.endsWith('const')
-					let varType = typeToType(node.type)
+					// TODO let readonly = node.dataType!.qualType.endsWith('const')
+					let isReadonly = node.dataType.qualType.endsWith('const')
+					let varType = typeToType(node.dataType)
 					var initializer Node? = null
 
 					if let inner = node.inner, let value = inner[0] {
@@ -408,7 +408,7 @@ class ClangGenerator {
 						initializer = zeroValue(varType)
 					}
 
-					return Node.Var(name, varType, initializer, readonly, false)
+					return Node.Var(name, varType, initializer, isReadonly, false)
 				}
 			case RecordDecl:
 				previousRecordDecl = node
@@ -428,7 +428,7 @@ class ClangGenerator {
 					for field in decl.inner {
 						switch field.kind {
 							case FieldDecl:
-								fields.push(Node.Var(toCamelCase(field.name), typeToType(field.type), null /*TODO*/, false, false))
+								fields.push(Node.Var(toCamelCase(field.name), typeToType(field.dataType), null /*TODO*/, false, false))
 						}
 					}
 
@@ -442,7 +442,7 @@ class ClangGenerator {
 					let name = toCamelCase(node.name)
 					let args [Node] = []
 					var returnType NodeType = [] // TODO why [] is okay here
-					var returnType NodeType = typeToType(typeOfReturn(node.type))
+					var returnType NodeType = typeToType(typeOfReturn(node.dataType))
 					var body Node? = null
 					// TODO FORMAT
 					let nodes = node.inner ?? ([] as! [ClangNode] /*TODO*/)
@@ -450,7 +450,7 @@ class ClangGenerator {
 					for functionDecl in nodes {
 						switch functionDecl.kind {
 							case ParmVarDecl:
-								args.push(Node.Var(toCamelCase(functionDecl.name), typeToType(functionDecl.type), null /*TODO*/, false, false))
+								args.push(Node.Var(toCamelCase(functionDecl.name), typeToType(functionDecl.dataType), null /*TODO*/, false, false))
 						}
 					}
 
@@ -532,7 +532,7 @@ class ClangGenerator {
 						case VarDecl:
 							// TODO isUsed
 							let name = toCamelCase(decl.name)
-							let varType = typeToType(decl.type)
+							let varType = typeToType(decl.dataType)
 							var initializer Node? = null
 
 							if let inner = decl.inner, let value = inner[0] {
@@ -583,7 +583,7 @@ class ClangGenerator {
 					}
 				}
 
-				if node.type.qualType.endsWith('*') and op == Token.Add {
+				if node.dataType.qualType.endsWith('*') and op == Token.Add {
 					// Pointer math
 					return Node.Call(Node.Dot(left, 'offsetItems'), [right], [])
 				}
@@ -596,7 +596,7 @@ class ClangGenerator {
 				return Node.Binop(left, op, right)
 			case CompoundAssignOperator:
 				var op = Lexer.tokenize(Buffer.from(node.opcode), "CLANG").token[0] as! Token
-				if node.type.qualType.endsWith('*') and op == Token.Add {
+				if node.dataType.qualType.endsWith('*') and op == Token.Add {
 					// Pointer math
 					let left = nodeToNode(node.inner[0])
 					let right = nodeToNode(node.inner[1])
@@ -718,7 +718,7 @@ class ClangGenerator {
 					case '-': return Node.Unop(Token.Subtract, postfix: false, expr)
 					case '++':
 						// TODO mutatedNode(expr)
-						if node.type.qualType.endsWith('*') {
+						if node.dataType.qualType.endsWith('*') {
 							// Pointer math
 							return Node.Binop(expr, Token.Assign, Node.Call(Node.Dot(expr, 'offsetItems'), [Node.Int(1)], []))
 						}
@@ -726,7 +726,7 @@ class ClangGenerator {
 						return Node.Unop(Token.Increment, postfix: true, expr)
 					case '--':
 						// TODO mutatedNode(expr)
-						if node.type.qualType.endsWith('*') {
+						if node.dataType.qualType.endsWith('*') {
 							// Pointer math
 							return Node.Binop(expr, Token.Assign, Node.Call(Node.Dot(expr, 'offsetItemsBack'), [Node.Int(-1)], []))
 						}
@@ -752,7 +752,7 @@ class ClangGenerator {
 				switch node.name {
 					case 'sizeof':
 						return Node.Call(Node.Ident('sizeOf', [
-									typeToType(node.type)
+									typeToType(node.dataType)
 								]), [], [])
 						// TODO FORMAT could "cut" a tab from already printed line
 				}
@@ -776,20 +776,20 @@ class ClangGenerator {
 				// TODO `return 1` to `return Bool32.True` same `result.dialogEx = 1`
 				// TODO "castKind": "BitCast"
 
-				if node.inner[0].type.qualType == 'BOOL' {
+				if node.inner[0].dataType.qualType == 'BOOL' {
 					// TODO `== Bool32.True` return nodeToNode(node.inner[0])
 				}
 
 				// Same type
-				if node.inner[0].type.qualType == node.type.qualType {
+				if node.inner[0].dataType.qualType == node.dataType.qualType {
 					return nodeToNode(node.inner[0])
 				}
 
 				// Same type essentially
-				if let desugaredQualType = node.inner[0].type.desugaredQualType,
-					desugaredQualType.includes(node.type.desugaredQualType),
-					let typeAliasDeclId = node.inner[0].type.typeAliasDeclId,
-					typeAliasDeclId == node.type.typeAliasDeclId
+				if let desugaredQualType = node.inner[0].dataType.desugaredQualType,
+					desugaredQualType.includes(node.dataType.desugaredQualType),
+					let typeAliasDeclId = node.inner[0].dataType.typeAliasDeclId,
+					typeAliasDeclId == node.dataType.typeAliasDeclId
 				{
 					return nodeToNode(node.inner[0])
 				}
@@ -805,7 +805,7 @@ class ClangGenerator {
 				}
 
 				let e = nodeToNode(node.inner[0])
-				let to = typeToType(node.type)
+				let to = typeToType(node.dataType)
 
 				switch unwrapParenthesis(e) {
 					case Int(value):
@@ -858,7 +858,7 @@ class ClangGenerator {
 				return nodeToNode(node.inner[0])
 			case CStyleCastExpr:
 				// TODO "castKind": "BitCast"
-				if node.inner[0].type.qualType == node.type.qualType {
+				if node.inner[0].dataType.qualType == node.dataType.qualType {
 					return nodeToNode(node.inner[0])
 				}
 
@@ -868,7 +868,7 @@ class ClangGenerator {
 				}
 
 				let e = nodeToNode(node.inner[0])
-				let to = typeToType(node.type)
+				let to = typeToType(node.dataType)
 
 				switch e {
 					case Int(value): if value == 0 {
@@ -993,8 +993,8 @@ class ClangGenerator {
 					return s.toString() + 'u32'
 				}
 				return s.toString()
-			case MetaInt(number, meta):
-				return number.toString() + Meta.stringifyPostfix(meta)
+			case MetaInt(number, kind):
+				return number.toString() + Meta.stringifyPostfix(kind)
 			case Float(s): return s.toString()
 			case As(expr, kind, toType):
 				let left = switch expr {
