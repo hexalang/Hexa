@@ -11,14 +11,14 @@ class TestParser {
 
 		// Basics and indentation
 		shouldAllEqual([
-				'' : '<!--null-->',
-				'  ' : '<!--null-->',
-				'	' : '<!--null-->',
-				'   	' : '<!--null-->',
+				'' : 'null',
+				'  ' : 'null',
+				'	' : 'null',
+				'   	' : 'null',
 
-				'\n' : '<!--null-->',
-				'\n\n' : '<!--null-->',
-				'\r\r\n\r\n\r\t' : '<!--null-->',
+				'\n' : 'null',
+				'\n\n' : 'null',
+				'\r\r\n\r\n\r\t' : 'null',
 
 				'{}' : 'Block([])',
 				'{{}}' : 'Block([Block([])])',
@@ -139,7 +139,7 @@ class TestParser {
 				'a = EnumTest.EnumField(argName: argValue, arg2, arg3: arg3)' : 'Binop(Ident(a),=,Call(DotUpper(NodeTypeValue(Type(EnumTest)),EnumField),[argName:Ident(argValue),Ident(arg2),arg3:Ident(arg3)]))',
 				'a = EnumTest<A,B>.EnumField' : 'Binop(Ident(a),=,DotUpper(NodeTypeValue(ParametricType(EnumTest,[Type(A),Type(B)])),EnumField))',
 				'var a = b as B var c = d as! B var e = f as? B' : 'Block([Var(a,null,As(Ident(b),,Type(B)),false,false),Var(c,null,As(Ident(d),!,Type(B)),false,false),Var(e,null,As(Ident(f),?,Type(B)),false,false)])',
-				'var a = b is B var c = d is B var e = f is B' : 'Block([Var(a,null,As(Ident(b),Type(B)),false,false),Var(c,null,As(Ident(d),Type(B)),false,false),Var(e,null,As(Ident(f),Type(B)),false,false)])'
+				'var a = b is B var c = d is B var e = f is B' : 'Block([Var(a,null,Is(Ident(b),Type(B)),false,false),Var(c,null,Is(Ident(d),Type(B)),false,false),Var(e,null,Is(Ident(f),Type(B)),false,false)])'
 			])
 
 		// Types parsing in declarations
@@ -152,17 +152,17 @@ class TestParser {
 
 		// Enumerations
 		shouldAllEqual([
-				'enum A {}' : 'Enum(Type(A),[])',
-				'enum A { A B C }' : 'Enum(Type(A),[NodeTypeValue(Type(A)),NodeTypeValue(Type(B)),NodeTypeValue(Type(C))])',
+				'enum A {}' : 'Enum(Type(A),[],null,null)',
+				'enum A { A B C }' : 'Enum(Type(A),[NodeTypeValue(Type(A)),NodeTypeValue(Type(B)),NodeTypeValue(Type(C))],null,null)',
 				'enum A { A(v:Int) B C(v:[K:V], a:Array<T>) }' :
 				'Enum(Type(A),[
 					Call(NodeTypeValue(Type(A)),[v:NodeTypeValue(Type(Int))]),
 					NodeTypeValue(Type(B)),
 					Call(NodeTypeValue(Type(C)),[v:NodeTypeValue(ParametricType(Map,[Type(K),Type(V)])),a:NodeTypeValue(ParametricType(Array,[Type(T)]))])
-					])',
-				'enum A { E(v: T<T>?) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(ParametricType(T,[Type(T)])))])])',
-				'enum A { E(v: T<T?>) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(ParametricType(T,[Optional(Type(T))]))])])',
-				'enum A { E(v: T?) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(Type(T)))])])'
+					],null,null)',
+				'enum A { E(v: T<T>?) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(ParametricType(T,[Type(T)])))])],null,null)',
+				'enum A { E(v: T<T?>) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(ParametricType(T,[Optional(Type(T))]))])],null,null)',
+				'enum A { E(v: T?) }' : 'Enum(Type(A),[Call(NodeTypeValue(Type(E)),[v:NodeTypeValue(Optional(Type(T)))])],null,null)'
 			])
 
 		// Constructor
@@ -244,20 +244,20 @@ class TestParser {
 
 		// Conditions
 		shouldAllEqual([
-				'if this { this }' : 'If([This],Block([This]),<!--null-->)',
+				'if this { this }' : 'If([This],Block([This]),null)',
 				'if this, this { this } else { break }' : 'If([This,This],Block([This]),Block([Break]))',
 				'if this, let a = this { this } else { break }' : 'If([This,Var(a,null,This,true,false)],Block([This]),Block([Break]))',
-				'if let a = this, let b = this, this { this }' : 'If([Var(a,null,This,true,false),Var(b,null,This,true,false),This],Block([This]),<!--null-->)'
+				'if let a = this, let b = this, this { this }' : 'If([Var(a,null,This,true,false),Var(b,null,This,true,false),This],Block([This]),null)'
 			])
 
 		// External declarations
 		shouldAllEqual([
 				'declare var a: T' : 'Var(a,Type(T),null,false,true)',
 				'declare let a: T' : 'Var(a,Type(T),null,true,true)',
-				'declare fun name()' : 'Function(name,null,[],null,true)',
-				'declare fun name() hi()' : 'Block([Function(name,null,[],null,true),Call(Ident(hi),[])])',
+				'declare fun name()' : 'Function(name,null,[],null,true,false)',
+				'declare fun name() hi()' : 'Block([Function(name,null,[],null,true,false),Call(Ident(hi),[])])',
 				// External functions do not parse body
-				'declare fun name() {}' : 'Block([Function(name,null,[],null,true),Block([])])',
+				'declare fun name() {}' : 'Block([Function(name,null,[],null,true,false),Block([])])',
 				'declare class A {}' : 'Class(Type(A),null,[],[],true)',
 				'declare A = B' : 'TypeAlias(Type(A),Type(B))'
 			])
@@ -276,11 +276,22 @@ class TestParser {
 				'[[:]]': 'Array([Map([],[])])'
 			])
 
-		console.log("TestParser done \(Math.round((passed/overall)*100))% (\(passed)/\(overall))")
+
+		for fail in failMessages {
+			console.log(fail)
+		}
+
+		let percent = Math.round((passed / overall) * 100)
+		console.log("TestParser done \(percent)% (\(passed)/\(overall))")
+
+		if failMessages.length > 0 {
+			throw "TestParser failed \(overall - passed) tests"
+		}
 	}
 
 	static var passed = 0
 	static var overall = 0
+	static let failMessages: [String] = []
 
 	//
 	// Helpers
@@ -296,16 +307,20 @@ class TestParser {
 	/// Same as `shouldEqual`, but does no trimming of `test`
 	static fun shouldEqualWithoutTrim(input: String, test: String) {
 		overall++
-		var lexed = Lexer.tokenize(Buffer.from(input), "TEST")
 		try {
+			var lexed = Lexer.tokenize(Buffer.from(input), "TEST")
 			var parsed = Parser.toNode(Parser.parseNodes(lexed, new Project()))
 			var res = stringify(parsed)
 			if test != res {
-				throw 'TestParser test fail: `\(input)`\n\nExpect: `\(test)`\n\nParsed: `\(res)`\n\nRaw: `\(parsed)`'
+				failMessages.push('TestParser test fail: `\(renderInvisibleChars(input))`')
+				failMessages.push('  Expect: `\(renderInvisibleChars(test))`')
+				failMessages.push('  Parsed: `\(renderInvisibleChars(res))`')
+				return
 			}
 		} catch e: Any {
-			console.log(e.toString())
-			throw 'TestParser test fail: `\(input)` failed to parse'
+			failMessages.push('TestParser test fail: `\(renderInvisibleChars(input))` failed to parse')
+			failMessages.push('  Error: \(e.toString())')
+			return
 		}
 		passed++
 	}
@@ -337,7 +352,7 @@ class TestParser {
 			passed++
 			return
 		}
-		throw 'TestParser test fail: `\(input)` did not throw exception.'
+		failMessages.push('TestParser test fail: `\(renderInvisibleChars(input))` did not throw exception.')
 	}
 
 	/// Every input should fail to parse
@@ -356,35 +371,38 @@ class TestParser {
 	/// Creates a testable consistent string representation of node
 	static fun stringify(node: Node): String {
 		switch node {
-			case null: return '<!--null-->'
+			case null: return 'null'
 
 				// Have no sub-nodes
 			case String(s): return 'String(\(s))'
-			case Ident(s): return 'Ident(\(s))'
+			case Ident(s, params): return 'Ident(\(s)' + ((params != null and params.length > 0) ? ',[' + [for p in params stringifyType(p)].join(',') + ']' : '') + ')'
 			case Bool(b): return 'Bool(\(b))'
 			case This: return 'This'
 			case Super: return 'Super'
 			case Int(s): return 'Int(\(s))'
-			case Float(s): return 'Float(\(s))'
+			case MetaInt(n, meta): return 'MetaInt(\(n),\(Meta.stringify(meta)))'
+			case Float(s, meta): return 'Float(\(s)' + ((meta != null and meta != Meta.Default) ? ',\(Meta.stringify(meta))' : '') + ')'
 			case Null: return 'Null'
 			case Break: return 'Break'
 			case Continue: return 'Continue'
+			case Underscore: return 'Wildcard'
+			case Interval: return 'Interval'
 
 				// Have sub-nodes
-			case Is(expr, type): return 'As(' + stringify(expr) + "," + stringifyType(type) + ")"
-			case As(expr, kind, type): return 'As(' + stringify(expr) + "," + Token.stringify(kind) + "," + stringifyType(type) + ")"
+			case Is(expr, type): return 'Is(' + stringify(expr) + ',' + stringifyType(type) + ')'
+			case As(expr, kind, type): return 'As(' + stringify(expr) + ',' + Token.stringify(kind) + ',' + stringifyType(type) + ')'
 			case Binop(a, op, b): return 'Binop(' + stringify(a) + ',' + Token.stringify(op) + ',' + stringify(b) + ')'
 			case AssignOp(a, op, b): return 'AssignOp(' + stringify(a) + ',' + Token.stringify(op) + ',' + stringify(b) + ')'
 			case Block(els): return 'Block(' + stringifyNodeArray(els) + ')'
+			case InlineStatements(els): return 'InlineStatements(' + stringifyNodeArray(els) + ')'
 			case Var(name, t, expr, const, external):
 				return 'Var(\(name),' + ((t != null) ? stringifyType(t) : "null") +
 				"," + ((expr != null) ? stringify(expr) : "null") + ',\(const),\(external))'
-				// case Vars(vars): return 'Vars(' + stringifyNodeArray(vars) + ")"
 
-			case Function(name, expr, vars, retType, external):
-				return 'Function(\(name),'
-				+ (expr == null ? "null" : stringify(expr))
-				+ "," + stringifyNodeArray(vars) + ',' + ((retType != null) ? stringifyType(retType) : "null") + ",\(external))"
+			case Function(name, body, vars, retType, external, variadic):
+				return 'Function(' + (name == null ? "null" : name) + ','
+				+ stringify(body)
+				+ "," + stringifyNodeArray(vars) + ',' + ((retType != null) ? stringifyType(retType) : "null") + ",\(external),\(variadic))"
 
 			case Arrow(expr, vars, retType):
 				return 'Arrow('
@@ -402,9 +420,11 @@ class TestParser {
 			case Parenthesis(e): return 'Parenthesis(' + stringify(e) + ')'
 			case Return(e): return 'Return(' + stringify(e) + ')'
 			case Throw(e): return 'Throw(' + stringify(e) + ')'
-			case Enum(t, els): return 'Enum(' + stringifyType(t) + ',' + stringifyNodeArray(els) + ')'
+			case Enum(t, fields, valuesType, extend):
+				return 'Enum(' + stringifyType(t) + ',' + stringifyNodeArray(fields) + ',' + (valuesType != null ? stringifyType(valuesType) : "null") + ',' + (extend != null ? stringifyType(extend) : "null") + ')'
 			case Module(path, els):
 				return "Module(" + path + "," + stringifyNodeArray(els) + ")"
+			case ModuleExports(handle): return 'ModuleExports(...)'
 			case Import(els, path):
 				fun stringifyImportNode(node: ImportNode): String {
 					switch node {
@@ -418,10 +438,12 @@ class TestParser {
 				return "Import([" + [for p in els stringifyImportNode(p)].join(',') + "]," + path + ")"
 
 			case Map(k, v): return 'Map([' + stringifyArray(k) + '],[' + stringifyArray(v) + '])'
+			case Array(el): return 'Array(' + stringifyNodeArray(el) + ')'
+			case Object(names, els): return 'Object([' + names.join(',') + '],' + stringifyNodeArray(els) + ')'
 
-			case Class(type, extend, implement, fields, external):
-				var res = "Class(" + stringifyType(type) + ","
-				res += (extend != null) ? stringifyType(extend) : "null" + ","
+			case Class(type, extend, implement, fields, external, kind):
+				var res = ClassKind.stringify(kind) + "(" + stringifyType(type) + ","
+				res += ((extend != null) ? stringifyType(extend) : "null") + ","
 				res += stringifyNodeTypeArray(implement) + ","
 				res += stringifyNodeArray(fields) + ","
 				res += external + ")"
@@ -436,13 +458,24 @@ class TestParser {
 			case DotUpper(l, r): return "DotUpper(" + stringify(l) + "," + r + ")"
 
 			case Private(expr): return 'Private(' + stringify(expr) + ')'
-			case If(eCond, eif, eElse):
-				return 'If(' + stringifyNodeArray(eCond) + ',' + stringify(eif) + ',' + stringify(eElse) + ')'
-			case Array(el): return 'Array(' + stringifyNodeArray(el) + ')'
+			case Static(expr): return 'Static(' + stringify(expr) + ')'
+			case If(eCond, eif, eElse, ternary):
+				return 'If(' + stringifyNodeArray(eCond) + ',' + stringify(eif) + ',' + stringify(eElse) + (ternary? ",ternary)": ")")
+			case While(reason, body, pre): return 'While(' + stringify(reason) + ',' + stringify(body) + ',\(pre))'
+			case For(iterator, over, statement, range): return 'For(\(iterator),' + stringify(over) + ',' + stringify(statement) + ',' + stringify(range) + ')'
+			case Index(expr, index): return 'Index(' + stringify(expr) + ',' + stringify(index) + ')'
+			case Switch(inputs, expressions, guards, patterns):
+				return 'Switch(' + stringifyNodeArray(inputs) + ',' + stringifyNodeArray(expressions) + ',' + stringifyNodeArray(guards) + ',' + stringifyNodeArray(patterns) + ')'
+			case Property(field, getter, setter): return 'Property(' + stringify(field) + ',' + stringify(getter) + ',' + stringify(setter) + ')'
+			case Try(expr, types, values, catches): return 'Try(' + stringify(expr) + ',' + stringifyNodeTypeArray(types) + ',' + stringifyNodeArray(values) + ',' + stringifyNodeArray(catches) + ')'
+			case EnumExtract(path, bind, expr): return 'EnumExtract([' + path.join('.') + '],' + stringifyNodeArray(bind) + ',' + stringify(expr) + ')'
+			case Elvis(nullable, alternative): return 'Elvis(' + stringify(nullable) + ',' + stringify(alternative) + ')'
+			case EnumConstructor: return 'EnumConstructor'
+			case EnumPattern: return 'EnumPattern'
 			case Unop(op, postfix, e): return 'Unop(' + Token.stringify(op) + ',' + postfix + ',' + stringify(e) + ')'
-				// TODO exhaustive switch
-			case _: throw '<!--' + node + '-->'
 		}
+
+		return '<!--stringify-->'
 	}
 
 	static fun stringifyArray(nodes: [Node]): String {
@@ -461,12 +494,29 @@ class TestParser {
 	/// Creates a testable consistent string representation of type
 	static fun stringifyType(node: NodeType): String {
 		switch node {
-			case Type(s): return 'Type(\(s))'
-			case ParametricType(name, params): return 'ParametricType(\(name),[' + [for p in params stringifyType(p)].join(',') + "])"
+			case Type(name, path): return 'Type(\(name)' + (path != null ? ',\(path)' : '') + ')'
+			case ParametricType(name, params, path): return 'ParametricType(\(name),[' + [for p in params stringifyType(p)].join(',') + ']' + (path != null ? ',\(path)' : '') + ')'
 			case Function(args, retType): return 'Function([' + [for e in args stringifyType(e)].join(',') + "]," + stringifyType(retType) + ')'
 			case Object(names, types): return 'Object([' + names.join(',') + "],[" + [for e in types stringifyType(e)].join(',') + "])"
+			case FunctionArg(name, type, defaultValue): return 'FunctionArg(\(name),' + stringifyType(type) + (defaultValue != null ? ',' + stringify(defaultValue) : '') + ')'
 			case Optional(type): return 'Optional(' + stringifyType(type) + ')'
-			case _: throw '<!--' + node + '-->'
+			case Ident(name): return 'Ident(\(name))'
+			case Int(value): return 'Int(\(value))'
+			case Float(value): return 'Float(\(value))'
+			case String(value): return 'String(\(value))'
+			case Call(name, argNames, values):
+				return 'Call(\(name),[' + argNames.join(',') + '],[' + [for v in values stringifyType(v)].join(',') + '])'
+			case null: return 'null'
 		}
+
+		return '<!--stringifyType-->'
+	}
+
+	/// Fix invisible chars like \t\r\n for readable error messages
+	static fun renderInvisibleChars(input: String): String {
+		return input
+		.split('\r').join('\\r')
+		.split('\n').join('\\n')
+		.split('\t').join('\\t')
 	}
 }
