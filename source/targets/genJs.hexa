@@ -44,6 +44,10 @@ class GenJs {
 			let constants = [] // They don't access other variables
 			out.push('')
 
+			let delayedInits = [] // TODO better think how to do this in normalizer
+			// ^ project.delayedInits as Array<Init> where Init.parent = class/enum/etc from where it originrated
+			// ^ and Init.expression the code body itself
+
 			// Types
 			for e in project.enumsSimple {
 				// No need to output simple enum values
@@ -62,13 +66,13 @@ class GenJs {
 
 				for v in e.staticVars { switch v {
 					case Var(name, expr):
-						out.push('\n\t' + e.name + '.' + name)
+						delayedInits.push('\n\t' + e.name + '.' + name)
 						if expr != null {
-							out.push(' = ' + printExpression(expr))
+							delayedInits.push(' = ' + printExpression(expr) + ';')
 						}
 					case Const(name, expr):
-						out.push('\n\t' + e.name + '.' + name)
-						out.push(' = ' + printExpression(expr))
+						delayedInits.push('\n\t' + e.name + '.' + name)
+						delayedInits.push(' = ' + printExpression(expr) + ';')
 				}}
 			}
 
@@ -123,13 +127,13 @@ class GenJs {
 				}
 				for v in e.staticVars { switch v {
 					case Var(name, expr):
-						out.push('\n\t' + e.name + '.' + name)
+						delayedInits.push('\n\t' + e.name + '.' + name)
 						if expr != null {
-							out.push(' = ' + printExpression(expr))
+							delayedInits.push(' = ' + printExpression(expr) + ';')
 						}
 					case Const(name, expr):
-						out.push('\n\t' + e.name + '.' + name)
-						out.push(' = ' + printExpression(expr))
+						delayedInits.push('\n\t' + e.name + '.' + name)
+						delayedInits.push(' = ' + printExpression(expr) + ';')
 				}}
 			}
 
@@ -196,13 +200,13 @@ class GenJs {
 
 				for v in c.staticVars { switch v {
 					case Var(name, expr):
-						out.push('\n\t' + c.name + '.' + name)
+						delayedInits.push('\n\t' + c.name + '.' + name)
 						if expr != null {
-							out.push(' = ' + printExpression(expr))
+							delayedInits.push(' = ' + printExpression(expr) + ';')
 						}
 					case Const(name, expr):
-						out.push('\n\t' + c.name + '.' + name)
-						out.push(' = ' + printExpression(expr))
+						delayedInits.push('\n\t' + c.name + '.' + name)
+						delayedInits.push(' = ' + printExpression(expr) + ';')
 				}}
 				for v in c.staticMethods { switch v {
 					case Function(name, expr, args, defaults):
@@ -229,6 +233,8 @@ class GenJs {
 				case Const(name, expr):
 					out.push('\n\tvar ' + name + ' = ' + printExpression(expr))
 			}}
+
+			out.push(delayedInits.join(''))
 
 			// Init
 			tabs = '\t\t'
