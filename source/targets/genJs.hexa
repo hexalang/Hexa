@@ -361,8 +361,8 @@ class GenJs {
 					for i in catches.length {
 						var typeof = 'T'
 						switch t[i] {
-							case ClassInstance(type):
-								typeof = type.name
+							case ClassInstance(kind):
+								typeof = kind.name
 							case _:
 								throw '' + t[i]
 						}
@@ -437,14 +437,14 @@ class GenJs {
 							}
 						}
 
-						if let guard = guards[i] {
+						if let g = guards[i] {
 							pushTab()
-							r += 'if (' + printExpression(guard) + ') {\n' + tabs
+							r += 'if (' + printExpression(g) + ') {\n' + tabs
 						}
 
 						r += printStatement(statements[i])
 						popTab()
-						if let guard = guards[i] {
+						if let g = guards[i] {
 							popTab()
 							r += '\n\t' + tabs + 'break; } }\n' + tabs
 						} else {
@@ -486,7 +486,7 @@ class GenJs {
 				case This: return 'this'
 				case Ident(name): return name
 				case Int(v): return '' + v
-				case MetaInt(v, meta, type): return '' + v + 'n'
+				case MetaInt(v, kind, dataType): return '' + v + 'n'
 				case Float(v): return '' + v
 				case String(s):
 
@@ -545,6 +545,11 @@ class GenJs {
 				case New(e, args): return 'new ' + printExpression(e) + printCallArguments(args)
 				case Array(el): return '[' + [for a in el printExpression(a)].join(', ') + ']'
 				case Unop(op, postfix, e):
+					let op = switch op {
+						case KNot: Token.Exclamation // TODO eliminate this fix, maybe make separate set of tokens for code gen
+						case _: op
+					}
+
 					if postfix {
 						return '(' + printExpression(e) + Token.stringify(op) + ')'
 					}
@@ -553,6 +558,13 @@ class GenJs {
 					return '((' + printExpression(nullable) + ') || (' + printExpression(othewise) + '))'
 				case Parenthesis(e): return '(' + printExpression(e) + ')'
 				case Binop(a, op, b):
+
+					let op = switch op {
+						case KAnd: Token.LogicalAnd
+						case KOr: Token.LogicalOr
+						case _: op // TODO ^ same
+					}
+
 					return '' + printExpression(a) + ' ' + Token.stringify(op) + ' ' + printExpression(b) + ''
 				case Index(expr, index):
 					return printExpression(expr) + '[' + printExpression(index) + ']'
@@ -591,7 +603,7 @@ class GenJs {
 				}
 				case UnsafeBitCast(e, t): return '(' + printExpression(e) + ')'
 				case Is(e, t): return '((' + printExpression(e) + ') instanceof ' + Type.stringify(t) + ')'
-				case Enum(type, tagName, tag, args):
+				case Enum(enumType, tagName, tag, args):
 					// TODO #if debug + also print file pos of instantiation
 					if args.length == 0 {
 						return '/*\(tagName)*/[' + printExpression(tag) + ']'
