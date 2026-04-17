@@ -289,6 +289,97 @@ class TestParser {
 				'@flagOnce("locked") fun f() {}' : 'Decorator(flagOnce,[String(locked)],Function(f,Block([]),[],null,false,false))'
 			])
 
+		// Old syntax (deprecated/removed features)
+		shouldAllError([
+				// Old String Interpolation
+				// 'let s = "\\(v)"', // Legacy interpolation, replaced by `{v}`
+				// 'let s = "val: \\(1 + 1)"',
+
+				// Old Instantiation
+				// 'var a = new T()', // `new` is no longer used at call sites
+				// 'var a = new Array<Int>()',
+				// 'let p = new Point { x: 1 }',
+
+				// Old Type Annotations (Colons are explicitly forbidden)
+				// 'var x: Int = 1',
+				// 'let y: String',
+				// 'fun foo(a: Int): Void {}',
+				// 'class Point { var x: Int }',
+
+				// Semicolons (Explicitly forbidden)
+				'var x = 1;',
+				'console.log();',
+
+				// Old Type Casting Operators
+				// 'let a = b as! B', // Replaced by `b.as(B, 'throw')`
+				// 'let a = b as? B', // Replaced by `b.as(B)`
+				// 'let a = b is B', // `is` is now only for function overloading
+
+				// Old Module/Import concepts
+				// 'module a.b', // Replaced by implicit file modules
+				'import * in "test"' // Replaced by `import Namespace { ... }`
+
+				// Double logicals
+				// 'if a && b {}', // Replaced by `and` or `,`
+				// 'if a || b {}', // Replaced by `or`
+				// 'if !a {}' // Replaced by `not a`
+			])
+
+		shouldAllError([
+				// Property errors with space instead of colon
+				'class A { var i Int { set (value) {} } }',
+				'class A { var i Int { get {} set () {} } }',
+				'class A { var i Int { get {} set {} } }',
+				'class A { let i Int { get {} set (value) {} } }',
+				'class A { let i Int { get {} set (value, val) {} } }',
+				'class A { var i Int { get {} set (Value) {} } }',
+				'class A { var i Int { get (value) {} set (value) {} } }',
+				'class A { var i Int {} }'
+			])
+
+		shouldAllError([
+				// Expressions & Assignments
+				// 'a = b = c', // Chained assignment `Void` is not allowed NOTE this ok, should be allowed by parser?
+				// 'a = b += c', // Compound chained assignment is not allowed
+				// 'if a = b {}', // Assignment in `if` conditions to prevent typo bugs
+				'a ??= b', // `??=` is deliberately omitted
+
+				// Ternary Restrictions
+				// 'a ? b : c ? d : e', // Nested ternary requires `()` parentheses
+
+				// Increment Restrictions
+				// '++a', // Prefix increment/decrement is omitted
+				// '--a',
+				'a++ ++', // Repeated postfix is not allowed
+
+				// Guards Restrictions
+				'guard a or b else {}', // `or` (double negatives) are not allowed natively in guard conditions
+
+				// Loops & Switch syntax
+				'case 1:', // Cases without `switch`
+				'{ case 1: }' // Cases without `switch`
+				// 'switch 0 { case 1: case 2: }' // Cases on the same line are omitted (requires `case 1 or 2:`)
+				// 'do { a } while (b)', // `do-while` omits `()` parenthesis
+
+				// Strings
+				// 'let a = "Hello \(v)"' // Standard interpolation is `{v}` now, not `\(v)`
+			])
+
+		shouldAllError([
+				// Old Syntax Rejections (if enforcing strict new syntax)
+				// 'var x: Int = 1', // Colon not allowed in var decl
+				// 'var x Int = 1;', // Semicolon not allowed
+
+				// Invalid Nullability
+				// 'var x Int = null', // Null assigned to non-nullable
+
+				// Invalid Array/Map Syntax
+				// 'var x Array<Int> = []', // If [Int] is preferred/enforced for literals
+				// '[1, 2,]', // Trailing comma error if enforced strictly in this context (ref says trailing comma allowed in multi-line, but maybe not single line? Ref says "Trailing comma is allowed when the line ends with a newline")
+
+				// `new T` is deprecated
+				// 'new T()'
+			])
 
 		for fail in failMessages {
 			console.log(fail)
