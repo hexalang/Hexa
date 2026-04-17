@@ -225,13 +225,13 @@ class Parser {
 					var n = null
 					var onlyGet = false
 					switch field {
-						case Var(name, type, expr, const):
+						case Var(name, kind, expr, const):
 							if expr != null {
 								fail('Property should not have a `= value`')
 							}
 
 							v = field
-							t = type
+							t = kind
 							n = name
 							onlyGet = const
 						case _:
@@ -832,7 +832,7 @@ class Parser {
 				// !i
 				// ~i
 				// -i
-			case Increment | Decrement | KNot | BitwiseNot | Subtract:
+			case Increment | Decrement | Exclamation | KNot | BitwiseNot | Subtract: // TODO `!`/`not`
 				let id = lex.token[i] as! Token
 				i++
 				// result = Node.Unop(id, false, parseExpr())
@@ -863,12 +863,12 @@ class Parser {
 
 			case FloatingPoint:
 				// TODO handle Meta
-				let meta = lex.meta[i]
-				result = Node.Float(parseFloat(getgo(Token.FloatingPoint)), meta)
+				let kind = lex.kind[i]
+				result = Node.Float(parseFloat(getgo(Token.FloatingPoint)), kind)
 			case Integer:
-				let meta = lex.meta[i]
+				let kind = lex.kind[i]
 				let value = getgo(Token.Integer)
-				switch meta {
+				switch kind {
 					// TODO rename `Default` token to `Empty`
 					case Default:
 						let at = i
@@ -889,7 +889,7 @@ class Parser {
 							// TODO shorter way to write all those checks for all type combinations
 							// TODO separate message for negative numbers
 						}
-						result = Node.MetaInt(v, meta)
+						result = Node.MetaInt(v, kind)
 					case UInt16:
 						let at = i
 						let v = parseBigInt(value)
@@ -900,7 +900,7 @@ class Parser {
 							// TODO separate message for negative numbers
 							// TODO correctly propose uXX with XX large enough for provided number
 						}
-						result = Node.MetaInt(v, meta)
+						result = Node.MetaInt(v, kind)
 					case UInt32:
 						let at = i
 						let v = parseBigInt(value)
@@ -910,9 +910,9 @@ class Parser {
 							// TODO shorter way to write all those checks for all type combinations
 							// TODO separate message for negative numbers
 						}
-						result = Node.MetaInt(v, meta)
+						result = Node.MetaInt(v, kind)
 					case _:
-						result = Node.MetaInt(parseBigInt(value), meta)
+						result = Node.MetaInt(parseBigInt(value), kind)
 				}
 
 				// `T`
@@ -1016,9 +1016,9 @@ class Parser {
 					vars.push(name)
 					// TODO colon-less
 					step(Token.Colon)
-					let type = parseType()
-					t.push(type)
-					v.push(Node.Var(name, type, null, true, false))
+					let dataType = parseType()
+					t.push(dataType)
+					v.push(Node.Var(name, dataType, null, true, false))
 					// TODO slow parser
 					// if tok() == Token.CallClose {
 					// step(Token.CallClose)
@@ -1610,7 +1610,7 @@ class Parser {
 				case KAs:
 					i++
 					var kind = tok()
-					if tok() == Token.KNot {
+					if tok() == Token.Exclamation {
 						i++
 					} else if tok() == Token.Question {
 						i++
@@ -1862,7 +1862,7 @@ class Parser {
 
 			// TODO disallow `expr if` cause it looks python-ysh and confusing as heck
 			// ^ `var type = null if tok() == Token.Colon { i++ type = parseType() }`
-			var type = null
+			var dataType = null
 
 			if tok() == Token.Colon {
 				// TODO helpful hint for Token.Colon that it should be dropped (soft parsing error)
@@ -1903,7 +1903,7 @@ class Parser {
 				token == Token.CallOpen // `()=>T` TODO rename `CallOpen` to `CallOpen`
 			{
 				// TODO i++ leftover
-				type = parseType()
+				dataType = parseType()
 			}
 
 			var expr = null
@@ -1913,7 +1913,7 @@ class Parser {
 				expr = parseExpr()
 			}
 
-			return Node.Var(varName, type, expr, const, external ?? false)
+			return Node.Var(varName, dataType, expr, const, external ?? false)
 		}
 
 		fun parseSingleBinding(): Node {
@@ -1987,11 +1987,11 @@ class Parser {
 					}
 
 					// TODO disallow `expr if/for/etc` because its confusing for Python programmers
-					// `var type = null if ...`
-					var type = null
+					// `var kind = null if ...`
+					var kind = null
 					if tok() == Token.Colon {
 						i++
-						type = parseType()
+						kind = parseType()
 
 					}
 					var expr = null
@@ -2000,7 +2000,7 @@ class Parser {
 						expr = parseExpr()
 					}
 
-					vars.push(Node.Var(varname, type, expr, const, external))
+					vars.push(Node.Var(varname, kind, expr, const, external))
 
 					if tok() == Token.Comma and offset(1) == Token.Identifier and (offset(2) == Token.Assign or offset(2) == Token.Colon) {
 						i++
@@ -2407,9 +2407,9 @@ class Parser {
 			while tok() == Token.At {
 				decorators.push(parseDecorator())
 			}
-			let type = parseUndecoratedType()
-			project.typeDecorators.set(type, decorators)
-			return type
+			let kind = parseUndecoratedType()
+			project.typeDecorators.set(kind, decorators)
+			return kind
 		}
 
 		return parseUndecoratedType()
@@ -2686,8 +2686,8 @@ class Parser {
 			case Less: return 5 + left
 			case GreaterOrEqual: return 5 + left
 			case LessOrEqual: return 5 + left
-			case LogicalAnd: return 7 + left
-			case LogicalOr: return 8 + left
+			case LogicalAnd | KAnd: return 7 + left
+			case LogicalOr | KOr: return 8 + left
 			case Assign: return 10 + right
 			case _: // TODO proper message, this is internal error
 				fail("No precedence for " + Token.stringify(op))
@@ -2712,8 +2712,8 @@ class Parser {
 			case BitwiseAnd: return true
 			case BitwiseOr: return true
 			case BitwiseXor: return true
-			case LogicalAnd: return true
-			case LogicalOr: return true
+			case LogicalAnd | KAnd: return true
+			case LogicalOr | KOr: return true
 			case BitwiseLeftShift: return true
 			case BitwiseRightShift: return true
 			case UnsignedRightShift: return true
