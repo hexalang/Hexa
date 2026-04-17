@@ -22,10 +22,8 @@ enum Type {
 	UnknownNullable(handle: { value: Type? })
 	/// Non-void
 	// TODO `private` disallows direct instantiation
-	Nullable(type: Type)
 
 	// Classes
-	Class(type: ClassType) // Type of `class` node itself
 	// TODO `generic: [Type]?` or is late allocation is useless with new allocator?
 	// TODO ^ only if arrays a conjoined too or lazy-allocated internally
 	// TODO `private` disallows direct instantiation
@@ -35,11 +33,13 @@ enum Type {
 	// Enums
 	/// Type of `enum` node itself
 	// TODO generic enums
-	Enum(type: EnumType)
 	/// Instance of enum value
-	EnumInstance(type: EnumType, tag: Int)
 	/// `EnumType.EnumConstructor` without call (...)
-	EnumConstructor(type: EnumType, tag: Int)
+	Nullable(dataType: Type)
+ 	Class(dataType: ClassType) // Type of `class` node itself
+ 	Enum(dataType: EnumType)
+ 	EnumInstance(dataType: EnumType, tag: Int)
+ 	EnumConstructor(dataType: EnumType, tag: Int)
 
 	// Modularity
 	/// Type of `declare T = A` node itself
@@ -54,33 +54,33 @@ enum Type {
 
 	Struct(names: [String], types: [Type])
 
-	static fun stringify(type: Type): String {
-		switch type {
-			case ClassInstance(type, generic):
+	static fun stringify(dataType: Type): String {
+		switch dataType {
+			case ClassInstance(kind, generic):
 				if let gen = generic {
-					return DataHelper.nameOf(type.parent) + '<' + [for g in gen Type.stringify(g)].join(', ') + '>'
+					return DataHelper.nameOf(kind.parent) + '<' + [for g in gen Type.stringify(g)].join(', ') + '>'
 				}
-				return DataHelper.nameOf(type.parent)
+				return DataHelper.nameOf(kind.parent)
 			case Generic(index, name):
 				return '<' + name + ' at ' + index + '>'
-			case Class(type):
-				return DataHelper.nameOf(type.parent)
+			case Class(kind):
+				return DataHelper.nameOf(kind.parent)
 			case Function(args, returns):
-				return '(' + [for arg in args Type.stringify(arg.type)].join(', ') + ') => ' + Type.stringify(returns)
+				return '(' + [for arg in args Type.stringify(arg.dataType)].join(', ') + ') => ' + Type.stringify(returns)
 			case UnknownNullable(handle):
 				if let value = handle.value {
 					return Type.stringify(value) + '?'
 				}
 				return 'Unknown?'
-			case Nullable(type):
-				return Type.stringify(type) + '?'
-			case Enum(type):
-				return DataHelper.nameOf(type.parent)
-			case EnumInstance(type, tag):
-				// TODO return DataHelper.nameOf(type.parent) + '.' + tag
+			case Nullable(kind):
+				return Type.stringify(kind) + '?'
+			case Enum(kind):
+				return DataHelper.nameOf(kind.parent)
+			case EnumInstance(kind, tag):
+				// TODO return DataHelper.nameOf(kind.parent) + '.' + tag
 				// TODO print tag name `Token.KNot`
-				let tagName = type.fieldNames[tag]
-				return DataHelper.nameOf(type.parent) + '.' + tagName
+				let tagName = kind.fieldNames[tag]
+				return DataHelper.nameOf(kind.parent) + '.' + tagName
 			case Unknown(handle):
 				if let value = handle.value {
 					return Type.stringify(value)
@@ -98,16 +98,16 @@ enum Type {
 			case null:
 				return 'could not infer type, try to set type manually'
 			case _:
-				return '~?' + type + '?~' // TODO `@allCases`
+				return '~?' + dataType + '?~' // TODO `@allCases`
 		}
 	}
 
 	/// For `T<A, B>` returns just `T`
-	static fun primaryName(type: Type): String {
-		switch type {
-			case Class(type): return type.name
-			case ClassInstance(type): return type.name
-			case _: return '~?' + type + '?~'
+	static fun primaryName(dataType: Type): String {
+		switch dataType {
+			case Class(kind): return kind.name
+			case ClassInstance(kind): return kind.name
+			case _: return '~?' + dataType + '?~'
 		}
 	}
 
@@ -267,9 +267,9 @@ class AliasType {
 class FunctionArgument {
 	var name: String? = null // TODO null or required?
 	var optional: Bool = false
-	var type: Type
+	var dataType: Type
 
 	new (withType: Type) {
-		this.type = withType
+		this.dataType = withType
 	}
 }
