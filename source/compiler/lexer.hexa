@@ -14,20 +14,20 @@ class Tokens {
 	// Values of an unique lexemes, like integers and strings
 	var value: [String]
 	// TODO would be faster for both native and js to store all into array of structures
-	var meta: [Meta]
+	var kind: [Meta]
 	var length: Int
 	var line: [Int]
 	var column: [Int]
 	var fileName: String
 
-	new (tokens, length, values, lines, columns, fileName, meta) {
+	new (tokens, length, values, lines, columns, fileName, kind) {
 		this.token = tokens
 		this.length = length
 		this.value = values
 		this.line = lines
 		this.column = columns
 		this.fileName = fileName
-		this.meta = meta
+		this.kind = kind
 	}
 }
 
@@ -45,7 +45,7 @@ class Lexer {
 
 		// Prefetch
 		let params = []
-		let meta: [Meta] = []
+		let kind: [Meta] = []
 		// ^ try the compressed idea for meta's at least TODO
 		// TODO no zeroing of this buffer when parser is *non*-look-ahead
 		let tokens = Buffer.alloc(len + 1) // NOTE 1 extra space for Token.Eof
@@ -87,14 +87,14 @@ class Lexer {
 			// TODO if (#ignore > 0 || ignore_comments) { return }
 			// TODO if (!keep_string_quote_style) push(inQuoted)
 			params[to] = param
-			meta[to] = m
+			kind[to] = m
 			add(t)
 		}
 
 		/// Add parametrized token that can cover multiple lines
 		@inline fun addMultiline(t: Token, param: String, m: Meta, line: Int, column: Int) {
 			params[to] = param
-			meta[to] = m
+			kind[to] = m
 			tokens[to++] = t
 			lines.push(line)
 			columns.push(column)
@@ -629,7 +629,7 @@ class Lexer {
 			}
 
 			add(Token.Eof) // Helps parser error reporting
-			return new Tokens(tokens, to, params, lines, columns, fileName, meta)
+			return new Tokens(tokens, to, params, lines, columns, fileName, kind)
 	}
 
 	static fun init() {
@@ -651,6 +651,8 @@ class Lexer {
 			[
 				"_" : Token.Underscore,
 				"as" : Token.KAs,
+				"async" : Token.KAsync,
+				"await" : Token.KAwait,
 				"break" : Token.KBreak,
 				"case" : Token.KCase,
 				"catch" : Token.KCatch,
@@ -683,10 +685,14 @@ class Lexer {
 				"try" : Token.KTry,
 				"var" : Token.KVar,
 				"while" : Token.KWhile,
-				"and" : Token.LogicalAnd,
-				"or" : Token.LogicalOr,
+				"and" : Token.KAnd,
+				"or" : Token.KOr,
 				"not" : Token.KNot,
-				"is" : Token.KIs
+				"is" : Token.KIs,
+				"type" : Token.KType,
+				"readonly" : Token.KReadonly,
+				"meta" : Token.KMeta,
+				"guard" : Token.KGuard
 			]
 
 		// 1-byte op
@@ -695,7 +701,7 @@ class Lexer {
 				"@".charCodeAt(0)  : Token.At,
 				"$".charCodeAt(0)  : Token.Query,
 				"#".charCodeAt(0)  : Token.Sharp,
-				"!".charCodeAt(0)  : Token.KNot, // TODO
+				"!".charCodeAt(0)  : Token.Exclamation,
 				"%".charCodeAt(0)  : Token.Remainder,
 				"&".charCodeAt(0)  : Token.BitwiseAnd,
 				"(".charCodeAt(0)  : Token.CallOpen,
