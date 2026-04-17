@@ -122,15 +122,15 @@ class GenCxx {
 
 				// Static vars before static functions
 				for v in e.staticVars { switch v {
-					case Var(name, expr, type):
+					case Var(name, expr, dataType):
 						//types.push('\n\tstatic void* ' + name + '_;')
-						//types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(type)) ' + e.name + '_$' + name + '_;\n')
+						//types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
+						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						//if (expr != null) out.push(' = ' + printExpression(expr))
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 						//types.push('\n\tstatic void* ' + name + '_;')
-						//types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(type)) ' + e.name + '_$' + name + '_;\n')
+						//types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
+						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						//out.push(' = ' + printExpression(expr))
 				}}
 
@@ -215,15 +215,15 @@ class GenCxx {
 				// Static vars before static functions
 				// TODO is = printed?
 				for v in e.staticVars { switch v {
-					case Var(name, expr, type):
+					case Var(name, expr, dataType):
 						//types.push('\n\tstatic void* ' + name + '_;')
-						//types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(type)) ' + e.name + '_$' + name + '_;\n')
+						//types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
+						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						//if (expr != null) out.push(' = ' + printExpression(expr))
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 						//types.push('\n\tstatic void* ' + name + '_;')
-						//types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(type)) ' + e.name + '_$' + name + '_;\n')
+						//types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
+						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						//out.push(' = ' + printExpression(expr))
 				}}
 
@@ -288,21 +288,21 @@ class GenCxx {
 				}
 
 				// TODO better way
-				c.name = stringifyType(c.type).replace('_*','')
+				c.name = stringifyType(c.classType).replace('_*','')
 
 				var isStruct = false
 				var isUnion = false
 				var isPacked = false
-				switch c.type {
+				switch c.classType {
 					// TODO `case Class(type) or ClassInstance(type): {`
-					case Class(type): {
-						let atts = project.mapDecorators.get(type.parent)
+					case Class(kind): {
+						let atts = project.mapDecorators.get(kind.parent)
 						isStruct = Decorator.getDecorator(atts, 'struct') != null
 						isUnion = Decorator.getDecorator(atts, 'union') != null
 						isPacked = Decorator.getDecorator(atts, 'packed') != null
 					}
-					case ClassInstance(type): {
-						let atts = project.mapDecorators.get(type.parent)
+					case ClassInstance(kind): {
+						let atts = project.mapDecorators.get(kind.parent)
 						isStruct = Decorator.getDecorator(atts, 'struct') != null
 						isUnion = Decorator.getDecorator(atts, 'union') != null
 						isPacked = Decorator.getDecorator(atts, 'packed') != null
@@ -341,17 +341,17 @@ class GenCxx {
 					vi++
 
 					switch v {
-					case Var(name, expr, type):
+					case Var(name, expr, dataType):
 						if let bits = c.varBits[vi] {
-							types.push('\n\t\(stringifyType(type)) ' + name + '_')
+							types.push('\n\t\(stringifyType(dataType)) ' + name + '_')
 							types.push(' : ' + bits)
 							types.push(';') // TODO probably must be a single `types.push` if bit-arrays-by-value are supported in C
 						} else {
-							types.push('\n\t\(stringifyType(type)) ' + name + '_;')
+							types.push('\n\t\(stringifyType(dataType)) ' + name + '_;')
 						}
-						switch type {
-							case ClassInstance(type, generics): {
-								if type.name == 'ArrayByValue' {
+						switch dataType {
+							case ClassInstance(kind, generics): {
+								if kind.name == 'ArrayByValue' {
 									var arraySize = ''
 									if let count = generics[1] {
 										arraySize = '[' + Type.stringify(count) + ']'
@@ -364,8 +364,8 @@ class GenCxx {
 								}
 							}
 						}
-					case Const(name, expr, type):
-						types.push('\n\t\(stringifyType(type)) ' + name + '_;')
+					case Const(name, expr, dataType):
+						types.push('\n\t\(stringifyType(dataType)) ' + name + '_;')
 				}
 				}
 
@@ -393,26 +393,26 @@ class GenCxx {
 							// Init fields
 							customThis = '$this'
 							for v in c.vars { switch v {
-								case Var(name, expr, type):
+								case Var(name, expr, dataType):
 									if expr != null {
 										// TODO `isArrayByValue` helper
 										var isArrayByValue = false
-										switch type {
-											case ClassInstance(c):
-												if c.name == 'ArrayByValue' {
+										switch dataType {
+											case ClassInstance(kind):
+												if kind.name == 'ArrayByValue' {
 													// TODO support `array = [...]` assignments everywhere cause C doesn't
 													isArrayByValue = true
 												}
 										}
 										if not isArrayByValue {
-											out.push('\t$this->' + name + '_ = ' + printInitializer(type, expr) + ';\n')
+											out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';\n')
 										} else {
 											// TODO
 										}
 									}
-								case Const(name, expr, type):
+								case Const(name, expr, dataType):
 									if expr != null {
-										out.push('\t$this->' + name + '_ = ' + printInitializer(type, expr) + ';\n')
+										out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';\n')
 									}
 							}}
 							pushTab()
@@ -525,15 +525,15 @@ class GenCxx {
 
 				// Static vars before static functions
 				for v in c.staticVars { switch v {
-					case Var(name, expr, type):
-						//types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(type)) ' + c.name + '_$' + name + '_;\n')
+					case Var(name, expr, dataType):
+						//types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
+						globalVariables.push('\(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
 						//types.push('\n\tstatic void* ' + name + '_;')
 						//if (expr != null) out.push(' = ' + printExpression(expr))
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 						//types.push('\n\tstatic void* ' + name + '_;')
-						//types.push('\n\tstatic \(stringifyType(type)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(type)) ' + c.name + '_$' + name + '_;\n')
+						//types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
+						globalVariables.push('\(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
 						//out.push(' = ' + printExpression(expr))
 				}}
 
@@ -671,11 +671,11 @@ class GenCxx {
 
 			for e in project.enumsSimple {
 				for v in e.staticVars { switch v {
-					case Var(name, expr, type):
+					case Var(name, expr, dataType):
 						if (expr != null) {
 							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 						if (expr != null) {
 							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
@@ -684,11 +684,11 @@ class GenCxx {
 
 			for e in project.enumsComplex {
 				for v in e.staticVars { switch v {
-					case Var(name, expr, type):
+					case Var(name, expr, dataType):
 						if expr != null {
 							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 						if expr != null {
 							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
@@ -697,11 +697,11 @@ class GenCxx {
 
 			for e in project.classes {
 				for v in e.staticVars { switch v {
-					case Var(name, expr, type):
+					case Var(name, expr, dataType):
 						if expr != null {
 							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 						if expr != null {
 							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
 						}
@@ -713,7 +713,7 @@ class GenCxx {
 				// TODO rename 'default' in JS gen `var default = true`
 				switch g {
 				// TODO maybe use "var"
-				case Var(name, expr, type):
+				case Var(name, expr, dataType):
 					let link = project.globalLink.get(g)
 					var exports = false
 
@@ -730,7 +730,7 @@ class GenCxx {
 						}
 					}
 
-					switch type {
+					switch dataType {
 						// TODO same for const
 						case ClassInstance(classType, generics): {
 							if classType.name == 'ArrayByValue' {
@@ -769,7 +769,7 @@ class GenCxx {
 
 								defaults = false
 							} else if classType.name == 'ByValue' {
-								globalVariables.push(stringifyType(type))
+								globalVariables.push(stringifyType(dataType))
 								globalVariables.push(' ' + name + '_')
 								globalVariables.push(';\n')
 								defaults = false
@@ -779,7 +779,7 @@ class GenCxx {
 
 					if defaults {
 						//types.push('void* ' + name + '_;\n')
-						globalVariables.push(stringifyType(type))
+						globalVariables.push(stringifyType(dataType))
 						globalVariables.push(' ' + name + '_') // TODO respect `@rename`
 
 						if let link = link, let linkName = link.linkName {
@@ -811,8 +811,8 @@ class GenCxx {
 					//if (expr != null) out.push(' = ' + printExpression(expr))
 					// TODO maybe not useful
 					//else out.push(' = null')
-				case Const(name, expr, type):
-					globalVariables.push(stringifyType(type))
+				case Const(name, expr, dataType):
+					globalVariables.push(stringifyType(dataType))
 					globalVariables.push(' ' + name + '_;\n')
 					if expr != null {
 						out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
@@ -914,14 +914,14 @@ class GenCxx {
 				declarationsOfOpaqueTypes.push('typedef uint16_t _x' + e.name)
 				// TODO typedef, renamed
 				for v in e.staticVars { switch v {
-					case Var(name, expr, type):
-						out += '\n' + stringifyType(type) + ' _x' + e.name + '_' + name
+					case Var(name, expr, dataType):
+						out += '\n' + stringifyType(dataType) + ' _x' + e.name + '_' + name
 						if (expr != null) {
 							out += ' = ' + printExpression(expr) + ';' //!to constructor
 						}
 						// += ;
-					case Const(name, expr, type):
-						out += '\n' + stringifyType(type) + ' _x' + e.name + '_' + name
+					case Const(name, expr, dataType):
+						out += '\n' + stringifyType(dataType) + ' _x' + e.name + '_' + name
 						out += ' = ' + printExpression(expr) + ';'
 				}}
 				for v in e.staticMethods { switch v { // TODO forward, auto args
@@ -953,13 +953,13 @@ class GenCxx {
 				declarationsOfOpaqueTypes.push('typedef struct \(renamed)* \(renamed)')
 				t.push('\n _xclass _xclass;') // Reference counting and metatable
 				for v in c.vars { switch v {
-					case Var(name, expr, type):
-					t.push('\n ' + stringifyType(type) + ' _x' + name + ';')
+					case Var(name, expr, dataType):
+					t.push('\n ' + stringifyType(dataType) + ' _x' + name + ';')
 					//if (expr != null) out += ' = ' + printExpression(expr)
 					//t.push(';')
-					case Const(name, expr, type):
+					case Const(name, expr, dataType):
 					//t.push('\n ' + printType(type) + ' = ' + printExpression(expr) + ';')
-					t.push('\n ' + stringifyType(type) + ' _x' + name + ';')
+					t.push('\n ' + stringifyType(dataType) + ' _x' + name + ';')
 				}}
 				for v in c.methods { switch v {
 					case Function(name, expr, args, defaults): // Class method
@@ -999,11 +999,11 @@ class GenCxx {
 						out += '\n \(renamed) _xthis = (\(renamed))HEXA_NEW(sizeof(struct \(renamed)));'
 						// Init fields
 						for v in c.vars { switch v {
-							case Var(name, expr, type):
+							case Var(name, expr, dataType):
 							if expr != null {
 								out += '\n _xthis->_x' + name + ' = ' + printExpression(expr) + ';'
 							}
-							case Const(name, expr, type):
+							case Const(name, expr, dataType):
 							out += '\n _xthis->_x' + name + ' = ' + printExpression(expr) + ';'
 						}}
 						out += '\n '
@@ -1016,8 +1016,8 @@ class GenCxx {
 				declarationsOfFullTypes.push(t.join(''))
 
 				for v in c.staticVars { switch v {
-					case Var(name, expr, type):
-						out += '\n ' + stringifyType(type) + ' ' + renamed + '_' + name
+					case Var(name, expr, dataType):
+						out += '\n ' + stringifyType(dataType) + ' ' + renamed + '_' + name
 						//t.push('\n ' + c.name + '.' + name)
 						// TODO to main()
 						//if (expr != null) out += ' = ' + printExpression(expr)
@@ -1111,7 +1111,7 @@ class GenCxx {
 					pushTab()
 
 					fun printMetaBlock(e: Statement) {
-						let meta = metaBlock
+						let kind = metaBlock
 						metaBlock = []
 
 						var ss = printStatement(e)
@@ -1122,7 +1122,7 @@ class GenCxx {
 						}
 						r.push(ss)
 
-						metaBlock = meta
+						metaBlock = kind
 						return r.join(';\n' + tabs)
 					}
 
@@ -1148,12 +1148,12 @@ class GenCxx {
 
 				// TODO case New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
 
-				case Const(name, expr, type):
-					return printStatement(Statement.Var(name, expr, type))
-					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
+				case Const(name, expr, dataType):
+					return printStatement(Statement.Var(name, expr, dataType))
+					return stringifyType(dataType) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), dataType))
 
-				case Var(name, expr, type):
-					switch type {
+				case Var(name, expr, dataType):
+					switch dataType {
 						case ClassInstance(typeClass, generics):
 							var arraySize = ''
 							var arrayLength = 0x7FFFFFFF
@@ -1206,12 +1206,12 @@ class GenCxx {
 									case null:
 									case New(e, args, result):
 										// Just print out `T varName; init(&varName);`
-										return stringifyType(type) + ' ' + name + '_; ' // + stringifyType(type) + '$this_(&' + name + '_);'
+										return stringifyType(dataType) + ' ' + name + '_; ' // + stringifyType(dataType) + '$this_(&' + name + '_);'
 								}
 							}
 					}
 
-					return stringifyType(type) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), type))
+					return stringifyType(dataType) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), dataType))
 
 				//case Function(name, expr, args, defaults, types, returns):
 				//	return printType(returns) + ' _x' + name + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
@@ -1296,12 +1296,12 @@ class GenCxx {
 
 								let exprType = getType(expr)
 								let typeString = stringifyType(exprType)
-								let meta = typeString + ' _$\(temp) = ' + printExpression(expr)
+								let kindVar = typeString + ' _$\(temp) = ' + printExpression(expr)
 
 								var isStruct = false
 								switch exprType {
-									case ClassInstance(type, params): {
-										let atts = project.mapDecorators.get(type.parent)
+									case ClassInstance(kind, params): {
+										let atts = project.mapDecorators.get(kind.parent)
 										isStruct = Decorator.getDecorator(atts, 'struct') != null
 									}
 								}
@@ -1343,8 +1343,8 @@ class GenCxx {
 					switch a {
 						case Dot(expr, name):
 							// Dynamic
-							let type = getType(expr)
-							if ((type == project.typer.typeAny) || (type == null)) {
+							let dataType = getType(expr)
+							if ((dataType == project.typer.typeAny) || (dataType == null)) {
 								// `static var` TODO describe logic more obviously
 								switch expr {
 									case Ident(named): {
@@ -1360,8 +1360,8 @@ class GenCxx {
 							}
 						case Index(expr, index):
 							switch getType(expr) {
-								case ClassInstance(type, generic):
-									if type.name != 'Array' {
+								case ClassInstance(kind, generic):
+									if kind.name != 'Array' {
 										return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
 										+ ' = ' + printExpression(v)
 									}
@@ -1587,14 +1587,14 @@ class GenCxx {
 				return 'void'
 		}}
 
-		fun printToAnyConverter(string: String, type: Type): String {
-			if type == project.typer.typeAny {
-				return string
+		fun printToAnyConverter(string: String, fromType: Type): String {
+			if fromType == project.typer.typeAny {
+				return '/*Any*/' + string
 			}
-			if type == project.typer.typeBool {
+			if fromType == project.typer.typeBool {
 				return 'Any_fromBool(' + string + ')'
 			}
-			if type == project.typer.typeInt {
+			if fromType == project.typer.typeInt {
 				return 'Any_fromInt(' + string + ')'
 			}
 			if string == 'nullptr' {
@@ -1674,13 +1674,13 @@ class GenCxx {
 
 			if fromValue == project.typer.typeString {
 				switch to {
-					case ClassInstance(type, generic):
+					case ClassInstance(classType, generic):
 					// TODO for strict type check, store all strings like "ConstCharPointer" as constants
-					if type.name == 'ConstCharPointer' {
+					if classType.name == 'ConstCharPointer' {
 						return '(' + string + ')->bytes_'
 					}
 
-					if type.name == 'ConstArrayPointer' {
+					if classType.name == 'ConstArrayPointer' {
 						switch generic[0] {
 							// TODO `case (project.typer.typeInt):`
 							case ClassInstance(of): // TODO `instance as of`
@@ -1700,10 +1700,10 @@ class GenCxx {
 				case UnknownNullable(_):
 				case _:
 					if to == project.typer.typeString {
-						let type = omitPointer(stringifyType(fromValue))
+						let cleanedType = omitPointer(stringifyType(fromValue))
 						// TODO use meta block
-						if type != 'Any_' {
-							return type + '$toString_(' + string + ')'
+						if cleanedType != 'Any_' {
+							return cleanedType + '$toString_(' + string + ')'
 						}
 					}
 			}
@@ -1798,8 +1798,8 @@ class GenCxx {
 									return '(uint8_t)2'
 								}
 								switch toNull {
-									case ClassInstance(type):
-										if type.name == 'ClangWideChar' {
+									case ClassInstance(classType):
+										if classType.name == 'ClangWideChar' {
 											return '(wchar_t)0'
 										}
 								}
@@ -1896,24 +1896,24 @@ class GenCxx {
 							var fromStructByValue = false
 							var fromBasicType = false
 							switch fromValue {
-								case ClassInstance(type):
-									let atts = project.mapDecorators.get(type.parent)
+								case ClassInstance(classType):
+									let atts = project.mapDecorators.get(classType.parent)
 
 									fromBasicType = Decorator.getDecorator(atts, 'nativeBasicType') != null
 
 									fromStructByValue = Decorator.getDecorator(atts, 'byValue') != null
-									fromStructByValue = fromStructByValue or type.name == 'ByValue'
+									fromStructByValue = fromStructByValue or classType.name == 'ByValue'
 							}
 							var toStructByPointer = false
 							var toStructByValue = false
 							switch to {
-								case ClassInstance(type):
-									let atts = project.mapDecorators.get(type.parent)
+								case ClassInstance(classType):
+									let atts = project.mapDecorators.get(classType.parent)
 
 									toStructByPointer = Decorator.getDecorator(atts, 'struct') != null
 
 									toStructByValue = Decorator.getDecorator(atts, 'byValue') != null
-									toStructByValue = toStructByValue or type.name == 'ByValue'
+									toStructByValue = toStructByValue or classType.name == 'ByValue'
 							}
 
 							if fromStructByValue and toStructByPointer, not fromBasicType {
@@ -1957,7 +1957,7 @@ class GenCxx {
 					}
 
 					for a in args.length {
-						var result = stringifyType(types[a].type) + ' ' + args[a] + '_'
+						var result = stringifyType(types[a].dataType) + ' ' + args[a] + '_'
 						results.push(result)
 					}
 
@@ -2008,13 +2008,15 @@ class GenCxx {
 		}
 
 		fun printType(t: NodeType) {
-			let type = stringType(t, '')
-			return type
+			let typeName = stringType(t, '')
+			return typeName
 		}
 
 		fun stringifyType(t: Type, prefixNull: Bool = false): String {
 			switch t {
-				case Generic(index, name): return 'Any_*' // + '/*TODO Generic<\(name)>*/'
+				case Generic(index, name):
+					return 'Any_*'
+					return 'Any_*/*Generic*/' // TODO + '/*Generic<\(name)>*/'
 				case Nullable(t):
 					let name = stringifyType(t)
 					if name == 'int32_t' {
@@ -2051,47 +2053,47 @@ class GenCxx {
 					return stringifyType(handle.value, prefixNull)
 				case UnknownNullable(handle):
 					return stringifyType(handle.value, prefixNull)
-				case ClassInstance(type, generics):
+				case ClassInstance(classType, generics):
 					// TODO generic params < T > !!!!! just output into C++  templates
 					// TODO type == typer.typeX
 
-					if type.name == 'ByValue' {
+					if classType.name == 'ByValue' {
 						return omitPointer(stringifyType(generics[0], prefixNull))
 					}
-					if type.name == 'Int' {
+					if classType.name == 'Int' {
 						return 'int32_t'
 					}
-					if type.name == 'Int8' {
+					if classType.name == 'Int8' {
 						return 'int8_t'
 					}
-					if type.name == 'Int16' {
+					if classType.name == 'Int16' {
 						return 'int16_t'
 					}
-					if type.name == 'Int32' {
+					if classType.name == 'Int32' {
 						return 'int32_t'
 					}
-					if type.name == 'Int64' {
+					if classType.name == 'Int64' {
 						return 'int64_t'
 					}
-					if type.name == 'UInt8' {
+					if classType.name == 'UInt8' {
 						return 'uint8_t'
 					}
-					if type.name == 'UInt16' {
+					if classType.name == 'UInt16' {
 						return 'uint16_t'
 					}
-					if type.name == 'UInt32' {
+					if classType.name == 'UInt32' {
 						return 'uint32_t'
 					}
-					if type.name == 'UInt64' {
+					if classType.name == 'UInt64' {
 						return 'uint64_t'
 					}
 
 					// Useful for `sizeof`
-					if type.name == 'ArrayByValue' {
+					if classType.name == 'ArrayByValue' {
 						return stringifyType(generics[0]) + '['+ stringifyType(generics[1]) +']'
 					}
 
-					let atts = project.mapDecorators.get(type.parent)
+					let atts = project.mapDecorators.get(classType.parent)
 					// TODO refactor
 					var renamed = ''
 					if let rename = Decorator.getDecorator(atts, 'rename') {
@@ -2115,7 +2117,7 @@ class GenCxx {
 					}
 
 					// Keeps three states: 1 = true, 0 = false, 2 = null
-					if type.name == 'Bool' {
+					if classType.name == 'Bool' {
 						return 'Bool_'
 					}
 
@@ -2123,28 +2125,28 @@ class GenCxx {
 					// TODO should be just simple `enum Bool32 : Int32 { True False }`
 					// TODO error if `Enum.V == xx` if Enum != simple enum (i.e. creates new instance so always false)
 					// TODO allow short syntax `x == True` & `x != True` if enum's simple type is known
-					if type.name == 'Bool32' {
+					if classType.name == 'Bool32' {
 						return 'int32_t'
 					}
 
 					// WinDef.h `typedef BYTE BOOLEAN; typedef unsigned char BYTE;`
 					// TODO UBool8?
-					if type.name == 'Bool8' {
+					if classType.name == 'Bool8' {
 						return 'uint8_t'
 					}
 
 					// TODO apparently should be just `@rename('void')`
-					if type.name == 'Void' {
+					if classType.name == 'Void' {
 						return 'void'
 					}
 
-					if type.name == 'Float' {
+					if classType.name == 'Float' {
 						return 'double'
 					}
 
-					//if (let jsNative = type.jsNative) return jsNative
+					//if (let jsNative = classType.jsNative) return jsNative
 
-					let atts = project.mapDecorators.get(type.parent)
+					let atts = project.mapDecorators.get(classType.parent)
 
 					let struct = Decorator.getDecorator(atts, 'struct') != null
 					let byValue = Decorator.getDecorator(atts, 'byValue') != null
@@ -2166,9 +2168,9 @@ class GenCxx {
 					}}
 
 					if let generic = generics, generic.length > 0 {
-						var name = type.name
+						var name = classType.name
 
-						if let instanceOf = type.instanceOf {
+						if let instanceOf = classType.instanceOf {
 							name = instanceOf.name
 						}
 
@@ -2183,13 +2185,13 @@ class GenCxx {
 						return name + '_*'
 					}
 
-					return type.name + '_*'
-				case Class(type):
-					return type.name + '_*'
+					return classType.name + '_*'
+				case Class(classType):
+					return classType.name + '_*'
 				// TODO ^ probably requires rename basic types too?
-				case Enum(type):
-					if let sub = type.fieldsTypeSimple {
-						let atts = project.mapDecorators.get(type.parent)
+				case Enum(enumType):
+					if let sub = enumType.fieldsTypeSimple {
+						let atts = project.mapDecorators.get(enumType.parent)
 						if let rename = Decorator.getDecorator(atts, 'castTo') {
 							return DataHelper.asStringAttValue(rename, 0)
 						}
@@ -2197,9 +2199,9 @@ class GenCxx {
 						return stringifyType(sub)
 					}
 
-					return type.name + '_*'
-				case EnumInstance(type):
-					return stringifyType(Type.Enum(type))
+					return enumType.name + '_*'
+				case EnumInstance(enumType):
+					return stringifyType(Type.Enum(enumType))
 				case Struct(_): return 'Any_*/*Struct*/'
 				case Function(args, returns):
 					let temp = tempId++
@@ -2216,7 +2218,7 @@ class GenCxx {
 
 					let a: [String] = []
 					for arg in args {
-						a.push(stringifyType(arg.type))
+						a.push(stringifyType(arg.dataType))
 					}
 
 					typedefFunctions.push(a.join(', '))
@@ -2250,14 +2252,14 @@ class GenCxx {
 			case String(_): return project.typer.typeString
 			case True: return project.typer.typeBool
 			case False: return project.typer.typeBool
-			case Ident(_, type): return type
+			case Ident(_, dataType): return dataType
 			case Parenthesis(expr): return getType(expr)
-			case Call(_, _, type): return type
+			case Call(_, _, dataType): return dataType
 			//case If(_): return project.typer.typeAny
-			case Binop(_, _, _, type): return type
-			case NativeOperator(_, _, _, _, type): return type
-			case Dot(_, _, type): return type
-			case This(type): return type
+			case Binop(_, _, _, dataType): return dataType
+			case NativeOperator(_, _, _, _, dataType): return dataType
+			case Dot(_, _, dataType): return dataType
+			case This(dataType): return dataType
 			case Null: return Type.UnknownNullable({value: null})
 			case UnsafeBitCast(_, to): return to
 			case Index(_, _, result): return result
@@ -2266,7 +2268,7 @@ class GenCxx {
 			case Map(keys, values, keyType, valueType, mapType): return mapType
 			case Unop(op, postfix, e): return getType(e) // TODO `-N` should convert `UInt` to `Int` in typer
 			case If(econd, eif, eelse): return getType(eif)
-			case Enum(type, tagName, tag, args):
+			case Enum(dataType, tagName, tag, args):
 				// TODO
 				return project.typer.typeAny
 			case EnumTag(expr):
@@ -2286,11 +2288,11 @@ class GenCxx {
 		}}
 
 		/// Returns type name without last `*` on the end
-		fun omitPointer(type: String): String {
-			if type.endsWith('*') {
-				return type.substr(0, type.length - 1)
+		fun omitPointer(typeName: String): String {
+			if typeName.endsWith('*') {
+				return typeName.substr(0, typeName.length - 1)
 			}
-			return type
+			return typeName
 		}
 
 		fun registerString(string: String): Int {
@@ -2333,42 +2335,42 @@ class GenCxx {
 						return name
 					}
 					return '' + name + '_'
-				case Null(type):
 
-					var type = type
+				case Null(dataType):
+					var actualType = dataType
 
-					switch type {
+					switch actualType {
 						case UnknownNullable(handle): if let of = handle.value {
-							type = of
+							actualType = of
 						}
-						case Nullable(of): type = of
+						case Nullable(of): actualType = of
 					}
 
-					if type == project.typer.typeInt {
+					if actualType == project.typer.typeInt {
 						return 'int32_t$null'
 					}
 
-					if type == project.typer.typeUInt32 {
+					if actualType == project.typer.typeUInt32 {
 						return 'uint32_t$null'
 					}
 
-					if type == project.typer.typeInt16 {
+					if actualType == project.typer.typeInt16 {
 						return 'int16_t$null'
 					}
 
-					if type == project.typer.typeUInt16 {
+					if actualType == project.typer.typeUInt16 {
 						return 'uint16_t$null'
 					}
 
-					if type == project.typer.typeInt8 {
+					if actualType == project.typer.typeInt8 {
 						return 'int8_t$null'
 					}
 
-					if type == project.typer.typeUInt8 {
+					if actualType == project.typer.typeUInt8 {
 						return 'uint8_t$null'
 					}
 
-					if type == project.typer.typeBool {
+					if actualType == project.typer.typeBool {
 						// NOTE `2` is chosen because `1 == 0b1` and `2 == 0b10`
 						// thus bits are different: `2 & 1 == 0` and `2 | 1 == 3`
 						// also it fits nicely into `uint8_t` and `int8_t` without ambiguity
@@ -2391,8 +2393,8 @@ class GenCxx {
 					}
 					*/
 				case Int(v): return '(int32_t)' + v
-				case MetaInt(v, meta, type): {
-					switch meta {
+				case MetaInt(v, kind, _): {
+					switch kind {
 						case Int32: return '(int32_t)' + v
 						case Int64: return '(int64_t)' + v
 						case Int16: return '(int16_t)' + v
@@ -2461,15 +2463,15 @@ class GenCxx {
 				case False: return 'false_'
 				case Dot(expr, name):
 					if name == 'toZeroOrOne' {
-						let type = getType(expr)
-						if type == project.typer.typeBool {
+						let dataType = getType(expr)
+						if dataType == project.typer.typeBool {
 							return printExpression(expr)
 						}
 					}
 
 				if name == 'ref' or name == 'address' or name == 'pointer' or name == 'pointerToSelf' {
-					let type = getType(expr)
-					switch type {
+					let dataType = getType(expr)
+					switch dataType {
 						case ClassInstance(c):
 							if c.name == 'ByValue', name == 'ref' {
 								return '(&' + printExpression(expr) + ')'
@@ -2510,8 +2512,8 @@ class GenCxx {
 							return id + '_$' + name + '_'
 						}
 						// Dynamic
-						let type = getType(expr)
-						if ((type == project.typer.typeAny) || (type == null)) {
+						let dataType = getType(expr)
+						if ((dataType == project.typer.typeAny) || (dataType == null)) {
 							// TODO leaky!!
 							return printExpression(expr) + '->let_(String_$fromUTF16z_(L"' + name + '"))'
 						}
@@ -2537,7 +2539,7 @@ class GenCxx {
 
 				// TODO to keep local var caches, use something like block.push()
 				// into current scope
-				case Call(e, args, type, kind):
+				case Call(e, args, dataType, kind):
 					switch kind {
 						case Static:
 							return printExpression(e) + printCallArguments(args)
@@ -2550,7 +2552,7 @@ class GenCxx {
 							metaBlock = []
 							let exprType = getType(expr)
 							let typeString = stringifyType(exprType)
-							let meta = typeString + ' _$\(temp) = ' + printExpression(expr)
+							let kind = typeString + ' _$\(temp) = ' + printExpression(expr)
 
 							if name == 'offsetItems' or name == 'offsetItemsBack' {
 								switch exprType {
@@ -2566,16 +2568,16 @@ class GenCxx {
 
 							var isStruct = false
 							switch exprType {
-								case ClassInstance(type, params): {
-									let atts = project.mapDecorators.get(type.parent)
+								case ClassInstance(classType, params): {
+									let atts = project.mapDecorators.get(classType.parent)
 									isStruct = Decorator.getDecorator(atts, 'struct') != null
 								}
 								// TODO `case ClassInstance(type, _) | Class(type)`
 								// TODO same for statement
 								// TODO this should be a NiceClass actually
 								// TODO seems like `this` gets type of `Class` instead of instance somewhere
-								case Class(type): {
-									let atts = project.mapDecorators.get(type.parent)
+								case Class(classType): {
+									let atts = project.mapDecorators.get(classType.parent)
 									isStruct = Decorator.getDecorator(atts, 'struct') != null
 								}
 								case _:
@@ -2590,7 +2592,7 @@ class GenCxx {
 							for b in metaBlock {
 								mb.push(b)
 							}
-							mb.push(meta)
+							mb.push(kind)
 							//mb.push('/*result*/auto _$\(temp1) = ' + result)
 							metaBlock = mb
 							//return '_$\(temp1)'//result
@@ -2651,13 +2653,13 @@ class GenCxx {
 					// TODO probably just `omitPointer(stringifyType(result))`
 					var name = omitPointer(stringifyType(result)) // TODO redesign, just string from normalizer
 					switch result {
-						case ClassInstance(type, params): {
-							let atts = project.mapDecorators.get(type.parent)
+						case ClassInstance(classType, params): {
+							let atts = project.mapDecorators.get(classType.parent)
 							let isStruct = Decorator.getDecorator(atts, 'struct') != null
 							// TODO Only *external* `C++` and non-external Hexa structs have constructors
 							// TODO check arguments count to be zero
 							if isStruct {
-								let shouldInit = not type.external
+								let shouldInit = not classType.external
 								if shouldInit {
 									if args.length > 0 {
 										// TODO should not wrap into ( )
@@ -2672,19 +2674,19 @@ class GenCxx {
 					return name + '$new_' + printCallArguments(args)
 
 				case Array(el, arrayType):
-					let type = stringifyType(arrayType)
+					let typeName = stringifyType(arrayType)
 
 					if el.length == 0 {
-						return '\(omitPointer(type))$new_(0)'
+						return '\(omitPointer(typeName))$new_(0)'
 					}
 
 					switch arrayType {
 						case ClassInstance(_, generic):
 							let elType: String = stringifyType(generic[0])
-							return '\(omitPointer(type))$from_(\(omitPointer(type))$new_(\(el.length)), (\(elType)[]){' + [for a in el printExpression(a)].join(', ') + '})'
+							return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), (\(elType)[]){' + [for a in el printExpression(a)].join(', ') + '})'
 					}
 
-					return '\(omitPointer(type))$from_(\(omitPointer(type))$new_(\(el.length)), {' + [for a in el printExpression(a)].join(', ') + '})'
+					return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), {' + [for a in el printExpression(a)].join(', ') + '})'
 
 				case Unop(op, postfix, e):
 					if postfix {
@@ -2726,8 +2728,8 @@ class GenCxx {
 
 				case Index(expr, index):
 					switch getType(expr) {
-						case ClassInstance(type, generic):
-							if type.name != 'Array' {
+						case ClassInstance(classType, generic):
+							if classType.name != 'Array' {
 								return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
 							}
 					}
@@ -2764,16 +2766,16 @@ class GenCxx {
 					}].join(', ') + ')'
 
 				case Map(keys, values, keyType, valueType, mapType):
-					let type = omitPointer(stringifyType(mapType))
+					let typeName = omitPointer(stringifyType(mapType))
 
 					if keys.length == 0 {
-						return '\(type)$new_()'
+						return '\(typeName)$new_()'
 					}
 
 					let kType: String = stringifyType(keyType)
 					let vType: String = stringifyType(valueType)
 
-					return '\(type)$from_(\(type)$new_(), \(keys.length), (\(kType)[]){' +
+					return '\(typeName)$from_(\(typeName)$new_(), \(keys.length), (\(kType)[]){' +
 						[for el in keys printExpression(el)].join(', ')
 						+ '}, (\(vType)[]){' +
 						[for el in values printExpression(el)].join(', ')
