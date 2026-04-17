@@ -262,8 +262,8 @@ class Normalizer {
 					return Expression.String(v)
 				case Int(v):
 					return Expression.Int(v)
-				case MetaInt(v, meta):
-					return Expression.MetaInt(v, meta, typer.types.get(e))
+				case MetaInt(v, kind):
+					return Expression.MetaInt(v, kind, typer.types.get(e))
 				case Float(v):
 					return Expression.Float(v)
 				case Bool(v):
@@ -302,8 +302,8 @@ class Normalizer {
 									}
 									return result
 								case _:
-									let type = typer.types.get(typer.parents.get(source))
-									// TODO .This(type)
+									let dataType = typer.types.get(typer.parents.get(source))
+									// TODO .This(dataType)
 									return Expression.Dot(Expression.This(thisType), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
 							}}
 						case Function(name, _):
@@ -316,7 +316,7 @@ class Normalizer {
 									return result
 								case _:
 									// TODO .This(type)
-									let type = typer.types.get(typer.parents.get(source))
+									let dataType = typer.types.get(typer.parents.get(source))
 									return Expression.Dot(Expression.This(thisType), parentNames.get(source) ?? name, typer.types.get(e))
 							}
 							}
@@ -356,10 +356,10 @@ class Normalizer {
 					case Class(_):
 						return Expression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
-				if let type = typer.types.get(expr) {
-					switch type as! Type {
-					case ClassInstance(type):
-						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
+				if let dataType = typer.types.get(expr) {
+					switch dataType as! Type {
+					case ClassInstance(classType):
+						let renamed = classType.fieldRenames[classType.fieldNames.indexOf(name)]
 						if let rename = renamed {
 							return Expression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
 						}
@@ -615,7 +615,7 @@ class Normalizer {
 						case False: return Expression.False
 						case String(_): return Expression.False
 						case Int(_): return Expression.False
-						case Ident(_, type): switch type {
+						case Ident(_, dataType): switch dataType {
 							case Nullable(_):
 							case UnknownNullable(_):
 							case Unknown(_):
@@ -890,7 +890,7 @@ class Normalizer {
 					case Question:
 						console.log('`as?` is not yet supported by normalizer, only `as!`')
 						// TODO error/implement
-					case KNot:
+					case KNot | Exclamation: // TODO deprecated
 						return Expression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
 					case _:
 						console.log('`as` is not yet supported by normalizer, only `as!`')
@@ -994,9 +994,9 @@ class Normalizer {
 				for i in els.length {
 					let element = els[i]
 					switch element {
-						case Var(name, expr, type):
+						case Var(name, expr, dataType):
 							if let parent = neverReassignedLocalParent.get(element), neverReassignedLocal.get(parent) == true {
-								els[i] = Statement.Const(name, expr, type)
+								els[i] = Statement.Const(name, expr, dataType)
 							}
 					}
 				}
@@ -1015,10 +1015,10 @@ class Normalizer {
 				let isComplexEnum = valuesType == null
 				if isComplexEnum {
 					// TODO require here new NiceComplexEnum {} fields init
-					let type = new NiceComplexEnum()
-					type.name = unique(DataHelper.extractTypeName(t), e)
+					let niceEnum = new NiceComplexEnum()
+					niceEnum.name = unique(DataHelper.extractTypeName(t), e)
 					let atts = project.mapDecorators.get(e)
-					type.expose = false
+					niceEnum.expose = false
 					// TODO move to function `getExposeDecorator(e)`
 					if let expose = Decorator.getDecorator(atts, 'expose') {
 						if expose.values.length != 0 {
@@ -1027,9 +1027,9 @@ class Normalizer {
 							throw '@expose takes zero arguments'
 						}
 
-						type.expose = true
+						niceEnum.expose = true
 					}
-					globals.push(type.name)
+					globals.push(niceEnum.name)
 					let names = []
 					let constructors = []
 					let constructorsTypes = []
@@ -1060,9 +1060,9 @@ class Normalizer {
 								if const {
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
-									type.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
 								} else {
-									type.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
 							case Function(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -1073,26 +1073,26 @@ class Normalizer {
 									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if (expr != null) {
+										if expr != null {
 											defaults.push(nodeToExpression(expr))
 										} else {
 											defaults.push(null)
 										}
 								}}
-								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
 							case _: console.error("(internal warning) Unknown complex enum static field kind:", field)
 						}
 						case _: console.error("(internal warning) Unknown complex enum field kind:", f)
 					}}
-					type.names = names
-					type.constructors = constructors
-					type.constructorsTypes = constructorsTypes
-					type.types = types
-					niceProject.enumsComplex.push(type)
+					niceEnum.names = names
+					niceEnum.constructors = constructors
+					niceEnum.constructorsTypes = constructorsTypes
+					niceEnum.types = types
+					niceProject.enumsComplex.push(niceEnum)
 					return null //type
 				} else {
-					let type = new NiceSimpleEnum()
-					type.name = DataHelper.extractTypeName(t)
+					let niceEnum = new NiceSimpleEnum()
+					niceEnum.name = DataHelper.extractTypeName(t)
 					let names = []
 					// TODO must error cause type of `[]` is unknown
 					let values = []
@@ -1108,12 +1108,12 @@ class Normalizer {
 							switch b {
 								case String(s): values.push(Expression.String(s))
 								case Int(s): values.push(Expression.Int(s))
-								case MetaInt(v, meta): values.push(Expression.MetaInt(v, meta, typer.types.get(e)))
+								case MetaInt(v, kind): values.push(Expression.MetaInt(v, kind, typer.types.get(e)))
 								// TODO ^ typer must ensure same precision/meta for all tags' values
 
 								// `Alias = B`
-								case NodeTypeValue(type): {
-									switch type {
+								case NodeTypeValue(dataType): {
+									switch dataType {
 										case Type(name, path): {
 											values.push(values[names.indexOf(name)])
 										}
@@ -1137,9 +1137,9 @@ class Normalizer {
 								if const {
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
-									type.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
 								} else {
-									type.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
 							case Function(name, expr, vars, rettype, external):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -1156,62 +1156,62 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
 							case _: console.error("(internal warning) Unknown simple enum static field kind:", field)
 						}
 						case _: console.error("(internal warning) Unknown simple enum field kind:", f)
 					}}
-					type.names = names
-					type.values = values
-					niceProject.enumsSimple.push(type)
+					niceEnum.names = names
+					niceEnum.values = values
+					niceProject.enumsSimple.push(niceEnum)
 					return null //type
 				}
 
 				case Class(t, ext, impl, fields, external):
 				let atts = project.mapDecorators.get(e)
 				renameClassFields(fields, getRenamingStrategy(atts))
-				let type = new NiceClass()
+				let niceClass = new NiceClass()
 
-				type.external = external
-				type.extend = DataHelper.extractTypeName(ext)
-				type.type = typer.types.get(e) // TODO better `type` naming
-				thisType = type.type
-				switch type.type {
+				niceClass.external = external
+				niceClass.extend = DataHelper.extractTypeName(ext)
+				niceClass.classType = typer.types.get(e) // TODO better `type` naming
+				thisType = niceClass.classType
+				switch niceClass.classType {
 					case Class(c):
 						if let instanceParams = c.instanceParams {
-							type.type = c.instantiateGeneric(instanceParams)
-							thisType = type.type
+							niceClass.classType = c.instantiateGeneric(instanceParams)
+							thisType = niceClass.classType
 						}
 
-						type.template = c.instances != null and c.instances.length > 0
-						type.usedByValueDepth = c.usedByValueDepth
+						niceClass.template = c.instances != null and c.instances.length > 0
+						niceClass.usedByValueDepth = c.usedByValueDepth
 				}
 
 				for implement in impl { switch implement {
 					case Type(name):
-						type.implement = name
+						niceClass.implement = name
 					case ParametricType(name, params):
-						type.implement = name
-						type.implementParams = [for param in params DataHelper.extractTypeName(param)]
+						niceClass.implement = name
+						niceClass.implementParams = [for param in params DataHelper.extractTypeName(param)]
 				}}
 
 				switch t {
 					case Type(name): // this name
 					case ParametricType(name, params):
-						type.genericParams = [for param in params DataHelper.extractTypeName(param)]
+						niceClass.genericParams = [for param in params DataHelper.extractTypeName(param)]
 				}
 
 				// `@require`
 
 				if let require = Decorator.getDecorator(atts, 'require') { switch require.values[0] {
-					case String(s): type.jsRequire = s
+					case String(s): niceClass.jsRequire = s
 					case _: throw '@require takes string as argument'
 				}}
 
 				// `@struct`
 
 				// type.api = ClassBinaryInterface // TODO why compiles
-				type.api = ClassBinaryInterface.Normal
+				niceClass.api = ClassBinaryInterface.Normal
 
 				if let struct = Decorator.getDecorator(atts, 'struct') {
 					switch struct.values[0] {
@@ -1225,19 +1225,19 @@ class Normalizer {
 
 				if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 					case String(s):
-						type.jsNative = s
-						type.name = unique(s, e)
+						niceClass.jsNative = s
+						niceClass.name = unique(s, e)
 					case _: throw '@rename takes string as argument'
 				}} else {
 					switch typer.types.get(e) as! Type {
 						case Class(the):
-							type.name = unique(the.name, e)
+							niceClass.name = unique(the.name, e)
 						case _:
-							type.name = unique(DataHelper.extractTypeName(t), e)
+							niceClass.name = unique(DataHelper.extractTypeName(t), e)
 					}
 				}
 
-				globals.push(type.name)
+				globals.push(niceClass.name)
 
 				for f in fields { switch f {
 					case Var(name, t, expr, const):
@@ -1245,13 +1245,13 @@ class Normalizer {
 						if const {
 							let value = nodeToExpression(expr)
 							saveInlineIfViable(f, value)
-							type.vars.push(Statement.Const(uname, value, typer.types.get(f)))
+							niceClass.vars.push(Statement.Const(uname, value, typer.types.get(f)))
 						} else {
-							type.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+							niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 							let atts = project.mapDecorators.get(f)
 							if let native = Decorator.getDecorator(atts, 'bits') {
 								switch native.values[0] {
-									case Int(v): type.varBits[type.vars.length - 1] = v
+									case Int(v): niceClass.varBits[niceClass.vars.length - 1] = v
 								}
 							}
 						}
@@ -1260,11 +1260,11 @@ class Normalizer {
 							case Var(name, t, expr, const):
 								let uname = parentNames.get(f) ?? unique(name, f)
 								if const {
-									type.vars.push(Statement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceClass.vars.push(Statement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
 								} else {
-									type.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
-								type.property.push(uname)
+								niceClass.property.push(uname)
 						}
 					case Function(name, expr, vars, rettype, external):
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
@@ -1281,7 +1281,7 @@ class Normalizer {
 									defaults.push(null)
 								}
 						}}
-						type.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic))
+						niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic))
 					case Static(field):
 						switch field {
 							case Var(name, t, expr, const):
@@ -1289,9 +1289,9 @@ class Normalizer {
 								if const {
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
-									type.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
+									niceClass.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
 								} else {
-									type.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceClass.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
 								}
 							case Function(name, expr, vars, rettype):
 								let uname = parentNames.get(field) ?? unique(name, field)
@@ -1302,32 +1302,32 @@ class Normalizer {
 									case Var(name, t, expr, const):
 										a.push(unique(name, arg))
 										types.push(t)
-										if expr != null {
+										if (expr != null) {
 											defaults.push(nodeToExpression(expr))
 										} else {
 											defaults.push(null)
 										}
 								}}
-								type.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
+								niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
 							case _: console.error("(internal warning) Unknown class static field kind:", field)
 						}
 					case _: console.error("(internal warning) Unknown class field kind:", f)
 				}}
-				niceProject.classes.push(type)
+				niceProject.classes.push(niceClass)
 
 				switch typer.types.get(e) as! Type {
 					case Class(the):
-						type.useless = the.useless
+						niceClass.useless = the.useless
 
-						fun fillSignature(signature: [String], type: Type) {
-							switch type {
-								case ClassInstance(type, generic):
+						fun fillSignature(signature: [String], ofType: Type) {
+							switch ofType {
+								case ClassInstance(classType, generic):
 									// TODO safe/renamed name
 									// TODO nested names
-									if let native = getNative(type.parent) {
+									if let native = getNative(classType.parent) {
 										signature.push(native)
 									} else {
-										signature.push(type.name)
+										signature.push(classType.name)
 									}
 
 									let generic = generic ?? []
@@ -1336,26 +1336,26 @@ class Normalizer {
 									}
 
 								// TODO are enum instances support generic-ness now?
-								case EnumInstance(type):
-									signature.push(type.name)
-								case Class(type):
-									signature.push(type.name)
-								case Enum(type):
-									signature.push(type.name)
+								case EnumInstance(enumType):
+									signature.push(enumType.name)
+								case Class(classType):
+									signature.push(classType.name)
+								case Enum(enumType):
+									signature.push(enumType.name)
 								case Nullable(handle):
 									// TODO inconsistent with generator
 									signature.push('Null')
 									fillSignature(signature, handle)
 								case Unknown(handle):
-									if let type = handle.value {
-										fillSignature(signature, type)
+									if let valueType = handle.value {
+										fillSignature(signature, valueType)
 									} else {
 										signature.push('Unknown')
 									}
 								case UnknownNullable(handle):
 									signature.push('Null')
-									if let type = handle.value {
-										fillSignature(signature, type)
+									if let valueType = handle.value {
+										fillSignature(signature, valueType)
 									} else {
 										signature.push('Unknown')
 									}
@@ -1368,7 +1368,7 @@ class Normalizer {
 								case Generic(index, name):
 									signature.push('generic' + index + name)
 								case _:
-									throw type
+									throw ofType
 							}
 						}
 
@@ -1385,7 +1385,7 @@ class Normalizer {
 						}
 				}
 
-				return null //type
+				return null //niceClass
 
 				case TypeAlias(_): {
 					// TODO
@@ -1448,7 +1448,7 @@ class Normalizer {
 				var expects = []
 				var expects: [Type] = []
 				switch typer.types.get(e) as! Type {
-					case Function(args, _): expects = args.map(arg => arg.type)
+					case Function(args, _): expects = args.map(arg => arg.dataType)
 				}
 
 				switch v {
@@ -1628,7 +1628,7 @@ class Normalizer {
 				if not nativeIterators {
 					let overType = typer.types.get(over)
 					switch overType {
-						case ClassInstance(type, generic) if type.name == 'Array': {
+						case ClassInstance(kind, generic) if kind.name == 'Array': {
 							let i = unique(name, e)
 							let it = unique('it')
 							let finish = unique('at')
@@ -1940,12 +1940,12 @@ class Normalizer {
 				// `case Nullable(Enum(type) or EnumInstance(type)) or Enum(type) or EnumInstance(type):`
 				// `case Nullable(type) or type: switch type { case Enum(type) or EnumInstance(type):`
 				switch Type.unwrapNullable(typer.types.get(exprs[0])) {
-					case Enum(type):
-						if (type.fieldsTypeSimple == null) { index = Expression.EnumTag(index) promoted = true }
-						enumType = type
-					case EnumInstance(type):
-						if (type.fieldsTypeSimple == null) { index = Expression.EnumTag(index) promoted = true }
-						enumType = type
+					case Enum(kind):
+						if (kind.fieldsTypeSimple == null) { index = Expression.EnumTag(index) promoted = true }
+						enumType = kind
+					case EnumInstance(kind):
+						if (kind.fieldsTypeSimple == null) { index = Expression.EnumTag(index) promoted = true }
+						enumType = kind
 				}
 
 				var i = 0
@@ -2034,8 +2034,8 @@ class Normalizer {
 					block.push(unwrapNestingBlocks(nodeToStatement(ec)))
 					s.push(unwrapNestingBlocks(Statement.Block(block)))
 
-					if let guard = guards[i] {
-						guardians.push(nodeToExpression(guard))
+					if let guardian = guards[i] {
+						guardians.push(nodeToExpression(guardian))
 					} else {
 						guardians.push(null)
 					}
@@ -2089,7 +2089,7 @@ class Normalizer {
 				case Enum(t, fields, valuesType):
 				var typed: EnumType = null as! EnumType
 				switch typer.types.get(enumNode) as! Type {
-					case Enum(type): typed = type
+					case Enum(kind): typed = kind
 				}
 
 				var i = 0
@@ -2125,8 +2125,8 @@ class Normalizer {
 									if n == name {
 										// `TagB = TagA`
 										switch b {
-											case NodeTypeValue(type):
-												switch type {
+											case NodeTypeValue(kind):
+												switch kind {
 													case Type(name):
 														return getTag(enumNode, name)
 												}
@@ -2298,10 +2298,10 @@ class Normalizer {
 
 		// Used for `something.name`
 		fun getClassDotField(expr: Node, name: String): String? {
-			if let type = typer.types.get(expr) {
-				switch type as! Type {
-					case Class(type):
-						let renamed = type.fieldRenames[type.fieldNames.indexOf(name)]
+			if let dataType = typer.types.get(expr) {
+				switch dataType as! Type {
+					case Class(kind):
+						let renamed = kind.fieldRenames[kind.fieldNames.indexOf(name)]
 						if let rename = renamed {
 							return rename
 						}
