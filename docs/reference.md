@@ -156,10 +156,10 @@ fun return
 var let
 declare private static
 throw try catch
-for while in break continue
+for while do in break continue
 if else
 switch case as
-class enum type interface super
+class enum type interface super this new
 await async
 meta readonly
 guard
@@ -181,7 +181,8 @@ let hex = 0xFF // Only lowercase `x` in `0x` is supported for readability
 let hex = 0xff // Hexadecimal part can be lowercase
 let bin = 0b101 // Only lowercase `b` in `0b` is supported
 
-a / b // Integer divide when both sides are integers, otherwise floating point division
+// Integer divide when both sides are integers, otherwise floating point division
+a / b
 
 // Floats
 let f = 1.23 // Defaults to `Double`
@@ -1990,7 +1991,7 @@ type Valid<T> = switch T {
 
 let x Valid<Int> = 123
 
-// Higher-kinded types
+// Higher-kinded types (HKT)
 type Mapper<T, K> {
 	fun map() T<K>
 }
@@ -2959,7 +2960,7 @@ class MyArray<T> {
 	let storage SizeOfPointer
 	let capacity Int
 
-	// ... omitted ...
+	// ... omitted
 
 	fun resize(newCapacity Int) {
 		// NOTE here we match over the type itself, not value
