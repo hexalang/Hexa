@@ -913,6 +913,25 @@ class Parser {
 				// result = fix(Node.Unop(id, false, value))
 				result = fix(value)
 
+			case KType:
+				i++
+				var alias = parseType()
+				if tok() == Token.Assign {
+					// Type alias: `type A = B`
+					step(Token.Assign)
+					var value = parseType()
+					result = Node.TypeAlias(alias, value)
+				} else {
+					// Type declaration: `type A B C {}`
+					// Consume decorators
+					let att = atts
+					atts = [] // Reset before parsing the fields and other confinements
+
+					let me = parseClass(external: false, alias)
+					project.mapDecorators.set(me, att)
+					result = me
+				}
+
 			case FloatingPoint:
 				// TODO handle Meta
 				let kind = lex.kind[i]
@@ -2433,23 +2452,44 @@ class Parser {
 		return placeholder
 	}
 
-	fun parseClass(external: Bool = false): Node {
+	fun parseClass(external: Bool = false, alias NodeType? = null): Node {
 		let _classExternal = classExternal
 		classExternal = external
-		var isInterface = tok() == Token.KInterface? ClassKind.Interface : ClassKind.Class
-		i++
-		var t = parseType()
+		var isInterface = tok() == Token.KInterface? ClassKind.Interface : (tok() == Token.KType? ClassKind.Type : ClassKind.Class)
+		if alias == null { i++ } // Only consume keyword if we haven't already
+		var t = alias ?? parseType()
 
 		switch t {
 			case Type(_): // Ok
 			case ParametricType(_, _): // Ok
 			case Ident(name):
 				if name.startsWith('_') {
-					fail('Class name cannot start with `_` underscore')
+					switch isInterface {
+						case Class:
+							fail('Class name cannot start with `_` underscore')
+						case Interface:
+							fail('Interface name cannot start with `_` underscore')
+						case Type:
+							fail('Type name cannot start with `_` underscore')
+					}
 				}
-				fail('Class name cannot start with lowercase and should be formatted as `class \(Hint.toTitleCase(name))`')
+				switch isInterface {
+					case Class:
+						fail('Class name cannot start with lowercase and should be formatted as `class \(Hint.toTitleCase(name))`')
+					case Interface:
+						fail('Interface name cannot start with lowercase and should be formatted as `interface \(Hint.toTitleCase(name))`')
+					case Type:
+						fail('Type name cannot start with lowercase and should be formatted as `type \(Hint.toTitleCase(name))`')
+				}
 			case _:
-				fail('Class name should be formatted as `class TitleCase`')
+				switch isInterface {
+					case Class:
+						fail('Class name should be formatted as `class TitleCase`')
+					case Interface:
+						fail('Interface name should be formatted as `interface TitleCase`')
+					case Type:
+						fail('Type name should be formatted as `type TitleCase`')
+				}
 		}
 
 		var ext = if tok() == Token.KExtends {
@@ -2459,9 +2499,15 @@ class Parser {
 		} else { null as! NodeType }
 
 		var impl = []
-		while tok() == Token.KImplements {
+
+		/*while tok() == Token.KImplements { TODO
 			i++
 			impl.push(parseType())
+		}*/
+		// Parse inherited types (like `Add Copy`) and add them to implements list for all class kinds
+		while tok() == Token.Title {
+			let extendedType = parseType()
+			impl.push(extendedType)
 		}
 
 		step(Token.BlockOpen)
