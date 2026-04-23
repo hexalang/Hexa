@@ -177,6 +177,18 @@ class Lexer {
 
 				// Comments
 				if _8 == "/".charCodeAt(0) {
+					// `/// Doc`
+					// TODO `if (_32 & 0xFFFFFF) == 3090986` optimization `var _32 = (len - position) > 3 ? bytes.readUInt32LE(position) : get_8(position)`
+					if _16 == 12079 and get_8(position + 2) == "/".charCodeAt(0) {
+						var pos = position + 3
+						while get_8(position) != /*"\n".charCodeAt(0)*/10 && notEof() {
+							position++
+						}
+
+						addWith(Token.Documentation, bytes.toString('utf8', pos, position))
+						continue
+					}
+
 					// `// Comment`
 					if _16 == 0x2f2f {
 						var pos = position + 2
@@ -188,32 +200,6 @@ class Lexer {
 							addWith(Token.CommentLine, bytes.toString('utf8', pos, position))
 						}
 
-						continue
-					}
-
-					// TODO `/// Doc`
-					// `/** Doc **/`
-					if _16 == 10799 && get_8(position + 2) == "*".charCodeAt(0) {
-						position += 3
-						let p = position
-						while notEof() {
-							var _32 = (len - position) > 3 ? bytes.readUInt32LE(position) : get_8(position)
-							if (_32 & 0xFF) == /*"\n".charCodeAt(0)*/10 {
-								newLine()
-							} else if (_32 & 0xFFFFFF) == 3090986 {
-								break
-							}
-							position++
-						}
-
-						if not notEof() {
-							// TODO may be useless for ///
-							// ^ also fix syntax hl
-							throw fail("Unclosed /** doc-comment **/")
-						}
-
-						addWith(Token.Documentation, bytes.toString('utf8', p, position))
-						position += 3
 						continue
 					}
 
