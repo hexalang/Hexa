@@ -84,6 +84,9 @@ enum Node {
 	// TODO rename to `Unary`
 	Unop(op Token, postfix Bool, e Node)
 
+	/// `await e` or `e.await`
+	Await(e Node)
+
 	/// `while reason { e }` or if pre == true then `do { e } while reason`
 	// TODO rename pre to isDoWhile
 	While(reason Node, e Node, pre Bool)
@@ -221,6 +224,7 @@ enum Node {
 				return Node.stringify(e) + '(' + arg.join(', ') + ')'
 			case Array(elements): return '[' + [for el in elements Node.stringify(el)].join(', ') + ']'
 			case Binop(a, op, b): return Node.stringify(a) + ' ' + Token.stringify(op) + ' ' + Node.stringify(b)
+			case Await(e): return Node.stringify(e) + '.await' // TODO probably remember the postfix form
 			case Object(names, el):
 				return '{' + [for i in el.length names[i] + ': ' + Node.stringify(el[i])].join(', ') + '}'
 			case NodeTypeValue(t):
@@ -338,6 +342,11 @@ enum Node {
 				return cloneData(p, node, Node.Unop(
 					op: op,
 					postfix: postfix,
+					e: cloneData(p, e, clone(p, e))
+				))
+			}
+			case Await(e): {
+				return cloneData(p, node, Node.Await(
 					e: cloneData(p, e, clone(p, e))
 				))
 			}
