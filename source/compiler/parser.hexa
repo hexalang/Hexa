@@ -1001,6 +1001,20 @@ class Parser {
 				i++ result = Node.This
 			case KNull:
 				i++ result = Node.Null
+			case KAwait:
+				i++
+				let value = parseExpr()
+				// All unops have larger priority than binops
+				fun fix(value: Node) {
+					switch value {
+						case Binop(aa, op, bb):
+							let out = Node.Binop(fix(aa), op, bb)
+							project.data.set(out, project.data.get(value))
+							return out
+						case _: return Node.Await(value)
+					}
+				}
+				result = fix(value)
 			case KSuper:
 				i++ result = Node.Super
 			case KVar:
@@ -1752,6 +1766,9 @@ class Parser {
 					switch tok() {
 						case Title:
 							result = Node.DotUpper(result, getgo(Token.Title))
+						case KAwait:
+							i++
+							result = Node.Await(result)
 						case _:
 							result = Node.Dot(result, getgo(Token.Identifier))
 					}
