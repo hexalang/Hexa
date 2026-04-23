@@ -37,6 +37,14 @@ class TestParser {
 				"0.0" : 'Float(0)',
 				"0.123" : 'Float(0.123)',
 
+				// Documentation comments NOTE they preserve the leading ` ` space
+				"/// Doc\nfun foo() {}" : 'Doc( Doc,Function(foo,Block([]),[],null,false,false))',
+				"///Doc\nfun foo() {}" : 'Doc(Doc,Function(foo,Block([]),[],null,false,false))',
+				"/// Doc\n/// Docs [foo]\nfun foo() {}" : 'Doc( Docs [foo],Doc( Doc,Function(foo,Block([]),[],null,false,false)))',
+				"/// Variable doc\nvar x = 1" : 'Doc( Variable doc,Var(x,null,Int(1),false,false))',
+				"/// Class doc\nclass Test {}" : 'Doc( Class doc,Class(Type(Test),null,[],[],false))',
+				"/// Type doc\ntype Alias = String" : 'Doc( Type doc,TypeAlias(Type(Alias),Type(String)))',
+
 				"'s'" : 'String(s)',
 				"\"s\"" : 'String(s)'
 			])
@@ -401,10 +409,6 @@ class TestParser {
 				// 'fun foo(a: Int): Void {}',
 				// 'class Point { var x: Int }',
 
-				// Semicolons (Explicitly forbidden)
-				'var x = 1;',
-				'console.log();',
-
 				// Old Type Casting Operators
 				// 'let a = b as! B', // Replaced by `b.as(B, 'throw')`
 				// 'let a = b as? B', // Replaced by `b.as(B)`
@@ -463,7 +467,6 @@ class TestParser {
 		shouldAllError([
 				// Old Syntax Rejections (if enforcing strict new syntax)
 				// 'var x: Int = 1', // Colon not allowed in var decl
-				// 'var x Int = 1;', // Semicolon not allowed
 
 				// Invalid Nullability
 				// 'var x Int = null', // Null assigned to non-nullable
@@ -515,7 +518,7 @@ class TestParser {
 			if test != res {
 				failMessages.push('TestParser test fail: `\(renderInvisibleChars(input))`')
 				failMessages.push('  Expect: `\(renderInvisibleChars(test))`')
-				failMessages.push('  Parsed: `\(renderInvisibleChars(res))`')
+				failMessages.push(quote('  Parsed: `\(renderInvisibleChars(res))`'))
 				return
 			}
 		} catch e: Any {
@@ -717,6 +720,12 @@ class TestParser {
 		if let decorators = decorators, decorators.length > 0 {
 			for d in decorators {
 				res = 'Decorator(' + d.name + ',[' + [for v in d.values stringify(v)].join(',') + '],' + res + ')'
+			}
+		}
+		let leadingComments = project.leadingComments.get(node)
+		if let leadingComments = leadingComments, leadingComments.length > 0 {
+			for c in leadingComments {
+				res = 'Doc(' + c.text + ',' + res + ')'
 			}
 		}
 		return res
