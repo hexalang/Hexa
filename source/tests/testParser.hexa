@@ -359,10 +359,10 @@ class TestParser {
 				// Regular Expressions
 
 				// Await
-				'await a' : 'Await(Ident(a))',
+				'await promise' : 'Await(Ident(promise))',
 				'await fetch()' : 'Await(Call(Ident(fetch),[]))',
-				'a().await' : 'Await(Call(Ident(a),[]))',
-				'v = a.await' : 'Binop(Ident(v),=,Await(Ident(a)))',
+				'fetch().await' : 'Await(Call(Ident(fetch),[]))',
+				'v = promise.await' : 'Binop(Ident(v),=,Await(Ident(promise)))',
 				'json().await.someField' : 'Dot(Await(Call(Ident(json),[])),someField)'
 
 				// Fluent Type Casts
@@ -379,6 +379,11 @@ class TestParser {
 
 		// Readonly & Immutability modifiers
 		shouldAllEqual([
+				'readonly class Point {}' : 'Readonly(Class(Type(Point),null,[],[],false))', // readonly flag displayed as wrapper
+				'let a = readonly [1, 2]' : 'Var(a,null,Readonly(Array([Int(1),Int(2)])),true,false)', // readonly wrapper displayed
+				'let obj = readonly { x: 1 }' : 'Var(obj,null,Readonly(Object([x],[Int(1)])),true,false)', // readonly wrapper displayed
+				'readonly fun map() {}' : 'Readonly(Function(map,Block([]),[],null,false,false))', // readonly wrapper displayed
+				'readonly 5' : 'Readonly(Int(5))' // readonly wrapper displayed
 			])
 
 		// Destructuring & Spreads
@@ -411,10 +416,17 @@ class TestParser {
 
 		// Readonly class fields
 		shouldAllEqual([
+				'class A { readonly var field: String }' : 'Class(Type(A),null,[],[Readonly(Var(field,Type(String),null,false,false))],false)',
+				'class A { readonly let constant: Int }' : 'Class(Type(A),null,[],[Readonly(Var(constant,Type(Int),null,true,false))],false)',
+				// TODO this order should be unsupported
+				'class A { static readonly var field: Float }' : 'Class(Type(A),null,[],[Readonly(Static(Var(field,Type(Float),null,false,false)))],false)',
+				'class A { readonly fun method() {} }' : 'Class(Type(A),null,[],[Readonly(Function(method,Block([]),[],null,false,false))],false)'
 			])
 
 		// Implicit Generics (Type omission)
 		shouldAllEqual([
+				'readonly class Point { var x Int }' : 'Readonly(Class(Type(Point),null,[],[Var(x,Type(Int),null,false,false)],false))',
+				'class Point { var x Int readonly fun distance() Int { 1 } }' : 'Class(Type(Point),null,[],[Var(x,Type(Int),null,false,false),Readonly(Function(distance,Block([Int(1)]),[],Type(Int),false,false))],false)',
 			])
 
 		// Old syntax (deprecated/removed features)
@@ -616,6 +628,10 @@ class TestParser {
 				res = 'Doc(' + c.text + ',' + res + ')'
 			}
 		}
+		let isReadonly = project.mapReadonly.get(node)
+		if let isReadonly = isReadonly, isReadonly {
+			res = 'Readonly(' + res + ')'
+		}
 		return res
 	}
 
@@ -754,6 +770,9 @@ class TestParser {
 				res = 'Decorator(' + d.name + ',[' + [for v in d.values stringify(v)].join(',') + '],' + res + ')'
 			}
 		}
+		let isReadonly = project.typeReadonly.get(node)
+		if let isReadonly = isReadonly, isReadonly {
+			res = 'Readonly(' + res + ')'
 		}
 		return res
 	}
