@@ -124,6 +124,12 @@ enum Node {
 	// TODO rename to CapitalField
 	DotUpper(expr Node, name String)
 
+	/// `expr.meta.xxx` or `expr.meta.xxx(args)`
+	DotMeta(expr Node, name String, args [Node]?, argNames [String]?)
+
+	/// `meta.xxx` or `meta.xxx(args)`
+	Meta(name String, args [Node]?, argNames [String]?)
+
 	/// `new T<T> { } (args)` TODO new syntax
 	New(path [String], ofType NodeType, args [Node], fields [String], el [Node], argNames [String])
 
@@ -212,6 +218,34 @@ enum Node {
 			case Index(expr, index): return Node.stringify(expr) + '[' + Node.stringify(index) + ']'
 			case Dot(expr, name): return Node.stringify(expr) + '.' + name
 			case DotUpper(expr, name): return Node.stringify(expr) + '.' + name
+			case DotMeta(expr, name, args, argNames):
+				if let args = args, let argNames = argNames {
+					let arg = []
+					for i in args.length {
+						if let argName = argNames[i] {
+							arg.push(argName + ': ' + Node.stringify(args[i]))
+						} else {
+							arg.push(Node.stringify(args[i]))
+						}
+					}
+					return Node.stringify(expr) + '.meta.' + name + '(' + arg.join(', ') + ')'
+				} else {
+					return Node.stringify(expr) + '.meta.' + name
+				}
+			case Meta(name, args, argNames):
+				if let args = args, let argNames = argNames {
+					let arg = []
+					for i in args.length {
+						if let argName = argNames[i] {
+							arg.push(argName + ': ' + Node.stringify(args[i]))
+						} else {
+							arg.push(Node.stringify(args[i]))
+						}
+					}
+					return 'meta.' + name + '(' + arg.join(', ') + ')'
+				} else {
+					return 'meta.' + name
+				}
 			case Call(e, args, argNames):
 				let arg = []
 				for i in args.length {
@@ -288,6 +322,27 @@ enum Node {
 				return cloneData(p, node, Node.Dot(cloneData(p, expr, clone(p, expr)), name))
 			case DotUpper(expr, name):
 				return cloneData(p, node, Node.DotUpper(cloneData(p, expr, clone(p, expr)), name))
+			case DotMeta(expr, name, args, argNames):
+				var clonedArgs: [Node]? = null
+				if let args = args {
+					clonedArgs = args.map(arg => cloneData(p, arg, clone(p, arg)))
+				}
+				return cloneData(p, node, Node.DotMeta(
+					cloneData(p, expr, clone(p, expr)),
+					name,
+					clonedArgs,
+					argNames
+				))
+			case Meta(name, args, argNames):
+				var clonedArgs: [Node]? = null
+				if let args = args {
+					clonedArgs = args.map(arg => cloneData(p, arg, clone(p, arg)))
+				}
+				return cloneData(p, node, Node.Meta(
+					name,
+					clonedArgs,
+					argNames
+				))
 			case Call(e, args, argNames):
 				return cloneData(p, node, Node.Call(cloneData(p, e, clone(p, e)), args.map(arg => cloneData(p, arg, clone(p, arg))), argNames))
 			case Array(elements):
