@@ -37,6 +37,18 @@ class TestParser {
 				"0.0" : 'Float(0)',
 				"0.123" : 'Float(0.123)',
 
+				// Hex/Binary case sensitivity
+
+				// Scientific notation
+
+				// Prefix neg
+
+				// BigInt variations - use MetaInt instead
+
+				// Underscore separators
+
+				// Complex numbers
+
 				// Documentation comments NOTE they preserve the leading ` ` space
 				"/// Doc\nfun foo() {}" : 'Doc( Doc,Function(foo,Block([]),[],null,false,false))',
 				"///Doc\nfun foo() {}" : 'Doc(Doc,Function(foo,Block([]),[],null,false,false))',
@@ -88,6 +100,8 @@ class TestParser {
 				'a += b': "AssignOp(Ident(a),+,Ident(b))",
 				'a ** b': "Binop(Ident(a),**,Ident(b))",
 				'a **= b': "AssignOp(Ident(a),**,Ident(b))",
+				'a ** b ** c': "Binop(Ident(a),**,Binop(Ident(b),**,Ident(c)))",
+				'a * b ** c': "Binop(Ident(a),*,Binop(Ident(b),**,Ident(c)))",
 				'a ** b * c': "Binop(Binop(Ident(a),**,Ident(b)),*,Ident(c))"
 			])
 
@@ -312,6 +326,7 @@ class TestParser {
 				'var p = { x: 1, y: 2 }' : 'Var(p,null,Object([x,y],[Int(1),Int(2)]),false,false)'
 			])
 
+		// Space instead of colon
 		shouldAllEqual([
 				// Types parsing in variables with space instead of colon
 
@@ -325,6 +340,7 @@ class TestParser {
 		// New syntax
 		shouldAllEqual([
 				// Nullability Operators
+				'null!' : 'Unop(!,true,Null)',
 
 				// Cascades (Object and Array)
 
@@ -385,6 +401,10 @@ class TestParser {
 			])
 
 		// Properties (Get/Set Blocks)
+		shouldAllEqual([
+			])
+
+		// Readonly class fields
 		shouldAllEqual([
 			])
 
@@ -585,6 +605,12 @@ class TestParser {
 				res = 'Decorator(' + d.name + ',[' + [for v in d.values stringify(v)].join(',') + '],' + res + ')'
 			}
 		}
+		let leadingComments = project.leadingComments.get(node)
+		if let leadingComments = leadingComments, leadingComments.length > 0 {
+			for c in leadingComments {
+				res = 'Doc(' + c.text + ',' + res + ')'
+			}
+		}
 		return res
 	}
 
@@ -722,11 +748,6 @@ class TestParser {
 				res = 'Decorator(' + d.name + ',[' + [for v in d.values stringify(v)].join(',') + '],' + res + ')'
 			}
 		}
-		let leadingComments = project.leadingComments.get(node)
-		if let leadingComments = leadingComments, leadingComments.length > 0 {
-			for c in leadingComments {
-				res = 'Doc(' + c.text + ',' + res + ')'
-			}
 		}
 		return res
 	}
