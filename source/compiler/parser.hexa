@@ -89,6 +89,12 @@ class Parser {
 				i++
 			}
 
+			var _readonly = false
+			if tok() == Token.KReadonly {
+				_readonly = true
+				i++
+			}
+
 			switch tok() {
 				case KPrivate:
 					// TODO
@@ -99,6 +105,9 @@ class Parser {
 					if _static {
 						f = Node.Static(f)
 						project.data.set(f, pos)
+					}
+					if _readonly {
+						project.mapReadonly.set(f, true)
 					}
 
 					project.mapDecorators.set(f, atts)
@@ -113,6 +122,10 @@ class Parser {
 						f = Node.Static(f)
 						project.data.set(f, pos)
 					}
+					if _readonly {
+						project.mapReadonly.set(f, true)
+					}
+
 					project.mapDecorators.set(f, atts)
 					if docComments.length > 0 {
 						project.leadingComments.set(f, docComments)
@@ -125,6 +138,9 @@ class Parser {
 					if _static {
 						f = Node.Static(f)
 						project.data.set(f, pos)
+					}
+					if _readonly {
+						project.mapReadonly.set(f, true)
 					}
 					project.mapDecorators.set(f, atts)
 					if docComments.length > 0 {
@@ -501,12 +517,19 @@ class Parser {
 		var nodePosition = { line: lex.line[i], column: lex.column[i] }
 		var result: Node? = null
 		switch node {
-			// declare class C {}
-			// declare T = V
-			// declare class
-			// declare let
-			// declare var
-			// declare fun
+			// readonly expr
+			case KReadonly:
+				i++
+				var expr = parseExpr() // TODO could be just a flag+i++ instead of parseExpr recursion?
+				project.mapReadonly.set(expr, true)
+				result = expr
+
+				// declare class C {}
+				// declare T = V
+				// declare class
+				// declare let
+				// declare var
+				// declare fun
 			case KDeclare:
 				i++
 				switch tok() {
@@ -2512,6 +2535,12 @@ class Parser {
 
 	/// Parses types with decorators
 	fun parseType(): NodeType {
+		var isReadonly = false
+		if tok() == Token.KReadonly {
+			isReadonly = true
+			i++
+		}
+
 		if tok() == Token.At {
 			let decorators: Array<Decorator> = []
 			while tok() == Token.At {
@@ -2519,10 +2548,17 @@ class Parser {
 			}
 			let kind = parseUndecoratedType()
 			project.typeDecorators.set(kind, decorators)
+			if isReadonly {
+				project.typeReadonly.set(kind, true)
+			}
 			return kind
 		}
 
-		return parseUndecoratedType()
+		let kind = parseUndecoratedType()
+		if isReadonly {
+			project.typeReadonly.set(kind, true)
+		}
+		return kind
 	}
 
 	/// Parses only types
