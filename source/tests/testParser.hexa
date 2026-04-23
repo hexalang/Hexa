@@ -304,7 +304,7 @@ class TestParser {
 				'push([])' : 'Call(Ident(push),[Array([])])',
 				'[].length' : 'Dot(Array([]),length)',
 				'[:].length' : 'Dot(Map([],[]),length)',
-				'[[:]]': 'Array([Map([],[])])'
+				'[[:]]': 'Array([Map([],[])])',
 			])
 
 		// New syntax
@@ -336,8 +336,12 @@ class TestParser {
 		// Space instead of colon
 		shouldAllEqual([
 				// Types parsing in variables with space instead of colon
+				'var x [Array<T>]' : 'Var(x,ParametricType(Array,[ParametricType(Array,[Type(T)])]),null,false,false)',
+				'var x [Map<K,V> : Array<T>]' : 'Var(x,ParametricType(Map,[ParametricType(Map,[Type(K),Type(V)]),ParametricType(Array,[Type(T)])]),null,false,false)',
 
 				// Enumerations with space instead of colon
+				'enum A { A(v Int) B C(v [K:V], a Array<T>) }' :
+				'Enum(Type(A),[Call(NodeTypeValue(Type(A)),[v:NodeTypeValue(Type(Int))]),NodeTypeValue(Type(B)),Call(NodeTypeValue(Type(C)),[v:NodeTypeValue(ParametricType(Map,[Type(K),Type(V)])),a:NodeTypeValue(ParametricType(Array,[Type(T)]))])],null,null)',
 
 				// Constructor class fields with space instead of colon
 
@@ -371,6 +375,7 @@ class TestParser {
 				'await promise' : 'Await(Ident(promise))',
 				'await fetch()' : 'Await(Call(Ident(fetch),[]))',
 				'fetch().await' : 'Await(Call(Ident(fetch),[]))',
+				'v = await promise' : 'Binop(Ident(v),=,Await(Ident(promise)))',
 				'v = promise.await' : 'Binop(Ident(v),=,Await(Ident(promise)))',
 				'json().await.someField' : 'Dot(Await(Call(Ident(json),[])),someField)'
 
@@ -383,7 +388,23 @@ class TestParser {
 		shouldAllEqual([
 				'@local var a = 1' : 'Decorator(local,[],Var(a,null,Int(1),false,false))',
 				'@tag(\'div\') fun f() {}' : 'Decorator(tag,[String(div)],Function(f,Block([]),[],null,false,false))',
-				'@flagOnce("locked") fun f() {}' : 'Decorator(flagOnce,[String(locked)],Function(f,Block([]),[],null,false,false))'
+				'@flagOnce("locked") fun f() {}' : 'Decorator(flagOnce,[String(locked)],Function(f,Block([]),[],null,false,false))',
+				'a++' : 'Unop(++,true,Ident(a))',
+				'a--' : 'Unop(--,true,Ident(a))',
+				'a and b' : 'Binop(Ident(a),and,Ident(b))',
+				'a or b' : 'Binop(Ident(a),or,Ident(b))',
+				'not a' : 'Unop(not,false,Ident(a))',
+				'a.xor(b)' : 'Call(Dot(Ident(a),xor),[Ident(b)])',
+				'a & b' : 'Binop(Ident(a),&,Ident(b))',
+				'a | b' : 'Binop(Ident(a),|,Ident(b))',
+				'a ^ b' : 'Binop(Ident(a),^,Ident(b))',
+				'~a' : 'Unop(~,false,Ident(a))',
+				'a << b' : 'Binop(Ident(a),<<,Ident(b))',
+				'a >> b' : 'Binop(Ident(a),>>,Ident(b))',
+				'a >>> b' : 'Binop(Ident(a),>>>,Ident(b))',
+				'a >>>= b' : 'AssignOp(Ident(a),>>>,Ident(b))',
+				'if x > 0, y < 10 { a }' : 'If([Binop(Ident(x),>,Int(0)),Binop(Ident(y),<,Int(10))],Block([Ident(a)]),null)',
+				'if let x = a, y > b, let z = c { a }' : 'If([Var(x,null,Ident(a),true,false),Binop(Ident(y),>,Ident(b)),Var(z,null,Ident(c),true,false)],Block([Ident(a)]),null)'
 			])
 
 		// Readonly & Immutability modifiers
