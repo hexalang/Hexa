@@ -327,6 +327,7 @@ class TestParser {
 				// 6. Functions (Space separated args, return type after paren)
 				// 7. Decorators
 				'@inline fun foo() {}' : 'Decorator(inline,[],Function(foo,Block([]),[],null,false,false))',
+				'/// Doc comment\n@inline fun foo() {}' : 'Doc( Doc comment,Decorator(inline,[],Function(foo,Block([]),[],null,false,false)))',
 
 				// 8. Object Literals (Structural typing)
 				'var p = { x: 1, y: 2 }' : 'Var(p,null,Object([x,y],[Int(1),Int(2)]),false,false)'
@@ -341,6 +342,8 @@ class TestParser {
 				// Constructor class fields with space instead of colon
 
 				// External declarations with space instead of colon
+				'declare var a T' : 'Var(a,Type(T),null,false,true)',
+				'declare let a T' : 'Var(a,Type(T),null,true,true)'
 			])
 
 		// New syntax
@@ -420,6 +423,12 @@ class TestParser {
 
 		// Types (Interfaces, Traits, Const Generics)
 		shouldAllEqual([
+				'type T {}' : 'Class(Type(T),null,[],[],false)',
+				'type T<A> {}' : 'Class(ParametricType(T,[Type(A)]),null,[],[],false)',
+				'type T<A, B> {}' : 'Class(ParametricType(T,[Type(A),Type(B)]),null,[],[],false)',
+				'type T<A> B {}' : 'Class(ParametricType(T,[Type(A)]),null,[Type(B)],[],false)',
+				'type T<A> B C {}' : 'Class(ParametricType(T,[Type(A)]),null,[Type(B),Type(C)],[],false)',
+				'type T<A, B> B C {}' : 'Class(ParametricType(T,[Type(A),Type(B)]),null,[Type(B),Type(C)],[],false)'
 			])
 
 		// Properties (Get/Set Blocks)
@@ -437,8 +446,14 @@ class TestParser {
 
 		// Implicit Generics (Type omission)
 		shouldAllEqual([
+				'add(a: 1, b: 2)' : 'Call(Ident(add),[a:Int(1),b:Int(2)])',
+				'add(b: 1, a: 2)' : 'Call(Ident(add),[b:Int(1),a:Int(2)])',
+				'add(a: 1, 2)' : 'Call(Ident(add),[a:Int(1),Int(2)])',
 				'readonly class Point { var x Int }' : 'Readonly(Class(Type(Point),null,[],[Var(x,Type(Int),null,false,false)],false))',
 				'class Point { var x Int readonly fun distance() Int { 1 } }' : 'Class(Type(Point),null,[],[Var(x,Type(Int),null,false,false),Readonly(Function(distance,Block([Int(1)]),[],Type(Int),false,false))],false)',
+				'type AddableCopyableMovable Add Copy Move {}' : 'Class(Type(AddableCopyableMovable),null,[Type(Add),Type(Copy),Type(Move)],[],false)',
+				'type AddableCopyable Add Copy {}' : 'Class(Type(AddableCopyable),null,[Type(Add),Type(Copy)],[],false)',
+				'type Addable Add {}' : 'Class(Type(Addable),null,[Type(Add)],[],false)',
 			])
 
 		// Old syntax (deprecated/removed features)
