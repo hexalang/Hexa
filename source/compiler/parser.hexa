@@ -19,6 +19,9 @@ class Parser {
 	var project: Project
 	// TODO seems like `lint` is no longer in use
 	var lint = false
+	var fast = false // TODO move into `<T>` (or use `lint`/`full` as a better name? hmmm)
+	// TODO ^ also make testParser to run both kinds
+	// ^ or lint after macro, not while parsing (also drops malformed `a = b = c` AST stuff)
 
 	// TODO mark static functions as non-mutation so they are thread-safe
 	static fun toNode(nodes: [Node]): Node? {
@@ -54,13 +57,25 @@ class Parser {
 		while i < lex.length and tok() != Token.Eof {
 			nodes.push(parseExpr())
 		}
+
+		// Check for unattached documentation comments at end of file
+		let remainingComments = collectDocumentationComments()
+		if remainingComments.length > 0 {
+			fail("Documentation comments must be attached to an expression")
+		}
 	}
 
 	fun parseFields() {
 		var fields = []
 		while tok() != Token.BlockClose {
+			// Collect documentation comments first (higher priority than decorators)
+			var docComments = collectDocumentationComments()
+
 			var atts: Array<Decorator> = []
 			while tok() == Token.At {
+				// NOTE: If decorator happens before /// or in between of comments it's a syntax error
+				// We require comments to go together un-interrupted because they appear in doc gen
+				// The code lines in-between the /// comments will not appear in the doc!
 				atts.push(parseDecorator())
 			}
 
@@ -87,6 +102,9 @@ class Parser {
 					}
 
 					project.mapDecorators.set(f, atts)
+					if docComments.length > 0 {
+						project.leadingComments.set(f, docComments)
+					}
 					fields.push(f)
 				case KFun:
 					var f = parseExpr()
@@ -96,6 +114,9 @@ class Parser {
 						project.data.set(f, pos)
 					}
 					project.mapDecorators.set(f, atts)
+					if docComments.length > 0 {
+						project.leadingComments.set(f, docComments)
+					}
 					fields.push(f)
 
 				case KLet:
@@ -106,6 +127,9 @@ class Parser {
 						project.data.set(f, pos)
 					}
 					project.mapDecorators.set(f, atts)
+					if docComments.length > 0 {
+						project.leadingComments.set(f, docComments)
+					}
 					fields.push(f)
 
 					// TODO could be that dedicated fields parsing in non-needed when `new` is only for constructors (and slow parser)
@@ -186,7 +210,7 @@ class Parser {
 					let field = Node.Function('new', expr, v, null, false, variadic: false)
 					project.data.set(field, pos)
 					fields.push(field)
-				case Identifier:
+				case Identifier: // TODO deprecated
 					let name = getgo(Token.Identifier)
 					// JavaScript's `get field()` to property
 					if name == 'get', tok() == Token.Identifier {
@@ -460,8 +484,13 @@ class Parser {
 
 	var classExternal = false
 	fun parseExpr(): Node {
+		// Collect documentation comments first (higher priority than decorators)
+		var docComments = collectDocumentationComments()
+
 		var atts: Array<Decorator> = []
 		while tok() == Token.At {
+			// NOTE: If decorator happens before /// or in between of comments it's a syntax error
+			// We require comments to go together un-interrupted because they appear in doc gen
 			let decorator = parseDecorator()
 			atts.push(decorator)
 		}
@@ -1140,6 +1169,9 @@ class Parser {
 				step(Token.BlockOpen)
 				var names = []
 				while tok() != Token.BlockClose {
+					// Collect documentation comments for enum tags
+					var docComments = collectDocumentationComments()
+
 					while tok() == Token.At {
 						atts.push(parseDecorator())
 					}
@@ -1184,11 +1216,25 @@ class Parser {
 							}
 
 							project.data.set(tag, pos)
+							if docComments.length > 0 {
+								project.leadingComments.set(tag, docComments)
+							}
 							names.push(tag)
 						case _:
-							names.push(parseExpr())
+							let expr = parseExpr()
+							if docComments.length > 0 {
+								project.leadingComments.set(expr, docComments)
+							}
+							names.push(expr)
 					}
 				}
+
+				// Check for unattached documentation comments at end of enum block
+				let remainingComments = collectDocumentationComments()
+				if remainingComments.length > 0 {
+					fail("Documentation comments must be attached to an enum tag")
+				}
+
 				step(Token.BlockClose)
 				result = Node.Enum(t, names, valuesType, extend)
 				project.mapDecorators.set(result, att)
@@ -1308,6 +1354,9 @@ class Parser {
 				var conds = []
 				var guards = []
 
+				// Collect documentation comments for case body TODO decorators
+				var docComments = collectDocumentationComments()
+
 				while tok() != Token.BlockClose {
 					// `case conds:` and `case cond, cond, cond:`
 					step(Token.KCase)
@@ -1321,6 +1370,12 @@ class Parser {
 						conds.push(parseExpr())
 					}
 
+					// Map documentation comments to the case itself TODO make Node.Case or similar
+					if docComments.length > 0 {
+						project.leadingComments.set(conds[0], docComments)
+						docComments = []
+					}
+
 					// `case conds if guard:`
 					if tok() == Token.KIf {
 						i++
@@ -1332,11 +1387,20 @@ class Parser {
 
 					// `case ...:`
 					step(Token.Colon)
+					docComments = collectDocumentationComments()
+
 					// `case ...: expr expr expr`
 					var exs = []
 					// TODO , instead of && ie `while a, b` new syntax here
 					while tok() != Token.KCase and tok() != Token.BlockClose {
-						exs.push(parseExpr())
+						// TODO this would be unneded if `parseExpr` would parse `case` on its own?
+						let expr = parseExpr()
+						let pending = collectDocumentationComments()
+						if docComments.length > 0 {
+							project.leadingComments.set(expr, docComments)
+						}
+						docComments = pending
+						exs.push(expr)
 					}
 
 					// Also assumes `0` expressions (ie `0 != 1`) thus makes a block with empty array
@@ -1347,6 +1411,11 @@ class Parser {
 					} else {
 						cases.push(exs[0])
 					}
+				}
+
+				// Check for unattached documentation comments at end of switch block
+				if docComments.length > 0 {
+					fail("Documentation `///` comments must be attached to a `case` pattern or some statement in its body")
 				}
 
 				step(Token.BlockClose)
@@ -1565,6 +1634,11 @@ class Parser {
 		if atts.length > 0 {
 			project.mapDecorators.set(result, atts)
 			atts = []
+		}
+
+		// Map documentation comments to the node
+		if docComments.length > 0 {
+			project.leadingComments.set(result, docComments)
 		}
 
 		// --------------
@@ -1826,6 +1900,11 @@ class Parser {
 			var el = []
 			while tok() != Token.BlockClose {
 				el.push(parseExpr())
+			}
+			// Check for unattached documentation comments at end of block
+			let remainingComments = collectDocumentationComments()
+			if remainingComments.length > 0 {
+				fail("Documentation comments must be attached to an expression")
 			}
 			step(Token.BlockClose)
 			return Node.Block(el)
@@ -2375,6 +2454,20 @@ class Parser {
 		catch e: Any {
 			fail("String interpolation error\n" + e)
 		}
+	}
+
+	/// Collect sequential Token.Documentation as Comment objects
+	// TODO do not allocate `[]` when none... better gather inplace to avoid this temporary array at all
+	fun collectDocumentationComments(): [Comment] {
+		var comments: [Comment] = []
+		while tok() == Token.Documentation {
+			let text = lex.value[i]
+			let line = lex.line[i]
+			let column = lex.column[i]
+			comments.push(new Comment(text, line, column))
+			i++
+		}
+		return comments
 	}
 
 	fun parseDecorator() {
