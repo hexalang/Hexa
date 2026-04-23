@@ -1040,6 +1040,39 @@ class Parser {
 				result = fix(value)
 			case KSuper:
 				i++ result = Node.Super
+			case KMeta:
+				i++
+				step(Token.Dot)
+				let name = getgo(Token.Identifier)
+				var args: [Node]? = null
+				var argNames: [String]? = null
+				if tok() == Token.CallOpen {
+					i++
+					args = []
+					argNames = []
+					if tok() != Token.CallClose { while true {
+							if tok() == Token.Identifier and offset(1) == Token.Colon {
+								if let argNames = argNames {
+									argNames.push(getgo(Token.Identifier))
+								}
+								step(Token.Colon)
+							} else {
+								if let argNames = argNames {
+									argNames.push(null)
+								}
+							}
+							if let args = args {
+								args.push(parseExpr())
+							}
+							if tok() == Token.Comma {
+								i++
+							} else {
+								break
+							}
+						} }
+					step(Token.CallClose)
+				}
+				result = Node.Meta(name, args, argNames)
 			case KVar:
 				var parsed = parseVar()
 				if parsed.length > 1 {
@@ -1787,6 +1820,39 @@ class Parser {
 				case Dot:
 					i++
 					switch tok() {
+						case KMeta:
+							i++
+							step(Token.Dot)
+							let name = getgo(Token.Identifier)
+							var args: [Node]? = null
+							var argNames: [String]? = null
+							if tok() == Token.CallOpen {
+								i++
+								args = []
+								argNames = []
+								if tok() != Token.CallClose { while true {
+										if tok() == Token.Identifier and offset(1) == Token.Colon {
+											if let argNames = argNames {
+												argNames.push(getgo(Token.Identifier))
+											}
+											step(Token.Colon)
+										} else {
+											if let argNames = argNames {
+												argNames.push(null)
+											}
+										}
+										if let args = args {
+											args.push(parseExpr())
+										}
+										if tok() == Token.Comma {
+											i++
+										} else {
+											break
+										}
+									} }
+								step(Token.CallClose)
+							}
+							result = Node.DotMeta(result, name, args, argNames)
 						case Title:
 							result = Node.DotUpper(result, getgo(Token.Title))
 						case KAwait:
