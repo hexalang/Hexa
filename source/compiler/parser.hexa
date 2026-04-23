@@ -543,7 +543,7 @@ class Parser {
 							result = parsed[0]
 						}
 					case KClass | KInterface:
-						result = parseClass(external: true)
+						result = parseClass(external: true, alias: null, kind: tok() == Token.KInterface ? ClassKind.Interface : ClassKind.Class)
 					case Title:
 						let alias = parseType()
 						step(Token.Assign)
@@ -927,7 +927,7 @@ class Parser {
 					let att = atts
 					atts = [] // Reset before parsing the fields and other confinements
 
-					let me = parseClass(external: false, alias)
+					let me = parseClass(external: false, alias, kind: ClassKind.Type)
 					project.mapDecorators.set(me, att)
 					result = me
 				}
@@ -1333,7 +1333,7 @@ class Parser {
 				let att = atts
 				atts = [] // Reset before parsing the fields and other confinements
 
-				let me = parseClass()
+				let me = parseClass(external: false, alias: null, kind: (tok() == Token.KInterface) ? ClassKind.Interface : ClassKind.Class)
 				project.mapDecorators.set(me, att)
 				result = me
 			case KFun:
@@ -2452,10 +2452,10 @@ class Parser {
 		return placeholder
 	}
 
-	fun parseClass(external: Bool = false, alias NodeType? = null): Node {
+	fun parseClass(external: Bool = false, alias NodeType? = null, kind ClassKind = ClassKind.Class): Node {
 		let _classExternal = classExternal
 		classExternal = external
-		var isInterface = tok() == Token.KInterface? ClassKind.Interface : (tok() == Token.KType? ClassKind.Type : ClassKind.Class)
+		var isInterface = kind
 		if alias == null { i++ } // Only consume keyword if we haven't already
 		var t = alias ?? parseType()
 
