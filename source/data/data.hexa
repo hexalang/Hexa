@@ -142,6 +142,12 @@ enum Node {
 	/// expr[index]
 	Index(expr Node, index Node)
 
+	/// expr[x, y]
+	Index2D(expr Node, x Node, y Node)
+
+	/// expr[x, y, z]
+	Index3D(expr Node, x Node, y Node, z Node)
+
 	/// switch exprs[0], exprs[n] {
 	///     case cases[0]: conds[0]
 	///     case cases[n]: conds[n]
@@ -200,6 +206,9 @@ enum Node {
 	/// `nullable ?? alternative`
 	Elvis(nullable Node, alternative Node)
 
+	/// guard let x = a else { return }
+	Guard(conditions [Node], otherwise Node)
+
 	/// `T<A, B>` but as expression
 	NodeTypeValue(dataType NodeType)
 
@@ -215,7 +224,10 @@ enum Node {
 			case Null: return "null"
 			case This: return "this"
 			case Parenthesis(expr): return "(" + Node.stringify(expr) + ")"
+			case Guard(conditions, otherwise): return 'Guard(' + [for el in conditions Node.stringify(el)] + ',' + stringify(otherwise) + ')'
 			case Index(expr, index): return Node.stringify(expr) + '[' + Node.stringify(index) + ']'
+			case Index2D(expr, x, y): return Node.stringify(expr) + '[' + Node.stringify(x) + ', ' + Node.stringify(y) + ']'
+			case Index3D(expr, x, y, z): return Node.stringify(expr) + '[' + Node.stringify(x) + ', ' + Node.stringify(y) + ', ' + Node.stringify(z) + ']'
 			case Dot(expr, name): return Node.stringify(expr) + '.' + name
 			case DotUpper(expr, name): return Node.stringify(expr) + '.' + name
 			case DotMeta(expr, name, args, argNames):
@@ -318,6 +330,19 @@ enum Node {
 					cloneData(p, expr, clone(p, expr)),
 					cloneData(p, index, clone(p, index))
 				))
+			case Index2D(expr, x, y):
+				return cloneData(p, node, Node.Index2D(
+					cloneData(p, expr, clone(p, expr)),
+					cloneData(p, x, clone(p, x)),
+					cloneData(p, y, clone(p, y))
+				))
+			case Index3D(expr, x, y, z):
+				return cloneData(p, node, Node.Index3D(
+					cloneData(p, expr, clone(p, expr)),
+					cloneData(p, x, clone(p, x)),
+					cloneData(p, y, clone(p, y)),
+					cloneData(p, z, clone(p, z))
+				))
 			case Dot(expr, name):
 				return cloneData(p, node, Node.Dot(cloneData(p, expr, clone(p, expr)), name))
 			case DotUpper(expr, name):
@@ -414,6 +439,11 @@ enum Node {
 			}
 			case Static(f):
 				return cloneData(p, node, Node.Static(cloneData(p, f, clone(p, f))))
+			case Guard(conditions, otherwise):
+				return cloneData(p, node, Node.Guard(
+					conditions.map(arg => cloneData(p, arg, clone(p, arg))),
+					cloneData(p, otherwise, clone(p, otherwise))
+				))
 			case Return(e): {
 				if let e = e {
 					return cloneData(p, node, Node.Return(cloneData(p, e, clone(p, e))))
