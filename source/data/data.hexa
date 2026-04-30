@@ -183,6 +183,9 @@ enum Node {
 	/// `expr as! T`
 	As(expr Node, kind Token, toType NodeType)
 
+	/// `expr.as(Type, expr)`
+	Cast(expr Node, toType NodeType, castKind Node)
+
 	/// `_`
 	Underscore
 
@@ -298,6 +301,11 @@ enum Node {
 				return '...' + Node.stringify(value)
 			case NodeTypeValue(t):
 				return DataHelper.extractTypeName(t)
+			case Cast(expr, toType, castKind):
+				if let castKind = castKind {
+					return 'Cast(' + Node.stringify(expr) + ',' + DataHelper.extractTypeName(toType) + ',' + Node.stringify(castKind) + ')'
+				}
+				return 'Cast(' + Node.stringify(expr) + ',' + DataHelper.extractTypeName(toType) + ',null)'
 			case Static(f): return 'static ' + Node.stringify(f)
 			case Var(name, t, expr, const, external): {
 				var body = ''
@@ -431,6 +439,13 @@ enum Node {
 					expr: cloneData(p, expr, clone(p, expr)),
 					kind: kind,
 					toType: NodeType.clone(toType)
+				))
+			}
+			case Cast(expr, toType, castKind): {
+				return cloneData(p, node, Node.Cast(
+					expr: cloneData(p, expr, clone(p, expr)),
+					toType: NodeType.clone(toType),
+					castKind: castKind == null ? null : cloneData(p, castKind, clone(p, castKind))
 				))
 			}
 			case New(path, t, args, fields, el, argNames): {
