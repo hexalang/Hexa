@@ -459,9 +459,13 @@ class TestParser {
 				'fetch().await' : 'Await(Call(Ident(fetch),[]))',
 				'v = await promise' : 'Binop(Ident(v),=,Await(Ident(promise)))',
 				'v = promise.await' : 'Binop(Ident(v),=,Await(Ident(promise)))',
-				'json().await.someField' : 'Dot(Await(Call(Ident(json),[])),someField)'
+				'json().await.someField' : 'Dot(Await(Call(Ident(json),[])),someField)',
 
 				// Fluent Type Casts
+				'a.as(B)' : 'Cast(Ident(a),Type(B),null)',
+				'a.as(B, expr)' : 'Cast(Ident(a),Type(B),Ident(expr))',
+				'a.as(B, 1 + 2)' : 'Cast(Ident(a),Type(B),Binop(Int(1),+,Int(2)))',
+				'a.as(B, "throw")' : 'Cast(Ident(a),Type(B),String(throw))'
 
 				// Switch Expressions
 			])
@@ -489,6 +493,7 @@ class TestParser {
 				'let result = { return\n1 + 2 }' : 'Var(result,null,Block([Return(null),Binop(Int(1),+,Int(2))]),true,false)',
 				'if x > 0, y < 10 { a }' : 'If([Binop(Ident(x),>,Int(0)),Binop(Ident(y),<,Int(10))],Block([Ident(a)]),null)',
 				'if let x = a, y > b, let z = c { a }' : 'If([Var(x,null,Ident(a),true,false),Binop(Ident(y),>,Ident(b)),Var(z,null,Ident(c),true,false)],Block([Ident(a)]),null)',
+				'if let value, value > 5 { a }' : 'If([Var(value,null,null,true,false),Binop(Ident(value),>,Int(5))],Block([Ident(a)]),null)',
 				'guard let name, let age, age >= 18 else { return }' : 'Guard([Var(name,null,null,true,false),Var(age,null,null,true,false),Binop(Ident(age),>=,Int(18))],Block([Return(null)]))',
 				'do { x++ } while x < 10' : 'While(Binop(Ident(x),<,Int(10)),Block([Unop(++,true,Ident(x))]),false)',
 				'@skipNulls for item in items { a }' : 'Decorator(skipNulls,[],For(item,Ident(items),Block([Ident(a)]),null))',
@@ -523,6 +528,7 @@ class TestParser {
 
 		// Shorthands (If-let, Objects)
 		shouldAllEqual([
+				'if let value {}' : 'If([Var(value,null,null,true,false)],Block([]),null)'
 			])
 
 		// Meta methods & Preprocessor
@@ -827,6 +833,7 @@ class TestParser {
 				// Have sub-nodes
 			case Is(expr, kind): return 'Is(' + stringify(expr) + ',' + stringifyType(kind) + ')'
 			case As(expr, op, kind): return 'As(' + stringify(expr) + ',' + Token.stringify(op) + ',' + stringifyType(kind) + ')'
+			case Cast(expr, toType, castKind): return 'Cast(' + stringify(expr) + ',' + stringifyType(toType) + ',' + (castKind != null ? stringify(castKind) : 'null') + ')'
 			case Binop(a, op, b): return 'Binop(' + stringify(a) + ',' + Token.stringify(op) + ',' + stringify(b) + ')'
 			case AssignOp(a, op, b): return 'AssignOp(' + stringify(a) + ',' + Token.stringify(op) + ',' + stringify(b) + ')'
 			case Block(els): return 'Block(' + stringifyNodeArray(els) + ')'
