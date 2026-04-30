@@ -268,10 +268,17 @@ class TestParser {
 				'call(,)',
 				'[1 2]',
 				'[,]',
-				'[1,]',
+				'[,\n]',
+				'[,\n,]',
+				'[\n,]',
+				'[1,]', // trailing comma on same line - not allowed
+				'[1,,]',
 				'[1,2,]',
 				'[1:1 2:2]',
-				'[1:1,2:2,]',
+				'[1:1,2:2,]', // map trailing comma on same line - not allowed
+				'["a": 1,\n,]', // comma then newline then comma - not allowed
+				'[1:1,\n,]',
+				'[1:1,,]',
 				'{a:1 b:2}',
 				'{,}',
 				'{a:1,}',
@@ -313,6 +320,11 @@ class TestParser {
 		shouldAllEqual([
 				'push([:])' : 'Call(Ident(push),[Map([],[])])',
 				'push([])' : 'Call(Ident(push),[Array([])])',
+				'[1,\n]' : 'Array([Int(1)])', // trailing comma on different line - allowed
+				'[1,2,\n]' : 'Array([Int(1),Int(2)])', // trailing comma on different line - allowed
+				'[1,\n2,\n]' : 'Array([Int(1),Int(2)])', // trailing comma on different line - allowed
+				'["a": 1,\n]' : 'Map([String(a)],[Int(1)])', // map trailing comma on different line - allowed
+				'["a": 1, "b": 2,\n]' : 'Map([String(a),String(b)],[Int(1),Int(2)])', // map trailing comma on different line - allowed
 				'[].length' : 'Dot(Array([]),length)',
 				'[:].length' : 'Dot(Map([],[]),length)',
 				'[[:]]': 'Array([Map([],[])])',
