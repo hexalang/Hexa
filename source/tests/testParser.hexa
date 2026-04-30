@@ -38,12 +38,18 @@ class TestParser {
 				"0.123" : 'Float(0.123)',
 
 				// Hex/Binary case sensitivity
+				"0xFF" : 'Int(255)',
+				"0b101" : 'Int(5)',
 
 				// Scientific notation
+				"1e3" : 'Float(1000)',
+				"1.2e-5" : 'Float(0.000012)',
 
 				// Prefix neg
+				"-123.45" : 'Unop(-,false,Float(123.45))',
 
 				// BigInt variations - use MetaInt instead
+				"123n" : 'MetaInt(123,BigInt)',
 
 				// Underscore separators
 
@@ -367,6 +373,8 @@ class TestParser {
 
 				// 2. Nullability and Unpacking
 				'var z Int? = null' : 'Var(z,Optional(Type(Int)),Null,false,false)',
+				'a = b!' : 'Binop(Ident(a),=,Unop(!,true,Ident(b)))', // Force unwrap
+				'a = b ?? c' : 'Binop(Ident(a),=,Elvis(Ident(b),Ident(c)))', // Elvis operator
 
 				// 3. Arrays and Maps (New syntax [T] and [K: V])
 				'var arr [Int] = [1, 2]' : 'Var(arr,ParametricType(Array,[Type(Int)]),Array([Int(1),Int(2)]),false,false)',
@@ -407,14 +415,23 @@ class TestParser {
 		// New syntax
 		shouldAllEqual([
 				// Nullability Operators
+				'a ?? b' : 'Elvis(Ident(a),Ident(b))',
+				'a!' : 'Unop(!,true,Ident(a))',
+				'a!.b' : 'Dot(Unop(!,true,Ident(a)),b)',
+				'a![0]' : 'Index(Unop(!,true,Ident(a)),Int(0))',
+				'a![0,1]' : 'Index2D(Unop(!,true,Ident(a)),Int(0),Int(1))',
+				'a![0,1,2]' : 'Index3D(Unop(!,true,Ident(a)),Int(0),Int(1),Int(2))',
 				'null!' : 'Unop(!,true,Null)',
 
 				// Cascades (Object and Array)
+				'obj.{ x: 1, y: 2 }' : 'Cascade(Ident(obj),[x:Int(1),y:Int(2)])',
+				'arr.[ 0: 1 ]' : 'Cascade(Ident(arr),[Int(0):Int(1)])',
 
 				// Guard statement
 				'guard let x = a else { return }' : 'Guard([Var(x,null,Ident(a),true,false)],Block([Return(null)]))',
 
 				// Ternary Operator
+				'a ? b : c' : 'If([Ident(a)],Ident(b),Ident(c),ternary)',
 
 				// Ranges
 
@@ -551,6 +568,7 @@ class TestParser {
 				'type AddableCopyableMovable Add Copy Move {}' : 'Type(Type(AddableCopyableMovable),null,[Type(Add),Type(Copy),Type(Move)],[],false)',
 				'type AddableCopyable Add Copy {}' : 'Type(Type(AddableCopyable),null,[Type(Add),Type(Copy)],[],false)',
 				'type Addable Add {}' : 'Type(Type(Addable),null,[Type(Add)],[],false)',
+				'@verify { lastProcessed >= 0 } fun f() {}' : 'Block([Decorator(verify,[],Block([Binop(Ident(lastProcessed),>=,Int(0))])),Function(f,Block([]),[],null,false,false)])'
 			])
 
 		// Old syntax (deprecated/removed features)
