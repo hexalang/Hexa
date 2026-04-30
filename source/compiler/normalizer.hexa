@@ -680,7 +680,8 @@ class Normalizer {
 							defaults.push(null)
 						}
 				}}
-				return Expression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e))
+				let isAsync = project.mapAsync.get(e) == true
+				return Expression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e), isAsync: isAsync)
 
 				case Arrow(expr, vars, rettype):
 				let a = []
@@ -696,7 +697,8 @@ class Normalizer {
 							defaults.push(null)
 						}
 				}}
-				return Expression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e))
+				let isAsync = project.mapAsync.get(e) == true
+				return Expression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e), isAsync: isAsync)
 
 				case Block(el):
 				if el.length == 0 {
@@ -715,7 +717,7 @@ class Normalizer {
 				}
 				let result = el[el.length - 1]
 				block.push(Statement.Return(nodeToExpression(result)))
-				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], null)), [], typer.types.get(result), CallKind.Function)
+				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], null, isAsync: false)), [], typer.types.get(result), CallKind.Function)
 
 				case Object(names, el):
 				let els = []
@@ -780,7 +782,7 @@ class Normalizer {
 					block.push(Statement.Return(Expression.Ident(result, resultType)))
 					return Expression.Call(
 						Expression.Parenthesis(
-							Expression.Function(null, Statement.Block(block), [], [], Type.Function([], typer.types.get(e), variadic: false))
+							Expression.Function(null, Statement.Block(block), [], [], Type.Function([], typer.types.get(e), variadic: false), isAsync: false)
 						)
 						, [],
 						typer.types.get(e),
@@ -804,7 +806,7 @@ class Normalizer {
 						Statement.Const(result, nodeToExpression(nullable), resultType),
 						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.Unequal, Expression.Null(resultType), typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
 						Statement.Return(nodeToExpression(otherwise))
-						]), [], [], Type.Function([], typer.types.get(otherwise), false))), [], typer.types.get(otherwise),
+						]), [], [], Type.Function([], typer.types.get(otherwise), false), isAsync: false)), [], typer.types.get(otherwise),
 						CallKind.Function
 					)
 					return Expression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
@@ -916,7 +918,7 @@ class Normalizer {
 					}
 					block.push(nodeToStatement(Node.Switch(exprs, conds, guards, caseRet)))
 					return Expression.Call(
-						Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], funcType)),
+						Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], funcType, isAsync: false)),
 						[],
 						resultType,
 						CallKind.Function
@@ -1082,7 +1084,7 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic, isAsync: false))
 							case _: console.error("(internal warning) Unknown complex enum static field kind:", field)
 						}
 						case _: console.error("(internal warning) Unknown complex enum field kind:", f)
@@ -1159,7 +1161,7 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic, isAsync: false))
 							case _: console.error("(internal warning) Unknown simple enum static field kind:", field)
 						}
 						case _: console.error("(internal warning) Unknown simple enum field kind:", f)
@@ -1284,7 +1286,7 @@ class Normalizer {
 									defaults.push(null)
 								}
 						}}
-						niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic))
+						niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: false))
 					case Static(field):
 						switch field {
 							case Var(name, t, expr, const):
@@ -1311,7 +1313,7 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic))
+								niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic, isAsync: false))
 							case _: console.error("(internal warning) Unknown class static field kind:", field)
 						}
 					case _: console.error("(internal warning) Unknown class field kind:", f)
@@ -1514,17 +1516,17 @@ class Normalizer {
 				let variadic = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
 
 				if external {
-					return Statement.Function(uname, null, a, defaults, typer.types.get(e), variadic)
+					return Statement.Function(uname, null, a, defaults, typer.types.get(e), variadic, isAsync: false)
 				}
 
 				if name == 'new' {
 					// TODO just keep `new` as name or whatever
-					return Statement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic)
+					return Statement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic, isAsync: false)
 				}
 
-				return Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic)
+				return Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic, isAsync: false)
 
-				case For(name, over, by, range):
+			case For(name, over, by, range):
 				if range == null {
 					switch over {
 					// TODO compare not `Node.Int` but instead propagate whatever constant *Nice* Int/MetaInt
