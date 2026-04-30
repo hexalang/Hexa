@@ -893,7 +893,23 @@ class Parser {
 				result = Node.Underscore
 			case Interval:
 				i++
-				result = Node.Interval
+				// Check if this is a spread operator `...value` or just interval `...`
+				// Spread is followed by an expression, interval is standalone
+				// We need to peek ahead to see if there's an expression after ...
+				let nextTok = tok()
+				// Spread can be followed by: Identifier, Title, CallOpen, BlockOpen, IndexOpen, etc.
+				// But NOT by: Comma, BlockClose, IndexClose, CallClose, Eof, Semicolon
+				if
+					nextTok != Token.Comma and
+					nextTok != Token.BlockClose and
+					nextTok != Token.IndexClose and
+					nextTok != Token.CallClose and
+					nextTok != Token.Eof
+				{
+					result = Node.Spread(parseExpr())
+				} else {
+					result = Node.Interval
+				}
 				// ++i TODO deprecate (but detect in slow-parser)
 				// --i
 				// !i
