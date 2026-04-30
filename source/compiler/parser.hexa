@@ -1755,29 +1755,38 @@ class Parser {
 			switch tok() {
 				case Eof: done = true
 				case IndexOpen:
-					// let failAt = i
+					// Check if `[` is on the next line - if so, don't treat as indexing
+					let resultLine = lex.line[i - 1]
+					let indexOpenLine = lex.line[i]
+					if indexOpenLine != resultLine {
+						// The `[` is on a different line, so this is likely a new array literal
+						// not an indexing operation. Stop the postfix loop to let array literal parsing handle it.
+						done = true
+						break
+					}
+
 					i++
-					var index = parseExpr()
-					if tok() == Token.Comma {
-						fail(
-							"Expected `]` instead of `,` comma. Hexa supports only one `[index]` value.\n" +
-							"Note, you are indexing this expression: `\(Node.stringify(result))[\(Node.stringify(index))]`\n" +
-							"To create array here, wrap it with `{` as `{[\(Node.stringify(index)), ...]}` so it doesn't index previous expression."
-						)
+					var indices = [parseExpr()]
+					while tok() == Token.Comma {
+						i++
+						indices.push(parseExpr())
 					}
 					step(Token.IndexClose)
 
-					/*switch result {
-					case Ident(_): // Ok
-					case Dot(_): // Ok
-					case Index(_): // Ok
-					case _:
-						let temp = i
-						i = failAt
-						failHint('Cannot index `[]` expression `\(Node.stringify(result))`')
-						i = temp
-				}*/
-					result = Node.Index(result, index)
+					// Check if we're trying to index with empty brackets (no indices at all)
+					if indices.length == 0 {
+						failHint('Cannot index with empty brackets `[]`. Provide at least one index value.')
+					}
+
+					if indices.length == 1 {
+						result = Node.Index(result, indices[0])
+					} else if indices.length == 2 {
+						result = Node.Index2D(result, indices[0], indices[1])
+					} else if indices.length == 3 {
+						result = Node.Index3D(result, indices[0], indices[1], indices[2])
+					} else {
+						failHint("Hexa supports only up to 3 dimensions in indexing like `[x, y, z]`")
+					}
 				case KIs:
 					i++
 					switch tok() {
