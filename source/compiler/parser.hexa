@@ -1881,6 +1881,58 @@ class Parser {
 					next()
 					result = Node.Arrow(parseExpr(), [result], null)
 
+				case CascadeBlock: // .{
+					i++
+					var names: [String] = []
+					var el: [Node] = []
+					while tok() != Token.BlockClose {
+						names.push(getgo(Token.Identifier))
+						step(Token.Colon)
+						el.push(parseExpr())
+						if tok() == Token.Comma {
+							i++
+							if tok() == Token.BlockClose {
+								// Check if the comma was the last token on its line
+								let commaLine = lex.line[i - 1]
+								let nextTokenLine = lex.line[i]
+								if commaLine == nextTokenLine {
+									fail("Unexpected `}`, remove trailing `,` comma")
+								}
+								break
+							}
+						} else {
+							break
+						}
+					}
+					step(Token.BlockClose)
+					result = Node.Cascade(result, names, [], el)
+
+				case CascadeArray: // .[
+					i++
+					var keys: [Node] = []
+					var el: [Node] = []
+					while tok() != Token.IndexClose {
+						keys.push(parseExpr())
+						step(Token.Colon)
+						el.push(parseExpr())
+						if tok() == Token.Comma {
+							i++
+							if tok() == Token.IndexClose {
+								// Check if the comma was the last token on its line
+								let commaLine = lex.line[i - 1]
+								let nextTokenLine = lex.line[i]
+								if commaLine == nextTokenLine {
+									fail("Unexpected `]`, remove trailing `,` comma")
+								}
+								break
+							}
+						} else {
+							break
+						}
+					}
+					step(Token.IndexClose)
+					result = Node.Cascade(result, [], keys, el)
+
 					// i++
 				case Increment:
 					switch result {
