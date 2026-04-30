@@ -672,7 +672,15 @@ class Parser {
 						if tok() == Token.Comma { // Object { k:v, ... }
 							i++
 							if tok() == Token.BlockClose { // Object { k:v, }
-								fail("Unexpected `}`, remove trailing `,` comma")
+								// Check if the comma was the last token on its line
+								let commaLine = lex.line[i - 1] // Line of the comma we just consumed
+								let nextTokenLine = lex.line[i] // Line of the next token (BlockClose)
+								if commaLine == nextTokenLine {
+									// Comma and } are on the same line - not allowed
+									fail("Unexpected `}`, remove trailing `,` comma")
+								}
+								// Comma was on a different line than } - allowed, break out of loop
+								break
 							}
 							continue
 						} else {
@@ -1792,9 +1800,7 @@ class Parser {
 					// Check if we're trying to index with empty brackets (no indices at all)
 					if indices.length == 0 {
 						failHint('Cannot index with empty brackets `[]`. Provide at least one index value.')
-					}
-
-					if indices.length == 1 {
+					} else if indices.length == 1 {
 						result = Node.Index(result, indices[0])
 					} else if indices.length == 2 {
 						result = Node.Index2D(result, indices[0], indices[1])
