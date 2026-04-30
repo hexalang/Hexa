@@ -2012,6 +2012,22 @@ class Parser {
 						case KAwait:
 							i++
 							result = Node.Await(result)
+						case KAs:
+							i++
+							// Check if this is expr.as(Type, expr) syntax
+							if tok() == Token.CallOpen {
+								i++
+								let toType = parseType()
+								var castKind: Node? = null
+								if tok() == Token.Comma {
+									i++
+									castKind = parseExpr()
+								}
+								step(Token.CallClose)
+								result = Node.Cast(result, toType, castKind)
+							} else {
+								fail('Expected `(` after `.as` for cast syntax')
+							}
 						case _:
 							result = Node.Dot(result, getgo(Token.Identifier))
 					}
