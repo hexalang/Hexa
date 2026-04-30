@@ -1896,233 +1896,233 @@ AI GENERATED DRAFT
 	- Flexible
 
 - Not a real value
-  - Cannot pass to functions
-  - Cannot store
-  - Compile-time only
+	- Cannot pass to functions
+	- Cannot store
+	- Compile-time only
 
 - Introspection
-  - Field names
-  - Type information
-  - Reflection support
+	- Field names
+	- Type information
+	- Reflection support
 
 ### Macros Metaprogramming
 
 - Syntax tree manipulation
-  - Declare `@decorator`
-  - Macro callback
+	- Declare `@decorator`
+	- Macro callback
 
 - Not part of syntax
-  - Separate sub-projects
-  - Not included in main project
-  - Executed before compilation
+	- Separate sub-projects
+	- Not included in main project
+	- Executed before compilation
 
 - Access to compiler API
-  - Normal code
-  - Reusable `.hexa` files
+	- Normal code
+	- Reusable `.hexa` files
 
 ## Async
 
 - Universal asynchrony primitive
-  - Other features platform-specific
-  - Flexible
-  - Combines all async/await concepts
+	- Other features platform-specific
+	- Flexible
+	- Combines all async/await concepts
 
 - `async` and `await` keywords
-  - Familiar
-  - Clear intent
+	- Familiar
+	- Clear intent
 
 ### Removing Color (Colorless Asynchrony)
 
 - `async(mode)` parameter
-  - `'async'` default
-  - `'autoAwait'` auto-wait all calls
-  - `'callerDecides'` use-site strategy
-  - `'disable'` no async
+	- `'async'` default
+	- `'autoAwait'` auto-wait all calls
+	- `'callerDecides'` use-site strategy
+	- `'disable'` no async
 
 - Caller picks strategy
-  - API-friendly
-  - Flexible
-  - Zero-cost when disabled
+	- API-friendly
+	- Flexible
+	- Zero-cost when disabled
 
 - Current context promotion
-  - Async context → async calls
-  - Without await → promise
-  - Convenient
+	- Async context → async calls
+	- Without await → promise
+	- Convenient
 
 - Alternative: `meta.spawn()`
-  - OS threads/pools
-  - Platform-dependent
+	- OS threads/pools
+	- Platform-dependent
 
 ### Fluent Await
 
 - Postfix `.await`
-  - Readable chaining
-  - Alternative to prefix `await`
+	- Readable chaining
+	- Alternative to prefix `await`
 
 - Chained async functions
-  - `fetch().await.json().await`
-  - Clear data flow
+	- `fetch().await.json().await`
+	- Clear data flow
 
 ### Auto-Await
 
 - Inverted async
-  - Implicitly awaiting
-  - Sync-looking code
-  - Actually async
+	- Implicitly awaiting
+	- Sync-looking code
+	- Actually async
 
 - For async without coloring
-  - Script-like convenience
-  - Leaf code
+	- Script-like convenience
+	- Leaf code
 
 - `async('autoAwait')`
-  - Implicitly awaited calls
-  - Explicit opt-out with `async`
-  - Only function calls auto-awaited
+	- Implicitly awaited calls
+	- Explicit opt-out with `async`
+	- Only function calls auto-awaited
 
 ## Regular Expressions
 
 - Patterns for pattern matching
-  - Advanced matching
-  - First-class support
+	- Advanced matching
+	- First-class support
 
 - With `or`
-  - Multiple patterns
-  - Alternatives
+	- Multiple patterns
+	- Alternatives
 
 - With flags
-  - `gimsu` flags
-  - Standard regex
+	- `gimsu` flags
+	- Standard regex
 
 - Named groups
-  - Bind to variables
-  - Guards for checks
-  - No regex recompilation
+	- Bind to variables
+	- Guards for checks
+	- No regex recompilation
 
 - Array patterns
-  - Repeated groups
-  - Bind to arrays
+	- Repeated groups
+	- Bind to arrays
 
 - Optional groups
-  - Bind to nullables
-  - Type-safe
+	- Bind to nullables
+	- Type-safe
 
 - Whole match binding
-  - `as` for capture
-  - Convenient
+	- `as` for capture
+	- Convenient
 
 - Guards
-  - Extra checks
-  - Re-bind with conversions
-  - Type-safe
+	- Extra checks
+	- Re-bind with conversions
+	- Type-safe
 
 - Repeated groups
-  - `*`, `+`, `{n,m}`, etc.
-  - Bind to arrays
-  - Powerful patterns
+	- `*`, `+`, `{n,m}`, etc.
+	- Bind to arrays
+	- Powerful patterns
 
 - Future optimization
-  - Transform to parser code
-  - Compile-time optimization
+	- Transform to parser code
+	- Compile-time optimization
 
 - JavaScript RegExp subset
-  - Lowest common denominator
-  - Platform-specific fallback
+	- Lowest common denominator
+	- Platform-specific fallback
 
 # Advanced Memory Management Beyond Ownership Model
 
 - ARC or GC by default
-  - Safe and performant
-  - No overhead for simple cases
-  - Platform-appropriate
+	- Safe and performant
+	- No overhead for simple cases
+	- Platform-appropriate
 
 - Optional ownership semantics
-  - Via decorators
-  - Enforce uniqueness and lifetimes
-  - No core syntax changes
+	- Via decorators
+	- Enforce uniqueness and lifetimes
+	- No core syntax changes
 
 - Track general data flow
-  - Not just memory
-  - RAII model
-  - Resource tracking
+	- Not just memory
+	- RAII model
+	- Resource tracking
 
 - Ownership decorators
-  - Normal decorators
-  - Fine-tuning
-  - Flexible
+	- Normal decorators
+	- Fine-tuning
+	- Flexible
 
 - `@local` for call-tree tracking
-  - Never leaves call tree
-  - Stack-like behavior
-  - Compatible with non-local
+	- Never leaves call tree
+	- Stack-like behavior
+	- Compatible with non-local
 
 - `@hide` for defensive programming
-  - Hide sensitive intermediates
-  - Prevent mistakes
-  - Explicit usage
+	- Hide sensitive intermediates
+	- Prevent mistakes
+	- Explicit usage
 
 - Defer with ownership
-  - Single-owning
-  - Executes on scope exit
-  - Transferable
+	- Single-owning
+	- Executes on scope exit
+	- Transferable
 
 # Native Programming
 
 - Multi-paradigm language
-  - High-level and low-level
-  - No explicit native syntax
-  - Existing concepts reused
+	- High-level and low-level
+	- No explicit native syntax
+	- Existing concepts reused
 
 - `@struct` decorator
-  - Native structure
-  - Constructor and methods
-  - No virtual table by default
+	- Native structure
+	- Constructor and methods
+	- No virtual table by default
 
 - Stack allocation by default
-  - Compiler enforced
-  - Not to leave stack
-  - Tracked
+	- Compiler enforced
+	- Not to leave stack
+	- Tracked
 
 - Heap allocation with `@heap`
-  - Explicit
-  - Still tracked
+	- Explicit
+	- Still tracked
 
 - Referential type by default
-  - Pointer
-  - Cast from address
+	- Pointer
+	- Cast from address
 
 - `ByValue<T>` for value types
-  - Explicit value-ness
-  - Inferred when possible
-  - `.ref` to get reference
+	- Explicit value-ness
+	- Inferred when possible
+	- `.ref` to get reference
 
 - Direct construction
-  - No constructor call
-  - Manual initialization
+	- No constructor call
+	- Manual initialization
 
 - Union structures
-  - `@union @struct`
-  - Same as C unions
-  - Tracked allocation
+	- `@union @struct`
+	- Same as C unions
+	- Tracked allocation
 
 - Other features
-  - `@entry`, `@volatile`, `@weak`
-  - `Span<T>`, SIMD
-  - `@synchronized` for thread-safety
+	- `@entry`, `@volatile`, `@weak`
+	- `Span<T>`, SIMD
+	- `@synchronized` for thread-safety
 
 ### Assertions/Debuggability
 
 - Compile-time checks
-  - `@sizeOf` decorator
-  - Enforces structure size
+	- `@sizeOf` decorator
+	- Enforces structure size
 
 - Runtime checks
-  - `console.assert`
-  - Condition and message
+	- `console.assert`
+	- Condition and message
 
 - Meta methods for debugging
-  - `meta.scream` for unreachable
-  - `.meta.echo` for tracing
-  - `.meta.dump` for inspection
+	- `meta.scream` for unreachable
+	- `.meta.echo` for tracing
+	- `.meta.dump` for inspection
 
 # Intentional Omissions
 
