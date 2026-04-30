@@ -1461,6 +1461,7 @@ class Typer {
 	var functionThrows = false // `throw` is happened
 	var insideTry = false // `try { insideTry } catch ... { ... }`
 	var insideFunction = false // `function () { insideFunction }`
+	var insideAsync = false
 	var allowBreakAndContinue = false // Used in loops
 	var functionReturnsAType: Type? = null // `: T` is happened, or infer if `null`
 	var functionActuallyReturns: Bool = false // `return something` is actually happened
@@ -2312,6 +2313,7 @@ class Typer {
 		pushScope()
 		// Save stack
 		let _insideFunction = insideFunction
+		let _insideAsync = insideAsync
 		let _functionAllowedToThrow = functionAllowedToThrow
 		let _functionThrows = functionThrows
 		let _functionReturnsAType = functionReturnsAType
@@ -2403,6 +2405,7 @@ class Typer {
 		}
 
 		insideFunction = true
+		insideAsync = project.mapAsync.get(node) == true
 		insideTry = false
 
 		if arrow, expr != null {
@@ -2432,6 +2435,7 @@ class Typer {
 
 		// Restore stack
 		insideFunction = _insideFunction
+		insideAsync = _insideAsync
 		functionReturnsAType = _functionReturnsAType
 		functionActuallyReturns = _functionActuallyReturns
 
@@ -2712,7 +2716,6 @@ class Typer {
 				allowBreakAndContinue = _allowBreakAndContinue
 				popScope()
 
-				// `function name(vars): rettype {expr}`
 			// `function name(vars): rettype {expr}`
 				// `vars` are `Var(name, t, ...)` where `function(name: t)`
 			case Function(name, expr, vars, rettype, external):
@@ -4167,6 +4170,9 @@ class Typer {
 
 				// `await e`
 			case Await(e):
+				if not insideAsync {
+					fail('Cannot use `await` outside of async function', node)
+				}
 				fillExpression(e)
 				// TODO if e is Promise<T>, return T
 				types.set(node, types.get(e))
