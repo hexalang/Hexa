@@ -339,6 +339,7 @@ class TestParser {
 				'{a:1,b:2,\n}' : 'Object([a,b],[Int(1),Int(2)])', // object trailing comma on different line - allowed
 				'add(1,\n)' : 'Call(Ident(add),[Int(1)])', // call trailing comma on different line - allowed
 				'add(1,2,\n)' : 'Call(Ident(add),[Int(1),Int(2)])', // call trailing comma on different line - allowed
+				'[0, ...a, ...b]' : 'Array([Int(0),Spread(Ident(a)),Spread(Ident(b))])',
 				'{a:1,\n}' : 'Object([a],[Int(1)])', // object trailing comma on different line - allowed
 				'{a:1,b:2,\n}' : 'Object([a,b],[Int(1),Int(2)])', // object trailing comma on different line - allowed
 				'matrix[0, 0]' : 'Index2D(Ident(matrix),Int(0),Int(0))',
@@ -494,6 +495,8 @@ class TestParser {
 
 		// Destructuring & Spreads
 		shouldAllEqual([
+				'...a' : 'Spread(Ident(a))',
+				'let c = [0, ...a, ...b]' : 'Var(c,null,Array([Int(0),Spread(Ident(a)),Spread(Ident(b))]),true,false)'
 			])
 
 		// Advanced Literals (BigInt, Complex, Raw/Tagged Strings)
@@ -794,6 +797,7 @@ class TestParser {
 			case Break: return 'Break'
 			case Continue: return 'Continue'
 			case Underscore: return 'Wildcard'
+			case Spread(value): return 'Spread(' + stringify(value) + ')'
 			case Interval: return 'Interval'
 
 				// Have sub-nodes
@@ -927,7 +931,7 @@ class TestParser {
 				return res + "])"
 		}
 
-		return '<!--stringify-->'
+		return '<!--TestParser.stringifyInternal-->'
 	}
 
 	static fun stringifyArray(nodes: [Node]): String {
@@ -979,7 +983,7 @@ class TestParser {
 			case null: return 'null'
 		}
 
-		return '<!--stringifyType-->'
+		return '<!--TestParser.stringifyTypeInternal-->'
 	}
 
 	/// Fix invisible chars like \t\r\n for readable error messages
