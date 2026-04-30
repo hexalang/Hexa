@@ -236,6 +236,15 @@ class TestParser {
 				'fun f(,) {}'
 			])
 
+		// Async
+		shouldAllEqual([
+				'async fun a() {}': 'Async(Function(a,Block([]),[],null,false,false),null)',
+				'async(1) fun a() {}': 'Async(Function(a,Block([]),[],null,false,false),Int(1))',
+				'private async(mode) static fun a() {}': 'Private(Async(Static(Function(a,Block([]),[],null,false,false)),Ident(mode)))',
+				'class A { async fun a() {} }': 'Class(Type(A),null,[],[Async(Function(a,Block([]),[],null,false,false),null)],false)',
+				'class A { async(1 + 1) fun a() {} }': 'Class(Type(A),null,[],[Async(Function(a,Block([]),[],null,false,false),Binop(Int(1),+,Int(1)))],false)'
+			])
+
 		// Property
 		shouldAllError([
 				'class A { var i: Int { set (value) {} } }', // set before get
@@ -995,6 +1004,14 @@ class TestParser {
 		let isReadonly = project.typeReadonly.get(node)
 		if let isReadonly = isReadonly, isReadonly {
 			res = 'Readonly(' + res + ')'
+		}
+		let isAsync = project.mapAsync.get(node)
+		if let isAsync = isAsync, isAsync {
+			if let mode = project.mapAsyncMode.get(node) {
+				res = 'Async(' + res + ',' + stringify(mode) + ')'
+			} else {
+				res = 'Async(' + res + ',null)'
+			}
 		}
 		return res
 	}
