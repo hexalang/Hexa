@@ -849,20 +849,27 @@ class Parser {
 				// return
 			case KReturn:
 				i++
-				switch tok() {
-					// TODO `throw` etc?
-					case BlockClose: result = Node.Return(null)
-					case KVar: result = Node.Return(null)
-					case KLet: result = Node.Return(null)
-					case KCase: result = Node.Return(null)
-					case KBreak: result = Node.Return(null)
-					case KContinue: result = Node.Return(null)
+				// Check if the next token is on the next line - if so, treat as return with no value
+				let returnLine = lex.line[i - 1]
+				let nextTokenLine = lex.line[i]
+				if nextTokenLine != returnLine {
+					result = Node.Return(null)
+				} else {
+					switch tok() {
+						// TODO `throw` etc?
+						case BlockClose: result = Node.Return(null)
+						case KVar: result = Node.Return(null)
+						case KLet: result = Node.Return(null)
+						case KCase: result = Node.Return(null)
+						case KBreak: result = Node.Return(null)
+						case KContinue: result = Node.Return(null)
 
-						// TODO infer non-returning function right in parser
-						// (so it is instantly guessed to be Void)
-						// seems incompatible with macro
-					case KReturn: result = Node.Return(null)
-					case _: result = Node.Return(parseExpr())
+							// TODO infer non-returning function right in parser
+							// (so it is instantly guessed to be Void)
+							// seems incompatible with macro
+						case KReturn: result = Node.Return(null)
+						case _: result = Node.Return(parseExpr())
+					}
 				}
 			case KThrow:
 				i++
@@ -1807,6 +1814,16 @@ class Parser {
 					}
 					result = Node.As(result, kind, parseType())
 				case CallOpen: { // `call(a, name: b, c)`
+						// Check if `(` is on the next line - if so, don't treat as call
+						let resultLine = lex.line[i - 1]
+						let callOpenLine = lex.line[i]
+						if callOpenLine != resultLine {
+							// The `(` is on a different line, so this is likely a new parenthesized expression
+							// not a call operation. Stop the postfix loop to let it be parsed separately.
+							done = true
+							break
+						}
+
 						var args: [Node] = []
 						var argNames: [String] = []
 						i++
