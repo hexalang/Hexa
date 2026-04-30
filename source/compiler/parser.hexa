@@ -1383,9 +1383,18 @@ class Parser {
 						}
 						if tok() == Token.Comma {
 							i++
-							// Trailing comma [a,]
+							// Trailing comma [a,] - only allow if it's the last token on the line
 							if tok() == Token.IndexClose {
-								fail('Unexpected `]`, remove trailing comma `,` before `]` or add a value after `,` if required')
+								// Check if the comma was the last token on its line
+								let commaLine = lex.line[i - 1] // Line of the comma we just consumed
+								let nextTokenLine = lex.line[i] // Line of the next token (IndexClose)
+								if commaLine == nextTokenLine {
+									// Comma and ] are on the same line - not allowed
+									// TODO better message
+									fail('Unexpected `]`, remove trailing comma `,` before `]` or add a value after `,` if required')
+								}
+								// Comma was on a different line than ] - allowed, break out of loop
+								break
 							}
 						} else {
 							break
