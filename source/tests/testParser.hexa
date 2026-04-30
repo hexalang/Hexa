@@ -50,6 +50,7 @@ class TestParser {
 
 				// BigInt variations - use MetaInt instead
 				"123n" : 'MetaInt(123,BigInt)',
+				"0xFFn" : 'MetaInt(255,BigInt)',
 
 				// Underscore separators
 
@@ -384,8 +385,12 @@ class TestParser {
 				// 4. String Interpolation (Curly braces)
 
 				// 5. Control Flow (If/Switch)
+				'if x > 0 { y }' : 'If([Binop(Ident(x),>,Int(0))],Block([Ident(y)]),null)',
+				'switch x { case 1: 2 case _: 3 }' : 'Switch([Ident(x)],[Int(1),Wildcard],[null,null],[Int(2),Int(3)])',
 
 				// 6. Functions (Space separated args, return type after paren)
+				'fun add(a Int, b Int) Int { a + b }' : 'Function(add,Block([Binop(Ident(a),+,Ident(b))]),[Var(a,Type(Int),null,true,false),Var(b,Type(Int),null,true,false)],Type(Int),false,false)',
+
 				// 7. Decorators
 				'@inline fun foo() {}' : 'Decorator(inline,[],Function(foo,Block([]),[],null,false,false))',
 				'/// Doc comment\n@inline fun foo() {}' : 'Doc( Doc comment,Decorator(inline,[],Function(foo,Block([]),[],null,false,false)))',
@@ -443,6 +448,8 @@ class TestParser {
 				// Function Overloading
 
 				// Loops and Array Comprehension
+				'for a in b { a }' : 'For(a,Ident(b),Block([Ident(a)]),null)',
+				'do { a } while b' : 'While(Ident(b),Block([Ident(a)]),false)',
 
 				// Regular Expressions
 
@@ -464,6 +471,7 @@ class TestParser {
 				'@local var a = 1' : 'Decorator(local,[],Var(a,null,Int(1),false,false))',
 				'@tag(\'div\') fun f() {}' : 'Decorator(tag,[String(div)],Function(f,Block([]),[],null,false,false))',
 				'@flagOnce("locked") fun f() {}' : 'Decorator(flagOnce,[String(locked)],Function(f,Block([]),[],null,false,false))',
+				'@struct @packed class A {}' : 'Decorator(packed,[],Decorator(struct,[],Class(Type(A),null,[],[],false)))',
 				'a++' : 'Unop(++,true,Ident(a))',
 				'a--' : 'Unop(--,true,Ident(a))',
 				'a and b' : 'Binop(Ident(a),and,Ident(b))',
@@ -481,7 +489,13 @@ class TestParser {
 				'let result = { return\n1 + 2 }' : 'Var(result,null,Block([Return(null),Binop(Int(1),+,Int(2))]),true,false)',
 				'if x > 0, y < 10 { a }' : 'If([Binop(Ident(x),>,Int(0)),Binop(Ident(y),<,Int(10))],Block([Ident(a)]),null)',
 				'if let x = a, y > b, let z = c { a }' : 'If([Var(x,null,Ident(a),true,false),Binop(Ident(y),>,Ident(b)),Var(z,null,Ident(c),true,false)],Block([Ident(a)]),null)',
-				'guard let name, let age, age >= 18 else { return }' : 'Guard([Var(name,null,null,true,false),Var(age,null,null,true,false),Binop(Ident(age),>=,Int(18))],Block([Return(null)]))'
+				'guard let name, let age, age >= 18 else { return }' : 'Guard([Var(name,null,null,true,false),Var(age,null,null,true,false),Binop(Ident(age),>=,Int(18))],Block([Return(null)]))',
+				'do { x++ } while x < 10' : 'While(Binop(Ident(x),<,Int(10)),Block([Unop(++,true,Ident(x))]),false)',
+				'@skipNulls for item in items { a }' : 'Decorator(skipNulls,[],For(item,Ident(items),Block([Ident(a)]),null))',
+				'for i in 0 ... 10 { a }' : 'For(i,Int(0),Block([Ident(a)]),Int(10))',
+				'for i in count { a }' : 'For(i,Ident(count),Block([Ident(a)]),null)',
+				'@step(2) for i in 0 ... array.length { a }' : 'Decorator(step,[Int(2)],For(i,Int(0),Block([Ident(a)]),Dot(Ident(array),length)))',
+				'let array = for i in 10 { i * 2 }' : 'Var(array,null,For(i,Int(10),Block([Binop(Ident(i),*,Int(2))]),null),true,false)'
 			])
 
 		// Readonly & Immutability modifiers
@@ -490,7 +504,9 @@ class TestParser {
 				'let a = readonly [1, 2]' : 'Var(a,null,Readonly(Array([Int(1),Int(2)])),true,false)', // readonly wrapper displayed
 				'let obj = readonly { x: 1 }' : 'Var(obj,null,Readonly(Object([x],[Int(1)])),true,false)', // readonly wrapper displayed
 				'readonly fun map() {}' : 'Readonly(Function(map,Block([]),[],null,false,false))', // readonly wrapper displayed
-				'readonly 5' : 'Readonly(Int(5))' // readonly wrapper displayed
+				'readonly 5' : 'Readonly(Int(5))',
+				'readonly "hello"' : 'Readonly(String(hello))',
+				'readonly x' : 'Readonly(Ident(x))'
 			])
 
 		// Destructuring & Spreads
@@ -501,6 +517,8 @@ class TestParser {
 
 		// Advanced Literals (BigInt, Complex, Raw/Tagged Strings)
 		shouldAllEqual([
+				'let a = 123n' : 'Var(a,null,MetaInt(123,BigInt),true,false)',
+				'let c = 2i' : 'Var(c,null,Float(2,Complex),true,false)'
 			])
 
 		// Shorthands (If-let, Objects)
@@ -563,9 +581,19 @@ class TestParser {
 
 		// Implicit Generics (Type omission)
 		shouldAllEqual([
+				'fun id(x) { return x }' : 'Function(id,Block([Return(Ident(x))]),[Var(x,null,null,true,false)],null,false,false)',
+				'let cb = (x) => x * 2' : 'Var(cb,null,Arrow(Binop(Ident(x),*,Int(2)),[Var(x,null,null,true,false)],null),true,false)',
+				'let cb = x => x * 2' : 'Var(cb,null,Arrow(Binop(Ident(x),*,Int(2)),[Var(x,null,null,true,false)],null),true,false)',
 				'add(a: 1, b: 2)' : 'Call(Ident(add),[a:Int(1),b:Int(2)])',
 				'add(b: 1, a: 2)' : 'Call(Ident(add),[b:Int(1),a:Int(2)])',
 				'add(a: 1, 2)' : 'Call(Ident(add),[a:Int(1),Int(2)])',
+				'fun example<T>(x T) T { return x }' : 'Function(example,Block([Return(Ident(x))]),[Var(x,Type(T),null,true,false)],Type(T),false,false)',
+				'x => x * 2' : 'Arrow(Binop(Ident(x),*,Int(2)),[Var(x,null,null,true,false)],null)',
+				'(x, y) => x + y' : 'Arrow(Binop(Ident(x),+,Ident(y)),[Var(x,null,null,true,false),Var(y,null,null,true,false)],null)',
+				'fun (x Int) Int { return x }' : 'Function(null,Block([Return(Ident(x))]),[Var(x,Type(Int),null,true,false)],Type(Int),false,false)',
+				'fun identity(x) { return x }' : 'Function(identity,Block([Return(Ident(x))]),[Var(x,null,null,true,false)],null,false,false)',
+				'fun variadic(arg Int, ...args Int) { a }' : 'Function(variadic,Block([Ident(a)]),[Var(arg,Type(Int),null,true,false),Var(args,Type(Int),null,true,false)],null,false,true)',
+				'fun forward(...args) { a }' : 'Function(forward,Block([Ident(a)]),[Var(args,null,null,true,false)],null,false,true)',
 				'readonly class Point { var x Int }' : 'Readonly(Class(Type(Point),null,[],[Var(x,Type(Int),null,false,false)],false))',
 				'class Point { var x Int readonly fun distance() Int { 1 } }' : 'Class(Type(Point),null,[],[Var(x,Type(Int),null,false,false),Readonly(Function(distance,Block([Int(1)]),[],Type(Int),false,false))],false)',
 				'type AddableCopyableMovable Add Copy Move {}' : 'Type(Type(AddableCopyableMovable),null,[Type(Add),Type(Copy),Type(Move)],[],false)',
@@ -650,12 +678,8 @@ class TestParser {
 				// Old Syntax Rejections (if enforcing strict new syntax)
 				// 'var x: Int = 1', // Colon not allowed in var decl
 
-				// Invalid Nullability
-				// 'var x Int = null', // Null assigned to non-nullable
-
 				// Invalid Array/Map Syntax
-				// 'var x Array<Int> = []', // If [Int] is preferred/enforced for literals
-				// '[1, 2,]', // Trailing comma error if enforced strictly in this context (ref says trailing comma allowed in multi-line, but maybe not single line? Ref says "Trailing comma is allowed when the line ends with a newline")
+				// 'var x = [:]', // `[]` is preferred/enforced for literals
 
 				// `new T` is deprecated
 				// 'new T()'
