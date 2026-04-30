@@ -320,6 +320,21 @@ class TestParser {
 				'blocks[x, y, z]' : 'Index3D(Ident(blocks),Ident(x),Ident(y),Ident(z))'
 			])
 
+		// Indexing error messages (soft-fails - parser continues)
+		shouldAllError([
+				'value[]', // Empty brackets - no indices (soft-fail)
+				'array[0, 1, 2, 3]', // More than 3 dimensions (soft-fail)
+			])
+
+		// Indexing with next-line [ should parse as separate expressions
+		shouldAllEqual([
+				'[][0]' : 'Index(Array([]),Int(0))', // Empty array indexed is valid
+				'[][0, 1]' : 'Index2D(Array([]),Int(0),Int(1))', // Empty array with 2D indexing
+				'[][0, 1, 2]' : 'Index3D(Array([]),Int(0),Int(1),Int(2))', // Empty array with 3D indexing
+				'code\n[0]' : 'Block([Ident(code),Array([Int(0)])])', // Separate expressions
+				'matrix\n[0, 0]' : 'Block([Ident(matrix),Array([Int(0),Int(0)])])', // Separate expressions
+			])
+
 		// New syntax
 		shouldAllEqual([
 				// 1. Variable Declarations (Space-separated types, no semicolons)
