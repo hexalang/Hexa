@@ -203,10 +203,13 @@ enum Node {
 	For(iterator String, over Node, statement Node, range Node)
 	// TODO `range Node?`
 
-	/// `nullable ?? alternative`
+	/// Elvis Presley operator `nullable ?? alternative`
 	Elvis(nullable Node, alternative Node)
 
-	/// guard let x = a else { return }
+	/// `obj.{ x: 1 }` or `expr.[0: 1]`
+	Cascade(expr Node, names [String], keys [Node], values [Node])
+
+	/// `guard let x = a else { return }`
 	Guard(conditions [Node], otherwise Node)
 
 	/// `T<A, B>` but as expression
@@ -225,6 +228,20 @@ enum Node {
 			case This: return "this"
 			case Parenthesis(expr): return "(" + Node.stringify(expr) + ")"
 			case Elvis(nullable, alternative): return 'Elvis(' + stringify(nullable) + ',' + stringify(alternative) + ')'
+			case Cascade(e, names, keys, values):
+				var res = "Cascade(" + stringify(e) + ",["
+				if names.length > 0 {
+					for i in names.length {
+						res += names[i] + ":" + stringify(values[i])
+						if i != names.length - 1 { res += "," }
+					}
+				} else {
+					for i in keys.length {
+						res += stringify(keys[i]) + ":" + stringify(values[i])
+						if i != keys.length - 1 { res += "," }
+					}
+				}
+				return res + "])"
 			case Guard(conditions, otherwise): return 'Guard(' + [for el in conditions Node.stringify(el)] + ',' + stringify(otherwise) + ')'
 			case Index(expr, index): return Node.stringify(expr) + '[' + Node.stringify(index) + ']'
 			case Index2D(expr, x, y): return Node.stringify(expr) + '[' + Node.stringify(x) + ', ' + Node.stringify(y) + ']'
@@ -442,6 +459,13 @@ enum Node {
 			}
 			case Static(f):
 				return cloneData(p, node, Node.Static(cloneData(p, f, clone(p, f))))
+			case Cascade(expr, names, keys, values):
+				return cloneData(p, node, Node.Cascade(
+					cloneData(p, expr, clone(p, expr)),
+					names,
+					keys.map(arg => cloneData(p, arg, clone(p, arg))),
+					values.map(arg => cloneData(p, arg, clone(p, arg)))
+				))
 			case Guard(conditions, otherwise):
 				return cloneData(p, node, Node.Guard(
 					conditions.map(arg => cloneData(p, arg, clone(p, arg))),
