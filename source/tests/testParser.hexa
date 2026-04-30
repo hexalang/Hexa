@@ -324,6 +324,7 @@ class TestParser {
 		shouldAllError([
 				'value[]', // Empty brackets - no indices (soft-fail)
 				'array[0, 1, 2, 3]', // More than 3 dimensions (soft-fail)
+				'value\n(1, 2)' // Parsed as `(a, b)` which is invalid
 			])
 
 		// Indexing with next-line [ should parse as separate expressions
@@ -333,6 +334,8 @@ class TestParser {
 				'[][0, 1, 2]' : 'Index3D(Array([]),Int(0),Int(1),Int(2))', // Empty array with 3D indexing
 				'code\n[0]' : 'Block([Ident(code),Array([Int(0)])])', // Separate expressions
 				'matrix\n[0, 0]' : 'Block([Ident(matrix),Array([Int(0),Int(0)])])', // Separate expressions
+				'value\n(1)' : 'Block([Ident(value),Parenthesis(Int(1))])', // Separate expressions
+				'return\n123' : 'Block([Return(null),Int(123)])' // return; 123
 			])
 
 		// New syntax
@@ -434,6 +437,7 @@ class TestParser {
 				'a >> b' : 'Binop(Ident(a),>>,Ident(b))',
 				'a >>> b' : 'Binop(Ident(a),>>>,Ident(b))',
 				'a >>>= b' : 'AssignOp(Ident(a),>>>,Ident(b))',
+				'let result = { return\n1 + 2 }' : 'Var(result,null,Block([Return(null),Binop(Int(1),+,Int(2))]),true,false)',
 				'if x > 0, y < 10 { a }' : 'If([Binop(Ident(x),>,Int(0)),Binop(Ident(y),<,Int(10))],Block([Ident(a)]),null)',
 				'if let x = a, y > b, let z = c { a }' : 'If([Var(x,null,Ident(a),true,false),Binop(Ident(y),>,Ident(b)),Var(z,null,Ident(c),true,false)],Block([Ident(a)]),null)',
 				'guard let name, let age, age >= 18 else { return }' : 'Guard([Var(name,null,null,true,false),Var(age,null,null,true,false),Binop(Ident(age),>=,Int(18))],Block([Return(null)]))'
