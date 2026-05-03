@@ -816,83 +816,6 @@ class Typer {
 									)
 								}
 
-							case Static(f): switch f {
-									case Function(name, expr, vars, rettype, _, variadic):
-										if let rettype = rettype {
-											types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
-											types.set(field, types.get(f))
-										}
-
-									case Var(name, t, e, const):
-										if let t = t {
-											types.set(f, toType(t, f))
-											types.set(field, types.get(f))
-										}
-								}
-						} }
-
-					// Fill expressions
-					for field in f { switch field {
-							// Instance method
-							case Function(name, expr, vars, rettype, _, variadic):
-								// console.log('class fun [full]', name, type.name)
-								if name == 'new' {
-									// TODO this is wrong
-									// type.constructor = type.fieldNames.length - 1
-								}
-
-								if external, expr != null {
-									if name == 'new' {
-										fail('External class constructor `new()` cannot have a body `{}`', field)
-									} else {
-										fail('External class method `function \(name)` cannot have a body `{}`', field)
-									}
-								}
-
-								let _insideClassMethod = insideClassMethod
-								let _allowSuper = allowSuper
-								insideClassMethod = true
-								allowSuper = (extend != null)
-
-								if not external {
-									// TODO
-									let rettype = name == 'new'? t : rettype
-									fillFunction(field, expr, vars, rettype)
-								}
-
-								if external, types.get(field) == null {
-									types.set(
-										field,
-										Type.Function(
-											varTypes(vars),
-											// TODO is `rettype == null` valid for externals?
-											rettype != null? toType(rettype, field) : typeVoid,
-											variadic
-										)
-									)
-								}
-
-								insideClassMethod = _insideClassMethod
-								allowSuper = _allowSuper
-
-								// Field of `var` or `let`
-							case Var(name, t, e, const):
-								if external, e != null {
-									fail('External class field `var \(name)` cannot have `= value`', field)
-								}
-								let _insideClassMethod = insideClassMethod
-								insideClassMethod = true
-								if e != null {
-									fillExpression(e)
-								}
-								insideClassMethod = _insideClassMethod
-								mixVarTypes(t, e, field)
-								classType.fieldInitialized[classType.fieldNames.indexOf(name)] = true
-								if types.get(field) == null {
-									fail('Field `var \(name)` initialized, but got no type ' + e, field)
-								}
-
-								// The thing with getters and setters
 							case Property(f, _, _):
 								switch f {
 									case Var(name, t, e, const):
@@ -912,39 +835,99 @@ class Typer {
 										}
 										types.set(field, types.get(f))
 								}
+						} }
 
-								// `static f`
-							case Static(f): switch f {
-									case Function(name, expr, vars, rettype, _, variadic):
-										if external, expr != null {
-											fail('External class field `static fun \(name)` cannot have a body', field)
-										}
-										let _insideClassMethod = insideClassMethod
-										insideClassMethod = false
-										if not external {
-											fillFunction(f, expr, vars, rettype)
-										}
-										if external {
-											types.set(f, Type.Function(varTypes(vars), rettype != null? toType(rettype, f) : typeVoid, variadic))
-										}
-										insideClassMethod = _insideClassMethod
-										if types.get(f) == null {
-											fail('Function get no type: class ' + DataHelper.nameOf(node) + ' static ' + name, f)
-										}
-										types.set(field, types.get(f))
-									case Var(name, t, e, const):
-										if external, e != null {
-											fail('External class field `static var \(name)` cannot have expression', field)
-										}
-										if e != null {
-											fillExpression(e)
-										}
-										mixVarTypes(t, e, f)
-										types.set(field, types.get(f))
+					// Fill expressions
+					for field in f { switch field {
+							// Instance method or static method
+						case Function(name, expr, vars, rettype, _, variadic):
+							// console.log('class fun [full]', name, type.name)
+							if name == 'new' {
+								// TODO this is wrong
+								// type.constructor = type.fieldNames.length - 1
+							}
+
+							let isStatic = project.mapStatic.get(field) == true
+
+							if external, expr != null {
+								if name == 'new' {
+									fail('External class constructor `new ()` cannot have a body `{}`', field)
+								} else {
+									let prefix = isStatic ? 'static ' : ''
+									fail('External class field `\(prefix)function \(name)` cannot have a body `{}`', field)
 								}
+							}
 
-							case _:
-								fail('Wrong class field format', node)
+							let _insideClassMethod = insideClassMethod
+							let _allowSuper = allowSuper
+							insideClassMethod = not isStatic
+							allowSuper = (extend != null) and not isStatic
+
+							if not external {
+								// TODO
+								let rettype = name == 'new'? t : rettype
+								fillFunction(field, expr, vars, rettype)
+							}
+
+							if external, types.get(field) == null {
+								types.set(
+									field,
+									Type.Function(
+										varTypes(vars),
+										// TODO is `rettype == null` valid for externals?
+										rettype != null? toType(rettype, field) : typeVoid,
+										variadic
+									)
+								)
+							}
+
+							insideClassMethod = _insideClassMethod
+							allowSuper = _allowSuper
+
+							// Field of `var` or `let`
+						case Var(name, t, e, const):
+							let isStatic = project.mapStatic.get(field) == true
+							if external, e != null {
+								let prefix = isStatic ? 'static ' : ''
+								fail('External class field `\(prefix)var \(name)` cannot have `= value`', field)
+							}
+							let _insideClassMethod = insideClassMethod
+							insideClassMethod = not isStatic
+							if e != null {
+								fillExpression(e)
+							}
+							insideClassMethod = _insideClassMethod
+							mixVarTypes(t, e, field)
+							classType.fieldInitialized[classType.fieldNames.indexOf(name)] = true
+							if types.get(field) == null {
+								let prefix = isStatic ? 'static ' : ''
+								// TODO internal error?
+								fail('Field `\(prefix)var \(name)` initialized, but got no type ' + e, field)
+							}
+
+							// The thing with getters and setters
+						case Property(f, _, _):
+							switch f {
+								case Var(name, t, e, const):
+									if external, e != null {
+										fail('External class field `var \(name)` cannot have expression', field)
+									}
+									let _insideClassMethod = insideClassMethod
+									insideClassMethod = true
+									if e != null {
+										fillExpression(e)
+									}
+									insideClassMethod = _insideClassMethod
+									mixVarTypes(t, e, f)
+									classType.fieldInitialized[classType.fieldNames.indexOf(name)] = true
+									if types.get(f) == null {
+										fail('Property `\(name)` initialized, but got no type ' + e, field)
+									}
+									types.set(field, types.get(f))
+							}
+
+						case _:
+							fail('Wrong class field format', node)
 						} }
 
 					popScope()
@@ -1188,30 +1171,27 @@ class Typer {
 							case Ident(name):
 								fail('Cannot use lowercase `\(name)` format for enum values', node)
 
-								// `enum E { static ... }`
-							case Static(f): switch f {
-									case Function(name, _):
-										// console.log('enum static fun', name, type.name) // TODO
-										if enumType.fieldNames.includes(name) {
-											fail('Field `\(name)` already exists', node)
-										}
-										enumType.fieldNames.push(name)
-										enumType.fieldStatic[enumType.fieldNames.length - 1] = true
-										addScope(name, field)
-									case Var(name, _):
-										if enumType.fieldNames.includes(name) {
-											fail('Field `\(name)` already exists', node)
-										}
-										enumType.fieldNames.push(name)
-										enumType.fieldStatic[enumType.fieldNames.length - 1] = true
-										addScope(name, field)
-								}
-
-							case Function(name, expr, vars, rettype):
-								fail('Enum fields cannot be functions', field)
-								// TODO allow but as non-virtual
-							case _:
-								fail('Wrong enum field format', field)
+							// `enum E { static fun ... }` or `enum E { static var ... }`
+						case Function(name, _):
+							if enumType.fieldNames.includes(name) {
+								fail('Field `\(name)` already exists', node)
+							}
+							enumType.fieldNames.push(name)
+							if project.mapStatic.get(field) == true {
+								enumType.fieldStatic[enumType.fieldNames.length - 1] = true
+							}
+							addScope(name, field)
+						case Var(name, _, _, _):
+							if enumType.fieldNames.includes(name) {
+								fail('Field `\(name)` already exists', node)
+							}
+							enumType.fieldNames.push(name)
+							if project.mapStatic.get(field) == true {
+								enumType.fieldStatic[enumType.fieldNames.length - 1] = true
+							}
+							addScope(name, field)
+						case _:
+							fail('Wrong enum field format', field)
 						}
 
 						parents.set(field, node)
@@ -1220,35 +1200,30 @@ class Typer {
 					// Fill expressions
 					for field in f { switch field {
 							case Function(name, expr, vars, rettype, _, variadic):
+								let isStatic = project.mapStatic.get(field) == true
+								let _insideClassMethod = insideClassMethod
+								insideClassMethod = not isStatic
+
+								// This weird hack, because of race condition
+                                // if function called within self
+								if let rettype = rettype {
+									types.set(field, Type.Function(varTypes(vars), toType(rettype, field), variadic))
+								} else {
+									types.set(field, Type.Function(varTypes(vars), typeVoid, variadic))
+								}
+
 								fillFunction(field, expr, vars, rettype)
-							case Var(name, _):
-							case Static(f): switch f {
-									case Function(name, expr, vars, rettype, _, variadic):
-										// console.log('enum static fun [fill]', name, type.name) // TODO
-										let _insideClassMethod = insideClassMethod
-										insideClassMethod = false
-
-										// This weird hack, because of race condition
-										// if function called within self
-										if let rettype = rettype {
-											types.set(f, Type.Function(varTypes(vars), toType(rettype, f), variadic))
-										} else {
-											types.set(f, Type.Function(varTypes(vars), typeVoid, variadic))
-										}
-										types.set(field, types.get(f))
-
-										fillFunction(f, expr, vars, rettype)
-										insideClassMethod = _insideClassMethod
-										if types.get(f) == null {
-											fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' static ' + name, f)
-										}
-										types.set(field, types.get(f))
-									case Var(name, t, e, const):
-										if e != null {
-											fillExpression(e)
-										}
-										mixVarTypes(t, e, f)
-										types.set(field, types.get(f))
+								insideClassMethod = _insideClassMethod
+								if types.get(field) == null {
+									// TODO make `Map.set(k)` the `k` non-nullable y default to avoid those weird checks
+									fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' fun ' + name, field)
+								}
+							case Var(name, t, e, const):
+								if project.mapStatic.get(field) == true {
+									if e != null {
+										fillExpression(e)
+									}
+									mixVarTypes(t, e, field)
 								}
 							case NodeTypeValue(_): // Ok
 							case Call(_): // Ok
