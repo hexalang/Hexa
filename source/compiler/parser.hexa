@@ -103,8 +103,7 @@ class Parser {
 					var f = parseExpr()
 					project.data.set(f, pos)
 					if _static {
-						f = Node.Static(f)
-						project.data.set(f, pos)
+						project.mapStatic.set(f, true)
 					}
 					if _readonly {
 						project.mapReadonly.set(f, true)
@@ -119,8 +118,7 @@ class Parser {
 					var f = parseExpr()
 					project.data.set(f, pos)
 					if _static {
-						f = Node.Static(f)
-						project.data.set(f, pos)
+						project.mapStatic.set(f, true)
 					}
 					if _readonly {
 						project.mapReadonly.set(f, true)
@@ -136,8 +134,7 @@ class Parser {
 					var f = parseExpr()
 					project.data.set(f, pos)
 					if _static {
-						f = Node.Static(f)
-						project.data.set(f, pos)
+						project.mapStatic.set(f, true)
 					}
 					if _readonly {
 						project.mapReadonly.set(f, true)
@@ -580,16 +577,8 @@ class Parser {
 			}
 
 			var name: String? = null
-			var extracted = null
-			switch e {
-				case Private(el):
-				extracted = el
-				case Static(el):
-				extracted = el
-				case _: extracted = e
-			}
 
-			switch extracted {
+			switch e {
 				case Binop(a, op, b):
 					if op != Token.Assign fail('declare =')
 					switch a {
@@ -1745,13 +1734,10 @@ class Parser {
 				result = Node.For(name, values, expression, range)
 
 			case KStatic:
-				// TODO consume in the same way @decorators are consumed (global flag)
-				// TODO convert to simple flags instead of separate expr
+				// Consume `static` keyword and set the flag on the parsed expression
 				next()
-				let fieldExpr = parseExpr()
-				result = Node.Static(fieldExpr)
-				// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
-				project.data.set(result, project.data.get(fieldExpr))
+				result = parseExpr()
+				project.mapStatic.set(result, true)
 
 			case KAsync:
 				next()
@@ -1772,15 +1758,10 @@ class Parser {
 				project.data.set(result, project.data.get(fieldExpr))
 
 			case KPrivate:
-				// TODO consume in the same way @decorators are consumed (global flag)
-				// so when Var() constructed it passes Var(isPrivate)
-				// Typer should disallow `private` over disallowed places
-				// TODO convert to simple flags instead of separate expr
+				// Consume `private` keyword and set the flag on the parsed expression
 				next()
-				let fieldExpr = parseExpr()
-				result = Node.Private(fieldExpr)
-				// TODO here we reuse position of `fun` for `static/private fun` itself, but better to have separate pos
-				project.data.set(result, project.data.get(fieldExpr))
+				result = parseExpr()
+				project.mapPrivate.set(result, true)
 
 			case _: unexpected()
 		}
