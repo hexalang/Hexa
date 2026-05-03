@@ -759,6 +759,9 @@ class Typer {
 								}
 								classType.fields.set(name, ClassTypeField.Method)
 								addScope(name, field)
+								if project.mapStatic.get(field) == true {
+									classType.fieldStatic[classType.fieldNames.length - 1] = true
+								}
 							case Var(name, t, e, _):
 								if classType.fieldNames.includes(name) {
 									fail('Field `\(name)` already exists', field)
@@ -767,6 +770,9 @@ class Typer {
 								classType.fieldInitialized[classType.fieldNames.length - 1] = false
 								classType.fieldRenames[classType.fieldNames.length - 1] = getRename(field, name, classDecorators)
 								addScope(name, field)
+								if project.mapStatic.get(field) == true {
+									classType.fieldStatic[classType.fieldNames.length - 1] = true
+								}
 							case Property(field, _, _):
 								switch field {
 									case Var(name, _):
@@ -777,23 +783,6 @@ class Typer {
 										addScope(name, field)
 									case _:
 										fail('Field unrecognized', field)
-								}
-							case Static(f): switch f {
-									case Function(name, _):
-										if classType.fieldNames.includes(name) {
-											fail('Field `\(name)` already exists', field)
-										}
-										classType.fieldNames.push(name)
-										classType.fieldStatic[classType.fieldNames.length - 1] = true
-										// classType.fields.set(name, ClassTypeField.Method) // TODO
-										addScope(name, field)
-									case Var(name, _):
-										if classType.fieldNames.includes(name) {
-											fail('Field `\(name)` already exists', field)
-										}
-										classType.fieldNames.push(name)
-										classType.fieldStatic[classType.fieldNames.length - 1] = true
-										addScope(name, field)
 								}
 							case _:
 								fail('Wrong class field format', field)
@@ -1266,7 +1255,7 @@ class Typer {
 							case Binop(_): // TODO validate them
 							case _:
 								fail('Unknown enum field format', field)
-						} }
+					} }
 					popScope()
 				case _:
 					fail('EnumType expects (declare) enum node, but got ' + node, node)
@@ -1355,12 +1344,6 @@ class Typer {
 					return named
 				} else {
 					throw 'Module function should have a name'
-				}
-			case Private(node): switch node {
-					case Class(t, _): switch t {
-							case Type(name): return name
-							case ParametricType(name): return name
-						}
 				}
 			case Class(t, _): switch t {
 					case Type(name): return name
@@ -2285,7 +2268,7 @@ class Typer {
 
 	/// `Bool` or convertible to `Bool`
 	fun booleanable(checkType: Type?): Bool {
-		return (checkType == typeBool) or(checkType == typeAny)
+		return (checkType == typeBool) or (checkType == typeAny)
 		// if checkType == null {
 		// return false
 		// }
@@ -2535,6 +2518,12 @@ class Typer {
 
 				// `var name: t = e`
 			case Var(name, t, e, const, external):
+				if project.mapStatic.get(node) == true {
+					fail('Local variables cannot be `static`', node)
+				}
+				if project.mapPrivate.get(node) == true {
+					fail('Local variables cannot be `private`', node)
+				}
 				if e == null, const, not external {
 					fail('Constant should have a value `let \(name) = value`', node)
 				}
@@ -2630,8 +2619,6 @@ class Typer {
 								'Cannot reassign iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
 								node)
-						case Static(_):
-							// TODO is this ok?
 						case Super:
 							fail('Cannot reassign `super`', node)
 						case _:
@@ -2719,6 +2706,12 @@ class Typer {
 			// `function name(vars): rettype {expr}`
 				// `vars` are `Var(name, t, ...)` where `function(name: t)`
 			case Function(name, expr, vars, rettype, external):
+				if project.mapStatic.get(node) == true {
+					fail('Local functions cannot be `static`', node)
+				}
+				if project.mapPrivate.get(node) == true {
+					fail('Local functions cannot be `private`', node)
+				}
 				if not external, expr == null {
 					fail('Non-external function `\(name)` should have a body', node)
 				}
@@ -2993,7 +2986,7 @@ class Typer {
 									types.set(el[0], generic[0])
 								} else if overType == typeInt {
 									types.set(el[0], typeInt)
-								} else if ((overType == typeUInt32) or(overType == typeUInt64)) {
+								} else if ((overType == typeUInt32) or (overType == typeUInt64)) {
 									types.set(el[0], overType)
 								} else {
 									fail('Type of iterable is neither `Int` nor `Array`, but `' + Type.stringify(overType) + '`', over)
@@ -3200,7 +3193,7 @@ class Typer {
 															// reArgs.push(arg)
 															// }
 															let fixedArg = genericFixup(arg.dataType, generic)
-															changed = changed or(fixedArg != arg.dataType)
+															changed = changed or (fixedArg != arg.dataType)
 															let reArg = new FunctionArgument(fixedArg)
 															reArg.optional = arg.optional
 															reArg.name = arg.name
@@ -4200,40 +4193,22 @@ class Typer {
 				var parent: Node = parents.get(e)
 				switch parent {
 					case Var(name, _, _, const):
+						let isStatic = project.mapStatic.get(parent) == true
+						let prefix = isStatic ? 'static ' : ''
 						if const {
 							fail(
-								'Cannot change a constant `let \(name)`, redefine it as `var \(name)` to allow value changes\n'
-								+ positionOf(parent) + '`let \(name)` is defined here',
+								'Cannot change a constant `\(prefix)let \(name)`, redefine it as `\(prefix)var \(name)` to allow value changes\n'
+								+ positionOf(parent) + '`\(prefix)let \(name)` is defined here',
 								node)
 						}
 					case Function(name, _):
-						fail('Cannot `\(Token.stringify(op))` a function `\(name)`', node)
+						let prefix = project.mapStatic.get(parent) == true ? 'static ' : ''
+						fail('Cannot `\(Token.stringify(op))` a function `\(prefix)fun \(name)`', node)
 					case For(name, _):
 						fail(
 							'Cannot change iterator value `\(name)` of for loop\n'
 							+ positionOf(parent) + '`for \(name) in ...` is defined here',
 							node)
-					case Static(f): switch f {
-							case Function(name, _):
-								// if (type.fieldNames.includes(name))
-								// fail('Field `\(name)` already exists', field)
-								// type.fieldNames.push(name)
-								// type.fieldStatic[type.fieldNames.length - 1] = true
-								// addScope(name, field) TODO
-								fail('Cannot `\(Token.stringify(op))` a `static fun \(name)`', node)
-							case Var(name, _, _, const):
-								// if (type.fieldNames.includes(name))
-								// fail('Field `\(name)` already exists', field)
-								// type.fieldNames.push(name)
-								// type.fieldStatic[type.fieldNames.length - 1] = true
-								// addScope(name, field) TODO
-								if const {
-									fail(
-										'Cannot change a constant `static let \(name)`, redefine it as `static var \(name)` to allow value changes\n'
-										+ positionOf(parent) + '`static let \(name)` is defined here',
-										node)
-								}
-						}
 					case _:
 						switch e {
 							case Index(_):
@@ -4457,10 +4432,6 @@ class Typer {
 				// Errors
 			case Underscore:
 				fail('Cannot use underscore `_` outside of case pattern', node)
-			case Static(_):
-				fail('Cannot use `static` here: only applicable to class fields', node)
-			case Private(_):
-				fail('Cannot use `private` here: only applicable to class fields and module declarations', node)
 			case Module(_):
 				// fail('Modules should be at a file upper scope', node) TODO
 
