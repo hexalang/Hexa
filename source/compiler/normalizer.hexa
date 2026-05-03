@@ -293,7 +293,9 @@ class Normalizer {
 							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
 						case Var(name, _, _):
 							let staticSource = typer.parents.get(source)
-							if let map = typer.parents.get(source) { switch map as! Node {
+							// TODO make `K` of Map non-nullable in `.get` because here its confusing that `staticSource` may be null
+							if let map = typer.parents.get(source) {
+								switch map as! Node {
 								case Module(_):
 									let name = parentNames.get(source) ?? name
 									let result = Expression.Ident(globalAccessor + name, typer.types.get(source))
@@ -302,6 +304,19 @@ class Normalizer {
 									}
 									return result
 								case _:
+									// Check if this is a static field
+									if project.mapStatic.get(source) == true {
+										let staticSource = typer.parents.get(source)
+										switch staticSource {
+											case Class(t, _):
+												// TODO pass type into `Ident` instead of plain name
+												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
+											case Enum(t,_):
+												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
+											case _:
+												throw 'staticSource is \(staticSource) for \(name)'
+										}
+									}
 									let dataType = typer.types.get(typer.parents.get(source))
 									// TODO .This(dataType)
 									return Expression.Dot(Expression.This(thisType), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
@@ -315,21 +330,22 @@ class Normalizer {
 									}
 									return result
 								case _:
+									// Check if this is a static method
+									if project.mapStatic.get(source) == true {
+										let staticSource = typer.parents.get(source)
+										switch staticSource {
+											case Class(t, _):
+												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
+											case Enum(t,_):
+												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
+											case _:
+												throw 'staticSource is \(staticSource) for \(name)'
+										}
+									}
 									// TODO .This(type)
 									let dataType = typer.types.get(typer.parents.get(source))
 									return Expression.Dot(Expression.This(thisType), parentNames.get(source) ?? name, typer.types.get(e))
 							}
-							}
-
-						case Static(f):
-							let staticSource: Node? = typer.parents.get(source)
-							switch staticSource {
-								case Class(t, _):
-									return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
-								case Enum(t,_):
-									return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
-								case _:
-									throw 'staticSource is \(staticSource) for \(name)'
 							}
 					}
 					let result = Expression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
@@ -1056,19 +1072,20 @@ class Normalizer {
 							constructorsTypes.push([for arg in args typer.toType(Typer.nodeToNodeType(arg), arg)])
 							types.push([for arg in args unique(arg as! String)])
 							// TODO as! String
-						case Static(field):
-							switch field {
-							case Var(name, t, expr, const):
-								let uname = parentNames.get(field) ?? unique(name, field)
+						case Var(name, t, expr, const):
+							if project.mapStatic.get(f) == true {
+								let uname = parentNames.get(f) ?? unique(name, f)
 								if const {
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
-									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
 								} else {
-									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 								}
-							case Function(name, expr, vars, rettype, external):
-								let uname = parentNames.get(field) ?? unique(name, field)
+							}
+						case Function(name, expr, vars, rettype, external):
+							if project.mapStatic.get(f) == true {
+								let uname = parentNames.get(f) ?? unique(name, f)
 								let a = []
 								let defaults = []
 								let types = []
@@ -1082,9 +1099,8 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(field) == true))
-							case _: console.error("(internal warning) Unknown complex enum static field kind:", field)
-						}
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+							}
 						case _: console.error("(internal warning) Unknown complex enum field kind:", f)
 					}}
 					niceEnum.names = names
@@ -1133,19 +1149,20 @@ class Normalizer {
 							case Type(name):
 								names.push(name)
 						}
-						case Static(field):
-							switch field {
-							case Var(name, t, expr, const):
-								let uname = parentNames.get(field) ?? unique(name, field)
+						case Var(name, t, expr, const):
+							if project.mapStatic.get(f) == true {
+								let uname = parentNames.get(f) ?? unique(name, f)
 								if const {
 									let value = nodeToExpression(expr)
 									saveInlineIfViable(f, value)
-									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
 								} else {
-									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 								}
-							case Function(name, expr, vars, rettype, external):
-								let uname = parentNames.get(field) ?? unique(name, field)
+							}
+						case Function(name, expr, vars, rettype, external):
+							if project.mapStatic.get(f) == true {
+								let uname = parentNames.get(f) ?? unique(name, f)
 								let a = []
 								let defaults = []
 								let types = []
@@ -1159,9 +1176,8 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(field) == true))
-							case _: console.error("(internal warning) Unknown simple enum static field kind:", field)
-						}
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+							}
 						case _: console.error("(internal warning) Unknown simple enum field kind:", f)
 					}}
 					niceEnum.names = names
@@ -1244,17 +1260,28 @@ class Normalizer {
 
 				for f in fields { switch f {
 					case Var(name, t, expr, const):
+						// TODO all those `??` would be useless if `getClassDotField` combined with field id holder instead of name
 						let uname = getClassDotField(e, name) ?? parentNames.get(f) ?? unique(name, f)
-						if const {
-							let value = nodeToExpression(expr)
-							saveInlineIfViable(f, value)
-							niceClass.vars.push(Statement.Const(uname, value, typer.types.get(f)))
+						if project.mapStatic.get(f) == true {
+							if const {
+								let value = nodeToExpression(expr)
+								saveInlineIfViable(f, value)
+								niceClass.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
+							} else {
+								niceClass.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+							}
 						} else {
-							niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
-							let atts = project.mapDecorators.get(f)
-							if let native = Decorator.getDecorator(atts, 'bits') {
-								switch native.values[0] {
-									case Int(v): niceClass.varBits[niceClass.vars.length - 1] = v
+							if const {
+								let value = nodeToExpression(expr)
+								saveInlineIfViable(f, value)
+								niceClass.vars.push(Statement.Const(uname, value, typer.types.get(f)))
+							} else {
+								niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+								let atts = project.mapDecorators.get(f)
+								if let native = Decorator.getDecorator(atts, 'bits') {
+									switch native.values[0] {
+										case Int(v): niceClass.varBits[niceClass.vars.length - 1] = v
+									}
 								}
 							}
 						}
@@ -1270,10 +1297,12 @@ class Normalizer {
 								niceClass.property.push(uname)
 						}
 					case Function(name, expr, vars, rettype, external):
+						// TODO `getClassDotField`
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
 						let a = []
 						let defaults = []
 						let types = []
+						// TODO better unify this args logic with other functions
 						for arg in vars { switch arg {
 							case Var(name, t, expr, const):
 								a.push(unique(name, arg))
@@ -1284,35 +1313,10 @@ class Normalizer {
 									defaults.push(null)
 								}
 						}}
-						niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
-					case Static(field):
-						switch field {
-							case Var(name, t, expr, const):
-								let uname = parentNames.get(field) ?? unique(name, field)
-								if const {
-									let value = nodeToExpression(expr)
-									saveInlineIfViable(f, value)
-									niceClass.staticVars.push(Statement.Const(uname, value, typer.types.get(field)))
-								} else {
-									niceClass.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
-								}
-							case Function(name, expr, vars, rettype):
-								let uname = parentNames.get(field) ?? unique(name, field)
-								let a = []
-								let defaults = []
-								let types = []
-								for arg in vars { switch arg {
-									case Var(name, t, expr, const):
-										a.push(unique(name, arg))
-										types.push(t)
-										if (expr != null) {
-											defaults.push(nodeToExpression(expr))
-										} else {
-											defaults.push(null)
-										}
-								}}
-								niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(field), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(field) == true))
-							case _: console.error("(internal warning) Unknown class static field kind:", field)
+						if project.mapStatic.get(f) == true {
+							niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+						} else {
+							niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
 						}
 					case _: console.error("(internal warning) Unknown class field kind:", f)
 				}}
@@ -2138,7 +2142,12 @@ class Normalizer {
 									}
 							}
 						}
-						case Static(_): return null // Not a tag
+						case Function(_): if project.mapStatic.get(f) == true {
+							return null // Not a tag
+						}
+						case Var(_): if project.mapStatic.get(f) == true {
+							return null // Not a tag
+						}
 						case _:
 							console.error('(internal warning) Unknown enum tag kind:', f)
 					}
@@ -2265,36 +2274,7 @@ class Normalizer {
 							unique(name, f)
 						}
 					}
-				case Static(field): switch field {
-					// TODO `RenamingStrategy`
-					case Var(name, t, expr, const):
-						let atts = project.mapDecorators.get(f)
-
-						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-							case String(s):
-							if parentNames.get(field) == null {
-								unique(s, field)
-							}
-							case _: throw '@rename takes string as argument'
-						}} else
-
-						if parentNames.get(field) == null {
-							unique(name, field)
-						}
-					case Function(name, expr, vars, rettype):
-						let atts = project.mapDecorators.get(f)
-
-						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-							case String(s): if (parentNames.get(field) == null) {
-								unique(s, field)
-							}
-							case _: throw '@rename takes string as argument'
-						}} else
-
-						if parentNames.get(field) == null {
-							unique(name, field)
-						}
-				}
+				case _: // Ok, skip non-field nodes, typer already verified them
 			}}
 			popScope()
 		}
@@ -2315,19 +2295,35 @@ class Normalizer {
 
 			switch expr {
 				case Class(t, ext, impl, fields, external): for f in fields { switch f {
-					case Static(sf):
-					if (DataHelper.nameOf(sf) == name) {
-						return parentNames.get(sf) ?? name
-					}
 					case Var(n, _):
-					if (n == name) {
-						return parentNames.get(f) ?? name
+					if n == name {
+						// Check if this is a static field
+						//if project.mapStatic.get(f) == true {
+							return parentNames.get(f) ?? name
+						//}
+					}
+					case Function(n, _):
+					if n == name {
+						// Check if this is a static method
+						//if project.mapStatic.get(f) == true {
+							return parentNames.get(f) ?? name
+						//}
 					}
 				}}
 				case Enum(t, fields, valuesType): for f in fields { switch f {
-					case Static(sf):
-					if (DataHelper.nameOf(sf) == name) {
-						return parentNames.get(sf) ?? name
+					case Var(n, _):
+					if n == name {
+						// Check if this is a static field
+						//if project.mapStatic.get(f) == true {
+							return parentNames.get(f) ?? name
+						//}
+					}
+					case Function(n, _):
+					if n == name {
+						// Check if this is a static method
+						//if project.mapStatic.get(f) == true {
+							return parentNames.get(f) ?? name
+						//}
 					}
 				}}
 			}
