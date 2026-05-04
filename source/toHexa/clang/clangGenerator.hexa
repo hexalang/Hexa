@@ -608,7 +608,7 @@ class ClangGenerator {
 				// TODO type
 				return Node.Int(parseInt(node.value))
 			case WhileStmt:
-				return Node.While(nodeToBoolean(node.inner[0]), wrapToBlockIfNone(nodeToNode(node.inner[1])), false)
+				return Node.While([nodeToBoolean(node.inner[0])], wrapToBlockIfNone(nodeToNode(node.inner[1])), false)
 			case DoStmt:
 				let condition = nodeToBoolean(node.inner[1])
 
@@ -621,7 +621,7 @@ class ClangGenerator {
 						}
 				}
 
-				return Node.While(condition, wrapToBlockIfNone(nodeToNode(node.inner[0])), true)
+				return Node.While([condition], wrapToBlockIfNone(nodeToNode(node.inner[0])), true)
 				// TODO bug `= return` no error
 				// let condition =
 				// return Node.While(nodeToNode(node.inner[1]), wrapToBlockIfNone(nodeToNode(node.inner[0])), true)
@@ -633,7 +633,7 @@ class ClangGenerator {
 						block.push(nodeToNode(counting))
 					}
 
-					return Node.While(Node.Bool(true), Node.Block(block), false)
+					return Node.While([Node.Bool(true)], Node.Block(block), false)
 				}
 
 				// TODO inner[1]
@@ -645,7 +645,7 @@ class ClangGenerator {
 				{
 					return Node.InlineStatements([
 							nodeToNode(counter),
-							Node.While(nodeToNode(condition), Node.Block([nodeToNode(body), nodeToNode(counting)]), false)
+							Node.While([nodeToNode(condition)], Node.Block([nodeToNode(body), nodeToNode(counting)]), false)
 						])
 				}
 			case SwitchStmt:
@@ -1046,10 +1046,12 @@ class ClangGenerator {
 			case Dot(expr, name): return stringify(expr) + '.' + name
 			case DotUpper(expr, name): return stringify(expr) + '.' + name
 			case While(reason, e, pre):
+				// TODO reason is now [Node] - stringify first element for simplicity
+				let condStr = if reason.length > 0 { stringify(reason[0]) } else { 'true' }
 				if pre {
-					return 'do ' + stringify(e) + ' while ' + stringify(reason)
+					return 'do ' + stringify(e) + ' while ' + condStr
 				} else {
-					return 'while ' + stringify(reason) + ' ' + stringify(e)
+					return 'while ' + condStr + ' ' + stringify(e)
 				}
 			case InlineStatements(e):
 				return e.map(el => stringify(el)).join('\n\t')
@@ -1108,7 +1110,6 @@ class ClangGenerator {
 				return '{' + [for i in el.length names[i] + ': ' + stringify(el[i])].join(', ') + '}'
 			case NodeTypeValue(t):
 				return NodeType.stringify(t)
-			case Static(f): return 'static ' + stringify(f)
 			case Var(name, t, expr, const, external): {
 					var body = ''
 					if let expr = expr {
