@@ -1812,8 +1812,15 @@ class Normalizer {
 				var temp = unique('temp') // Used for `catch (temp)` in JS
 				var tt = []
 				var vv = []
-				for c in v {
-					 vv.push(DataHelper.nameOf(c))
+				// v is now array of arrays - each element contains [catchVar, letBindings..., conditions...]
+				for catchClause in v {
+					// First element is always the catch variable
+					if catchClause.length > 0 {
+						// TODO proper design (with conditions and bindings)
+						vv.push(DataHelper.nameOf(catchClause[0]))
+					} else {
+						vv.push('TODO') // Should not happen
+					}
 				}
 				var cc = []
 				for c in catches {
@@ -1865,7 +1872,19 @@ class Normalizer {
 				case Break: return Statement.Break
 
 				case While(econd, e, pre):
-				return Statement.While(nodeToExpression(econd), nodeToStatement(e), pre)
+					// Handle array of conditions - combine with && for simple cases
+					// TODO `if let first = econd.firstIfSingle`
+					if econd.length == 1 {
+						return Statement.While(nodeToExpression(econd[0]), nodeToStatement(e), pre)
+					}
+					// Multiple conditions: combine with && TODO bindings
+					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
+					var i = 1
+					while i < econd.length {
+						parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
+						i++
+					}
+					return Statement.While(parens, nodeToStatement(e), pre)
 
 				case Unop(op, postfix, e):
 					switch op {
