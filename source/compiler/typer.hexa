@@ -2783,6 +2783,7 @@ class Typer {
 				fillSwitch(node, false)
 
 				// `try { } catch e: T { }`
+			// `try { } catch e T if cond, let x = expr { }`
 			case Try(e, t, v, ca):
 				// Save stack
 				let _insideTry = insideTry
@@ -2807,7 +2808,29 @@ class Typer {
 					}
 					types.set(t[i], catchType)
 					pushScope()
-					scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
+					// v[i] is now an array of nodes: [catchVar, letBindings..., conditions...]
+					let catchClauseValues = v[i]
+					// First element is always the catch variable
+					if catchClauseValues.length > 0 {
+						let catchVar = catchClauseValues[0]
+						scopes[scopes.length - 1].set(DataHelper.varName(catchVar), catchVar)
+						// Process any additional let bindings and conditions
+						for j in 1...catchClauseValues.length - 1 {
+							let val = catchClauseValues[j]
+							switch val {
+								case Var(name, _, expr, const, _):
+									// let binding - evaluate expr and add to scope
+									if let expr = expr {
+										fillExpression(expr)
+										types.set(val, types.get(expr))
+									}
+									scopes[scopes.length - 1].set(name, val)
+								case _:
+									// Condition expression
+									fillExpression(val)
+							}
+						}
+					}
 					switch ca[i] {
 						case Block(_):
 						case _:
@@ -2817,11 +2840,14 @@ class Typer {
 					popScope()
 				}
 
-				// `while (econd) e` if pre == true
-				// `do e while (econd)` if pre == false
+				// `while (econd[0], ...econd[n]) e` if pre == true
+				// `do e while (econd[0], ...econd[n])` if pre == false
 			case While(econd, e, pre):
-				if (pre == true) {
-					fillExpression(econd)
+				if pre == true {
+					for cond in econd {
+						// TODO push scope for bindings
+						fillExpression(cond)
+					}
 				}
 				let _allowBreakAndContinue = allowBreakAndContinue
 				allowBreakAndContinue = true
@@ -2832,8 +2858,11 @@ class Typer {
 				}
 				fill(e)
 				allowBreakAndContinue = _allowBreakAndContinue
-				if (pre == false) {
-					fillExpression(econd)
+				if pre == false {
+					for cond in econd {
+						// TODO push scope for bindings
+						fillExpression(cond)
+					}
 				}
 				types.set(node, typeVoid)
 
@@ -3503,6 +3532,7 @@ class Typer {
 				types.set(node, Type.Struct(names, els))
 
 				// `try { ... value } catch e: T { ... value }`
+			// `try { } catch e T if cond, let x = expr { }`
 			case Try(e, t, v, ca):
 				// Save stack
 				let _insideTry = insideTry
@@ -3514,7 +3544,29 @@ class Typer {
 
 				for i in ca.length {
 					pushScope()
-					scopes[scopes.length - 1].set(DataHelper.varName(v[i]), v[i])
+					// v[i] is now an array of nodes: [catchVar, letBindings..., conditions...]
+					let catchClauseValues = v[i]
+					// First element is always the catch variable
+					if catchClauseValues.length > 0 {
+						let catchVar = catchClauseValues[0]
+						scopes[scopes.length - 1].set(DataHelper.varName(catchVar), catchVar)
+						// Process any additional let bindings and conditions
+						for j in 1...catchClauseValues.length - 1 {
+							let val = catchClauseValues[j]
+							switch val {
+								case Var(name, _, expr, const, _):
+									// let binding - evaluate expr and add to scope
+									if let expr = expr {
+										fillExpression(expr)
+										types.set(val, types.get(expr))
+									}
+									scopes[scopes.length - 1].set(name, val)
+								case _:
+									// Condition expression
+									fillExpression(val)
+							}
+						}
+					}
 					fill(ca[i])
 					popScope()
 				}
