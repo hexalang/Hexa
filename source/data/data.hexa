@@ -186,6 +186,11 @@ enum Node {
 	/// `expr.as(Type, expr)`
 	Cast(expr Node, toType NodeType, castKind Node)
 
+	/// `<tag attr="value">children</tag>` or `<tag />`
+	/// attrs: Binop(Ident(name), Assign, value) or Ident(name) for boolean attrs
+	/// children: String for text, Block for {multiple expr}, any Node for {}
+	JSXElement(tag String, attrs [Node], children [Node])
+
 	/// `_`
 	Underscore
 
@@ -298,6 +303,8 @@ enum Node {
 					return 'Cast(' + Node.stringify(expr) + ',' + DataHelper.extractTypeName(toType) + ',' + Node.stringify(castKind) + ')'
 				}
 				return 'Cast(' + Node.stringify(expr) + ',' + DataHelper.extractTypeName(toType) + ',null)'
+			case JSXElement(tag, attrs, children):
+				return 'JSXElement(' + tag + ',[' + [for a in attrs Node.stringify(a)].join(',') + '],[' + [for c in children Node.stringify(c)].join(',') + '])'
 			case Var(name, t, expr, const, external): {
 				var body = ''
 				if let expr = expr {
@@ -437,6 +444,13 @@ enum Node {
 					expr: cloneData(p, expr, clone(p, expr)),
 					toType: NodeType.clone(toType),
 					castKind: castKind == null ? null : cloneData(p, castKind, clone(p, castKind))
+				))
+			}
+			case JSXElement(tag, attrs, children): {
+				return cloneData(p, node, Node.JSXElement(
+					tag: tag,
+					attrs: attrs.map(a => cloneData(p, a, clone(p, a))),
+					children: children.map(c => cloneData(p, c, clone(p, c)))
 				))
 			}
 			case New(path, t, args, fields, el, argNames): {
