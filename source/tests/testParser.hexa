@@ -554,6 +554,29 @@ class TestParser {
 
 		// JSX Support
 		shouldAllEqual([
+				'let e = <div></div>' : 'Var(e,null,JSXElement(div,[],[]),true,false)',
+				'let e = <Tag>{a}</Tag>' : 'Var(e,null,JSXElement(Tag,[],[Ident(a)]),true,false)',
+				'<div />' : 'JSXElement(div,[],[])',
+				'<TagName>{name}</TagName>' : 'JSXElement(TagName,[],[Ident(name)])',
+				'<div>{for name in list { <b>{name}</b> }}</div>' : 'JSXElement(div,[],[For(name,Ident(list),Block([JSXElement(b,[],[Ident(name)])]),null)])',
+				'<input disabled />' : 'JSXElement(input,[Ident(disabled)],[])',
+				'<img src="url" />' : 'JSXElement(img,[Binop(Ident(src),=,String(url))],[])',
+				'<button onClick={handler} />' : 'JSXElement(button,[Binop(Ident(onClick),=,Ident(handler))],[])',
+				// Multiple expressions in JSX block
+				'<div>{\n\tlet x = 1\n\tx\n}</div>' : 'JSXElement(div,[],[Block([Var(x,null,Int(1),true,false),Ident(x)])])',
+				// Nested JSX elements
+				'<div><span><b>text</b></span></div>' : 'JSXElement(div,[],[JSXElement(span,[],[JSXElement(b,[],[String(text)])])])'
+			])
+
+		// JSX newline disambiguation: < on same line is comparison, < on new line is JSX
+		shouldAllEqual([
+				// Comparison on same line
+				'a < b' : 'Binop(Ident(a),<,Ident(b))',
+				'a<T>' : 'Ident(a,[Type(T)])',
+				// New line starts JSX
+				'a\n<div />' : 'Block([Ident(a),JSXElement(div,[],[])])',
+				// '<div />' on its own line is JSX
+				'<div />' : 'JSXElement(div,[],[])'
 			])
 
 		// Types (Interfaces, Traits, Const Generics)
@@ -985,6 +1008,8 @@ class TestParser {
 					}
 				}
 				return res + "])"
+			case JSXElement(tag, attrs, children):
+				return 'JSXElement(' + tag + ',[' + stringifyArray(attrs) + '],[' + stringifyArray(children) + '])'
 		}
 
 		return '<!--TestParser.stringifyInternal-->'
