@@ -1046,7 +1046,7 @@ class Parser {
 				if tok() == Token.RightArrow {
 					next()
 					result = Node.Arrow(parseExpr(), [Node.Var(name, null, null, true, false)], null)
-				} else if tok() == Token.Less, lex.column[i] == pos + name.length {
+				} else if tok() == Token.Less, lex.line[i] == lex.line[i - 1], lex.column[i] == pos + name.length {
 					i++
 					let params: [NodeType] = [parseType()]
 					// TODO reusable code
@@ -1763,6 +1763,11 @@ class Parser {
 				result = parseExpr()
 				project.mapPrivate.set(result, true)
 
+			case Less:
+				// JSX: <tag> or <tag />
+				// Note: In prefix position, < always starts JSX (comparison needs left-hand side)
+				result = parseJSXElement()
+
 			case _: unexpected()
 		}
 
@@ -2090,6 +2095,10 @@ class Parser {
 					}
 					// a + b
 					else if isBinop(t) {
+						if t == Token.Less, lex.line[i] != lex.line[i - 1] {
+							done = true
+							break
+						}
 						i++
 						// if tok() == Assign { // +=
 						// i++
@@ -2401,6 +2410,183 @@ class Parser {
 				fail("Wrong syntax")
 		}
 		return vars
+	}
+
+	/// Parse JSX element: <TagName attr="value">children</TagName> or <TagName />
+	fun parseJSXElement(): Node {
+		// Save position at the opening `<`
+		var jsxLine = lex.line[i]
+		var jsxColumn = lex.column[i]
+
+		// Current token is `<`
+		step(Token.Less)
+
+		// Parse tag name (Title or Identifier)
+		var tag = ""
+		switch tok() {
+			case Title:
+				tag = getgo(Token.Title)
+			case Identifier:
+				tag = getgo(Token.Identifier)
+			case _:
+				fail("Expected JSX tag name, got " + Token.stringify(tok()))
+		}
+
+		// Parse attributes
+		var attrs: [Node] = []
+		while tok() != Token.Greater and tok() != Token.Divide {
+			// Attribute name
+			var attrLine = lex.line[i]
+			var attrColumn = lex.column[i]
+			var attrName = ""
+			switch tok() {
+				case Identifier:
+					attrName = getgo(Token.Identifier)
+				case Title:
+					attrName = getgo(Token.Title)
+				case _:
+					fail("Expected JSX attribute name, got " + Token.stringify(tok()))
+			}
+
+			// Check for attribute value
+			if tok() == Token.Assign {
+				i++
+				var value: Node? = null
+				if tok() == Token.QuotedString {
+					var strLine = lex.line[i]
+					var strColumn = lex.column[i]
+					value = Node.String(getgo(Token.QuotedString))
+					project.data.set(value, new NodeData(strLine, strColumn, lex.fileName))
+				} else if tok() == Token.BlockOpen {
+					// {expr} - parse as expression or block
+					value = parseJSXExpr()
+				} else {
+					fail("Expected attribute value (string or {expr}), got " + Token.stringify(tok()))
+				}
+				var attrNode = Node.Binop(Node.Ident(attrName, null), Token.Assign, value)
+				project.data.set(attrNode, new NodeData(attrLine, attrColumn, lex.fileName))
+				attrs.push(attrNode)
+			} else {
+				// Boolean attribute (no value)
+				var attrNode = Node.Ident(attrName, null)
+				project.data.set(attrNode, new NodeData(attrLine, attrColumn, lex.fileName))
+				attrs.push(attrNode)
+			}
+		}
+
+		// Check for self-closing <tag />
+		if tok() == Token.Divide {
+			i++
+			step(Token.Greater)
+			var result = Node.JSXElement(tag, attrs, [])
+			project.data.set(result, new NodeData(jsxLine, jsxColumn, lex.fileName))
+			return result
+		}
+
+		// Consume >
+		step(Token.Greater)
+
+		// Parse children until closing tag </tag>
+		var children: [Node] = []
+		while tok() == Token.Less and offset(1) == Token.Divide {
+			// Closing tag
+			break
+		}
+
+		while true {
+			// Check for closing tag: </tag>
+			if tok() == Token.Less and offset(1) == Token.Divide {
+				step(Token.Less)
+				step(Token.Divide)
+
+				// Parse closing tag name
+				var closeTag = ""
+				switch tok() {
+					case Title:
+						closeTag = getgo(Token.Title)
+					case Identifier:
+						closeTag = getgo(Token.Identifier)
+					case _:
+						fail("Expected closing tag name, got " + Token.stringify(tok()))
+				}
+
+				if closeTag != tag {
+					fail("Closing tag `</" + closeTag + ">` does not match opening tag `<" + tag + ">`")
+				}
+				step(Token.Greater)
+				break
+			}
+
+			// Parse child content
+			if tok() == Token.Less {
+				// Nested JSX element - parseJSXElement sets its own position
+				children.push(parseJSXElement())
+			} else if tok() == Token.BlockOpen {
+				// {expr} block - parseJSXExpr sets position for Block, inner expressions set their own
+				children.push(parseJSXExpr())
+			} else if tok() == Token.QuotedString {
+				// Text content as String node
+				var strLine = lex.line[i]
+				var strColumn = lex.column[i]
+				var strNode = Node.String(getgo(Token.QuotedString))
+				project.data.set(strNode, new NodeData(strLine, strColumn, lex.fileName))
+				children.push(strNode)
+			} else if tok() == Token.Identifier or tok() == Token.Title {
+				// Text content (treat as string literal)
+				var idLine = lex.line[i]
+				var idColumn = lex.column[i]
+				var text = getgo(tok())
+				var textNode = Node.String(text)
+				project.data.set(textNode, new NodeData(idLine, idColumn, lex.fileName))
+				children.push(textNode)
+			} else if tok() == Token.Eof {
+				fail("Unclosed JSX element `<" + tag + ">` - reached end of file")
+			} else {
+				// Any other token is unexpected
+				fail("Unexpected token in JSX children: " + Token.stringify(tok()))
+			}
+		}
+
+		var result = Node.JSXElement(tag, attrs, children)
+		project.data.set(result, new NodeData(jsxLine, jsxColumn, lex.fileName))
+		return result
+	}
+
+	/// Parse JSX expression block: { singleExpr } or { expr1 expr2 lastExpr }
+	/// Returns the expression directly (single) or as Block (multiple)
+	fun parseJSXExpr(): Node {
+		// Save position at opening `{`
+		var blockLine = lex.line[i]
+		var blockColumn = lex.column[i]
+
+		step(Token.BlockOpen)
+
+		// Empty block {}
+		if tok() == Token.BlockClose {
+			i++
+			var emptyBlock = Node.Block([])
+			project.data.set(emptyBlock, new NodeData(blockLine, blockColumn, lex.fileName))
+			return emptyBlock
+		}
+
+		var exprs: [Node] = []
+		while tok() != Token.BlockClose {
+			if tok() == Token.Eof {
+				fail("Unclosed JSX expression block `{` - reached end of file")
+			}
+			exprs.push(parseExpr())
+		}
+		step(Token.BlockClose)
+
+		// Single expression: return as-is (position already set by parseExpr)
+		if exprs.length == 1 {
+			return exprs[0]
+		}
+
+		// Multiple expressions: wrap in Block (last expression is the result)
+		var block = Node.Block(exprs)
+		project.data.set(block, new NodeData(blockLine, blockColumn, lex.fileName))
+		return block
 	}
 
 	fun parseFunction(parseBody: Bool = true, external: Bool = false): Node {
