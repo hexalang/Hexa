@@ -747,10 +747,14 @@ class Parser {
 					}
 				}
 				result = Node.If(econd, eif, eelse, false)
-				// while e {}
+				// while econd[0], ...econd[n] {}
 			case KWhile:
 				i++
-				var econd = parseExpr()
+				var econd = [parseExpr()]
+				while tok() == Token.Comma {
+					next()
+					econd.push(parseExpr())
+				}
 				var eAt = i
 				var e = parseExpr()
 				switch e {
@@ -762,7 +766,7 @@ class Parser {
 						i = temp
 				}
 				result = Node.While(econd, e, true)
-				// do {} while e
+				// do {} while econd[0], ...econd[n]
 			case KDo:
 				i++
 				var eAt = i
@@ -776,7 +780,11 @@ class Parser {
 						i = temp
 				}
 				step(Token.KWhile)
-				var econd = parseExpr()
+				var econd = [parseExpr()]
+				while tok() == Token.Comma {
+					next()
+					econd.push(parseExpr())
+				}
 				result = Node.While(econd, e, false)
 				// (e) just parenthesis
 				// (e) =>
@@ -966,15 +974,17 @@ class Parser {
 			case FloatingPoint:
 				// TODO handle Meta
 				let kind = lex.kind[i]
-				result = Node.Float(parseFloat(getgo(Token.FloatingPoint)), kind)
+				let fpValue = getgo(Token.FloatingPoint).split('_').join('') // TODO replaceAll / other parsing function (or fallback to replaceAll if builtin fails)
+				result = Node.Float(parseFloat(fpValue), kind)
 			case Complex:
 				let kind = lex.kind[i]
 				// Complex numbers are represented as Float with Complex meta
 				// Lexer already strips the 'i' suffix
-				result = Node.Float(parseFloat(getgo(Token.Complex)), kind)
+				let complexValue = getgo(Token.Complex).split('_').join('')
+				result = Node.Float(parseFloat(complexValue), kind)
 			case Integer:
 				let kind = lex.kind[i]
-				let value = getgo(Token.Integer)
+				let value = getgo(Token.Integer).split('_').join('')
 				switch kind {
 					// TODO rename `Default` token to `Empty`
 					case Default:
@@ -1144,6 +1154,7 @@ class Parser {
 					result = parsed[0]
 				}
 				// `try { } catch e : T { } catch e : T { }`
+			// `try { } catch e Error if cond, let x = expr, cond { }`
 			case KTry:
 				i++
 				let exprAt = i
@@ -1156,7 +1167,6 @@ class Parser {
 						failHint('`try` body must be a `{` block `}`')
 						i = temp
 				}
-				var vars = []
 				var t = []
 				var v = []
 				var catches = []
@@ -1167,27 +1177,54 @@ class Parser {
 					// step(Token.CallOpen)
 					// }
 					let name = getgo(Token.Identifier)
-					vars.push(name)
-					// TODO colon-less
-					step(Token.Colon)
-					let dataType = parseType()
+					var dataType: NodeType? = null
+					// Support both `catch e: T` (old) and `catch e T` (new) syntax
+					if tok() == Token.Colon {
+						// TODO colon-less
+						i++
+						dataType = parseType()
+					} else if tok() == Token.Title {
+						dataType = parseType()
+					} else {
+						fail('Expected type after catch variable, use `catch e: Error` or `catch e Error` syntax')
+					}
 					t.push(dataType)
-					v.push(Node.Var(name, dataType, null, true, false))
-					// TODO slow parser
-					// if tok() == Token.CallClose {
-					// step(Token.CallClose)
-					// }
-					let exprAt = i
-					let expr = parseExpr()
-					switch expr {
+					// Start the values array with the catch variable
+					var catchValues: [Node] = [Node.Var(name, dataType, null, true, false)]
+					// Parse optional `if` condition and additional `let` bindings
+					// Format: catch e Error if cond, let x = expr, cond, cond { block }
+					if tok() == Token.KIf {
+						i++
+						// Parse condition after `if`
+						catchValues.push(parseExpr())
+					}
+					// Parse additional let bindings and conditions separated by commas
+					while tok() == Token.Comma {
+						i++
+						// Check for `let x = expr` binding
+						if tok() == Token.KLet {
+							i++
+							let letName = getgo(Token.Identifier)
+							step(Token.Assign)
+							let letExpr = parseExpr()
+							catchValues.push(Node.Var(letName, null, letExpr, true, false))
+						} else {
+							// Regular condition expression
+							catchValues.push(parseExpr())
+						}
+					}
+					v.push(catchValues)
+					let blockAt = i
+					let blockExpr = parseExpr()
+					switch blockExpr {
 						case Block(_):
 						case _:
 							let temp = i
-							i = exprAt
+							i = blockAt
 							failHint('`catch` body must be a `{` block `}`')
 							i = temp
 					}
-					catches.push(expr)
+					catches.push(blockExpr)
 				}
 
 				if catches.length == 0 {
@@ -2846,11 +2883,18 @@ class Parser {
 				}
 		}
 
-		var ext = if tok() == Token.KExtends {
+		var ext: NodeType? = null
+		if tok() == Token.KExtends {
 			i++
-			parseType()
-			// } else (null as! NodeType) TODO not works this way!
-		} else { null as! NodeType }
+			ext = parseType()
+		} else if tok() == Token.KReadonly {
+			// `class Point readonly Base {}` syntax - readonly base class
+			i++
+			let baseType = parseType()
+			// Mark the type as readonly
+			project.typeReadonly.set(baseType, true)
+			ext = baseType
+		}
 
 		var impl = []
 
