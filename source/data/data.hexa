@@ -87,9 +87,9 @@ enum Node {
 	/// `await e` or `e.await`
 	Await(e Node)
 
-	/// `while reason { e }` or if pre == true then `do { e } while reason`
+	/// `while reason[0], ...reason[n] { e }` or if pre == true then `do { e } while reason`
 	// TODO rename pre to isDoWhile
-	While(reason Node, e Node, pre Bool)
+	While(reason [Node], e Node, pre Bool)
 
 	/// `declare fun name<params>(vars) retType { body }`
 	// Name is `new` for constructor
@@ -114,7 +114,8 @@ enum Node {
 	Property(field Node, getter Node, setter Node)
 
 	/// try { expr } catch v[0]: t[0] { catches[0] } ... catch v[n]: t[n] { catches[n] }
-	Try(expr Node, types [NodeType], values [Node], catches [Node])
+	/// try { expr } catch e T if cond, let x = expr { catches[0] }
+	Try(expr Node, types [NodeType], values [[Node]], catches [Node])
 
 	/// `expr.name`
 	// TODO rename to Field
@@ -416,7 +417,7 @@ enum Node {
 				))
 			case While(reason, e, pre):
 				return cloneData(p, node, Node.While(
-					cloneData(p, reason, clone(p, reason)),
+					reason.map(arg => cloneData(p, arg, clone(p, arg))),
 					cloneData(p, e, clone(p, e)),
 					pre
 				))
