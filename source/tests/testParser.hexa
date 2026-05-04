@@ -53,6 +53,12 @@ class TestParser {
 				"0xFFn" : 'MetaInt(255,BigInt)',
 
 				// Underscore separators
+				"1_000_000" : 'Int(1000000)',
+				"1_000.000_001" : 'Float(1000.000001)',
+				"0xFF_FFn" : 'MetaInt(65535,BigInt)',
+				"0xFF__FFn" : 'MetaInt(65535,BigInt)',
+				"0b1111_0000" : 'Int(240)',
+				"1_2_3_4_5" : 'Int(12345)',
 
 				// Complex numbers
 				"2i" : 'Float(2,Complex)',
@@ -460,7 +466,7 @@ class TestParser {
 
 				// Loops and Array Comprehension
 				'for a in b { a }' : 'For(a,Ident(b),Block([Ident(a)]),null)',
-				'do { a } while b' : 'While(Ident(b),Block([Ident(a)]),false)',
+				'do { a } while b' : 'While([Ident(b)],Block([Ident(a)]),false)',
 
 				// Regular Expressions
 
@@ -506,7 +512,8 @@ class TestParser {
 				'if let x = a, y > b, let z = c { a }' : 'If([Var(x,null,Ident(a),true,false),Binop(Ident(y),>,Ident(b)),Var(z,null,Ident(c),true,false)],Block([Ident(a)]),null)',
 				'if let value, value > 5 { a }' : 'If([Var(value,null,null,true,false),Binop(Ident(value),>,Int(5))],Block([Ident(a)]),null)',
 				'guard let name, let age, age >= 18 else { return }' : 'Guard([Var(name,null,null,true,false),Var(age,null,null,true,false),Binop(Ident(age),>=,Int(18))],Block([Return(null)]))',
-				'do { x++ } while x < 10' : 'While(Binop(Ident(x),<,Int(10)),Block([Unop(++,true,Ident(x))]),false)',
+				'while let x = a, y < 10 { a }' : 'While([Var(x,null,Ident(a),true,false),Binop(Ident(y),<,Int(10))],Block([Ident(a)]),true)',
+				'do { x++ } while x < 10' : 'While([Binop(Ident(x),<,Int(10))],Block([Unop(++,true,Ident(x))]),false)',
 				'@skipNulls for item in items { a }' : 'Decorator(skipNulls,[],For(item,Ident(items),Block([Ident(a)]),null))',
 				'for i in 0 ... 10 { a }' : 'For(i,Int(0),Block([Ident(a)]),Int(10))',
 				'for i in count { a }' : 'For(i,Ident(count),Block([Ident(a)]),null)',
@@ -517,6 +524,7 @@ class TestParser {
 		// Readonly & Immutability modifiers
 		shouldAllEqual([
 				'readonly class Point {}' : 'Readonly(Class(Type(Point),null,[],[],false))', // readonly flag displayed as wrapper
+				'class Point readonly Base {}' : 'Class(Type(Point),Readonly(Type(Base)),[],[],false)', // readonly type displayed as wrapper
 				'let a = readonly [1, 2]' : 'Var(a,null,Readonly(Array([Int(1),Int(2)])),true,false)', // readonly wrapper displayed
 				'let obj = readonly { x: 1 }' : 'Var(obj,null,Readonly(Object([x],[Int(1)])),true,false)', // readonly wrapper displayed
 				'readonly fun map() {}' : 'Readonly(Function(map,Block([]),[],null,false,false))', // readonly wrapper displayed
@@ -624,6 +632,7 @@ class TestParser {
 				'fun id(x) { return x }' : 'Function(id,Block([Return(Ident(x))]),[Var(x,null,null,true,false)],null,false,false)',
 				'let cb = (x) => x * 2' : 'Var(cb,null,Arrow(Binop(Ident(x),*,Int(2)),[Var(x,null,null,true,false)],null),true,false)',
 				'let cb = x => x * 2' : 'Var(cb,null,Arrow(Binop(Ident(x),*,Int(2)),[Var(x,null,null,true,false)],null),true,false)',
+				'try { risky() } catch e Error if expr, let reason = e.reason, reason > 5 { 123 }' : 'Try(Block([Call(Ident(risky),[])]),[Type(Error)],[Var(e,Type(Error),null,true,false),Ident(expr),Var(reason,null,Dot(Ident(e),reason),true,false),Binop(Ident(reason),>,Int(5))],[Block([Int(123)])])',
 				'add(a: 1, b: 2)' : 'Call(Ident(add),[a:Int(1),b:Int(2)])',
 				'add(b: 1, a: 2)' : 'Call(Ident(add),[b:Int(1),a:Int(2)])',
 				'add(a: 1, 2)' : 'Call(Ident(add),[a:Int(1),Int(2)])',
@@ -955,7 +964,7 @@ class TestParser {
 
 			case If(eCond, eif, eElse, ternary):
 				return 'If(' + stringifyNodeArray(eCond) + ',' + stringify(eif) + ',' + stringify(eElse) + (ternary? ",ternary)": ")")
-			case While(reason, body, pre): return 'While(' + stringify(reason) + ',' + stringify(body) + ',\(pre))'
+			case While(reason, body, pre): return 'While(' + stringifyNodeArray(reason) + ',' + stringify(body) + ',\(pre))'
 			case For(iterator, over, statement, range): return 'For(\(iterator),' + stringify(over) + ',' + stringify(statement) + ',' + stringify(range) + ')'
 			case Index(expr, index): return 'Index(' + stringify(expr) + ',' + stringify(index) + ')'
 			case Index2D(expr, x, y): return 'Index2D(' + stringify(expr) + ',' + stringify(x) + ',' + stringify(y) + ')'
@@ -963,7 +972,14 @@ class TestParser {
 			case Switch(inputs, expressions, guards, patterns):
 				return 'Switch(' + stringifyNodeArray(inputs) + ',' + stringifyNodeArray(expressions) + ',' + stringifyNodeArray(guards) + ',' + stringifyNodeArray(patterns) + ')'
 			case Property(field, getter, setter): return 'Property(' + stringify(field) + ',' + stringify(getter) + ',' + stringify(setter) + ')'
-			case Try(expr, types, values, catches): return 'Try(' + stringify(expr) + ',' + stringifyNodeTypeArray(types) + ',' + stringifyNodeArray(values) + ',' + stringifyNodeArray(catches) + ')'
+			case Try(expr, types, values, catches):
+			var flatValues: [Node] = []
+			for clause in values {
+				for v in clause {
+					flatValues.push(v)
+				}
+			}
+			return 'Try(' + stringify(expr) + ',' + stringifyNodeTypeArray(types) + ',' + stringifyNodeArray(flatValues) + ',' + stringifyNodeArray(catches) + ')'
 			case EnumExtract(path, bind, expr): return 'EnumExtract([' + path.join('.') + '],' + stringifyNodeArray(bind) + ',' + stringify(expr) + ')'
 			case Elvis(nullable, alternative): return 'Elvis(' + stringify(nullable) + ',' + stringify(alternative) + ')'
 			case EnumConstructor: return 'EnumConstructor'
