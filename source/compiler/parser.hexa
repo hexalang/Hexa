@@ -2095,6 +2095,7 @@ class Parser {
 					}
 					// a + b
 					else if isBinop(t) {
+						// If `<` on a new line then parse as JSX
 						if t == Token.Less, lex.line[i] != lex.line[i - 1] {
 							done = true
 							break
@@ -2494,6 +2495,11 @@ class Parser {
 		}
 
 		while true {
+			// Check for EOF first (unclosed element)
+			if tok() == Token.Eof {
+				fail("Unclosed JSX element `<" + tag + ">` - reached end of file")
+			}
+
 			// Check for closing tag: </tag>
 			if tok() == Token.Less and offset(1) == Token.Divide {
 				step(Token.Less)
@@ -2531,19 +2537,24 @@ class Parser {
 				var strNode = Node.String(getgo(Token.QuotedString))
 				project.data.set(strNode, new NodeData(strLine, strColumn, lex.fileName))
 				children.push(strNode)
-			} else if tok() == Token.Identifier or tok() == Token.Title {
-				// Text content (treat as string literal)
+			} else {
+				// Text content: accumulate any consecutive tokens that aren't JSX control tokens
+				// Stop tokens: < (nested element/closing tag), { (expression), EOF (unclosed)
 				var idLine = lex.line[i]
 				var idColumn = lex.column[i]
-				var text = getgo(tok())
+				var text = ""
+				while tok() != Token.Less and tok() != Token.BlockOpen and tok() != Token.Eof {
+					if tok() == Token.Identifier or tok() == Token.Title {
+						text += getgo(tok())
+					} else {
+						// Any other token: stringify it (punctuation, operators, etc.)
+						text += Token.stringify(tok())
+						i++
+					}
+				}
 				var textNode = Node.String(text)
 				project.data.set(textNode, new NodeData(idLine, idColumn, lex.fileName))
 				children.push(textNode)
-			} else if tok() == Token.Eof {
-				fail("Unclosed JSX element `<" + tag + ">` - reached end of file")
-			} else {
-				// Any other token is unexpected
-				fail("Unexpected token in JSX children: " + Token.stringify(tok()))
 			}
 		}
 
