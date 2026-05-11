@@ -1,0 +1,360 @@
+// The Hexa Compiler
+// SPDX-FileCopyrightText: 2021-2026 Oleh Petrenko
+// SPDX-License-Identifier: MPL-2.0
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+
+/// Standard LSP server implementation (JSON-RPC over stdin/stdout)
+/// Compatible with Zed, VSCode, and other LSP clients
+
+class LspServer {
+	var buffer: String
+	var contentLength: Int
+	var documents: [String: String]
+
+	new () {
+		this.buffer = ''
+		this.contentLength = 0
+		this.documents = [:]
+
+		// Set stdin to raw UTF-8 mode
+		process.stdin.setEncoding('utf8')
+
+		// Listen for incoming data
+		process.stdin.on('data', (chunk: String) => {
+			this.onData(chunk)
+		})
+
+		// Handle stdin end
+		process.stdin.on('end', () => {
+			process.exit(0)
+		})
+
+		// Handle errors
+		process.stdin.on('error', (err: Any) => {
+			console.error('LSP stdin error:', err)
+			process.exit(1)
+		})
+	}
+
+	fun onData(chunk: String) Void {
+		this.buffer += chunk
+		this.processBuffer()
+	}
+
+	fun processBuffer() Void {
+		while true {
+			if this.contentLength == 0 {
+				// Look for Content-Length header
+				let headerEnd = this.buffer.indexOf('\r\n\r\n')
+				if headerEnd == -1 {
+					// Not enough data yet
+					return
+				}
+
+				let header = this.buffer.substring(0, headerEnd)
+				let lines = header.split('\r\n')
+
+				for line in lines {
+					if line.startsWith('Content-Length: ') {
+						let lenStr = line.substring('Content-Length: '.length)
+						this.contentLength = parseInt(lenStr)
+					}
+				}
+
+				if this.contentLength == 0 {
+					console.error('LSP: Missing Content-Length header')
+					this.buffer = ''
+					return
+				}
+
+				// Remove headers from buffer, keep the rest (after \r\n\r\n)
+				this.buffer = this.buffer.substring(headerEnd + 4)
+			}
+
+			// Check if we have enough data for the full message
+			if this.buffer.length >= this.contentLength {
+				let jsonStr = this.buffer.substring(0, this.contentLength)
+				this.buffer = this.buffer.substring(this.contentLength)
+				this.contentLength = 0
+
+				// Parse and handle the message
+				this.handleMessage(jsonStr)
+			} else {
+				// Wait for more data
+				return
+			}
+		}
+	}
+
+	fun handleMessage(jsonStr: String) Void {
+		try {
+			let message = JSON.parse(jsonStr)
+
+			if message == null {
+				return
+			}
+
+			// Handle JSON-RPC messages
+			if message.method != null {
+				// This is a request or notification
+				this.handleRequest(message)
+			} else if message.id != null and message.result != null {
+				// This is a response - we don't send requests yet
+				// TODO: handle responses if we send requests
+			}
+		} catch e: Any {
+			console.error('LSP: Failed to parse message:', jsonStr, e)
+		}
+	}
+
+	fun handleRequest(message: Any) Void {
+		let method: String = message.method
+		let id: Any = message.id
+		let params: Any = message.params
+
+		switch method {
+			case 'initialize':
+				this.handleInitialize(id, params)
+
+			case 'initialized':
+				// Notification, no response needed
+				this.onInitialized()
+
+			case 'textDocument/completion':
+				this.handleCompletion(id, params)
+
+			case 'textDocument/hover':
+				this.handleHover(id, params)
+
+			case 'textDocument/definition':
+				this.handleDefinition(id, params)
+
+			case 'textDocument/references':
+				this.handleReferences(id, params)
+
+			case 'textDocument/documentSymbol':
+				this.handleDocumentSymbol(id, params)
+
+			case 'textDocument/formatting':
+				this.handleFormatting(id, params)
+
+			case 'shutdown':
+				this.handleShutdown(id)
+
+			case 'exit':
+				// Notification, no response needed
+				process.exit(0)
+
+			case '$cancelRequest':
+				// Notification, no response needed
+				// TODO: handle cancellation
+
+			case 'textDocument/didOpen':
+				// Notification
+				this.onDidOpen(params)
+
+			case 'textDocument/didChange':
+				// Notification
+				this.onDidChange(params)
+
+			case 'textDocument/didClose':
+				// Notification
+				this.onDidClose(params)
+
+			case 'textDocument/didSave':
+				// Notification
+				this.onDidSave(params)
+
+			case 'workspace/didChangeConfiguration':
+				// Notification
+				this.onDidChangeConfiguration(params)
+
+			case 'workspace/didChangeWatchedFiles':
+				// Notification
+				this.onDidChangeWatchedFiles(params)
+
+			case _:
+				// Method not found
+				if id != null {
+					this.sendError(id, -32601, 'Method not found: ' + method)
+				}
+		}
+	}
+
+	fun handleInitialize(id: Any, params: Any) Void {
+		let capabilities = {
+			textDocumentSync: {
+				openClose: true,
+				change: 1, // Incremental
+				save: {
+					includeText: false
+				}
+			},
+			completionProvider: {
+				resolveProvider: false,
+				triggerCharacters: ['.', ':']
+			},
+			hoverProvider: true,
+			definitionProvider: true,
+			referencesProvider: true,
+			documentSymbolProvider: true,
+			documentFormattingProvider: true,
+			workspace: {
+				workspaceFolders: {
+					supported: true,
+					changeNotifications: true
+				}
+			}
+		}
+
+		let serverInfo = {
+			name: 'Hexa Language Server',
+			version: version
+		}
+
+		let result = {
+			capabilities: capabilities,
+			serverInfo: serverInfo
+		}
+
+		this.sendResponse(id, result)
+		console.log('[LSP] Initialized: Hexa Language Server v' + version)
+	}
+
+	fun onInitialized() Void {
+		// Client is initialized, we can now send diagnostics etc.
+		console.log('[LSP] Client initialized')
+	}
+
+	fun handleCompletion(id: Any, params: Any) Void {
+		// TODO: implement real completion
+		this.sendResponse(id, [])
+	}
+
+	fun handleHover(id: Any, params: Any) Void {
+		let hover = {
+			contents: {
+				kind: 'markdown',
+				value: '### Hexa Language Server\n\nThis is a **hover** preview from the Hexa LSP.'
+			}
+		}
+		this.sendResponse(id, hover)
+	}
+
+	fun handleDefinition(id: Any, params: Any) Void {
+		// TODO: implement real go-to-definition
+		this.sendResponse(id, null)
+	}
+
+	fun handleReferences(id: Any, params: Any) Void {
+		// TODO: implement real find-references
+		this.sendResponse(id, [])
+	}
+
+	fun handleDocumentSymbol(id: Any, params: Any) Void {
+		// TODO: implement real document symbols
+		this.sendResponse(id, [])
+	}
+
+	fun handleFormatting(id: Any, params: Any) Void {
+		let uri: String = params.textDocument.uri
+		let content = this.documents.get(uri)
+
+		if let content = content {
+			let formatted = autoFormatWholeFile(content)
+
+			let edit = {
+				range: {
+					start: { line: 0, character: 0 },
+					end: { line: 1000000, character: 0 }
+				},
+				newText: formatted
+			}
+
+			this.sendResponse(id, [edit])
+		} else {
+			this.sendResponse(id, null)
+		}
+	}
+
+	fun handleShutdown(id: Any) Void {
+		this.sendResponse(id, null)
+		console.log('[LSP] Shutdown requested')
+	}
+
+	// Notifications
+
+	fun onDidOpen(params: Any) Void {
+		let uri: String = params.textDocument.uri
+		let text: String = params.textDocument.text
+		this.documents.set(uri, text)
+	}
+
+	fun onDidChange(params: Any) Void {
+		let uri: String = params.textDocument.uri
+		let changes: [Any] = params.contentChanges
+
+		if changes.length > 0 {
+			let lastChange: Any = changes[changes.length - 1]
+			this.documents.set(uri, lastChange.text)
+		}
+	}
+
+	fun onDidClose(params: Any) Void {
+		let uri: String = params.textDocument.uri
+		this.documents.delete(uri)
+	}
+
+	fun onDidSave(params: Any) Void {
+		// TODO: re-check on save
+	}
+
+	fun onDidChangeConfiguration(params: Any) Void {
+		// TODO: handle config changes
+	}
+
+	fun onDidChangeWatchedFiles(params: Any) Void {
+		// TODO: handle file changes
+	}
+
+	// JSON-RPC helpers
+
+	fun sendResponse(id: Any, result: Any) Void {
+		let message = {
+			jsonrpc: '2.0',
+			id: id,
+			result: result
+		}
+
+		this.sendMessage(message)
+	}
+
+	fun sendError(id: Any, code: Int, messageStr: String) Void {
+		let message = {
+			jsonrpc: '2.0',
+			id: id,
+			error: {
+				code: code,
+				message: messageStr
+			}
+		}
+
+		this.sendMessage(message)
+	}
+
+	fun sendNotification(method: String, params: Any) Void {
+		let message = {
+			jsonrpc: '2.0',
+			method: method,
+			params: params
+		}
+
+		this.sendMessage(message)
+	}
+
+	fun sendMessage(message: Any) Void {
+		let jsonStr = JSON.stringify(message)
+		let header = 'Content-Length: ' + jsonStr.length + '\r\n\r\n'
+		process.stdout.write(header + jsonStr)
+	}
+}
