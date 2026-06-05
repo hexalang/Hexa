@@ -3,7 +3,6 @@
 // SPDX-FileCopyrightText: 2021-2026 Oleh Petrenko
 // SPDX-License-Identifier: MPL-2.0
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
-
 // TODO `<fast Bool>` use `true` by default, and fallback to `false` for stuff like `enum A : B` ie `:` nice errors
 @final
 class Parser {
@@ -22,73 +21,66 @@ class Parser {
 	var fast = false // TODO move into `<T>` (or use `lint`/`full` as a better name? hmmm)
 	// TODO ^ also make testParser to run both kinds
 	// ^ or lint after macro, not while parsing (also drops malformed `a = b = c` AST stuff)
-
 	// TODO mark static functions as non-mutation so they are thread-safe
 	static fun toNode(nodes: [Node]): Node? {
 		if nodes.length == 0 {
 			return null
 		}
+
 		if nodes.length > 1 {
 			return Node.Block(nodes)
 		}
 		return nodes[0]
 	}
-
 	static fun parseNodes(lexe: Tokens, project: Project, lint: Bool = false): [Node] {
 		let parser = new Parser(lexe, project, lint)
-
 		// TODO wrap this into try{}catch and when error like `;` or `:` happens,
 		// show proper error message with more context
 
 		if parser.hints.length > 0 {
 			throw new CompilerErrors(parser.hints)
 		}
-
 		return parser.nodes
 	}
-
 	private new (lexe: Tokens, project: Project, lint: Bool) {
 		lex = Preprocessor.process(lexe, project)
 		this.lint = lint
 		this.project = project
-
 		nodes = []
 		// TODO
+
 		while i < lex.length and tok() != Token.Eof {
 			nodes.push(parseExpr())
 		}
-
 		// Check for unattached documentation comments at end of file
 		let remainingComments = collectDocumentationComments()
+
 		if remainingComments.length > 0 {
 			fail("Documentation comments must be attached to an expression")
 		}
 	}
-
 	fun parseFields() {
 		var fields = []
+
 		while tok() != Token.BlockClose {
 			// Collect documentation comments first (higher priority than decorators)
 			var docComments = collectDocumentationComments()
-
 			var atts: Array<Decorator> = []
+
 			while tok() == Token.At {
 				// NOTE: If decorator happens before /// or in between of comments it's a syntax error
 				// We require comments to go together un-interrupted because they appear in doc gen
 				// The code lines in-between the /// comments will not appear in the doc!
 				atts.push(parseDecorator())
 			}
-
 			// TODO refactor
 			let pos = { line: lex.line[i], column: lex.column[i] }
 			let pos = new NodeData(pos.line, pos.column, lex.fileName)
-
 			var _static = false
 			if tok() == Token.KStatic {
 				_static = true
 				i++
 			}
-
 			var _readonly = false
 			if tok() == Token.KReadonly {
 				_readonly = true
@@ -97,54 +89,59 @@ class Parser {
 
 			switch tok() {
 				case KPrivate:
-					// TODO
+					// TODO as project flag
 					i++
 				case KVar:
 					var f = parseExpr()
 					project.data.set(f, pos)
+
 					if _static {
 						project.mapStatic.set(f, true)
 					}
+
 					if _readonly {
 						project.mapReadonly.set(f, true)
 					}
-
 					project.mapDecorators.set(f, atts)
+
 					if docComments.length > 0 {
 						project.leadingComments.set(f, docComments)
 					}
 					fields.push(f)
-				case KFun:
+				case KAsync | KFun:
 					var f = parseExpr()
 					project.data.set(f, pos)
+
 					if _static {
 						project.mapStatic.set(f, true)
 					}
+
 					if _readonly {
 						project.mapReadonly.set(f, true)
 					}
-
 					project.mapDecorators.set(f, atts)
+
 					if docComments.length > 0 {
 						project.leadingComments.set(f, docComments)
 					}
 					fields.push(f)
-
 				case KLet:
 					var f = parseExpr()
 					project.data.set(f, pos)
+
 					if _static {
 						project.mapStatic.set(f, true)
 					}
+
 					if _readonly {
 						project.mapReadonly.set(f, true)
 					}
 					project.mapDecorators.set(f, atts)
+
 					if docComments.length > 0 {
 						project.leadingComments.set(f, docComments)
 					}
 					fields.push(f)
-
 					// TODO could be that dedicated fields parsing in non-needed when `new` is only for constructors (and slow parser)
 				case KNew:
 					i++
@@ -155,6 +152,7 @@ class Parser {
 					var types = []
 					var values = []
 					step(Token.CallOpen)
+
 					if tok() != Token.CallClose { while true {
 							positions.push(new NodeData(lex.line[i], lex.column[i], lex.fileName))
 							vars.push(getgo(Token.Identifier))
@@ -166,6 +164,7 @@ class Parser {
 								t = parseType()
 							} else {
 								let token = tok()
+
 								if
 									token == Token.IndexOpen or
 									token == Token.BlockOpen or
@@ -175,12 +174,14 @@ class Parser {
 									t = parseType()
 								}
 							}
+
 							if tok() == Token.Assign {
 								i++
 								expr = parseExpr()
 							}
 							types.push(t)
 							values.push(expr)
+
 							if tok() == Token.Comma {
 								i++
 							} else {
@@ -190,6 +191,7 @@ class Parser {
 					step(Token.CallClose)
 					// TODO Decorators parsing breaks this
 					var tmp = i
+
 					while tok() == Token.At {
 						parseDecorator()
 					}
@@ -204,8 +206,8 @@ class Parser {
 					} else {
 						i = tmp
 					}
-
 					var v = []
+
 					for i in vars.length {
 						// TODO reuse function arguments parser, to check for duplicate argument names, arrow functions etc
 						let argument = Node.Var(vars[i], types[i], values[i], true, false)
@@ -213,6 +215,7 @@ class Parser {
 						project.data.set(argument, positions[i])
 						v.push(argument)
 					}
+
 					switch expr {
 						case null:
 						case Block(_):
@@ -226,24 +229,26 @@ class Parser {
 				case Identifier: // TODO deprecated
 					let name = getgo(Token.Identifier)
 					// JavaScript's `get field()` to property
+
 					if name == 'get', tok() == Token.Identifier {
 						let field = getgo(Token.Identifier)
 						fail('Use property `var \(field) { get { return value } }` instead of `get \(field)()`')
 					}
-
 					// JavaScript's `set field(value)` to property
+
 					if name == 'set', tok() == Token.Identifier {
 						let field = getgo(Token.Identifier)
 						step(Token.CallOpen)
 						let value = getgo(Token.Identifier)
 						fail('Use property `var \(field) { set(\(value)) { ... } }` instead of `set \(field)(\(value))`')
 					}
-
 					// JavaScript's `method()` to `function method()`
+
 					if tok() == Token.CallOpen {
 						if name == 'constructor' {
 							fail('Use `new()` syntax instead of `constructor()`')
 						}
+
 						if _static {
 							fail('Use `static fun ' + name + '()` syntax for static methods')
 						} else {
@@ -266,7 +271,6 @@ class Parser {
 							if expr != null {
 								fail('Property should not have a `= value`')
 							}
-
 							v = field
 							t = kind
 							n = name
@@ -276,6 +280,7 @@ class Parser {
 					}
 					i++
 					// `get` is always first
+
 					if print() == 'set' {
 						fail('Expected `get` before `set`')
 					}
@@ -283,19 +288,15 @@ class Parser {
 					if print() != 'get' {
 						fail('Expected `get`')
 					}
-
 					let kind = print()
 					var getterExpr = null
-
 					if kind == 'get' {
 						i++
 						getterExpr = parseExpr()
 					}
-
 					let kind = print()
 					var setterExpr = null
 					var setterVar = null
-
 					if kind == 'set', onlyGet {
 						fail('Constants `let` may have only getter `get`')
 					}
@@ -311,9 +312,7 @@ class Parser {
 					if setterExpr == null, not onlyGet {
 						fail('Variables `var` should have both getter `get` and setter `set`')
 					}
-
 					step(Token.BlockClose)
-
 					let getter: Node? = (getterExpr == null)? null : Node.Function('get_' + n, getterExpr, [], t, false, variadic: false)
 					let setter: Node? = (setterExpr == null)? null : Node.Function('set_' + n, setterExpr, [
 							Node.Var(setterVar, t, null, true, false)
@@ -327,9 +326,11 @@ class Parser {
 					project.data.set(getter, new NodeData(pos.line, pos.column, lex.fileName))
 					project.data.set(setter, new NodeData(pos.line, pos.column, lex.fileName))
 					fields.push(property)
+
 					if let getter = getter {
 						fields.push(getter)
 					}
+
 					if let setter = setter {
 						fields.push(setter)
 					}
@@ -339,14 +340,13 @@ class Parser {
 		}
 		return fields
 	}
-
 	// ------------------
 	// HELPERS
 	// ------------------
-
 	// Current token
 	fun tok(): Token {
 		#if debug
+
 			if i > lex.length {
 				console.log("Parser is out of token space!")
 				console.log("This should NOT happen.")
@@ -354,18 +354,19 @@ class Parser {
 				fail(lex.fileName + ": Parser internal error: out of token space")
 			}
 			// var t = lex.token[i]
+
 			if lastTokenIndex != i {
 				// Process.stdout.write(lex.token[i].stringify(lex.value[i]))
 				lastTokenIndex = i
 				lastTokenChecks = 1000
 			} else {
 				lastTokenChecks--
+
 				if lastTokenChecks < 0 {
 					fail("Parser internal error: same token parsed too many times: " + '`\(print())`')
 				}
 			}
 		#end
-
 		// // Nested #end
 		// if t == Token.Sharp, lex.value[i + 1] == 'end' { if endif > 0 {
 		// i++ // #
@@ -419,20 +420,17 @@ class Parser {
 		// }
 		// tok()
 		// }
-		return lex.token[i] as! Token
+		return lex.token[i] as!Token
 	}
-
 	fun print(): String {
-		return Token.stringify(lex.token[i] as! Token, lex.value[i])
+		return Token.stringify(lex.token[i] as!Token, lex.value[i])
 	}
-
 	// TODO `, reason = "Case expects : at the end like..."`
 	fun expect(t) {
 		if t != tok() {
 			expected(Token.stringify(t))
 		}
 	}
-
 	// TODO `failAt(message, i)` where `i` saved token indes
 	fun fail(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
 		let line = line != null ? line : lex.line[i]
@@ -442,65 +440,56 @@ class Parser {
 		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
 		throw new CompilerErrors(hints)
 	}
-
 	let hints: [CompilerError] = []
-
 	fun failHint(message: String, line: Int? = null, column: Int? = null, filename: String? = null) {
 		let line = line != null ? line : lex.line[i]
 		let column = column != null ? column : lex.column[i]
 		let filename = filename != null ? filename : lex.fileName
 		hints.push(new CompilerError(Fail.ParserError, message, line, column, filename))
 	}
-
 	fun getgo(t): String {
 		expect(t)
 		return lex.value[i++]
 	}
-
 	fun step(t): Void {
 		expect(t)
 		i++
 	}
-
 	@inline fun next(): Void {
 		i++
 	}
-
 	@inline fun offset(v): Token {
-		return lex.token[i + v] as! Token
+		return lex.token[i + v] as!Token
 	}
-
 	// ------------
 	// ERRORS
 	// ------------
-
 	fun unexpected() {
-		var token = Token.stringify(lex.token[i] as! Token, lex.value[i])
+		var token = Token.stringify(lex.token[i] as!Token, lex.value[i])
 		var error = 'Unexpected `\(token)`'
+
 		if tok() == Token.Semicolon {
 			error += ' semicolon. Note: Hexa has no semicolons!'
 		}
+
 		if print() == 'public' {
 			error += '. Note: Hexa has no `public` keyword!'
 		}
 		fail(error)
 	}
-
 	fun expected(str: String) {
-		var token = Token.stringify(lex.token[i] as! Token, lex.value[i])
+		var token = Token.stringify(lex.token[i] as!Token, lex.value[i])
 		fail('Expected `\(str)` before `\(token)`')
 	}
-
 	// -----------------
 	// EXPRESSIONS
 	// -----------------
-
 	var classExternal = false
 	fun parseExpr(): Node {
 		// Collect documentation comments first (higher priority than decorators)
 		var docComments = collectDocumentationComments()
-
 		var atts: Array<Decorator> = []
+
 		while tok() == Token.At {
 			// NOTE: If decorator happens before /// or in between of comments it's a syntax error
 			// We require comments to go together un-interrupted because they appear in doc gen
@@ -520,7 +509,6 @@ class Parser {
 				var expr = parseExpr() // TODO could be just a flag+i++ instead of parseExpr recursion?
 				project.mapReadonly.set(expr, true)
 				result = expr
-
 				// declare class C {}
 				// declare T = V
 				// declare class
@@ -529,11 +517,13 @@ class Parser {
 				// declare fun
 			case KDeclare:
 				i++
+
 				switch tok() {
 					case KFun:
 						result = parseFunction(false, external: true)
 					case KVar | KLet:
 						let parsed = parseVar(external: true)
+
 						if parsed.length > 1 {
 							// TODO result = Node.Vars(parsed)
 						} else {
@@ -562,22 +552,17 @@ class Parser {
 					step(Token.Assign)
 					let leftNode = Node.NodeTypeValue(left)
 					project.data.set(leftNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
-
 					let rightNode = Node.NodeTypeValue(parseType())
 					project.data.set(rightNode, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
-
 					e = Node.Binop(leftNode, Token.Assign, rightNode)
 				case _:
 					e = parseExpr()
-
 					switch e {
 						case Class(t, ext, impl, fields, _): e = Node.Class(t, ext, impl, fields, true)
 						case _:
 					}
 			}
-
 			var name: String? = null
-
 			switch e {
 				case Binop(a, op, b):
 					if op != Token.Assign fail('declare =')
@@ -589,18 +574,15 @@ class Parser {
 							}
 						case Ident(n): name = n
 					}
-
 				case Class(t, _):
 				switch t {
 					case NodeType.Type(n): name = n
 					case NodeType.ParametricType(n, _): name = n
 				}
-
 				case Var(n, t, e, _):
 					if t == null fail('Variable `\(n)` in `declare` should have a type')
 					if e != null fail('Variable `\(n)` in `declare` should *not* have a value')
 					name = n
-
 				case Function(n, e, _, _):
 					if n == null fail('Function in `declare` should have a name')
 					if e != null fail('Functions in `declare` should *not* have a body')
@@ -637,22 +619,22 @@ class Parser {
 				// var name = lex.value[i+1]
 				// if name == null throw new CompilerError(Fail.ParserError, 'TDeclare name null')
 				// //	TDeclare(name, parseExpr())
-
 				// case _: // ParseDeclareError?
 				// throw new CompilerError(Fail.ParserError, "declare expects name or type")
 				// }
-
 				// {}
 			case BlockOpen:
 				// TODO handle EOF
 				let startsAt = i
 				i++
+
 				if tok() == Token.BlockClose { // Empty block {}
 					i++
 					result = Node.Block([])
 				} else if tok() == Token.Identifier and offset(1) == Token.Colon { // Object { k:v }
 					var names: [String] = []
 					var el: [Node] = []
+
 					while true {
 						names.push(getgo(Token.Identifier))
 						step(Token.Colon)
@@ -660,10 +642,12 @@ class Parser {
 
 						if tok() == Token.Comma { // Object { k:v, ... }
 							i++
+
 							if tok() == Token.BlockClose { // Object { k:v, }
 								// Check if the comma was the last token on its line
 								let commaLine = lex.line[i - 1] // Line of the comma we just consumed
 								let nextTokenLine = lex.line[i] // Line of the next token (BlockClose)
+
 								if commaLine == nextTokenLine {
 									// Comma and } are on the same line - not allowed
 									fail("Unexpected `}`, remove trailing `,` comma")
@@ -680,17 +664,16 @@ class Parser {
 					if tok() != Token.BlockClose {
 						fail('Expected `}` or `,` before `\(print())`')
 					}
-
 					step(Token.BlockClose)
 					result = Node.Object(names, el)
 				} else { // Block { expr expr expr }
 					var el = []
+
 					while tok() != Token.BlockClose {
 						if tok() == Token.Eof {
 							i = startsAt
 							fail('The block `{` has got unclosed to the end of the file')
 						}
-
 						el.push(parseExpr())
 					}
 					step(Token.BlockClose)
@@ -700,25 +683,32 @@ class Parser {
 				// if econd { eif } else { eelse }
 			case KIf:
 				i++
+				// console.log('pre')
 				var econd = [parseExpr()]
+				// console.log('post')
+
 				while tok() == Token.Comma {
 					next()
 					econd.push(parseExpr())
 				}
 				var eif: Node? = null
 				var eifAt = i
+
 				if tok() != Token.Colon {
 					eif = parseExpr()
 				}
 				var eelse: Node? = null
 				var eelseAt = i
+
 				if tok() == Token.KElse {
 					i++
+
 					switch tok() {
 						case KIf: eelse = parseExpr()
 						case _: eelse = parseBlock()
 					}
 				}
+
 				if eif != null {
 					switch eif {
 						case Block(_):
@@ -726,6 +716,7 @@ class Parser {
 							let temp = i
 							i = eifAt
 							failHint('`if` body must be a `{` block `}`')
+
 							switch eif {
 								case Call(_, args):
 									// TODO at args[0] if present
@@ -735,6 +726,7 @@ class Parser {
 							i = temp
 					}
 				}
+
 				if eelse != null {
 					switch eelse {
 						case Block(_):
@@ -751,12 +743,14 @@ class Parser {
 			case KWhile:
 				i++
 				var econd = [parseExpr()]
+
 				while tok() == Token.Comma {
 					next()
 					econd.push(parseExpr())
 				}
 				var eAt = i
 				var e = parseExpr()
+
 				switch e {
 					case Block(_):
 					case _:
@@ -771,6 +765,7 @@ class Parser {
 				i++
 				var eAt = i
 				var e = parseExpr()
+
 				switch e {
 					case Block(_):
 					case _:
@@ -781,6 +776,7 @@ class Parser {
 				}
 				step(Token.KWhile)
 				var econd = [parseExpr()]
+
 				while tok() == Token.Comma {
 					next()
 					econd.push(parseExpr())
@@ -792,6 +788,7 @@ class Parser {
 			case CallOpen:
 				let startsAt = i
 				next()
+
 				if
 					// () =>
 					(tok() == Token.CallClose and offset(1) == Token.RightArrow) or
@@ -808,20 +805,25 @@ class Parser {
 					var vars: [String] = []
 					var types = []
 					var values = []
+
 					while tok() != Token.CallClose {
 						vars.push(getgo(Token.Identifier))
+
 						if tok() == Token.Colon {
 							// TODO colon-less
 							i++
 							types.push(parseType())
 						}
+
 						if tok() == Token.Title {
 							types.push(parseType())
 						}
+
 						if tok() == Token.Assign {
 							i++
 							values.push(parseExpr())
 						}
+
 						if tok() == Token.Comma {
 							i++
 						}
@@ -829,6 +831,7 @@ class Parser {
 					step(Token.CallClose)
 					step(Token.RightArrow)
 					var v = []
+
 					for i in vars.length {
 						v.push(Node.Var(vars[i], types[i], values[i], true, false))
 					}
@@ -843,6 +846,7 @@ class Parser {
 					// TODO add same checks for other {} () []
 					// ^ something like pushUbclosed('(') < saves i somewhere,
 					// and `step` uses this var if Eof
+
 					if tok() == Token.Eof {
 						i = startsAt
 						fail('The parenthesis `(` has got unclosed to the end of the file')
@@ -857,6 +861,7 @@ class Parser {
 				// Check if the next token is on the next line - if so, treat as return with no value
 				let returnLine = lex.line[i - 1]
 				let nextTokenLine = lex.line[i]
+
 				if nextTokenLine != returnLine {
 					result = Node.Return(null)
 				} else {
@@ -868,7 +873,6 @@ class Parser {
 						case KCase: result = Node.Return(null)
 						case KBreak: result = Node.Return(null)
 						case KContinue: result = Node.Return(null)
-
 							// TODO infer non-returning function right in parser
 							// (so it is instantly guessed to be Void)
 							// seems incompatible with macro
@@ -896,6 +900,7 @@ class Parser {
 				let nextTok = tok()
 				// Spread can be followed by: Identifier, Title, CallOpen, BlockOpen, IndexOpen, etc.
 				// But NOT by: Comma, BlockClose, IndexClose, CallClose, Eof, Semicolon
+
 				if
 					nextTok != Token.Comma and
 					nextTok != Token.BlockClose and
@@ -913,7 +918,7 @@ class Parser {
 				// ~i
 				// -i
 			case Increment | Decrement | Exclamation | KNot | BitwiseNot | Subtract: // TODO `!`/`not`
-				let id = lex.token[i] as! Token
+				let id = lex.token[i] as!Token
 				i++
 				// result = Node.Unop(id, false, parseExpr())
 				let value = parseExpr()
@@ -926,7 +931,6 @@ class Parser {
 				// case _: result = Node.Unop(id, false, value)
 				// }
 				// }
-
 				// All unops have larger priority than binops
 				fun fix(value: Node) {
 					switch value {
@@ -937,13 +941,12 @@ class Parser {
 						case _: return Node.Unop(id, false, value)
 					}
 				}
-
 				// result = fix(Node.Unop(id, false, value))
 				result = fix(value)
-
 			case KType:
 				i++
 				var alias = parseType()
+
 				if tok() == Token.Assign {
 					// Type alias: `type A = B`
 					step(Token.Assign)
@@ -954,15 +957,14 @@ class Parser {
 					// Consume decorators
 					let att = atts
 					atts = [] // Reset before parsing the fields and other confinements
-
 					let me = parseClass(external: false, alias, kind: ClassKind.Type)
 					project.mapDecorators.set(me, att)
 					result = me
 				}
-
 			case KGuard:
 				i++
 				var econd = [parseExpr()]
+
 				while tok() == Token.Comma {
 					i++
 					econd.push(parseExpr())
@@ -970,7 +972,6 @@ class Parser {
 				step(Token.KElse)
 				var otherwise = parseBlock()
 				result = Node.Guard(econd, otherwise)
-
 			case FloatingPoint:
 				// TODO handle Meta
 				let kind = lex.kind[i]
@@ -985,12 +986,14 @@ class Parser {
 			case Integer:
 				let kind = lex.kind[i]
 				let value = getgo(Token.Integer).split('_').join('')
+
 				switch kind {
 					// TODO rename `Default` token to `Empty`
 					case Default:
 						let at = i
 						// TODO encode 0b flag into Meta
 						let v = value.startsWith('0b') ? parseInt(value.substr(2), 2) : parseInt(value)
+
 						if v > 2147483647 or v < -2147483647 {
 							i = at - 1
 							fail('Integer `\(value)` is too large for *signed* 32 bit, use `\(value)u32` or `\(value)n`')
@@ -1000,6 +1003,7 @@ class Parser {
 					case UInt8:
 						let at = i
 						let v = parseBigInt(value)
+
 						if v >= 256n or v < 0n {
 							i = at - 1
 							fail('Integer `\(value)` is negative or too large for *unsigned* 8 bit, use `\(value)u16` or `\(value)n`')
@@ -1010,6 +1014,7 @@ class Parser {
 					case UInt16:
 						let at = i
 						let v = parseBigInt(value)
+
 						if v >= 65536n or v < 0n {
 							i = at - 1
 							fail('Integer `\(value)` is negative or too large for *unsigned* 16 bit, use `\(value)u32` or `\(value)n`')
@@ -1021,6 +1026,7 @@ class Parser {
 					case UInt32:
 						let at = i
 						let v = parseBigInt(value)
+
 						if v >= 4294967296n or v < 0n {
 							i = at - 1
 							fail('Integer `\(value)` is negative or too large for *unsigned* 32 bit, use `\(value)u64` or `\(value)n`')
@@ -1031,7 +1037,6 @@ class Parser {
 					case _:
 						result = Node.MetaInt(parseBigInt(value), kind)
 				}
-
 				// `T`
 				// `T?`
 				// `T<T>`
@@ -1053,6 +1058,7 @@ class Parser {
 			case Identifier:
 				let pos = lex.column[i]
 				let name = getgo(Token.Identifier)
+
 				if tok() == Token.RightArrow {
 					next()
 					result = Node.Arrow(parseExpr(), [Node.Var(name, null, null, true, false)], null)
@@ -1060,6 +1066,7 @@ class Parser {
 					i++
 					let params: [NodeType] = [parseType()]
 					// TODO reusable code
+
 					while tok() == Token.Comma {
 						i++
 						params.push(parseType())
@@ -1070,11 +1077,24 @@ class Parser {
 				} else {
 					result = Node.Ident(name, null)
 				}
+			case Regex:
+				let pattern = getgo(Token.Regex)
+				// Check if next token is an identifier immediately after the closing /
+				if tok() == Token.Identifier
+					and lex.line[i] == lex.line[i - 1]
+					and lex.column[i] == lex.column[i - 1] + pattern.length + 2
+				{
+					let flags = getgo(Token.Identifier)
+					result = Node.RegExp(pattern, flags)
+				} else {
+					result = Node.RegExp(pattern, null)
+				}
 			case Backtick:
 				result = Node.String(getgo(Token.Backtick))
 			case QuotedString:
 				let str = getgo(Token.QuotedString)
 				// TODO Check have interpolations in string
+
 				if hasInterpolation(str) {
 					result = Node.Parenthesis(parseInterpolations(str))
 				} else {
@@ -1115,6 +1135,7 @@ class Parser {
 					i++
 					args = []
 					argNames = []
+
 					if tok() != Token.CallClose { while true {
 							if tok() == Token.Identifier and offset(1) == Token.Colon {
 								if let argNames = argNames {
@@ -1126,9 +1147,11 @@ class Parser {
 									argNames.push(null)
 								}
 							}
+
 							if let args = args {
 								args.push(parseExpr())
 							}
+
 							if tok() == Token.Comma {
 								i++
 							} else {
@@ -1140,6 +1163,7 @@ class Parser {
 				result = Node.Meta(name, args, argNames)
 			case KVar:
 				var parsed = parseVar()
+
 				if parsed.length > 1 {
 					// TODO old code `result = Node.Vars(parsed)`
 					// ^ make just single-var parser
@@ -1148,17 +1172,19 @@ class Parser {
 				}
 			case KLet:
 				var parsed = parseVar()
+
 				if parsed.length > 1 {
 					// TODO old code `result = Node.Vars(parsed)`
 				} else {
 					result = parsed[0]
 				}
 				// `try { } catch e : T { } catch e : T { }`
-			// `try { } catch e Error if cond, let x = expr, cond { }`
+				// `try { } catch e Error if cond, let x = expr, cond { }`
 			case KTry:
 				i++
 				let exprAt = i
 				let expr = parseExpr()
+
 				switch expr {
 					case Block(_):
 					case _:
@@ -1170,6 +1196,7 @@ class Parser {
 				var t = []
 				var v = []
 				var catches = []
+
 				while tok() == Token.KCatch {
 					step(Token.KCatch)
 					// TODO slow parser
@@ -1193,15 +1220,18 @@ class Parser {
 					var catchValues: [Node] = [Node.Var(name, dataType, null, true, false)]
 					// Parse optional `if` condition and additional `let` bindings
 					// Format: catch e Error if cond, let x = expr, cond, cond { block }
+
 					if tok() == Token.KIf {
 						i++
 						// Parse condition after `if`
 						catchValues.push(parseExpr())
 					}
 					// Parse additional let bindings and conditions separated by commas
+
 					while tok() == Token.Comma {
 						i++
 						// Check for `let x = expr` binding
+
 						if tok() == Token.KLet {
 							i++
 							let letName = getgo(Token.Identifier)
@@ -1216,6 +1246,7 @@ class Parser {
 					v.push(catchValues)
 					let blockAt = i
 					let blockExpr = parseExpr()
+
 					switch blockExpr {
 						case Block(_):
 						case _:
@@ -1230,9 +1261,7 @@ class Parser {
 				if catches.length == 0 {
 					failHint('`try` must have at least one `catch` block')
 				}
-
 				result = Node.Try(expr, t, v, catches)
-
 			case KImport:
 				i++
 
@@ -1241,7 +1270,6 @@ class Parser {
 					project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 					return result
 				}
-
 				var el: [ImportNode] = []
 				// var path: String = []
 
@@ -1262,6 +1290,7 @@ class Parser {
 
 					if tok() == Token.KAs {
 						i++
+
 						if tok() == Token.Identifier {
 							el.push(ImportNode.As(el.pop(), ImportNode.Lower(getgo(Token.Identifier))))
 						} else if tok() == Token.Title {
@@ -1277,9 +1306,7 @@ class Parser {
 						break
 					}
 				}
-
 				step(Token.KIn)
-
 				// var offset = lex.column[i]
 				// while (true) {
 				// if tok() == Token.Eof {
@@ -1304,17 +1331,14 @@ class Parser {
 				// }
 				// console.log(path)
 				// console.log(el)
-
 				result = Node.Import(el, getgo(Token.QuotedString))
 				// result = Node.Import(path.join(''), el)
 				project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName))
 				return result
-
 			case KEnum:
 				// Consume decorators
 				let att = atts
 				atts = []
-
 				i++
 				var t = parseType()
 				var valuesType = null
@@ -1330,6 +1354,7 @@ class Parser {
 				}
 				step(Token.BlockOpen)
 				var names = []
+
 				while tok() != Token.BlockClose {
 					// Collect documentation comments for enum tags
 					var docComments = collectDocumentationComments()
@@ -1337,7 +1362,6 @@ class Parser {
 					while tok() == Token.At {
 						atts.push(parseDecorator())
 					}
-
 					// TODO implement decorators transfer
 					atts = []
 
@@ -1345,19 +1369,20 @@ class Parser {
 						case Title:
 							let pos = new NodeData(lex.line[i], lex.column[i], lex.fileName)
 							var tag = Node.NodeTypeValue(NodeType.Type(getgo(Token.Title), null))
+
 							if tok() == Token.CallOpen {
 								i++
 								// TODO `let args [] = []` causes no error and `let args [test] = []` too
 								let args: [Node] = []
 								let argNames: [String] = []
+
 								while true {
 									argNames.push(getgo(Token.Identifier))
-
 									// TODO drop
+
 									if tok() == Token.Colon {
 										i++
 									}
-
 									args.push(
 										Node.NodeTypeValue(parseType())
 									)
@@ -1376,49 +1401,45 @@ class Parser {
 								project.data.set(tag, pos)
 								tag = Node.Binop(tag, Token.Assign, parseExpr())
 							}
-
 							project.data.set(tag, pos)
+
 							if docComments.length > 0 {
 								project.leadingComments.set(tag, docComments)
 							}
 							names.push(tag)
 						case _:
 							let expr = parseExpr()
+
 							if docComments.length > 0 {
 								project.leadingComments.set(expr, docComments)
 							}
 							names.push(expr)
 					}
 				}
-
 				// Check for unattached documentation comments at end of enum block
 				let remainingComments = collectDocumentationComments()
+
 				if remainingComments.length > 0 {
 					fail("Documentation comments must be attached to an enum tag")
 				}
-
 				step(Token.BlockClose)
 				result = Node.Enum(t, names, valuesType, extend)
 				project.mapDecorators.set(result, att)
-
 			case KClass | KInterface:
 				// Consume decorators
 				let att = atts
 				atts = [] // Reset before parsing the fields and other confinements
-
 				let me = parseClass(external: false, alias: null, kind: (tok() == Token.KInterface) ? ClassKind.Interface : ClassKind.Class)
 				project.mapDecorators.set(me, att)
 				result = me
 			case KFun:
 				// TODO decorators? seems no need
 				result = parseFunction()
-
 			case IndexOpen: // [a, b, c]
 				i++
 				var el = []
 				var values = []
 				var isMap = false
-
 				if tok() != Token.IndexClose { while true {
 						if tok() == Token.Colon { // [:]
 							isMap = true
@@ -1426,18 +1447,22 @@ class Parser {
 							break
 						}
 						el.push(parseExpr())
+
 						if tok() == Token.Colon { // [k:v]
 							i++
 							values.push(parseExpr())
 							isMap = true
 						}
+
 						if tok() == Token.Comma {
 							i++
 							// Trailing comma [a,] - only allow if it's the last token on the line
+
 							if tok() == Token.IndexClose {
 								// Check if the comma was the last token on its line
 								let commaLine = lex.line[i - 1] // Line of the comma we just consumed
 								let nextTokenLine = lex.line[i] // Line of the next token (IndexClose)
+
 								if commaLine == nextTokenLine {
 									// Comma and ] are on the same line - not allowed
 									// TODO better message
@@ -1462,8 +1487,10 @@ class Parser {
 				var t = parseType()
 				var names: [String] = []
 				var values: [Node] = []
+
 				if tok() == Token.BlockOpen { // {}
 					i++
+
 					if tok() == Token.BlockClose { // Empty {}
 						step(Token.BlockClose)
 					} else if tok() == Token.Identifier and offset(1) == Token.Colon { // Object { k:v }
@@ -1471,6 +1498,7 @@ class Parser {
 							names.push(getgo(Token.Identifier))
 							step(Token.Colon) // TODO support same-name-copy syntax `Object { name }`
 							values.push(parseExpr())
+
 							if tok() == Token.Comma {
 								i++
 							}
@@ -1481,6 +1509,7 @@ class Parser {
 				step(Token.CallOpen)
 				var args = []
 				var argNames: [String] = []
+
 				if tok() != Token.CallClose { while true {
 						switch tok() {
 							case CallClose:
@@ -1488,6 +1517,7 @@ class Parser {
 							case Title:
 								argNames.push(null)
 								args.push(parseExpr())
+
 								if tok() == Token.Colon {
 									step(Token.Colon)
 									parseType()
@@ -1502,6 +1532,7 @@ class Parser {
 								}
 								args.push(parseExpr())
 						}
+
 						if tok() == Token.Comma {
 							i++
 						} else {
@@ -1509,28 +1540,27 @@ class Parser {
 						}
 					} }
 				step(Token.CallClose)
-
 				result = Node.New([], t, args, names, values, argNames)
 			case KSwitch:
 				i++
 				// TODO multiple
 				var exprs = [parseExpr()]
+
 				while tok() == Token.Comma {
 					i++
 					exprs.push(parseExpr())
 				}
 				step(Token.BlockOpen)
-
 				var cases = []
 				var conds = []
 				var guards = []
-
 				// Collect documentation comments for case body TODO decorators
 				var docComments = collectDocumentationComments()
 
 				while tok() != Token.BlockClose {
 					// `case conds:` and `case cond, cond, cond:`
 					step(Token.KCase)
+
 					if tok() == Token.Underscore {
 						// `case _:`
 						conds.push(Node.Underscore)
@@ -1540,14 +1570,14 @@ class Parser {
 						// TODO handle `case cond, cond, cond:`
 						conds.push(parseExpr())
 					}
-
 					// Map documentation comments to the case itself TODO make Node.Case or similar
+
 					if docComments.length > 0 {
 						project.leadingComments.set(conds[0], docComments)
 						docComments = []
 					}
-
 					// `case conds if guard:`
+
 					if tok() == Token.KIf {
 						i++
 						guards.push(parseExpr())
@@ -1555,26 +1585,27 @@ class Parser {
 						// No guard
 						guards.push(null)
 					}
-
 					// `case ...:`
 					step(Token.Colon)
 					docComments = collectDocumentationComments()
-
 					// `case ...: expr expr expr`
 					var exs = []
 					// TODO , instead of && ie `while a, b` new syntax here
+
 					while tok() != Token.KCase and tok() != Token.BlockClose {
 						// TODO this would be unneded if `parseExpr` would parse `case` on its own?
 						let expr = parseExpr()
 						let pending = collectDocumentationComments()
+
 						if docComments.length > 0 {
 							project.leadingComments.set(expr, docComments)
+							// docComments = collectDocumentationComments()
 						}
 						docComments = pending
 						exs.push(expr)
 					}
-
 					// Also assumes `0` expressions (ie `0 != 1`) thus makes a block with empty array
+
 					if exs.length != 1 {
 						// Collect them into a block
 						// TODO is this really needed by the typer?
@@ -1583,15 +1614,13 @@ class Parser {
 						cases.push(exs[0])
 					}
 				}
-
 				// Check for unattached documentation comments at end of switch block
+
 				if docComments.length > 0 {
 					fail("Documentation `///` comments must be attached to a `case` pattern or some statement in its body")
 				}
-
 				step(Token.BlockClose)
 				result = Node.Switch(exprs, conds, guards, cases)
-
 			case KFor:
 				i++
 				// TODO slow parser
@@ -1602,7 +1631,6 @@ class Parser {
 				if tok() == Token.KLet or tok() == Token.KVar {
 					i++
 					var name = getgo(Token.Identifier)
-
 					// Approximately detect `for (let/var field of/in fields)`
 					// TODO write tests for this with proper validation of err message
 					// TODO quick fix support in vs hexa
@@ -1611,6 +1639,7 @@ class Parser {
 							i++
 							var values = print()
 							i++
+
 							while tok() != Token.CallClose and tok() != Token.Eof {
 								if tok() == Token.Subtract or tok() == Token.Add {
 									values += ' ' + print() + ' '
@@ -1623,7 +1652,6 @@ class Parser {
 							fail("This loop should be replaced to `for \(name) in \(values)`")
 						}
 					}
-
 					// Approximately detect `for (let i = 0; i < count; i++)`
 					// TODO `++i` `const i` `var i` `auto i` `int i`
 					// TODO ensure `i` name is the same at all places
@@ -1633,8 +1661,8 @@ class Parser {
 					} else {
 						classic = false
 					}
-
 					var specialCase = ''
+
 					if tok() == Token.Integer, lex.value[i] == '0' {
 						i++
 					} else { // TODO always consume values, and compare iwht '0'
@@ -1672,7 +1700,6 @@ class Parser {
 					} else {
 						classic = false
 					}
-
 					var lesserOrEqual = false
 					if tok() == Token.Less {
 						i++
@@ -1682,11 +1709,10 @@ class Parser {
 					} else {
 						classic = false
 					}
-
 					var values = print()
 					i++
-
 					// `Blah.blah().blah - 1 + 1`
+
 					while
 					tok() == Token.Identifier or
 					tok() == Token.Title or
@@ -1716,20 +1742,21 @@ class Parser {
 					} else {
 						classic = false
 					}
-
 					// `i++`
+
 					if tok() == Token.Identifier, lex.value[i] == name {
 						i++
+
 						if tok() == Token.Increment {
 							i++
 						} else {
 							classic = false
 						}
 					} else
-
 					// `++i`
 					if tok() == Token.Increment {
 						i++
+
 						if tok() == Token.Identifier, lex.value[i] == name {
 							i++
 						} else {
@@ -1751,7 +1778,6 @@ class Parser {
 					if classic {
 						fail("This loop should be replaced to `for \(name) in \(specialCase) ... \(values)`")
 					}
-
 					fail("Hexa has only `for \(name) in values` syntax")
 				}
 				var name = getgo(Token.Identifier)
@@ -1769,13 +1795,11 @@ class Parser {
 				// }
 				var expression = parseExpr()
 				result = Node.For(name, values, expression, range)
-
 			case KStatic:
 				// Consume `static` keyword and set the flag on the parsed expression
 				next()
 				result = parseExpr()
 				project.mapStatic.set(result, true)
-
 			case KAsync:
 				next()
 				var mode: Node? = null
@@ -1791,20 +1815,16 @@ class Parser {
 				if mode != null {
 					project.mapAsyncMode.set(result, mode)
 				}
-
 				project.data.set(result, project.data.get(fieldExpr))
-
 			case KPrivate:
 				// Consume `private` keyword and set the flag on the parsed expression
 				next()
 				result = parseExpr()
 				project.mapPrivate.set(result, true)
-
 			case Less:
 				// JSX: <tag> or <tag />
 				// Note: In prefix position, < always starts JSX (comparison needs left-hand side)
 				result = parseJSXElement()
-
 			case _: unexpected()
 		}
 
@@ -1812,7 +1832,6 @@ class Parser {
 			Process.stdout.write('\n')
 			fail("Expression is incomplete, current token is: " + Token.stringify(tok()))
 		}
-
 		// Save original starting position before any sub-parsing (postfix can advance i): final map uses prefix location for the whole expression
 		// TODO test with complex expressions like `a.b[c](d).e ?? f` to verify positions
 		project.data.set(result, new NodeData(nodePosition.line, nodePosition.column, lex.fileName)) // map element at prefix step
@@ -1821,40 +1840,42 @@ class Parser {
 			project.mapDecorators.set(result, atts)
 			atts = []
 		}
-
 		// Map documentation comments to the node
+
 		if docComments.length > 0 {
 			project.leadingComments.set(result, docComments)
 		}
-
 		// --------------
 		// POSTFIX STEP
 		// --------------
 		var done = i >= lex.length
+
 		while not done {
 			project.data.set(result, new NodeData(lex.line[i], lex.column[i], lex.fileName))
+
 			switch tok() {
 				case Eof: done = true
 				case IndexOpen:
 					// Check if `[` is on the next line - if so, don't treat as indexing
 					let resultLine = lex.line[i - 1]
 					let indexOpenLine = lex.line[i]
+
 					if indexOpenLine != resultLine {
 						// The `[` is on a different line, so this is likely a new array literal
 						// not an indexing operation. Stop the postfix loop to let array literal parsing handle it.
 						done = true
 						break
 					}
-
 					i++
 					var indices = [parseExpr()]
+
 					while tok() == Token.Comma {
 						i++
 						indices.push(parseExpr())
 					}
 					step(Token.IndexClose)
-
 					// Check if we're trying to index with empty brackets (no indices at all)
+
 					if indices.length == 0 {
 						failHint('Cannot index with empty brackets `[]`. Provide at least one index value.')
 					} else if indices.length == 1 {
@@ -1868,6 +1889,7 @@ class Parser {
 					}
 				case KIs:
 					i++
+
 					switch tok() {
 						case Title:
 							result = Node.Is(result, parseType())
@@ -1877,6 +1899,7 @@ class Parser {
 				case KAs:
 					i++
 					var kind = tok()
+
 					if tok() == Token.Exclamation {
 						i++
 					} else if tok() == Token.Question {
@@ -1889,22 +1912,24 @@ class Parser {
 						// Check if `(` is on the next line - if so, don't treat as call
 						let resultLine = lex.line[i - 1]
 						let callOpenLine = lex.line[i]
+
 						if callOpenLine != resultLine {
 							// The `(` is on a different line, so this is likely a new parenthesized expression
 							// not a call operation. Stop the postfix loop to let it be parsed separately.
 							done = true
 							break
 						}
-
 						var args: [Node] = []
 						var argNames: [String] = []
 						i++
+
 						if tok() != Token.CallClose { while true {
 								switch tok() {
 									case CallClose:
 										// Check if the comma was the last token on its line
 										let commaLine = lex.line[i - 1]
 										let nextTokenLine = lex.line[i]
+
 										if commaLine == nextTokenLine {
 											fail("Unexpected `)`, remove trailing `,` comma")
 										}
@@ -1912,6 +1937,7 @@ class Parser {
 									case Title:
 										argNames.push(null)
 										args.push(parseExpr())
+
 										if tok() == Token.Colon {
 											step(Token.Colon)
 											parseType()
@@ -1925,6 +1951,7 @@ class Parser {
 										}
 										args.push(parseExpr())
 								}
+
 								if tok() == Token.Comma {
 									i++
 								} else {
@@ -1942,9 +1969,11 @@ class Parser {
 					i++
 					var names: [String] = []
 					var el: [Node] = []
+
 					while tok() != Token.BlockClose {
 						let fieldName = getgo(Token.Identifier)
 						names.push(fieldName)
+
 						if tok() == Token.Colon {
 							i++
 							el.push(parseExpr())
@@ -1952,12 +1981,15 @@ class Parser {
 							// Shorthand syntax: { fieldName } means { fieldName: fieldName }
 							el.push(Node.Ident(fieldName, null))
 						}
+
 						if tok() == Token.Comma {
 							i++
+
 							if tok() == Token.BlockClose {
 								// Check if the comma was the last token on its line
 								let commaLine = lex.line[i - 1]
 								let nextTokenLine = lex.line[i]
+
 								if commaLine == nextTokenLine {
 									fail("Unexpected `}`, remove trailing `,` comma")
 								}
@@ -1974,16 +2006,20 @@ class Parser {
 					i++
 					var keys: [Node] = []
 					var el: [Node] = []
+
 					while tok() != Token.IndexClose {
 						keys.push(parseExpr())
 						step(Token.Colon)
 						el.push(parseExpr())
+
 						if tok() == Token.Comma {
 							i++
+
 							if tok() == Token.IndexClose {
 								// Check if the comma was the last token on its line
 								let commaLine = lex.line[i - 1]
 								let nextTokenLine = lex.line[i]
+
 								if commaLine == nextTokenLine {
 									fail("Unexpected `]`, remove trailing `,` comma")
 								}
@@ -2020,6 +2056,7 @@ class Parser {
 					// a.B
 				case Dot:
 					i++
+
 					switch tok() {
 						case KMeta:
 							i++
@@ -2031,6 +2068,7 @@ class Parser {
 								i++
 								args = []
 								argNames = []
+
 								if tok() != Token.CallClose { while true {
 										if tok() == Token.Identifier and offset(1) == Token.Colon {
 											if let argNames = argNames {
@@ -2042,9 +2080,11 @@ class Parser {
 												argNames.push(null)
 											}
 										}
+
 										if let args = args {
 											args.push(parseExpr())
 										}
+
 										if tok() == Token.Comma {
 											i++
 										} else {
@@ -2111,6 +2151,7 @@ class Parser {
 				case _:
 					let failAt = i
 					let t = tok()
+
 					if isBinop(t) and offset(1) == Token.Assign {
 						var op = tok()
 						i++
@@ -2143,6 +2184,7 @@ class Parser {
 						// }
 						var b = parseExpr()
 						var a = result
+
 						switch b {
 							case Binop(aa, op, bb):
 								var tp = precedence(t)
@@ -2151,6 +2193,7 @@ class Parser {
 								var bp = precedence(op)
 								var bLeft = bp > 99
 								bp = bp % 100
+
 								if bp > tp {
 									let eb = Node.Binop(result, t, aa)
 									// project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
@@ -2198,19 +2241,23 @@ class Parser {
 		// TODO handle EOF
 		// TODO i++ leftover
 		step(Token.BlockOpen)
+
 		if tok() == Token.BlockClose { // Empty block {}
 			i++
 			return Node.Block([])
 		} else if tok() == Token.Identifier and offset(1) == Token.Colon { // Object { k:v }
 			var names: [String] = []
 			var el: [Node] = []
+
 			while true {
 				names.push(getgo(Token.Identifier))
 				step(Token.Colon)
 
 				el.push(parseExpr())
+
 				if tok() == Token.Comma { // Object { k:v, ... }
 					i++
+
 					if tok() == Token.BlockClose { // Object { k:v, }
 						fail("Unexpected `}`, remove trailing `,` comma")
 					}
@@ -2219,6 +2266,7 @@ class Parser {
 					break
 				}
 			}
+
 			if tok() != Token.BlockClose {
 				fail('Expected `}` or `,` before `\(print())`')
 			}
@@ -2226,11 +2274,13 @@ class Parser {
 			return Node.Object(names, el)
 		} else { // Block { expr expr expr }
 			var el = []
+
 			while tok() != Token.BlockClose {
 				el.push(parseExpr())
 			}
 			// Check for unattached documentation comments at end of block
 			let remainingComments = collectDocumentationComments()
+
 			if remainingComments.length > 0 {
 				fail("Documentation comments must be attached to an expression")
 			}
@@ -2345,6 +2395,7 @@ class Parser {
 			if tok() == Token.CallOpen {
 				do {
 					i++
+
 					if tok() == Token.Underscore { i++ bind.push(null) }
 					else {
 						bind.push(Node.Var(getgo(Token.Identifier), null, null, const, false))
@@ -2382,6 +2433,7 @@ class Parser {
 		var const = tok() == Token.KLet
 		i++
 		var vars: [Node] = []
+
 		switch tok() {
 			// var a
 			case Identifier:
@@ -2389,6 +2441,7 @@ class Parser {
 				while true {
 
 					var varname = getgo(Token.Identifier)
+
 					if varname.endsWith("___") {
 						// TODO still applies?
 						fail("Variables can't end with `___`, it is reserved.")
@@ -2429,9 +2482,11 @@ class Parser {
 				while tok() == Token.Dot {
 					res = Node.Dot(res, getgo(Token.Title))
 				}
+
 				switch tok() {
 					case CallOpen:
 						var args: [String] = []
+
 						while tok() != Token.CallClose {
 							args.push(getgo(Token.Identifier))
 						}
@@ -2461,6 +2516,7 @@ class Parser {
 
 		// Parse tag name (Title or Identifier)
 		var tag = ""
+
 		switch tok() {
 			case Title:
 				tag = getgo(Token.Title)
@@ -2472,11 +2528,13 @@ class Parser {
 
 		// Parse attributes
 		var attrs: [Node] = []
+
 		while tok() != Token.Greater and tok() != Token.Divide {
 			// Attribute name
 			var attrLine = lex.line[i]
 			var attrColumn = lex.column[i]
 			var attrName = ""
+
 			switch tok() {
 				case Identifier:
 					attrName = getgo(Token.Identifier)
@@ -2526,6 +2584,7 @@ class Parser {
 
 		// Parse children until closing tag </tag>
 		var children: [Node] = []
+
 		while tok() == Token.Less and offset(1) == Token.Divide {
 			// Closing tag
 			break
@@ -2544,6 +2603,7 @@ class Parser {
 
 				// Parse closing tag name
 				var closeTag = ""
+
 				switch tok() {
 					case Title:
 						closeTag = getgo(Token.Title)
@@ -2580,6 +2640,7 @@ class Parser {
 				var idLine = lex.line[i]
 				var idColumn = lex.column[i]
 				var text = ""
+
 				while tok() != Token.Less and tok() != Token.BlockOpen and tok() != Token.Eof {
 					if tok() == Token.Identifier or tok() == Token.Title {
 						text += getgo(tok())
@@ -2618,6 +2679,7 @@ class Parser {
 		}
 
 		var exprs: [Node] = []
+
 		while tok() != Token.BlockClose {
 			if tok() == Token.Eof {
 				fail("Unclosed JSX expression block `{` - reached end of file")
@@ -2653,9 +2715,11 @@ class Parser {
 		switch tok() {
 			case Identifier:
 				name = getgo(Token.Identifier)
+
 				if tok() == Token.Less {
 					i++
 					let param: [NodeType] = [parseType()]
+
 					while tok() == Token.Comma {
 						i++
 						param.push(parseType())
@@ -2693,6 +2757,7 @@ class Parser {
 					}
 					pos.push({ line: lex.line[i], column: lex.column[i] })
 					let name = getgo(Token.Identifier)
+
 					if tok() == Token.Colon {
 						// TODO no colon
 						i++
@@ -2735,8 +2800,10 @@ class Parser {
 					argComments.push(docComments)
 					types.push(t)
 					values.push(expr)
+
 					if tok() == Token.Comma {
 						i++
+
 						if variadic {
 							fail('Variadic `...\(name)` argument must be the last argument')
 						}
@@ -2754,6 +2821,7 @@ class Parser {
 			rettype = parseType()
 		} else {
 			let token = tok()
+
 			if
 				token == Token.IndexOpen or
 				// TODO `{` conflicts with no-retType `token == Token.BlockOpen or`
@@ -2776,6 +2844,7 @@ class Parser {
 				case KLet: { }
 				case At: {
 						var tmp = i
+
 						while tok() == Token.At {
 							parseDecorator()
 						}
@@ -2803,6 +2872,7 @@ class Parser {
 			} }
 
 		var v = []
+
 		for i in vars.length {
 			let n = Node.Var(vars[i], types[i], values[i], true, false)
 			project.data.set(n, new NodeData(pos[i].line, pos[i].column, lex.fileName))
@@ -2817,6 +2887,7 @@ class Parser {
 
 			v.push(n)
 		}
+
 		switch expr {
 			case null:
 			case Block(_):
@@ -2847,6 +2918,7 @@ class Parser {
 		let _classExternal = classExternal
 		classExternal = external
 		var isInterface = kind
+
 		if alias == null { i++ } // Only consume keyword if we haven't already
 		var t = alias ?? parseType()
 
@@ -2864,6 +2936,7 @@ class Parser {
 							fail('Type name cannot start with `_` underscore')
 					}
 				}
+
 				switch isInterface {
 					case Class:
 						fail('Class name cannot start with lowercase and should be formatted as `class \(Hint.toTitleCase(name))`')
@@ -2919,6 +2992,7 @@ class Parser {
 	fun hasInterpolation(str: String): Bool {
 		var chars = str.split("")
 		var i = 0
+
 		while i < chars.length {
 			if chars[i] == "\\" {
 				if i + 1 < chars.length {
@@ -2937,6 +3011,7 @@ class Parser {
 	fun parseInterpolations(str: String): Node {
 		fun interpolate(s: String): String {
 			var out = ['"']
+
 			if s.length < 2 {
 				return s
 			}
@@ -2947,12 +3022,15 @@ class Parser {
 				i++
 				fun pushParen(): Void {
 					i++
+
 					while i < s.length {
 						out.push(s.charAt(i))
+
 						if s.charAt(i) == '(' {
 							pushParen()
 							continue
 						}
+
 						if s.charAt(i) == ')' {
 							i++
 							return
@@ -2962,12 +3040,15 @@ class Parser {
 					// TODO wrap into error
 					throw 'String interpolation error: unclosed inner parenthesis'
 				}
+
 				while i < s.length {
 					out.push(s.charAt(i))
+
 					if s.charAt(i) == '(' {
 						pushParen()
 						continue
 					}
+
 					if s.charAt(i) == ')' {
 						i++
 						return
@@ -3001,6 +3082,7 @@ class Parser {
 		var tokens = Lexer.tokenize(Buffer.from(resStr), lex.fileName)
 		try {
 			var parsed = toNode(parseNodes(tokens, project))
+
 			switch parsed {
 				case Block(_):
 					// TODO wrap into error
@@ -3017,6 +3099,7 @@ class Parser {
 	// TODO do not allocate `[]` when none... better gather inplace to avoid this temporary array at all
 	fun collectDocumentationComments(): [Comment] {
 		var comments: [Comment] = []
+
 		while tok() == Token.Documentation {
 			let text = lex.value[i]
 			let line = lex.line[i]
@@ -3034,8 +3117,10 @@ class Parser {
 		// `@name/*no space here*/(args)`
 		if tok() == Token.CallOpen and (lex.column[i] == lex.value[i - 1].length + lex.column[i - 1]) {
 			i++
+
 			if tok() != Token.CallClose { while true {
 					values.push(parseExpr())
+
 					if tok() == Token.Comma {
 						i++
 					} else {
@@ -3060,6 +3145,7 @@ class Parser {
 
 		if tok() == Token.At {
 			let decorators: Array<Decorator> = []
+
 			while tok() == Token.At {
 				decorators.push(parseDecorator())
 			}
@@ -3159,6 +3245,7 @@ class Parser {
 					i++
 					parametricTypeNesting++
 					var params: [NodeType] = [parseType()]
+
 					while tok() == Token.Comma {
 						i++
 						params.push(parseType())
@@ -3174,6 +3261,7 @@ class Parser {
 						case UnsignedRightShift: parametricTypeNesting -= 1 parametricTypeNestingToken = Token.UnsignedRightShift
 						case _: unexpected()
 					}
+
 					if parametricTypeNesting < 0 {
 						// TODO better error (internal)
 						fail("parametricTypeNesting < 0")
@@ -3205,6 +3293,7 @@ class Parser {
 						res = NodeType.ParametricType("Array", [NodeType.Object([], [])], path)
 					case Colon:
 						i++
+
 						if tok() == Token.IndexClose {
 							i++
 							res = NodeType.ParametricType("Map", [NodeType.Object([], []), NodeType.Object([], [])], path)
@@ -3243,12 +3332,15 @@ class Parser {
 				} else {
 					var names: [String] = []
 					var types: [NodeType] = []
+
 					while tok() != Token.BlockClose {
 						names.push(getgo(Token.Identifier))
+
 						if tok() == Token.Colon {
 							i++
 							types.push(parseType())
 						}
+
 						if tok() == Token.Comma {
 							i++
 						}
@@ -3269,10 +3361,12 @@ class Parser {
 
 				i++
 				var args = []
+
 				while tok() != Token.CallClose {
 					if tok() == Token.Identifier {
 						// TODO save identifier name
 						step(Token.Identifier)
+
 						if tok() == Token.Colon {
 							// TODO colon-less
 							i++
@@ -3319,9 +3413,11 @@ class Parser {
 		if tok() == Token.Question {
 			result = NodeType.Optional(result)
 		}
+
 		while tok() == Token.Question {
 			i++
 		}
+
 		if tok() == Token.RightArrow {
 			i++
 			result = NodeType.Function([result], parseType())
@@ -3333,6 +3429,7 @@ class Parser {
 	static fun precedence(op: Token): Int {
 		let left = 100
 		let right = 0
+
 		switch op {
 			case Remainder: return 0 + left
 			case Exponent: return 0 + left
