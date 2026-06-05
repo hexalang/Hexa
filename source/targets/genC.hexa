@@ -85,7 +85,7 @@ class GenCxx {
 
 		header.push(Fs.readFileSync(__dirname + '/library/cxx/hexa.c').toString('utf8').split('\r\n').join('\n'))
 		header.push('#ifdef __cplusplus')
-		header.push('extern "C" {')
+		header.push('extern "C" \{')
 		header.push('#endif')
 		// virtual abstract $unref();
 		// virtual abstract $ref();
@@ -118,7 +118,7 @@ class GenCxx {
 
 				// TODO tdef C* C
 				// TODO this seem to be a leftover from C++
-				types.push('struct ' + e.name + '_ {\n\t')
+				types.push('struct ' + e.name + '_ \{\n\t')
 
 				// Static vars before static functions
 				for v in e.staticVars { switch v {
@@ -142,7 +142,7 @@ class GenCxx {
 				//		types.push(printFunctionArguments(args, funcType, true))
 				//		types.push(';')
 				//}
-				types.push('\n};\n')
+				types.push('\n\};\n')
 
 				for v in e.staticMethods { switch v {
 					case Function(name, expr, args, defaults, funcType):
@@ -165,7 +165,7 @@ class GenCxx {
 
 			for e in project.enumsComplex {
 				forward.push('struct ' + e.name + '_;')
-				types.push(e.name + '_ : Unknown_ {\n\t')
+				types.push(e.name + '_ : Unknown_ \{\n\t')
 				types.push('\n\tAny_** enum_;') // Enum.Name(enum_...)
 				types.push('\n\tuint16_t is_;')
 				types.push('\n\tuint8_t length_;') // Amount of enum_[] to dealloc
@@ -185,7 +185,7 @@ class GenCxx {
 						out.push([for c in e.constructors[i].length
 							stringifyType(e.constructorsTypes[i][c]) + ' ' + e.constructors[i][c] + '_'
 						].join(', '))
-						out.push(') {\n')
+						out.push(') \{\n')
 						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
 						out.push('\t_->length_ = \(e.constructors[i].length);\n')
 						out.push('\t_->enum_ = (Any_**)(HEXA_NEW(sizeof(Any_*) * \(e.constructors[i].length)));\n')
@@ -198,16 +198,16 @@ class GenCxx {
 							out.push(';\n')
 						}
 						out.push('\treturn _;\n')
-						out.push('};\n')
+						out.push('\};\n')
 					} else {
 						//types.push('\n\tstatic ' + e.name + '_* ' + name + '_();')
 
-						out.push(e.name + '_* ' + e.name + '_$' + name + '_() {\n')
+						out.push(e.name + '_* ' + e.name + '_$' + name + '_() \{\n')
 						out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
 						out.push('\t_->length_ = 0;\n')
 						out.push('\t_->is_ = \(i);\n')
 						out.push('\treturn _;\n')
-						out.push('};\n')
+						out.push('\};\n')
 					}
 					i++
 				}
@@ -250,7 +250,7 @@ class GenCxx {
 							out.push(' ' + printBlock(expr) + ';\n\n')
 							currentReturnType = _currentReturnType
 					}}
-				types.push('\n};\n')
+				types.push('\n\};\n')
 			}
 
 			// TODO get rid of this workaround
@@ -324,15 +324,15 @@ class GenCxx {
 					types.push('#pragma pack(1)\n')
 				}
 
-				types.push(nativeKind + c.name + '_ {\n\t')
-				let vtable = ['struct ' + c.name + '__ {\n\t']
+				types.push(nativeKind + c.name + '_ \{\n\t')
+				let vtable = ['struct ' + c.name + '__ \{\n\t']
 				// TODO const pointer to const struct
 				if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
 					// Ok
 				} else {
 					types.push('\n\tconst struct ' + c.name + '__ * const _;')
 				}
-				let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = {\n\t']
+				let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = \{\n\t']
 				let vtableBind = []
 
 				// TODO `for i : v in`
@@ -387,7 +387,7 @@ class GenCxx {
 							thisArgument = c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType))
 							thisArgument = null
-							out.push(' {\n')
+							out.push(' \{\n')
 							// TODO cache own vtable on function enter
 
 							// Init fields
@@ -428,13 +428,13 @@ class GenCxx {
 							popTab()
 							customThis = null
 							out.push('\n\treturn $this;\n')
-							out.push('};\n\n')
+							out.push('\};\n\n')
 
 							// Alloc
 							//out.push(c.name + '_* ' + c.name + '_$new_() {\n')
 							out.push(c.name + '_* ' + c.name + '_$new_')
 							out.push(printFunctionArguments(args, funcType))
-							out.push(' {\n')
+							out.push(' \{\n')
 							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
 							// TODO why so complicated? Just assign `_` v table pointer, makes also type-safer
 							if c.api == ClassBinaryInterface.StructureNoVirtual {
@@ -455,7 +455,7 @@ class GenCxx {
 							out.push(arg.join(', '))
 							out.push(');\n')
 							out.push('\treturn _;\n')
-							out.push('};\n\n')
+							out.push('\};\n\n')
 						} else {
 							thisArgument = c.name + '_* $this'
 							vtable.push('\n\t')
@@ -518,9 +518,9 @@ class GenCxx {
 				}
 
 				if not hasToString {
-					out.push('String_* ' + c.name + '_$toString_(\(c.name)_* this_) { return ')
+					out.push('String_* ' + c.name + '_$toString_(\(c.name)_* this_) \{ return ')
 					out.push(printExpression(Expression.String('[object Object]')))
-					out.push('; };\n\n')
+					out.push('; \};\n\n')
 				}
 
 				// Static vars before static functions
@@ -546,13 +546,13 @@ class GenCxx {
 				//		types.push(';')
 				//}
 
-				types.push('\n};\n')
+				types.push('\n\};\n')
 				if isPacked {
 					types.push('#pragma pack()\n')
 				}
-				vtable.push('\n};\n')
+				vtable.push('\n\};\n')
 				vtableValue.push(vtableBind.join(',\n\t'))
-				vtable.push(vtableValue.join('') + '\n};\n')
+				vtable.push(vtableValue.join('') + '\n\};\n')
 				types.unshift(vtable.join(''))
 
 				for v in c.staticMethods { switch v {
@@ -664,7 +664,7 @@ class GenCxx {
 			}}
 
 			// Init
-			out.push('int HEXA_MAIN(int argc, char **argv) {\n')
+			out.push('int HEXA_MAIN(int argc, char **argv) \{\n')
 			out.push('%%%HEXA_STRINGS@@@\n')
 			//out.push('\tString_Strings = (String_**)HEXA_NEW(HEXA_STRINGS * sizeof(String_*));\n')
 			pushTab()
@@ -762,7 +762,7 @@ class GenCxx {
 											globalVariables.push(' = {' + [for a in el printTypeConverter(printExpression(a), getType(a), valueType)].join(', ') + '}')
 										case _:
 											// TODO more
-											globalVariables.push(' = {0}')
+											globalVariables.push(" = \{0\}")
 									}
 								}
 								globalVariables.push(';\n')
@@ -849,10 +849,10 @@ class GenCxx {
 			//	popTab()
 			//}
 			out.push('\tfflush(stdout);\n')
-			out.push('\treturn 0;\n}\n')
+			out.push('\treturn 0;\n\}\n')
 
 			out.push('#ifdef __cplusplus\n')
-			out.push('}\n')
+			out.push('\}\n')
 			out.push('#endif\n')
 
 			// TODO all those to [ ].join('\n') instead of `+`
@@ -1007,9 +1007,9 @@ class GenCxx {
 							out += '\n _xthis->_x' + name + ' = ' + printExpression(expr) + ';'
 						}}
 						out += '\n '
-						out += printStatement(expr) + '\n return _xthis;\n};'
+						out += printStatement(expr) + '\n return _xthis;\n\};'
 					} else {
-						out += printStatement(expr) + '\n};'
+						out += printStatement(expr) + '\n\};'
 					}
 				}}
 				t.push('\n}')
@@ -1056,7 +1056,7 @@ class GenCxx {
 					case _: return '{ ' + printStatement(el[0]) + '; }'
 				}}
 				if el.length == 0 {
-					return '{}'
+					return '\{\}'
 				}
 				return printStatement(s)
 				case _: //return '{ ' + printStatement(s) + '; }'
@@ -1106,7 +1106,7 @@ class GenCxx {
 
 				case Block(el):
 					if el.length == 0 {
-						return '{}'
+						return '\{\}'
 					}
 					pushTab()
 
@@ -1126,7 +1126,7 @@ class GenCxx {
 						return r.join(';\n' + tabs)
 					}
 
-					var r = '{'
+					var r = '\{'
 
 					for e in el { switch e {
 						case null:
@@ -1144,7 +1144,7 @@ class GenCxx {
 					}}
 
 					popTab()
-					return r + '\n' + tabs + '}'
+					return r + '\n' + tabs + '\}'
 
 				// TODO case New(e, args): return '' + printExpression(e) + '$new_' + printCallArguments(args)
 
@@ -1324,7 +1324,7 @@ class GenCxx {
 
 				case Try(expr, t, v, catches):
 					pushTab()
-					var r = '_try {\n' + tabs
+					var r = '_try \{\n' + tabs
 					// TODO transfer &$try as function argument
 					r += 'struct Any_* $try = (struct Any_*)0;' + '\n' + tabs
 					r += printStatement(expr)
@@ -1335,7 +1335,7 @@ class GenCxx {
 					pushTab()
 					r += printStatement(catches[0])
 					popTab()
-					return r + '\n' + tabs + '}'
+					return r + '\n' + tabs + '\}'
 
 				case Assign(a, v):
 					// TODO kinds like `static`
@@ -1448,7 +1448,7 @@ class GenCxx {
 					// + option to always emulate switches for specific target
 					let value = printExpression(expr)
 					let valueType = stringifyType(getType(expr))
-					var r = '{ \(valueType) switch_ = ' + value + ';'
+					var r = '\{ \(valueType) switch_ = ' + value + ';'
 
 					// case 1: case 2: case 3:
 					var else_ = false
@@ -1498,7 +1498,7 @@ class GenCxx {
 					}}
 
 					r += ';\n' + tabs
-					return r + '}'
+					return r + '\}'
 
 					// TODO don't use "0" as tag, use 1+; use `switch (a? a->index : 0)` or
 					// generate `if (a) switch () else null-case` in normalizer
@@ -1513,7 +1513,7 @@ class GenCxx {
 						}
 						^ in normalizer
 					*/
-					var r = 'switch (' + printExpression(expr) + ') {'
+					var r = 'switch (' + printExpression(expr) + ') \{'
 
 					// case 1: case 2: case 3:
 					for i in cases.length { if (cases[i].length > 0) {
@@ -1542,7 +1542,7 @@ class GenCxx {
 					}}
 
 					r += '\n' + tabs
-					return r + '}'
+					return r + '\}'
 
 				case _: console.error("Unknown statement kind (GenCxx):", s)
 			}
@@ -1740,17 +1740,17 @@ class GenCxx {
 									return '((int32_t$)(' + string + '))' // TODO
 								}
 								if toNull == project.typer.typeUInt64 {
-									return '(Null$UInt64){' + string + ', 1}'
+									return '(Null$UInt64)\{' + string + ', 1\}'
 								}
 								if toNull == project.typer.typeInt64 {
-									return '(Null$Int64){' + string + ', 1}'
+									return '(Null$Int64)\{' + string + ', 1\}'
 								}
 								if toNull == project.typer.typeFloat {
 									// TODO isn't it `Null$Float64`?
-									return '(Null$Float){' + string + ', 1}'
+									return '(Null$Float)\{' + string + ', 1\}'
 								}
 								if toNull == project.typer.typeFloat32 {
-									return '(Null$Float32){' + string + ', 1}'
+									return '(Null$Float32)\{' + string + ', 1\}'
 								}
 
 								// TODO more (un)wrapping cases for basic types where needed
@@ -1782,16 +1782,16 @@ class GenCxx {
 									return 'uint8_t$null'
 								}
 								if toNull == project.typer.typeUInt64 {
-									return '(Null$UInt64){0, 0}'
+									return '(Null$UInt64)\{0, 0\}'
 								}
 								if toNull == project.typer.typeInt64 {
-									return '(Null$Int64){0, 0}'
+									return '(Null$Int64)\{0, 0\}'
 								}
 								if toNull == project.typer.typeFloat {
-									return '(Null$Float64){0.0, 0}'
+									return '(Null$Float64)\{0.0, 0\}'
 								}
 								if toNull == project.typer.typeFloat32 {
-									return '(Null$Float32){0.0f, 0}'
+									return '(Null$Float32)\{0.0f, 0\}'
 								}
 								if toNull == project.typer.typeBool {
 									return '(uint8_t)2'
@@ -2309,7 +2309,7 @@ class GenCxx {
 									case Int(val): {
 										if val == 0 {
 											// Print single-element (C-style) initializer for `ArrayByValue`
-											return '{0}'
+											return '\{0\}'
 										}
 										// TODO else what?
 									}
@@ -2774,12 +2774,12 @@ class GenCxx {
 					let kType: String = stringifyType(keyType)
 					let vType: String = stringifyType(valueType)
 
-					return '\(typeName)$from_(\(typeName)$new_(), \(keys.length), (\(kType)[]){' +
+					return '\(typeName)$from_(\(typeName)$new_(), \(keys.length), (\(kType)[])\{' +
 						[for el in keys printExpression(el)].join(', ')
-						+ '}, (\(vType)[]){' +
+						+ '\}, (\(vType)[])\{' +
 						[for el in values printExpression(el)].join(', ')
 					// TODO keep order with meta blocks `[for i in keys.length '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')`
-					+ '})'
+					+ '\})'
 
 				// TODO rename to `AssignOp`
 				case Assignop(a, op, value):
