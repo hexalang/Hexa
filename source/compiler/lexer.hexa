@@ -225,6 +225,64 @@ class Lexer {
 						position += 2
 						continue
 					}
+
+					// `/regex/flags` — capture only the pattern, flags as separate identifier
+					// Don't lex as regex after `<` on the same line (e.g., `</div>`)
+					let prevIsLess = (to > 0) and ((tokens[to - 1] as! Token)== Token.Less) and ((lines[to - 1] as! Int) == line)
+					let nextChar = get_8(position + 1)
+					if nextChar > 32 and not prevIsLess {
+						var hasClosingSlash = false
+						var tempP = position + 1
+						var tempInCharClass = false
+						while tempP < len {
+							let char = get_8(tempP)
+							if char == 10 || char == 13 {
+								break
+							}
+							if char == "\\".charCodeAt(0) {
+								tempP += 2
+								continue
+							}
+							if char == "[".charCodeAt(0) {
+								tempInCharClass = true
+							} else if char == "]".charCodeAt(0) {
+								tempInCharClass = false
+							}
+							if char == "/".charCodeAt(0) and not tempInCharClass {
+								hasClosingSlash = true
+								break
+							}
+							tempP++
+						}
+
+						if hasClosingSlash {
+							var p = position + 1
+							var inCharClass = false
+							while p < len {
+								let char = get_8(p)
+								if char == "\\".charCodeAt(0) {
+									p += 2
+									continue
+								}
+								if char == "[".charCodeAt(0) {
+									inCharClass = true
+								} else if char == "]".charCodeAt(0) {
+									inCharClass = false
+								}
+								if char == "/".charCodeAt(0) and not inCharClass {
+									p++
+									break
+								}
+								p++
+							}
+							// Capture pattern only (between opening and closing /)
+							let pattern = bytes.toString('utf8', position + 1, p - 1)
+							addWith(Token.Regex, pattern)
+							// position lands right after closing /, flags (if any) are lexed as identifier by the main loop
+							position = p
+							continue
+						}
+					}
 				}
 
 				// Identifiers and keywords
@@ -733,9 +791,9 @@ class Lexer {
 				"\\".charCodeAt(0) : Token.IntegerDivide,
 				"]".charCodeAt(0)  : Token.IndexClose,
 				"^".charCodeAt(0)  : Token.BitwiseXor,
-				"{".charCodeAt(0)  : Token.BlockOpen,
+				"\{".charCodeAt(0)  : Token.BlockOpen,
 				"|".charCodeAt(0)  : Token.BitwiseOr,
-				"}".charCodeAt(0)  : Token.BlockClose,
+				"\}".charCodeAt(0)  : Token.BlockClose,
 				"~".charCodeAt(0)  : Token.BitwiseNot
 			]
 
