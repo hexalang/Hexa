@@ -73,6 +73,7 @@ class Typer {
 			for e in nodes {
 				var named = true
 				var lastOne = nodes[0]
+
 				switch e {
 					case Import(els, path):
 						if doneImports {
@@ -103,6 +104,7 @@ class Typer {
 									info.imported.set(to, what)
 								} else {
 									var has = [for key in target.exported.keys() key].join(', ')
+
 									if has == '' {
 										has = 'module is empty'
 									}
@@ -132,6 +134,7 @@ class Typer {
 									importAs(name, name)
 								case As(left, right):
 									var lhs = ''
+
 									switch left {
 										case Lower(name):
 											lhs = name
@@ -142,6 +145,7 @@ class Typer {
 										case _:
 											fail('This `import ??? as` kind not implemented yet or syntax is incorrect', e)
 									}
+
 									switch right {
 										case Lower(name):
 											// TODO only camelCase
@@ -162,6 +166,7 @@ class Typer {
 
 						// Fill classes and non-ambiguous nodes first
 						let node = e
+
 						if currentModule != info {
 							// console.log('currentModule = info', currentModule.path, info.path)
 						}
@@ -287,6 +292,7 @@ class Typer {
 												return unwrap(asNullable(handle.value))
 											case Nullable(t):
 												let kind = unwrap(t)
+
 												if kind == null {
 													return null
 												}
@@ -310,6 +316,7 @@ class Typer {
 									fun indexOf(instance: [Type], types: [[Type]]): Int {
 										for i in types.length {
 											var found = 0
+
 											for t in types[i].length {
 												if types[i][t] == instance[t] {
 													found++
@@ -408,6 +415,7 @@ class Typer {
 													// console.log('->> fill', DataHelper.nameOf(cloned), known.map(Type.stringify))
 													// console.log('@', project.mapDecorators.get(node), project.mapDecorators.get(cloned))
 													fillModuleTypes(cloned, known, classType)
+
 													if classType.parent == null {
 														throw classType.name // TODO
 													}
@@ -471,10 +479,12 @@ class Typer {
 		var subj: Node? = null
 		for i in scopes.length {
 			subj = scopes[scopes.length - i - 1].get(name)
+
 			if subj != null {
 				break
 			}
 		}
+
 		if subj == null {
 			subj = findInNamespaceRoots(name)
 		}
@@ -515,6 +525,7 @@ class Typer {
 		// TODO for name : index in _ _
 		for name in names {
 			let named = name.toLowerCase()
+
 			if named.startsWith(subject) or subject.startsWith(named) or named.endsWith(subject) {
 				return 'Did you mean `\(name)`?\n\n' + available
 			}
@@ -682,6 +693,7 @@ class Typer {
 						// TODO wrap `throw` into `fail`
 						throw '@rename takes one string argument'
 					}
+
 					if native != null { switch native.values[0] {
 							case String(s): return s
 							case _: throw '@rename takes string as argument'
@@ -708,6 +720,7 @@ class Typer {
 							let names = classType.genericParams
 							for i in 1 ... params.length {
 								let name = DataHelper.extractTypeName(params[i])
+
 								if names.includes(name) {
 									fail('Parameter `\(name)` already exists in `<T, ...>`', node)
 								}
@@ -720,6 +733,7 @@ class Typer {
 						// TODO limit nesting depth
 						classType.extend = toType(ext, node)
 					}
+
 					for impl in implement {
 						// TODO
 						classType.implement.push(toType(impl, node))
@@ -728,8 +742,10 @@ class Typer {
 
 					var genericParamIndex = 0
 					let genericStubs: [Type] = []
+
 					for genericParam in classType.genericParams {
 						addScopeType(genericParam, typeAny)
+
 						if let knownParams = knownParams {
 							addScopeType(genericParam, knownParams[genericParamIndex])
 						} else {
@@ -770,6 +786,7 @@ class Typer {
 								classType.fieldInitialized[classType.fieldNames.length - 1] = false
 								classType.fieldRenames[classType.fieldNames.length - 1] = getRename(field, name, classDecorators)
 								addScope(name, field)
+
 								if project.mapStatic.get(field) == true {
 									classType.fieldStatic[classType.fieldNames.length - 1] = true
 								}
@@ -958,6 +975,7 @@ class Typer {
 			switch node {
 				case Enum(t, f, valuesType, extend):
 					pushScope()
+
 					if let valuesType = valuesType {
 						enumType.fieldsTypeSimple = toType(valuesType, node)
 					}
@@ -1017,6 +1035,7 @@ class Typer {
 								if valuesType != null {
 									throw fail('Cannot use `Value(args)` format for simple enum', node)
 								}
+
 								switch e {
 									case NodeTypeValue(t): switch t {
 											case Type(name):
@@ -1068,6 +1087,7 @@ class Typer {
 								if op != Token.Assign {
 									fail('Should use `Value = value` not `Value \(Token.stringify(op)) value` format for enum tag value', node)
 								}
+
 								if valuesType == null {
 									fail('Cannot use `Value = value` format for complex enum', node)
 								}
@@ -1101,6 +1121,7 @@ class Typer {
 													case NodeTypeValue(t): switch t {
 															case Type(name):
 																let at = names.indexOf(name)
+
 																if at == -1 {
 																	fail('Value with name `\(name)` not found above current value', b)
 																}
@@ -1214,6 +1235,7 @@ class Typer {
 
 								fillFunction(field, expr, vars, rettype)
 								insideClassMethod = _insideClassMethod
+
 								if types.get(field) == null {
 									// TODO make `Map.set(k)` the `k` non-nullable y default to avoid those weird checks
 									fail('Function get no type: enum ' + DataHelper.nameOf(node) + ' fun ' + name, field)
@@ -1272,6 +1294,7 @@ class Typer {
 	fun failNonFatal(msg: String, node: Node = null): Void {
 		let t: Int = project.data.get // TODO invalid
 		let data = project.data.get(node)
+
 		if let data = data {
 			failures.push(new CompilerError(Fail.TyperError, msg, data.line, data.column, data.fileName))
 		} else {
@@ -1799,6 +1822,7 @@ class Typer {
 
 					while true {
 						depth++
+
 						if depth > 100 {
 							fail('Inheritance depth is too large', node)
 							break
@@ -1874,6 +1898,7 @@ class Typer {
 					switch currentModule.imported.get(path) as! Node {
 						case ModuleExports(handle):
 							nodeType = handle.exported.get(name)
+
 							if nodeType == null {
 								let file = handle.file
 								fail('Namespace `\(path)` does not export type `\(name)` (aliased module is `\(file)`)', node)
@@ -1962,6 +1987,7 @@ class Typer {
 				}
 			case ParametricType(name, params, path):
 				let nodeType: Node = findType(name) ?? currentModule.exported.get(name) ?? currentModule.imported.get(name)
+
 				if types.get(nodeType) == null { switch nodeType {
 						case Class(_):
 							let mod = currentModule
@@ -1976,6 +2002,7 @@ class Typer {
 						if classType.genericParams.length == 0 {
 							fail('The type `\(classType.name)` requires zero generic parameters', node)
 						}
+
 						if classType.genericParams.length != params.length {
 							fail('The type `\(classType.name)` requires `<\(classType.genericParams)>` generic parameters', node)
 						}
@@ -2056,12 +2083,15 @@ class Typer {
 
 			types.set(node, unify(tType, types.get(e), e))
 		}
+
 		if t == null, e != null {
 			types.set(node, types.get(e))
 		}
+
 		if t == null, e == null {
 			types.set(node, Type.UnknownNullable({ value: null }))
 		}
+
 		if t != null, e == null {
 			types.set(node, toType(t, node))
 		}
@@ -2262,6 +2292,7 @@ class Typer {
 		// TODO move duplicate argument names check to parser (so it can be cached)
 		let argNames: [String] = []
 		var expectedArrow: [Type] = []
+
 		if let expectedArrowSignature = expectedArrowType.get(node) {
 			switch expectedArrowSignature {
 				case Function(args, rets): expectedArrow = args.map(arg => arg.dataType)
@@ -2280,6 +2311,7 @@ class Typer {
 
 		for i in vars.length {
 			let v = vars[i]
+
 			switch v {
 				case Var(vname, t, e, const):
 					if argNames.includes(vname) {
@@ -2375,6 +2407,7 @@ class Typer {
 		popScope()
 
 		ret = functionReturnsAType // Inferred
+
 		if arrow {
 			if arrow, ret == null, expr != null {
 				ret = types.get(expr)
@@ -2385,6 +2418,7 @@ class Typer {
 			if ret == null {
 				ret = typeVoid
 			}
+
 			if ret != typeVoid, expr != null, functionActuallyReturns == false {
 				// To handle arrow
 				fail('Function expects result of `\(Type.stringify(ret))` but never does `return value`', node)
@@ -2409,6 +2443,7 @@ class Typer {
 			case Class(t, extend, implement, f, external):
 				addScope(DataHelper.extractTypeName(t), node)
 				let mod = currentModule
+
 				if params != null {
 					// console.log('fillModuleTypes params!')
 				}
@@ -2482,6 +2517,7 @@ class Typer {
 				// `{...}`
 			case Block(el):
 				pushScope()
+
 				for e in el {
 					switch e {
 						case Ident(name):
@@ -2496,21 +2532,27 @@ class Typer {
 				if project.mapStatic.get(node) == true {
 					fail('Local variables cannot be `static`', node)
 				}
+
 				if project.mapPrivate.get(node) == true {
 					fail('Local variables cannot be `private`', node)
 				}
+
 				if e == null, const, not external {
 					fail('Constant should have a value `let \(name) = value`', node)
 				}
+
 				if e == null, not external {
 					fail('Variable should have a value `var \(name) = value` or type set to nullable with a value of null `var \(name) T? = null`', node)
 				}
+
 				if e != null, external {
 					fail('External variable should not have a value `declare let \(name)`', node)
 				}
+
 				if t == null, external {
 					fail('External variable should have a type `declare let \(name): T`', node)
 				}
+
 				if e != null {
 					pushScope()
 
@@ -2572,6 +2614,7 @@ class Typer {
 							types.set(node, newType)
 
 							let parentType: Type? = types.get(parent)
+
 							switch parentType {
 								case null:
 									types.set(parent, newType)
@@ -2626,6 +2669,7 @@ class Typer {
 				pushScope()
 				fillExpression(over)
 				let overType: Type = types.get(over)
+
 				switch overType {
 					case ClassInstance(classType, generic):
 						// Extract Array<T>
@@ -2647,6 +2691,7 @@ class Typer {
 					case _:
 						fail('Type of iterable is neither integer nor `Array`', over)
 				}
+
 				if let range = range {
 					fillExpression(range)
 					let endType = types.get(range)
@@ -2655,9 +2700,11 @@ class Typer {
 					if not iterableIntegers.includes(endType) {
 						fail('Range end must be of integer type', range)
 					}
+
 					if not iterableIntegers.includes(overType) {
 						fail('Range start must be of integer type', over)
 					}
+
 					if endType != overType {
 						// TODO `finish`/`final` instead of `end`?
 						fail('Range start and end must be of the same type, but got `' + Type.stringify(overType) + '...' + Type.stringify(endType) + '`', over)
@@ -2684,12 +2731,15 @@ class Typer {
 				if project.mapStatic.get(node) == true {
 					fail('Local functions cannot be `static`', node)
 				}
+
 				if project.mapPrivate.get(node) == true {
 					fail('Local functions cannot be `private`', node)
 				}
+
 				if not external, expr == null {
 					fail('Non-external function `\(name)` should have a body', node)
 				}
+
 				if external, rettype == null {
 					fail('External function `\(name)` should have a returning type', node)
 				}
@@ -2703,6 +2753,7 @@ class Typer {
 					// Reset stack
 					insideFunction = true
 					pushScope()
+
 					if (expr != null) {
 						fill(expr)
 					}
@@ -2718,15 +2769,18 @@ class Typer {
 				// Also `if let bind = value, econd..., econd...`
 			case If(econd, eif, eelse):
 				var depth = 0
+
 				for e in econd {
 					switch e {
 						case Var(name, t, expr, const):
 							if not const {
 								fail('Only `if let` bindings supported, not `if var`', node)
 							}
+
 							if t != null {
 								fail('Do not specify a type `: T` in `if let` bindings', node)
 							}
+
 							if expr == null {
 								fail('`if let` binding should have a value `\(name) = value', node)
 							}
@@ -2800,6 +2854,7 @@ class Typer {
 
 				for i in ca.length {
 					let catchType = toType(t[i], ca[i])
+
 					switch catchType {
 						case Struct(_):
 							fail('Catch type must be a specific class, not `{}`', ca[i])
@@ -2817,6 +2872,7 @@ class Typer {
 						// Process any additional let bindings and conditions
 						for j in 1...catchClauseValues.length - 1 {
 							let val = catchClauseValues[j]
+
 							switch val {
 								case Var(name, _, expr, const, _):
 									// let binding - evaluate expr and add to scope
@@ -2831,6 +2887,7 @@ class Typer {
 							}
 						}
 					}
+
 					switch ca[i] {
 						case Block(_):
 						case _:
@@ -2869,6 +2926,7 @@ class Typer {
 				// `continue`
 			case Continue:
 				types.set(node, typeVoid)
+
 				if not allowBreakAndContinue {
 					fail('Cannot use `continue` outside of loop', node)
 				}
@@ -2884,12 +2942,14 @@ class Typer {
 		if not asValue {
 			// console.log('not asValue', node, project.data.get(node))
 		}
+
 		switch node {
 			// Just `name`
 			case Ident(name, params):
 				var subj = null
 				for i in scopes.length {
 					subj = scopes[scopes.length - i - 1].get(name)
+
 					if (subj != null) {
 						break
 					}
@@ -2898,15 +2958,18 @@ class Typer {
 				if subj == null {
 					subj = findInNamespaceRoots(name)
 				}
+
 				if subj == null, name == 'const' {
 					fail('No variable named `const` found. Are you trying to use `const` as a keyword? Use `let varname` syntax instead.', node)
 				}
+
 				if subj == null {
 					// console.log(currentModule.imported.keys())
 					// console.log(currentModule.exported.keys())
 					// console.log(currentModule.file)
 					fail('Cannot find variable with name `\(name)`', node)
 				}
+
 				if parents.get(node) != null, parents.get(node) != subj {
 					fail('Parent overwritten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 				}
@@ -2973,6 +3036,7 @@ class Typer {
 						if (el.length > 1) {
 							fail('Cannot use loop `for` within array of more than one element `[for, ...]`', el[1])
 						}
+
 						if (range != null) {
 							fail('Ranges `...range` are not supported here yet', range)
 						}
@@ -2982,6 +3046,7 @@ class Typer {
 						// types.set(el[0], types.get(over))
 						// TODO reuse code from for-as-statement
 						let overType: Type = types.get(over)
+
 						switch overType {
 							case ClassInstance(classType, generic):
 								// Extract Array<T>
@@ -3043,6 +3108,7 @@ class Typer {
 							]))
 					return
 				}
+
 				for i in keys.length {
 					fillExpression(keys[i])
 					fillExpression(values[i])
@@ -3057,6 +3123,7 @@ class Typer {
 			case As(e, kind, t):
 				// TODO error position must not a node, but at node type (`x as __here__` not `__here__ as tt`)
 				let actualType = toType(t, node)
+
 				if (actualType == typeVoid) {
 					fail('Conversion `as Void` makes no sense', e)
 				}
@@ -3070,6 +3137,7 @@ class Typer {
 				// `e is t`
 			case Is(e, t):
 				let actualType = toType(t, node)
+
 				if (actualType == typeAny) {
 					fail('Comparing `is Any` makes no sense, always true', e)
 				}
@@ -3086,6 +3154,7 @@ class Typer {
 					types.set(node, Type.Struct([], []))
 				} else {
 					pushScope()
+
 					for i in el.length { if (i < el.length - 1) {
 							fill(el[i])
 						} }
@@ -3130,10 +3199,12 @@ class Typer {
 									e ?? node
 								)
 							}
+
 							if classType.fieldStatic[index] == true {
 								failNonFatal('Type `\(classType.name)` is defined here', classType.parent)
 								fail('Class `\(named)` field `.\(n)` is static', node)
 							}
+
 							switch classType.parent {
 								case Class(t, extend, implement, fields, external):
 									let mod = currentModule
@@ -3185,6 +3256,7 @@ class Typer {
 														// }
 
 														var reArgs: [FunctionArgument] = []
+
 														for arg in args {
 															// switch arg {
 															// case Generic(genericParamIndex, genericParam):
@@ -3244,9 +3316,11 @@ class Typer {
 						case Class(classType): // Static fields
 							classType.useless = false
 							let index = classType.fieldNames.indexOf(n)
+
 							if (index < 0) {
 								fail('Class `\(nameOfModuleItem(classType.parent))` has no static field `.\(n)`\nAvailable fields are: ' + classType.fieldNames.join(', '), node)
 							}
+
 							if (classType.fieldStatic[index] != true) {
 								fail('Class `\(nameOfModuleItem(classType.parent))` field `.\(n)` is not static', node)
 							}
@@ -3266,9 +3340,11 @@ class Typer {
 							if index < 0 {
 								fail('Enum `\(enumType.name)` has no field `.\(n)`', node)
 							}
+
 							if not enumType.fieldStatic[index] {
 								fail('Enum field `.\(n)` is not static', node)
 							}
+
 							switch enumType.parent {
 								case Enum(t, fields, valuesType):
 									for field in fields { switch field {
@@ -3286,8 +3362,10 @@ class Typer {
 							}
 						case Struct(names, els):
 							let index = names.indexOf(n)
+
 							if (index < 0) {
 								var object = ''
+
 								switch e {
 									case Ident(name): object = ' `\(name)`' // Note a space after '
 									case _: { }
@@ -3296,6 +3374,7 @@ class Typer {
 								if (names.length == 0) {
 									fail('Object\(object) is empty `{}` and has no fields. Create object with all fields defined upfront, like this: `obj = { \(n): value }`', node)
 								}
+
 								if (names.length != 0) {
 									fail('Object\(object) has no field `.\(n)`\nAvailable fields are: ' + names.join(', '), node)
 								}
@@ -3391,10 +3470,12 @@ class Typer {
 							// NOTE `proposeSimilar` but only constructors (if any)
 							fail('Enum `\(enumType.name)` has no value constructor `.\(n)`\n' + proposeSimilar(enumType.fieldNames.filter((element, index) => enumType.fieldEnumConstructor[index]), n, 'constructors'), node)
 						}
+
 						if enumType.fieldEnumConstructor[index] != true {
 							// NOTE this case is probably impossible, i.e. .N *not* being constructor (than what?)
 							fail('Enum `\(enumType.name)` field `.\(n)` is not a value constructor', node)
 						}
+
 						if let fieldType = enumType.fieldType[index] {
 							types.set(node, fieldType)
 						} else {
@@ -3424,9 +3505,11 @@ class Typer {
 						}
 
 						let subj = find(name)
+
 						if subj == null {
 							fail('Cannot find type with name `\(name)`', node)
 						}
+
 						if parents.get(node) != null, parents.get(node) != subj {
 							fail('Parent overwritten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 						}
@@ -3460,9 +3543,11 @@ class Typer {
 						}
 
 						let subj = find(name)
+
 						if subj == null {
 							fail('Cannot find type with name `\(name)`', node)
 						}
+
 						if parents.get(node) != null, parents.get(node) != subj {
 							fail('Parent overwritten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 						}
@@ -3500,6 +3585,7 @@ class Typer {
 				let actualType = toType(t, node)
 				let subj = find(DataHelper.extractTypeName(t))
 				parents.set(node, subj)
+
 				for e in el {
 					fillExpression(e)
 				}
@@ -3552,7 +3638,9 @@ class Typer {
 						scopes[scopes.length - 1].set(DataHelper.varName(catchVar), catchVar)
 						// Process any additional let bindings and conditions
 						for j in 1...catchClauseValues.length - 1 {
+
 							let val = catchClauseValues[j]
+
 							switch val {
 								case Var(name, _, expr, const, _):
 									// let binding - evaluate expr and add to scope
@@ -3577,10 +3665,12 @@ class Typer {
 				if econd.length > 1 {
 					fail('More than one condition is not yet supported', econd[1])
 				}
+
 				switch econd[0] {
 					case Var(_):
 						fail('Variable bindings in ternary conditions are not yet supported', econd[0])
 				}
+
 				if eelse == null {
 					fail('Expression `if` should have an `else` clause', eif)
 				}
@@ -3591,6 +3681,7 @@ class Typer {
 						case _:
 							fail('Ternary `if` should have a `{ block }` as a body', eif)
 					}
+
 					switch eelse {
 						case Block(_):
 						case _:
@@ -3697,6 +3788,7 @@ class Typer {
 									case Class(t, extend, implement, f, external, classKind):
 										// parents.set(e, f[classType.constructor])
 										constructor = types.get(f[classType.constructor])
+
 										switch constructor {
 											case Function(args, returns, variadic):
 												// TODO better idea
@@ -3733,6 +3825,7 @@ class Typer {
 
 				fun evaluateArguments(el: [Node], expected: [Type]) {
 					var arg = expected[0]
+
 					for i in el.length {
 						let e = el[i]
 
@@ -3761,6 +3854,7 @@ class Typer {
 						case Function(name, expr, vars, rettype, _, variadic):
 							// console.log('obviousTyping', name)
 							pushFuncParamsIfRequired(node)
+
 							if let rettype = rettype {
 								types.set(node, Type.Function(varTypes(vars), toType(rettype, node), variadic))
 							} else {
@@ -3911,6 +4005,7 @@ class Typer {
 						// fail('Operator `a \(token) b` takes `a` of type `Bool` only, but got `\(Type.stringify(typeA))`', b)
 						fail('Operator `a \(token) b` takes `a` of type `Bool` only, but got `\(Type.stringify(typeA))`', a)
 					}
+
 					if not booleanable(typeB) {
 						// TODO textual static analysis: typeB-a should be typeB-b
 						fail('Operator `a \(token) b` takes `b` of type `Bool` only, but got `\(Type.stringify(typeB))`', b)
@@ -4134,6 +4229,7 @@ class Typer {
 							if enumLeft != enumRight {
 								enumFlags = false
 							}
+
 							if not integers.includes(enumLeft.fieldsTypeSimple) {
 								enumFlags = false
 							}
@@ -4222,6 +4318,7 @@ class Typer {
 					case Var(name, _, _, const):
 						let isStatic = project.mapStatic.get(parent) == true
 						let prefix = isStatic ? 'static ' : ''
+
 						if const {
 							fail(
 								'Cannot change a constant `\(prefix)let \(name)`, redefine it as `\(prefix)var \(name)` to allow value changes\n'
@@ -4358,6 +4455,7 @@ class Typer {
 
 				fillExpression(a)
 				let parent: Node = parents.get(a)
+
 				switch parent {
 					case Var(name, _, _, const):
 						if const {
@@ -4383,6 +4481,7 @@ class Typer {
 				if not insideFunction, not insideTry {
 					fail('Cannot throw outside of `function` or `try`', node)
 				}
+
 				if insideFunction, not functionAllowedToThrow {
 					fail('Cannot throw in a @noThrow function', node)
 				}
@@ -4428,9 +4527,11 @@ class Typer {
 					case Return(_):
 						fail('Cannot return another return. Try to wrap first `{ return } return 2` into braces', node)
 				}
+
 				if not insideFunction {
 					fail('Cannot use `return` outside of function', node)
 				}
+
 				if e != null {
 					if functionReturnsAType == typeVoid {
 						fail('Function returns `Void`, cannot return a value here', e)
@@ -4516,6 +4617,7 @@ class Typer {
 			case UnknownNullable(handle):
 				if handle.value == null {
 					handle.value = unwrapUnknownAndNullable(fromValue)
+
 					if let node = node {
 						types.set(node, asNullable(unwrapUnknownAndNullable(fromValue)))
 					}
@@ -4653,6 +4755,7 @@ class Typer {
 							case DotUpper(ex, name):
 								fillExpression(e)
 								switch types.get(ex) as! Type {
+
 									case Enum(enumType):
 										currentType = enumType
 										// TODO currentType = 123
@@ -4705,6 +4808,7 @@ class Typer {
 								}
 							case String(val):
 								tagCheck(val, e)
+
 								if etype != typeString {
 									fail('Cannot switch over string here', e)
 								}
@@ -4779,6 +4883,7 @@ class Typer {
 											if let i = enumType.fieldNames.indexOf(name), enumType.fieldEnumConstructor[i] == true {
 												currentType = enumType
 												currentTag = name
+
 												if tags.includes(currentTag) {
 													fail('Tag `\(currentTag)` already matched', e)
 													// TODO .. at line
@@ -4811,6 +4916,7 @@ class Typer {
 										// Find tag bind var and set it's type:
 										if let currentType = currentType {
 											let indexOf = currentType.fieldNames.indexOf(currentTag)
+
 											if indexOf == -1 {
 												fail('currentType.fieldNames.indexOf == -1', e)
 											}
@@ -4824,6 +4930,7 @@ class Typer {
 
 											if name == null {
 												let available = currentType.tagBindVarsNames[indexOf].join(', ')
+
 												if available.length == 0 {
 													fail('No bindings available for `.' + currentTag + '`', e)
 												}
@@ -4863,6 +4970,7 @@ class Typer {
 
 					if let guardian = guards[i] {
 						fillExpression(guardian)
+
 						if types.get(guardian) != typeBool {
 							fail('Case `if` guard must be a simple boolean expression', guardian)
 						}
@@ -4871,8 +4979,10 @@ class Typer {
 					if value == false {
 						fill(e)
 					}
+
 					if value == true {
 						fillExpression(e)
+
 						if types.get(node) == null {
 							types.set(node, types.get(e))
 						} else {
