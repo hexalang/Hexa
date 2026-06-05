@@ -34,8 +34,8 @@ class GenJs {
 				out.push('// The generated code is subject to the original license\n')
 			}
 
-			out.push(';(() => {\n\t"use strict"\n\tconst $global = typeof(window) === "undefined"? global : window')
 			out.push('\n\tif (typeof($global.require) === "undefined") { $global.require = () => {} };')
+			out.push(';(() => \{\n\t"use strict"\n\tconst $global = typeof(window) === "undefined"? global : window')
 
 			// Generate version constant from `hexa.json`
 			out.push('\n\tconst selfVersion="\(project.package.version)";')
@@ -55,14 +55,14 @@ class GenJs {
 					continue
 				}
 
-				out.push('\n\tvar ' + e.name + ' = {')
+				out.push('\n\tvar ' + e.name + ' = \{')
 				for v in e.staticMethods { switch v {
 					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
 						out.push('\n\t\t' + name + ': ')
-						out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
+						out.push(printFunctionArguments(args, defaults) + ' => \{ ' + printStatement(expr) + ' \}')
 						out.push(',')
 				}}
-				out.push('\n\t}')
+				out.push('\n\t\}')
 
 				for v in e.staticVars { switch v {
 					case Var(name, expr):
@@ -78,13 +78,13 @@ class GenJs {
 
 			for e in project.enumsComplex {
 				if e.staticMethods.length == 0, e.names.length == 0 {
-					out.push('\n\tvar ' + e.name + ' = {}')
+					out.push('\n\tvar ' + e.name + ' = \{\}')
 				} else {
-					out.push('\n\tvar ' + e.name + ' = {')
+					out.push('\n\tvar ' + e.name + ' = \{')
 					for v in e.staticMethods { switch v {
 						case Function(name, expr, args, defaults, funcType, variadic, isAsync):
 							out.push('\n\t\t' + name + ': ')
-							out.push(printFunctionArguments(args, defaults) + ' => { ' + printStatement(expr) + ' }')
+							out.push(printFunctionArguments(args, defaults) + ' => \{ ' + printStatement(expr) + ' \}')
 							out.push(',')
 					}}
 					var i = 0
@@ -104,7 +104,7 @@ class GenJs {
 						}
 						i++
 					}
-					out.push('\n\t}')
+					out.push('\n\t\}')
 				}
 
 				var i = 0
@@ -117,7 +117,7 @@ class GenJs {
 					if e.constructors[i] != null {
 						// Ignore
 					} else {
-						out.push('\n\tObject.defineProperty(' + e.name + ', "' + name + '", { get: () => { return [' + i + '] }})')
+						out.push('\n\tObject.defineProperty(' + e.name + ', "' + name + '", \{ get: () => \{ return [' + i + '] \}\})')
 						/*
 							Sadly, this optimization breaks object inequality (for Map's):
 							`out.push('E.name = ["' + name + '",' + i + '];')`
@@ -161,7 +161,7 @@ class GenJs {
 				if let extend = c.extend {
 					out.push(' extends ' + extend)
 				}
-				out.push(' {')
+				out.push(' \{')
 				for v in c.methods { switch v {
 					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
 					if name == null or name == 'new' {
@@ -173,7 +173,7 @@ class GenJs {
 
 					if name == null || name == 'new', c.vars.length > 0 {
 						// Init fields
-						out.push('{ ')
+						out.push('\{ ')
 						for v in c.vars { switch v {
 							case Var(name, expr):
 							if expr != null {
@@ -186,17 +186,17 @@ class GenJs {
 							}
 						}}
 						out.push('\n\t\t')
-						out.push(printStatement(expr) + ' };')
+						out.push(printStatement(expr) + ' \};')
 					} else {
 						out.push(printBlock(expr) + ';')
 					}
 				}}
 				for name in c.property {
 					// Generate native setters `get name() {}`
-					out.push('\n\t\tget ' + name + '() { return this.get_\(name)(); };')
-					out.push('\n\t\tset ' + name + '(value) { return this.set_\(name)(value); };')
+					out.push('\n\t\tget ' + name + '() \{ return this.get_\(name)(); \};')
+					out.push('\n\t\tset ' + name + '(value) \{ return this.set_\(name)(value); \};')
 				}
-				out.push('\n\t}')
+				out.push('\n\t\}')
 
 				for v in c.staticVars { switch v {
 					case Var(name, expr):
@@ -239,9 +239,9 @@ class GenJs {
 			// Init
 			tabs = '\t\t'
 			for init in project.init {
-				out.push('\n\t{\n\t\t')
+				out.push('\n\t\{\n\t\t')
 				out.push(printStatement(init))
-				out.push('\n\t}')
+				out.push('\n\t\}')
 			}
 
 			if toIterator {
@@ -282,14 +282,14 @@ class GenJs {
 							return printStatement(el[0])
 					}}
 					if el.length == 1 {
-						return '{ ' + printStatement(el[0]) + ' }'
+						return '\{ ' + printStatement(el[0]) + ' \}'
 					}
 					if el.length == 0 {
-						return '{}'
+						return '\{\}'
 					}
 					return printStatement(s)
 				case _:
-					return '{ ' + printStatement(s) + ' }'
+					return '\{ ' + printStatement(s) + ' \}'
 			}
 		}
 
@@ -319,7 +319,7 @@ class GenJs {
 					}}
 
 					pushTab()
-					var r = '{'
+					var r = '\{'
 
 					for e in el { switch e {
 						case null:
@@ -334,7 +334,7 @@ class GenJs {
 					}}
 
 					popTab()
-					return r + '\n' + tabs + '}'
+					return r + '\n' + tabs + '\}'
 				case Const(name, expr):
 					return 'const ' + name + (expr == null? ' = null' : ' = ' + printExpression(expr))
 				case Var(name, expr): return 'let ' + name + (expr == null? '' : ' = ' + printExpression(expr))
@@ -356,7 +356,7 @@ class GenJs {
 				case Try(expr, t, v, catches, temp):
 					var r = 'try '
 					r += printBlock(expr)
-					r += ' catch (\(temp)) {\n' + tabs + '\t'
+					r += ' catch (\(temp)) \{\n' + tabs + '\t'
 					pushTab()
 					for i in catches.length {
 						var typeof = 'T'
@@ -385,13 +385,13 @@ class GenJs {
 						r += 'const \(v[i]) = \(temp)'
 						r += '\n' + tabs
 						r += printStatement(catches[i])
-						r += ' }'
+						r += ' \}'
 						r += ' else'
 						r += '\n' + tabs
 					}
 					r += '\n' + tabs + 'throw \(temp);'
 					popTab()
-					return r + '\n' + tabs + '}'
+					return r + '\n' + tabs + '\}'
 				case Assign(a, v):
 					return printExpression(a) + ' = ' + printExpression(v)
 				case Throw(e):
@@ -409,12 +409,12 @@ class GenJs {
 					if pre {
 						return 'while (' + printExpression(econd) + ') ' + printStatement(e)
 					}
-					return 'do {' + printStatement(e) + '} while (' + printExpression(econd) + ')'
+					return 'do \{' + printStatement(e) + '\} while (' + printExpression(econd) + ')'
 				case Assignop(a, op, value):
 					return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 
 				case Switch(expr, cases, statements, guards, binds):
-					var r = 'switch (' + printExpression(expr) + ') {'
+					var r = 'switch (' + printExpression(expr) + ') \{'
 
 					// case 1: case 2: case 3:
 					for i in cases.length { if cases[i].length > 0 {
@@ -439,17 +439,17 @@ class GenJs {
 
 						if let g = guards[i] {
 							pushTab()
-							r += 'if (' + printExpression(g) + ') {\n' + tabs
+							r += 'if (' + printExpression(g) + ') \{\n' + tabs
 						}
 
 						r += printStatement(statements[i])
 						popTab()
 						if let g = guards[i] {
 							popTab()
-							r += '\n\t' + tabs + 'break; } }\n' + tabs
+							r += '\n\t' + tabs + 'break; \} \}\n' + tabs
 						} else {
 							// TODO trim trailing tabs
-							r += '\n' + tabs + '} break;\n' + tabs
+							r += '\n' + tabs + '\} break;\n' + tabs
 						}
 					}}
 
@@ -461,7 +461,7 @@ class GenJs {
 						r += '\n' + tabs
 					}}
 
-					return r + '}'
+					return r + '\}'
 
 				case null: console.error("Got null statement kind in JavaScript generator, probably unsupported feature was used, ignoring")
 				case _: console.error("Unknown statement kind:", s)
@@ -587,9 +587,9 @@ class GenJs {
 					let e = printExpression(expr)
 					return e + '&&' + e + '[0]'
 				case Object(names, el):
-					return '{' + [for i in el.length {
+					return '\{' + [for i in el.length {
 						((names[i]) + ':' + printExpression(el[i]))
-					}].join(', ') + '}'
+					}].join(', ') + '\}'
 				case Map(keys, values):
 					if keys.length == 0 {
 						return 'new Map()'
