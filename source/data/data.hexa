@@ -12,6 +12,10 @@ enum Node {
 	/// `"text"`
 	String(text String)
 
+	/// `/pattern/flags`
+	// TODO flags as bit mask
+	RegExp(pattern String, flags String)
+
 	/// `ident` or `ident<T>`
 	// TODO rename to something better
 	Ident(name String, params [NodeType])
@@ -224,6 +228,7 @@ enum Node {
 	static fun stringify(node Node) String {
 		switch node {
 			case String(s): return "'\(s)'"
+			case RegExp(pattern, flags): return '/' + pattern + '/' + flags
 			case Ident(name): return name
 			case Bool(b): return b? "true" : "false"
 			case Int(s): return s.toString()
@@ -294,7 +299,7 @@ enum Node {
 			case Binop(a, op, b): return Node.stringify(a) + ' ' + Token.stringify(op) + ' ' + Node.stringify(b)
 			case Await(e): return Node.stringify(e) + '.await' // TODO probably remember the postfix form
 			case Object(names, el):
-				return '{' + [for i in el.length names[i] + ': ' + Node.stringify(el[i])].join(', ') + '}'
+				return '\{' + [for i in el.length names[i] + ': ' + Node.stringify(el[i])].join(', ') + '\}'
 			case Spread(value):
 				return '...' + Node.stringify(value)
 			case NodeTypeValue(t):
@@ -338,6 +343,8 @@ enum Node {
 			// TODO this should have been a macro
 			case String(s):
 				return cloneData(p, node, Node.String(s))
+			case RegExp(pattern, flags):
+				return cloneData(p, node, Node.RegExp(pattern, flags))
 			case Ident(name, params):
 				if let params = params {
 					return cloneData(p, node, Node.Ident(name, params.map(param => NodeType.clone(param))))
