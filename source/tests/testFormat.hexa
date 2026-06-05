@@ -42,7 +42,7 @@ class TestFormat {
 		// Logical operators become keywords
 		shouldFormat("a&&b", "a and b\n")
 		shouldFormat("a||b", "a or b\n")
-		shouldFormat("if((a)and(b))or((c)and(d)){}", "if ((a) and (b)) or ((c) and (d)) { }\n")
+		shouldFormat("if((a)and(b))or((c)and(d))\{\}", "if ((a) and (b)) or ((c) and (d)) \{ \}\n")
 
 		// Assignment operators — no space before `=` suffix
 		shouldFormat("a+=b", "a += b\n")
@@ -57,7 +57,7 @@ class TestFormat {
 		shouldFormat("-x", "-x\n") // NOTE space before `-` is decided from context
 		shouldFormat("- x", "-x\n")
 		shouldFormat("(\n- x\n)", "(\n\t-x\n)\n")
-		shouldFormat("{\n- x\n}", "{\n\t-x\n}\n")
+		shouldFormat("\{\n- x\n\}", "\{\n\t-x\n\}\n")
 		shouldFormat("[\n- x\n]", "[\n\t-x\n]\n")
 		shouldFormat("-1", "-1\n")
 		shouldFormat("- 1", "-1\n")
@@ -169,8 +169,8 @@ class TestFormat {
 		shouldFormat("x\\(y)", "x \\ (y)\n")
 
 		// Block — braces on same line, body indented
-		shouldFormat("if x {}", "if x { }\n")
-		shouldFormat("if x { y }", "if x { y }\n")
+		shouldFormat("if x \{\}", "if x \{ \}\n")
+		shouldFormat("if x \{ y \}", "if x \{ y \}\n")
 
 		// `var` / `let` declarations
 		shouldFormat("var x = 1", "var x = 1\n")
@@ -180,7 +180,7 @@ class TestFormat {
 		// `return`
 		shouldFormat("return x", "return x\n")
 		shouldFormat("return(x)", "return (x)\n")
-		shouldFormat("return{x}", "return { x }\n")
+		shouldFormat("return\{x\}", "return \{ x \}\n")
 		shouldFormat("return", "return\n")
 
 		// Comments — line comments are normalized
@@ -215,16 +215,16 @@ class TestFormat {
 		*/
 		shouldFormat("a and\nb", "a and\nb\n")
 		shouldFormat("a or\nb", "a or\nb\n")
-		shouldFormat("{\na and\nb\n}", "{\n\ta and\n\tb\n}\n")
-		shouldFormat("{\na or\nb\n}", "{\n\ta or\n\tb\n}\n")
+		shouldFormat("\{\na and\nb\n\}", "\{\n\ta and\n\tb\n\}\n")
+		shouldFormat("\{\na or\nb\n\}", "\{\n\ta or\n\tb\n\}\n")
 
 		// Generics and Nested Generics
 		shouldFormat("List<Int>", "List<Int>\n")
 		shouldFormat("Map<String, List<Int>>", "Map<String, List<Int>>\n")
 
 		// Compiler directives (#)
-		shouldFormat("#if DEBUG\t{let x = 1}", "#if DEBUG { let x = 1 }\n")
-		shouldFormat("#if DEBUG\n{\n\t\t\t\tlet x = 2}\n", "#if DEBUG\n\t{\n\t\tlet x = 2 }\n")
+		shouldFormat("#if DEBUG\t\{let x = 1\}", "#if DEBUG \{ let x = 1 \}\n")
+		shouldFormat("#if DEBUG\n\{\n\t\t\t\tlet x = 2\}\n", "#if DEBUG\n\t\{\n\t\tlet x = 2 \}\n")
 		// TODO this is critical, better parse `#` as a separate token instead of `#if`
 		shouldFormat("#if DEBUG\t{\n\t\t\t\tlet x = 3}\n", "#if DEBUG {\n\t\tlet x = 3 }\n")
 		shouldFormat("#if DEBUG {\n        let x = 4\n}\n", "#if DEBUG {\n\t\tlet x = 4\n\t}\n")
@@ -235,16 +235,16 @@ class TestFormat {
 				let x = 3
 			}*/
 		// Control Flow (Switch/Case)
-		shouldFormat("switch x { case 1: y }", "switch x { case 1: y }\n")
-		shouldFormat("switch x {\n case 1: y }", "switch x {\n\tcase 1: y }\n")
-		shouldFormat("switch x {\n case 1: y \n}", "switch x {\n\tcase 1: y\n}\n")
+		shouldFormat("switch x \{ case 1: y \}", "switch x \{ case 1: y \}\n")
+		shouldFormat("switch x \{\n case 1: y \}", "switch x \{\n\tcase 1: y \}\n")
+		shouldFormat("switch x \{\n case 1: y \n\}", "switch x \{\n\tcase 1: y\n\}\n")
 
 		// Nested block indentation
-		shouldFormat("if a {\nif b {\nx\n}\n}", "if a {\n\tif b {\n\t\tx\n\t}\n}\n")
+		shouldFormat("if a \{\nif b \{\nx\n\}\n\}", "if a \{\n\tif b \{\n\t\tx\n\t\}\n\}\n")
 
 		// Annotations and Rest params
-		shouldFormat("@component(id: 1) class X {}", "@component(id: 1) class X { }\n")
-		shouldFormat("fun f(...args) {}", "fun f(...args) { }\n")
+		shouldFormat("@component(id: 1) class X \{\}", "@component(id: 1) class X \{ \}\n")
+		shouldFormat("fun f(...args) \{\}", "fun f(...args) \{ \}\n")
 
 		// String interpolation
 		shouldFormat("\"hello \\(name)\"", "\"hello \\(name)\"\n")
@@ -270,6 +270,7 @@ class TestFormat {
 	static fun shouldFormat(input: String, expected: String) {
 		overall++
 		let result = autoFormatWholeFile(input)
+
 		if result != expected {
 			failMessages.push('TestFormat FAIL: format(`\(renderInvisibleChars(input))`)')
 			failMessages.push('  Expected: `\(renderInvisibleChars(expected))`')
@@ -277,6 +278,7 @@ class TestFormat {
 			return
 		}
 		let resultAgain = autoFormatWholeFile(result)
+
 		if result != resultAgain {
 			failMessages.push('TestFormat idempotency FAIL: format(format(`\(renderInvisibleChars(input))`))')
 			failMessages.push('  format(in):         `\(renderInvisibleChars(result))`')
