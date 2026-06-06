@@ -43,7 +43,33 @@ class EnrichedToken {
 	/// The original string representation of the token
 	var originalText: String
 
-	new () { }
+	new (
+		token: Token,
+		value: String?,
+		kind: Meta?,
+		line: Int,
+		column: Int,
+		width: Int,
+		depth: Int,
+		isFirstOnLine: Bool,
+		isLastOnLine: Bool,
+		inlineBefore: Int?,
+		inlineAfter: Int?,
+		originalText: String
+	) {
+		this.token = token
+		this.value = value
+		this.kind = kind
+		this.line = line
+		this.column = column
+		this.width = width
+		this.depth = depth
+		this.isFirstOnLine = isFirstOnLine
+		this.isLastOnLine = isLastOnLine
+		this.inlineBefore = inlineBefore
+		this.inlineAfter = inlineAfter
+		this.originalText = originalText
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -53,12 +79,12 @@ class EnrichedToken {
 /// Enrich the flat token stream from the lexer with structural metadata.
 fun enrichTokens(content: Buffer): [EnrichedToken] {
 	let tokens = Lexer.tokenize(content, 'format.hexa', format: true)
-	let count = tokens.token.length
+	let count = tokens.line.length - 1
 	var result: [EnrichedToken] = []
 
 	// --- Pass 1: Build enriched tokens with raw info ---
 	for i in count {
-		let token = tokens.token[i] as!Token
+		let token = tokens.token[i] as! Token
 		let value = tokens.value[i]
 		let kind = tokens.kind[i]
 		let line = tokens.line[i]
@@ -68,19 +94,19 @@ fun enrichTokens(content: Buffer): [EnrichedToken] {
 		var originalText = Token.stringify(token, value, kind)
 
 		result.push(new EnrichedToken(
-				token: token,
-				value: value,
-				kind: kind,
-				line: line,
-				column: column,
-				width: originalText.length,
-				depth: 0,
-				isFirstOnLine: false,
-				isLastOnLine: false,
-				inlineBefore: null,
-				inlineAfter: null,
-				originalText: originalText
-			))
+			token: token,
+			value: value,
+			kind: kind,
+			line: line,
+			column: column,
+			width: originalText.length,
+			depth: 0,
+			isFirstOnLine: false,
+			isLastOnLine: false,
+			inlineBefore: null,
+			inlineAfter: null,
+			originalText: originalText
+		))
 	}
 
 	// --- Pass 2: Compute bracket depth ---
@@ -857,7 +883,7 @@ fun beautifyWholeFile(file: String): String {
 		}
 
 		return result
-	} catch e CompilerErrors {
+	} catch e: CompilerErrors {
 		return file
 	}
 
