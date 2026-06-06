@@ -246,6 +246,64 @@ class TestFormat {
 		shouldFormat("switch x \{\n case 1: y \}", "switch x \{\n\tcase 1: y \}\n")
 		shouldFormat("switch x \{\n case 1: y \n\}", "switch x \{\n\tcase 1: y\n\}\n")
 
+		// Control Flow (If/Else)
+		shouldFormat("expr\nif a \{\}", "expr\n\nif a \{ \}\n") // Extra newline between expressions and `if`
+		shouldFormat("123\nif a \{\}", "123\n\nif a \{ \}\n")
+		shouldFormat("'string'\nif a \{\}", "'string'\n\nif a \{ \}\n")
+		shouldFormat("\{\nif a \{\}", "\{\n\tif a \{ \}\n") // Block does not trigger new line
+		shouldFormat("case _:\nif a \{\}", "case _:\n\t\tif a \{ \}\n") // Colon does not trigger extra new line
+
+		// Single-line if without braces (regression: KIf was pushing tab even without {})
+		shouldFormat("fun f() {\nif x return 1\ny\n}", "fun f() {\n\tif x return 1\n\ty\n}\n")
+		shouldFormat("fun f() {\nif (x) return 1\ny\n}", "fun f() {\n\tif (x) return 1\n\ty\n}\n")
+		shouldFormat("fun f() {\nif (not hexStr) return ''\ncode\n}", "fun f() {\n\tif (not hexStr) return ''\n\tcode\n}\n")
+
+		// Multi-line condition with `and`/`or` continuation
+		shouldFormat("fun f() {\nif a + b\nand b\nand c\n{\n}\n}", "fun f() {\n\tif a + b\n\t\tand b\n\t\tand c\n\t{\n\t}\n}\n")
+		shouldFormat("fun f() {\nif a\nor b\n{\n}\n}", "fun f() {\n\tif a\n\t\tor b\n\t{\n\t}\n}\n")
+		shouldFormat("fun f() {\nif \na + b\nand b\nand c\n{\n}\n}", "fun f() {\n\tif\n\t\ta + b\n\t\tand b\n\t\tand c\n\t{\n\t}\n}\n")
+		shouldFormat("fun f() {\nif\na + b and\nb and\nc\n{\n}\n}", "fun f() {\n\tif\n\t\ta + b and\n\t\tb and\n\t\tc\n\t{\n\t}\n}\n")
+
+		// Multi-line if with comma-separated conditions
+		shouldFormat("fun f() {\nif\na != Token.BlockClose,\na != Token.KFun\n{\n}\n}", "fun f() {\n\tif\n\t\ta != Token.BlockClose,\n\t\ta != Token.KFun\n\t{\n\t}\n}\n")
+		// Multi-line if with comma-separated conditions and comments
+		shouldFormat("fun f() {\nif\na != Token.BlockClose,\na != Token.KFun\n// && a != KStatic\n// && a != KStatic\n{\n}\n}", "fun f() {\n\tif\n\t\ta != Token.BlockClose,\n\t\ta != Token.KFun\n\t\t// && a != KStatic\n\t\t// && a != KStatic\n\t{\n\t}\n}\n")
+		// Multi-line if with nested parenthesized conditions, comments, and `or` continuation
+		shouldFormat("fun f() {\nif\n// comment\n(\ntoken == Token.At and (\n// comment\nlex.column[i] == lex.value[i - 1].length + lex.column[i - 1] + 1\n)\n) or\ntoken == Token.IndexOpen or\n// comment\n{\n}\n}", "fun f() {\n\tif\n\t\t// comment\n\t\t(\n\t\t\ttoken == Token.At and (\n\t\t\t\t// comment\n\t\t\t\tlex.column[i] == lex.value[i - 1].length + lex.column[i - 1] + 1\n\t\t\t)\n\t\t) or\n\t\ttoken == Token.IndexOpen or\n\t\t// comment\n\t{\n\t}\n}\n")
+
+		// Control Flow (For/While/Do)
+		shouldFormat("expr\nfor i in a \{\}", "expr\n\nfor i in a \{ \}\n")
+		shouldFormat("expr\nwhile true \{\}", "expr\n\nwhile true \{ \}\n")
+		shouldFormat("expr\ndo \{\}", "expr\n\ndo \{ \}\n")
+
+		// Control Flow (Try/Switch) - should also have blank line after expressions
+		shouldFormat("expr\ntry \{\}", "expr\n\ntry \{ \}\n")
+		shouldFormat("expr\nswitch x \{\}", "expr\n\nswitch x \{ \}\n")
+
+		// Comments should preserve blank lines
+		// `//` line comments preserve at most one blank line
+		// (input has blank line, output should preserve one)
+		shouldFormat("// Comment\n\n\nif x \{\}", "// Comment\n\nif x \{ \}\n")
+		shouldFormat("// Comment\n\n\n\nif x \{\}", "// Comment\n\nif x \{ \}\n")
+		shouldFormat("// Comment\n\nif x \{\}", "// Comment\n\nif x \{ \}\n")
+		shouldFormat("// Comment\n\nfor i in a \{\}", "// Comment\n\nfor i in a \{ \}\n")
+		shouldFormat("// Comment\n\nwhile true \{\}", "// Comment\n\nwhile true \{ \}\n")
+		shouldFormat("// Comment\n\ndo \{\}", "// Comment\n\ndo \{ \}\n")
+		shouldFormat("// Comment\n\ntry \{\}", "// Comment\n\ntry \{ \}\n")
+		shouldFormat("// Comment\n\nswitch x \{\}", "// Comment\n\nswitch x \{ \}\n")
+		shouldFormat("/// Doc comment\n\nif x \{\}", "/// Doc comment\nif x \{ \}\n")
+		// (input has no blank line, output should not add one)
+		shouldFormat("// Comment\nif x \{\}", "// Comment\nif x \{ \}\n")
+		shouldFormat("// Comment\nfor i in a \{\}", "// Comment\nfor i in a \{ \}\n")
+		shouldFormat("// Comment\nwhile true \{\}", "// Comment\nwhile true \{ \}\n")
+		shouldFormat("// Comment\ndo \{\}", "// Comment\ndo \{ \}\n")
+		shouldFormat("// Comment\ntry \{\}", "// Comment\ntry \{ \}\n")
+		shouldFormat("// Comment\nswitch x \{\}", "// Comment\nswitch x \{ \}\n")
+		// `///` doc comments attach to the next expression (no blank lines)
+		shouldFormat("/// Doc comment\nif x \{\}", "/// Doc comment\nif x \{ \}\n")
+		shouldFormat("/// Doc comment\n\nif x \{\}", "/// Doc comment\nif x \{ \}\n")
+		shouldFormat("/// Doc comment\n\n\nif x \{\}", "/// Doc comment\nif x \{ \}\n")
+
 		// Nested block indentation
 		shouldFormat("if a \{\nif b \{\nx\n\}\n\}", "if a \{\n\tif b \{\n\t\tx\n\t\}\n\}\n")
 
