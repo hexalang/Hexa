@@ -18,6 +18,7 @@ fun autoFormatWholeFile(file: String): String {
 		var lastLine = 1
 		var lastToken = Token.Eof
 		var lastLastToken = Token.Eof
+		var lastTokenIncludingComments = Token.Eof
 		var lastIndentation = ''
 
 		var tabs = ''
@@ -32,6 +33,7 @@ fun autoFormatWholeFile(file: String): String {
 			// Token.BitwiseRightShift, Token.UnsignedRightShift
 		]
 		var parenthesis = -1000000
+		var hangingExtra = ''
 
 		fun updateTab() {
 			tabs = tabStack.slice(0, depth + 1).join('')
@@ -96,9 +98,9 @@ fun autoFormatWholeFile(file: String): String {
 				popTab()
 			}
 
-			if token == Token.BlockOpen and parenthesis == 0 {
-				parenthesis = -1000000
-				popTab()
+			// Clear hanging indent when the condition body starts
+			if token == Token.BlockOpen {
+				hangingExtra = ''
 			}
 
 			if token == Token.KCase {
@@ -112,13 +114,50 @@ fun autoFormatWholeFile(file: String): String {
 				// Handle double \n\n
 				let lineDiff = line - lastLine
 				if lineDiff > 1 {
-					result.push('\n')
+					// `///` doc comments attach to the next expression — no blank lines preserved
+					// `//` line comments preserve at most one blank line (collapse multiple to one)
+					// All other tokens collapse multiple blank lines to one
+					if lastTokenIncludingComments != Token.Documentation {
+						result.push('\n')
+					}
+				}
+
+				// Insert blank line before control flow keywords when following expression
+				if lineDiff == 1 {
+					if
+						token == Token.KIf or
+						token == Token.KFor or
+						token == Token.KWhile or
+						token == Token.KDo or
+						token == Token.KTry or
+						token == Token.KSwitch
+					{
+						// Check if previous token was an expression/statement that needs separation
+						// But NOT comments - comments should stay adjacent to control flow
+						if
+							lastTokenIncludingComments != Token.CommentLine and
+							lastTokenIncludingComments != Token.Documentation and
+							(
+								lastToken == Token.Identifier or
+								lastToken == Token.Integer or
+								lastToken == Token.FloatingPoint or
+								lastToken == Token.QuotedString or
+								lastToken == Token.CallClose or
+								lastToken == Token.IndexClose or
+								lastToken == Token.BlockClose or
+								lastToken == Token.Increment or
+								lastToken == Token.Decrement
+							)
+						{
+							result.push('\n')
+						}
+					}
 				}
 
 				// TODO if `Bool?` of `array[i]` not valid `if tabCase[depth] {}`, require `== true`
 				// as `tabCase[depth] == true` cause it can be `null`
-				var indentation = tabs
-				result.push(tabs)
+				var indentation = tabs + hangingExtra
+				result.push(tabs + hangingExtra)
 
 				// `=\nvalue`
 				// TODO weird indentation right here
@@ -130,13 +169,63 @@ fun autoFormatWholeFile(file: String): String {
 				}
 
 				// The idea here is `value1 and \n value2` should have `value2` with tab
+				// Don't apply this to BlockOpen/BlockClose — they end the condition
+				if token != Token.BlockOpen and token != Token.BlockClose {
+					if
+						lastToken == Token.Add or
+						lastToken == Token.Subtract or
+						lastToken == Token.Multiply or
+						lastToken == Token.LogicalAnd or
+						lastToken == Token.LogicalOr or
+						lastToken == Token.KAnd or
+						lastToken == Token.KOr or
+						lastToken == Token.Equal or
+						lastToken == Token.Unequal or
+						lastToken == Token.RightArrow or
+						lastToken == Token.Comma
+					{
+						if lastIndentation.length > indentation.length {
+							result.push('\t')
+							indentation += '\t'
+						}
+					}
+				}
+
+				// `and`/`or` at start of a new line — continuation from previous expression
+				// When `hangingExtra` is already active (from a control flow keyword),
+				// the extra indent is already included in `indentation`, so skip.
 				if
-					lastToken == Token.Add or
-					lastToken == Token.Subtract or
-					lastToken == Token.Multiply or
-					lastToken == Token.LogicalAnd or
-					lastToken == Token.LogicalOr
+					token == Token.KAnd or
+					token == Token.KOr or
+					token == Token.LogicalAnd or
+					token == Token.LogicalOr
 				{
+					if hangingExtra == '' {
+						result.push('\t')
+						indentation += '\t'
+					}
+				}
+
+				// Control flow keyword (`if`/`for`/`while`/`do`/`switch`) on its own line
+				// — next line starts the condition with hanging indent
+				// Sets `hangingExtra` so the extra indent persists across paren boundaries
+				if
+					lastToken == Token.KIf or
+					lastToken == Token.KFor or
+					lastToken == Token.KWhile or
+					lastToken == Token.KDo or
+					lastToken == Token.KSwitch
+				{
+					if hangingExtra == '' {
+						result.push('\t')
+						indentation += '\t'
+					}
+					hangingExtra = '\t'
+				}
+
+				// Comments inside a multi-line condition should preserve hanging indent
+				// from the previous condition line
+				if token == Token.CommentLine {
 					if lastIndentation.length > indentation.length {
 						result.push('\t')
 						indentation += '\t'
@@ -155,6 +244,7 @@ fun autoFormatWholeFile(file: String): String {
 			}
 
 			// When evaluated to `true` it means `shouldSpace = false`
+			// TODO `**` operator
 			if
 				// `#if`
 				lastToken == Token.Sharp or
@@ -189,6 +279,10 @@ fun autoFormatWholeFile(file: String): String {
 						lastToken != Token.KFor and
 						lastToken != Token.LogicalAnd and
 						lastToken != Token.LogicalOr and
+						lastToken != Token.KAnd and
+						lastToken != Token.KOr and
+						lastToken != Token.KAs and
+						lastToken != Token.KIs and
 
 						// Operators
 						lastToken != Token.Assign and
@@ -203,6 +297,9 @@ fun autoFormatWholeFile(file: String): String {
 						lastToken != Token.Equal and
 						lastToken != Token.Unequal and
 						lastToken != Token.Less and
+						lastToken != Token.Exponent and
+						lastToken != Token.BitwiseXor and
+						lastToken != Token.IntegerDivide and
 
 						currentCallLevel != Token.KNew and
 
@@ -309,8 +406,14 @@ fun autoFormatWholeFile(file: String): String {
 					)
 				) or
 
-				// `as!`
-				(lastToken == Token.KAs and token == Token.KNot) or
+				// `as!` or `as?`
+				(lastToken == Token.KAs and (token == Token.KNot or token == Token.Exclamation or token == Token.Question)) or
+
+				// Space after `as!`, `as?`
+				(
+					(lastToken == Token.KNot or lastToken == Token.Exclamation or lastToken == Token.Question) and
+					lastLastToken == Token.KAs
+				) or
 
 				// `++`
 				token == Token.Increment or
@@ -334,7 +437,10 @@ fun autoFormatWholeFile(file: String): String {
 						lastLastToken == Token.KCase or
 						lastLastToken == Token.LogicalAnd or
 						lastLastToken == Token.LogicalOr or
+						lastLastToken == Token.KAnd or
+						lastLastToken == Token.KOr or
 						lastLastToken == Token.KNot or
+						lastLastToken == Token.Exclamation or
 						lastLastToken == Token.IndexOpen or
 						lastLastToken == Token.BlockOpen or
 						lastLastToken == Token.Comma or
@@ -359,7 +465,8 @@ fun autoFormatWholeFile(file: String): String {
 						lastLastToken == Token.BitwiseXor or
 						lastLastToken == Token.BitwiseLeftShift or
 						lastLastToken == Token.BitwiseRightShift or
-						lastLastToken == Token.UnsignedRightShift
+						lastLastToken == Token.UnsignedRightShift or
+						lastLastToken == Token.Exponent
 					)
 				) or
 
@@ -402,6 +509,15 @@ fun autoFormatWholeFile(file: String): String {
 				) or
 
 				token == Token.Comma or
+				token == Token.Interval or
+				// `/abc/gi` — no space between regex pattern and flags
+				(
+					lastToken == Token.Regex and
+					token == Token.Identifier and
+					not (
+						tokens.column[i] != getTokenLength(i - 1) + (tokens.column[i - 1] ?? 0)
+					)
+				) or
 				(
 					token == Token.Colon and
 					(
@@ -453,7 +569,10 @@ fun autoFormatWholeFile(file: String): String {
 				case _: result.push(Token.stringify(token, tokens.value[i], tokens.kind[i]))
 			}
 
-			// Ignore comments
+			// Track all tokens including comments
+			lastTokenIncludingComments = token
+
+			// Ignore comments for lastToken/lastLastToken
 			// TODO same value and meta same way into variables
 			if token != Token.CommentLine {
 				lastLastToken = lastToken
@@ -481,8 +600,6 @@ fun autoFormatWholeFile(file: String): String {
 				case KCase:
 					appendTab()
 				case KIf:
-					// TODO appendTab()
-					pushTab()
 					parenthesis = 0
 			}
 
