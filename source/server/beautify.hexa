@@ -1,0 +1,865 @@
+// The Hexa Compiler
+// SPDX-FileCopyrightText: 2024-2026 Oleh Petrenko
+// SPDX-License-Identifier: MPL-2.0
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+
+/// Two-phase token-based formatter.
+///
+/// Phase 1 — Enrichment:
+///   Adds metadata to the flat token stream: bracket depth, line adjacency,
+///   inline comment detection, first/last on line flags.
+///
+/// Phase 2 — Assembly:
+///   Applies prioritized gap rules and indentation rules to produce output.
+///
+/// Design goals:
+///   - Deterministic and idempotent
+///   - Preserves authorial intent for inline comments
+///   - Clean separation of spacing rules, indent rules
+///   - Easily testable rule-by-rule
+/// Describes what goes between two adjacent tokens in the output.
+enum Gap {
+	None
+	Space
+	Newline
+	BlankLine
+}
+
+@final
+class EnrichedToken {
+	var token: Token // The token kind
+	var value: String? // The token's string parameter (null for keyword tokens)
+	var kind: Meta? // Metadata (number kind, quote style, etc.)
+	var line: Int // 1-based line number in source
+	var column: Int // 0-based column position in source
+	var width: Int // Rendered width (characters)
+	var depth: Int // Bracket nesting depth after this token
+	var isFirstOnLine: Bool // Whether this token starts a new line in source
+	var isLastOnLine: Bool // Whether this token ends its line in source
+	/// For inline comments: index of the code token immediately before this comment on the same line
+	var inlineBefore: Int?
+	/// For inline comments: index of the code token immediately after this comment on the same line
+	var inlineAfter: Int?
+	/// The original string representation of the token
+	var originalText: String
+
+	new () { }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: Enrichment
+// ---------------------------------------------------------------------------
+
+/// Enrich the flat token stream from the lexer with structural metadata.
+fun enrichTokens(content: Buffer): [EnrichedToken] {
+	let tokens = Lexer.tokenize(content, 'format.hexa', format: true)
+	let count = tokens.token.length
+	var result: [EnrichedToken] = []
+
+	// --- Pass 1: Build enriched tokens with raw info ---
+	for i in count {
+		let token = tokens.token[i] as!Token
+		let value = tokens.value[i]
+		let kind = tokens.kind[i]
+		let line = tokens.line[i]
+		let column = tokens.column[i] ?? 0
+
+		// Build the canonical string for this token
+		var originalText = Token.stringify(token, value, kind)
+
+		result.push(new EnrichedToken(
+				token: token,
+				value: value,
+				kind: kind,
+				line: line,
+				column: column,
+				width: originalText.length,
+				depth: 0,
+				isFirstOnLine: false,
+				isLastOnLine: false,
+				inlineBefore: null,
+				inlineAfter: null,
+				originalText: originalText
+			))
+	}
+
+	// --- Pass 2: Compute bracket depth ---
+	var depth = 0
+
+	for i in result.length {
+		let t = result[i].token
+
+		if t == Token.BlockClose or t == Token.CallClose or t == Token.IndexClose {
+			depth--
+		}
+		result[i].depth = depth
+
+		if t == Token.BlockOpen or t == Token.CallOpen or t == Token.IndexOpen {
+			depth++
+		}
+	}
+
+	// --- Pass 3: Mark first/last token on each line ---
+	var lastLine = -1
+	var lineStart = 0
+
+	for i in result.length {
+		if result[i].line != lastLine {
+			// Close previous line
+			if lastLine != -1 and i > lineStart and i - 1 >= 0 {
+				result[i - 1].isLastOnLine = true
+			}
+			lineStart = i
+			result[i].isFirstOnLine = true
+			lastLine = result[i].line
+		}
+	}
+
+	if result.length > 0 {
+		result[result.length - 1].isLastOnLine = true
+	}
+
+	// --- Pass 4: Detect inline comments ---
+	// An inline comment sits on the same line as code both before AND after it.
+	for i in result.length {
+		let et = result[i]
+
+		if et.token != Token.Comment and et.token != Token.CommentLine {
+			continue
+		}
+
+		var prevCode: Int? = null
+		var nextCode: Int? = null
+
+		// Walk backwards to find previous non-comment token on same line
+		var j = i - 1
+
+		while j >= 0 {
+			if result[j].token != Token.Comment and result[j].token != Token.CommentLine {
+				if result[j].line == et.line {
+					prevCode = j
+				}
+				j = -1 // break
+			} else {
+				j--
+			}
+		}
+
+		// Walk forwards to find next non-comment token on same line
+		j = i + 1
+
+		while j < result.length {
+			if result[j].token != Token.Comment and result[j].token != Token.CommentLine {
+				if result[j].line == et.line {
+					nextCode = j
+				}
+				j = result.length // break
+			} else {
+				j++
+			}
+		}
+
+		if prevCode != null and nextCode != null {
+			et.inlineBefore = nextCode
+			et.inlineAfter = prevCode
+		}
+	}
+
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for gap rules
+// ---------------------------------------------------------------------------
+
+/// Set of token kinds that represent binary operators needing spaces around them.
+@inline fun isBinaryOp(t: Token): Bool {
+	return t == Token.Add or
+	t == Token.Subtract or
+	t == Token.Multiply or
+	t == Token.Divide or
+	t == Token.IntegerDivide or
+	t == Token.Remainder or
+	t == Token.Exponent or
+	t == Token.Equal or
+	t == Token.Unequal or
+	t == Token.LessOrEqual or
+	t == Token.GreaterOrEqual or
+	t == Token.Less or
+	t == Token.Greater or
+	t == Token.BitwiseAnd or
+	t == Token.BitwiseOr or
+	t == Token.BitwiseXor or
+	t == Token.BitwiseLeftShift or
+	t == Token.BitwiseRightShift or
+	t == Token.UnsignedRightShift or
+	t == Token.Assign or
+	t == Token.Interval
+}
+
+/// Tokens that can precede an opening bracket without a space (function calls, indexing).
+@inline fun isCallLikePrefix(t: Token): Bool {
+	return t == Token.Identifier or
+	t == Token.Title or
+	t == Token.CallClose or
+	t == Token.IndexClose or
+	t == Token.KThis or
+	t == Token.KSuper or
+	t == Token.KNull or
+	t == Token.KTrue or
+	t == Token.KFalse or
+	t == Token.Integer or
+	t == Token.FloatingPoint or
+	t == Token.QuotedString or
+	t == Token.Regex
+}
+
+/// Tokens that are keywords that should have space before `(`.
+@inline fun isKeywordBeforeParen(t: Token): Bool {
+	return t == Token.KIn or
+	t == Token.KReturn or
+	t == Token.KIf or
+	t == Token.KFun or
+	t == Token.KNew or
+	t == Token.KNot or
+	t == Token.KSwitch or
+	t == Token.KWhile or
+	t == Token.KDo or
+	t == Token.KFor or
+	t == Token.LogicalAnd or
+	t == Token.LogicalOr or
+	t == Token.KAnd or
+	t == Token.KOr or
+	t == Token.KAs or
+	t == Token.KIs or
+	t == Token.KVar or
+	t == Token.KLet
+}
+
+/// Check if a `-` token is unary negation (not subtraction).
+@inline fun isUnaryMinus(lastToken: Token, lastLastToken: Token): Bool {
+	if lastToken != Token.Subtract {
+		return false
+	}
+	return lastLastToken == Token.Eof or
+	lastLastToken == Token.KReturn or
+	lastLastToken == Token.KThrow or
+	lastLastToken == Token.KCase or
+	lastLastToken == Token.LogicalAnd or
+	lastLastToken == Token.LogicalOr or
+	lastLastToken == Token.KAnd or
+	lastLastToken == Token.KOr or
+	lastLastToken == Token.KNot or
+	lastLastToken == Token.Exclamation or
+	lastLastToken == Token.IndexOpen or
+	lastLastToken == Token.BlockOpen or
+	lastLastToken == Token.Comma or
+	lastLastToken == Token.Colon or
+	lastLastToken == Token.CallOpen or
+	lastLastToken == Token.Question or
+	lastLastToken == Token.Assign or
+	lastLastToken == Token.Equal or
+	lastLastToken == Token.Greater or
+	lastLastToken == Token.GreaterOrEqual or
+	lastLastToken == Token.Less or
+	lastLastToken == Token.LessOrEqual or
+	lastLastToken == Token.Unequal or
+	lastLastToken == Token.Add or
+	lastLastToken == Token.Subtract or
+	lastLastToken == Token.Multiply or
+	lastLastToken == Token.Divide or
+	lastLastToken == Token.IntegerDivide or
+	lastLastToken == Token.Remainder or
+	lastLastToken == Token.BitwiseAnd or
+	lastLastToken == Token.BitwiseOr or
+	lastLastToken == Token.BitwiseXor or
+	lastLastToken == Token.BitwiseLeftShift or
+	lastLastToken == Token.BitwiseRightShift or
+	lastLastToken == Token.UnsignedRightShift or
+	lastLastToken == Token.Exponent
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2a: Gap Decision (Prioritized Rules)
+// ---------------------------------------------------------------------------
+
+/// Decide what kind of gap to put between `left` (already emitted) and `right` (about to emit).
+///
+/// This is a pure function — no side effects, no mutable state.
+/// Rules are ordered by priority: first match wins.
+fun decideGap(
+	left: EnrichedToken,
+	right: EnrichedToken,
+	leftToken: Token, // left's token (before comments)
+	lineDiff: Int,
+	isDepthChange: Bool,
+	isCallPrefix: Bool, // right is CallOpen and left is call-like
+	isIndexPrefix: Bool, // right is IndexOpen and left is adjacent
+	isGenericLt: Bool, // right is Less and left is adjacent (generic)
+	isGenericGt: Bool, // right is Greater/BitwiseRightShift and left is adjacent (generic closing)
+	isUnaryNeg: Bool, // right is Subtract and it's unary negation
+	isAssignSuffix: Bool, // right is Assign and left is assignOp (for `+=`)
+	isAdjacentSameLine: Bool // left and right are adjacent on same line in source
+): Gap {
+	// Rule 1: Blank line between top-level groups
+	if lineDiff > 1 {
+		return Gap.BlankLine
+	}
+
+	// Rule 2: CommentLine — always force newline after
+	if leftToken == Token.CommentLine {
+		return Gap.Newline
+	}
+
+	// Rule 3: Inline block comments preserve original spacing
+	if left.token == Token.Comment and left.inlineAfter != null {
+		// Preserve whatever spacing was originally there
+		if right.column > left.column + left.width {
+			return Gap.Space
+		}
+		return Gap.None
+	}
+
+	if right.token == Token.Comment and right.inlineBefore != null {
+		if right.column > left.column + left.width {
+			return Gap.Space
+		}
+		return Gap.None
+	}
+
+	// Rule 4: Sharp preprocessor — no space after
+	if leftToken == Token.Sharp {
+		return Gap.None
+	}
+
+	if right.token == Token.Sharp {
+		return Gap.None
+	}
+
+	// Rule 5: Dot access — no spaces
+	if leftToken == Token.Dot or right.token == Token.Dot {
+		return Gap.None
+	}
+	// Optional chain
+	if right.token == Token.OptionalChain {
+		return Gap.None
+	}
+	// Cascade
+	if right.token == Token.CascadeBlock or right.token == Token.CascadeArray {
+		return Gap.None
+	}
+
+	// Rule 6: At-sign decorator — no space between @ and identifier
+	if leftToken == Token.At {
+		return Gap.None
+	}
+
+	if right.token == Token.At {
+		return Gap.Space
+	}
+
+	// Rule 7: Call/Index open — decide based on context
+	if right.token == Token.CallOpen and isCallPrefix == false {
+		// Keyword before paren: space
+		return Gap.Space
+	}
+
+	if right.token == Token.CallOpen and isCallPrefix {
+		// Call-like prefix: no space (e.g., `f()`, `a[0]()`)
+		return Gap.None
+	}
+
+	if leftToken == Token.CallOpen and right.token != Token.CallClose {
+		// After open paren, if same line: space/auto
+		return Gap.Space
+	}
+
+	if right.token == Token.CallClose {
+		// Before close paren: no space
+		return Gap.None
+	}
+
+	// Index open
+	if right.token == Token.IndexOpen {
+		if isIndexPrefix {
+			return Gap.None
+		}
+		// If there's space in source, preserve (e.g., `var a [T]`)
+		return Gap.Space
+	}
+
+	if leftToken == Token.IndexOpen and right.token != Token.IndexClose {
+		return Gap.Space
+	}
+
+	if right.token == Token.IndexClose {
+		return Gap.None
+	}
+
+	// Block open/close
+	if right.token == Token.BlockOpen {
+		// Space before `{` except after `(` or `:` or newline (position dependent)
+		return Gap.Space
+	}
+
+	if leftToken == Token.BlockOpen and right.token != Token.BlockClose {
+		return Gap.Space
+	}
+
+	if leftToken == Token.BlockClose {
+		return Gap.Space
+	}
+
+	// Rule 8: Comma — space after, no space before
+	if leftToken == Token.Comma {
+		return Gap.Space
+	}
+
+	if right.token == Token.Comma {
+		return Gap.None
+	}
+
+	// Rule 9: Colon
+	if right.token == Token.Colon {
+		// Preserve adjacency for named args / ternary
+		if isAdjacentSameLine {
+			return Gap.None
+		}
+		return Gap.None
+	}
+
+	if leftToken == Token.Colon {
+		// Space after colon
+		return Gap.Space
+	}
+
+	// Rule 10: Semicolon — no space before
+	if right.token == Token.Semicolon {
+		return Gap.None
+	}
+
+	// Rule 11: Interval (...) — no space after open or before close
+	if right.token == Token.Interval {
+		// `...args` — no space between `...` and identifier
+		return Gap.None
+	}
+
+	if leftToken == Token.Interval {
+		return Gap.None
+	}
+
+	// Rule 12: Increment/Decrement (postfix only)
+	if right.token == Token.Increment or right.token == Token.Decrement {
+		return Gap.None
+	}
+
+	if leftToken == Token.Increment or leftToken == Token.Decrement {
+		return Gap.Space
+	}
+
+	// Rule 13: BitwiseNot — no space after
+	if leftToken == Token.BitwiseNot {
+		return Gap.None
+	}
+
+	// Rule 14: Unary minus — no space between `-` and operand
+	if isUnaryNeg {
+		return Gap.None
+	}
+
+	// Rule 15: `as!` / `as?` — no space between `as` and `!`/`?`
+	if leftToken == Token.KAs and (right.token == Token.KNot or right.token == Token.Exclamation or right.token == Token.Question) {
+		return Gap.None
+	}
+
+	if (leftToken == Token.KNot or leftToken == Token.Exclamation or leftToken == Token.Question) and right.token == Token.KAs {
+		// Actually this is wrong direction, but handle reverse
+	}
+
+	// Rule 16: Regex flags — no space between pattern and flags
+	if leftToken == Token.Regex and right.token == Token.Identifier and isAdjacentSameLine {
+		return Gap.None
+	}
+
+	// Rule 17: `??` — no space between `?` and `?`
+	if leftToken == Token.Question and right.token == Token.Question {
+		return Gap.None
+	}
+
+	// Rule 18: `?.` — no space
+	if leftToken == Token.Question and right.token == Token.Dot {
+		return Gap.None
+	}
+
+	// Rule 19: Type? — no space between type name and `?`
+	if right.token == Token.Question and isAdjacentSameLine {
+		// Preserve adjacency for `Type?` vs `a ? b : c`
+		return Gap.None
+	}
+
+	// Rule 20: Generics adjacency — no space for `T<T>` and `T>`
+	if isGenericLt {
+		return Gap.None
+	}
+
+	if isGenericGt {
+		return Gap.None
+	}
+
+	// Rule 21: Assignment operators — `+=` etc: space before op, no space before `=`
+	if isAssignSuffix {
+		return Gap.None
+	}
+
+	// Rule 22: `and`/`or`/`not` keywords — space after
+	if leftToken == Token.KAnd or leftToken == Token.KOr or leftToken == Token.KNot {
+		return Gap.Space
+	}
+
+	// Rule 23: Binary operators — spaces around
+	if isBinaryOp(leftToken) and leftToken != Token.Less and leftToken != Token.Greater and leftToken != Token.BitwiseRightShift {
+		return Gap.Space
+	}
+
+	if isBinaryOp(right.token) and right.token != Token.Less and right.token != Token.Greater and right.token != Token.BitwiseRightShift {
+		// This will be handled when this token becomes `left` in the next iteration
+	}
+
+	// Rule 24: `<`, `>`, `>>` — preserve original spacing
+	if right.token == Token.Less or right.token == Token.Greater or right.token == Token.BitwiseRightShift {
+		// Only add space if there was space in source
+		if isAdjacentSameLine {
+			return Gap.None
+		}
+		return Gap.Space
+	}
+
+	if leftToken == Token.Less or leftToken == Token.Greater or leftToken == Token.BitwiseRightShift {
+		// Will be handled when this becomes `left`
+	}
+
+	// Rule 25: Keyword before `(` — space
+	if right.token == Token.CallOpen and isKeywordBeforeParen(leftToken) {
+		return Gap.Space
+	}
+
+	// Rule 26: `return`/`throw` before expression — space
+	if leftToken == Token.KReturn or leftToken == Token.KThrow {
+		return Gap.Space
+	}
+
+	// Default: space
+	return Gap.Space
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2b: Indent Computation
+// ---------------------------------------------------------------------------
+
+/// Compute the indent string for each token based on bracket depth and special rules.
+fun computeIndents(
+	enriched: [EnrichedToken],
+	gaps: [Gap]
+): [String] {
+	var indents: [String] = []
+	var depth = 0
+	var tabStack = ['']
+
+	fun pushTab() {
+		depth++
+
+		if depth >= tabStack.length {
+			tabStack.push('\t')
+		} else {
+			tabStack[depth] = '\t'
+		}
+	}
+
+	fun popTab() {
+		depth--
+
+		if depth < 0 {
+			depth = 0
+		}
+	}
+
+	fun currentTab(): String {
+		var result = ''
+
+		for i in depth {
+			result += tabStack[i]
+		}
+		return result
+	}
+
+	var caseDepth = 0
+	var hangingExtra = ''
+	var lastToken = Token.Eof
+	var lastWasAssignReturn = false
+	var lastWasConditionCont = false
+
+	for i in enriched.length {
+		let et = enriched[i]
+		let t = et.token
+
+		// Adjust depth for close brackets BEFORE computing indent
+		if t == Token.BlockClose or t == Token.CallClose or t == Token.IndexClose {
+			popTab()
+		}
+
+		// Compute indent string
+		var indent = currentTab()
+
+		// Handle case extra indent
+		indent += [for i in caseDepth { '\t' }].join('')
+
+		// If this token is on a new line in output, apply hanging indent
+		if i > 0 and (gaps[i] == Gap.Newline or gaps[i] == Gap.BlankLine) {
+			indent += hangingExtra
+		}
+
+		indents.push(indent)
+
+		// Update state for the NEXT token's indentation
+		// Adjust depth for open brackets
+		if t == Token.BlockOpen or t == Token.CallOpen or t == Token.IndexOpen {
+			pushTab()
+		}
+
+		// Case handling
+		if t == Token.KCase {
+			caseDepth++
+		}
+
+		// Reset hanging indent state
+		// (hangingExtra persists until consumed by next line's first token)
+
+		// Determine hanging indent for next line
+		hangingExtra = ''
+		lastWasAssignReturn = false
+		lastWasConditionCont = false
+
+		if et.isLastOnLine {
+			// Assignment continuation
+			if lastToken == Token.Assign or lastToken == Token.KReturn {
+				if lastToken == Token.Assign {
+					hangingExtra = '\t'
+					lastWasAssignReturn = true
+				}
+
+				if lastToken == Token.KReturn {
+					hangingExtra = '\t'
+					lastWasAssignReturn = true
+				}
+			}
+
+			// Comma at end of line (but only at depth 0 / condition level)
+			if lastToken == Token.Comma {
+				// Only for condition continuations
+				hangingExtra = '\t'
+				lastWasConditionCont = true
+			}
+
+			// Operator at end of line
+			if lastToken == Token.Add or
+			lastToken == Token.Subtract or
+			lastToken == Token.Multiply or
+			lastToken == Token.Divide or
+			lastToken == Token.LogicalAnd or
+			lastToken == Token.LogicalOr or
+			lastToken == Token.KAnd or
+			lastToken == Token.KOr or
+			lastToken == Token.Equal or
+			lastToken == Token.Unequal or
+			lastToken == Token.RightArrow
+			{
+				hangingExtra = '\t'
+				lastWasConditionCont = true
+			}
+
+			// Control flow keyword alone on line
+			if lastToken == Token.KIf or
+			lastToken == Token.KFor or
+			lastToken == Token.KWhile or
+			lastToken == Token.KDo or
+			lastToken == Token.KSwitch
+			{
+				hangingExtra = '\t'
+			}
+		}
+
+		// Track last non-comment token
+		if t != Token.CommentLine and t != Token.Comment {
+			lastToken = t
+		}
+	}
+
+	return indents
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Assembly
+// ---------------------------------------------------------------------------
+
+/// Assemble the final formatted string from enriched tokens, gaps, and indents.
+fun assemble(
+	enriched: [EnrichedToken],
+	gaps: [Gap],
+	indents: [String]
+): String {
+	var result = ''
+	var lastLine = 1
+
+	for i in enriched.length {
+		let et = enriched[i]
+		let t = et.token
+		let text = et.originalText
+
+		// Handle blank lines (between top-level groups)
+		if i > 0 and gaps[i] == Gap.BlankLine {
+			result += '\n'
+			// Single blank line — indentation comes on the next actual line
+		}
+
+		// Handle newlines
+		if i > 0 {
+			let gap = gaps[i]
+
+			if gap == Gap.Newline or gap == Gap.BlankLine {
+				if result.charAt(result.length - 1) != '\n' {
+					result += '\n'
+				}
+				result += indents[i]
+			} else if gap == Gap.Space {
+				result += ' '
+			}
+		}
+
+		// Token text (with conversions)
+		switch t {
+			case CommentLine:
+				// Normalize: ensure `// ` prefix, trim content
+				let content = (et.value ?? '').trim()
+				result += '// ' + content
+			case Comment:
+				// Preserve as-is
+				result += '/*' + (et.value ?? '') + '*/'
+			case LogicalAnd:
+				result += 'and'
+			case LogicalOr:
+				result += 'or'
+			case KNot:
+				// Convert to `not` unless after `as`
+				if i > 0 and enriched[i - 1].token == Token.KAs {
+					result += '!'
+				} else {
+					result += 'not'
+				}
+			case _:
+				result += text
+		}
+
+		lastLine = et.line
+	}
+
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+/// Format a whole file using the two-phase beautifier.
+fun beautifyWholeFile(file: String): String {
+	let content = Buffer.from(file)
+
+	try {
+		let enriched = enrichTokens(content)
+
+		// Compute gaps between adjacent tokens
+		var gaps: [Gap] = [Gap.None] // gap[0] is unused (before first token)
+		var lastToken = Token.Eof
+		var lastLastToken = Token.Eof
+
+		for i in enriched.length {
+			let et = enriched[i]
+			let t = et.token
+
+			if i == 0 {
+				lastToken = t
+				continue
+			}
+
+			let left = enriched[i - 1]
+			let right = et
+
+			// Skip comments for the token chain (but use real lastToken for decisions)
+			var effectiveLeftToken = lastToken
+			var effectiveLastLastToken = lastLastToken
+
+			// Line difference
+			let lineDiff = right.line - left.line
+
+			// Depth change
+			let isDepthChange = left.depth != right.depth
+
+			// Call prefix detection
+			let isCallPrefix = right.token == Token.CallOpen and
+			not isKeywordBeforeParen(effectiveLeftToken)
+
+			// Index prefix detection
+			let isIndexPrefix = right.token == Token.IndexOpen and
+			isCallLikePrefix(effectiveLeftToken)
+
+			// Generic adjacency (< and > spacing)
+			let isAdjacentSameLine = right.column == left.column + left.width
+			let isGenericLt = right.token == Token.Less and isAdjacentSameLine
+			let isGenericGt = (right.token == Token.Greater or right.token == Token.BitwiseRightShift) and isAdjacentSameLine
+
+			// Unary negation
+			let isUnaryNeg = isUnaryMinus(right.token, effectiveLeftToken)
+
+			// Assign suffix (`+=`, `-=`, etc.)
+			let isAssignSuffix = right.token == Token.Assign and isBinaryOp(effectiveLeftToken) and effectiveLeftToken != Token.Interval
+
+			let gap = decideGap(
+				left, right,
+					effectiveLeftToken,
+						lineDiff,
+						isDepthChange,
+						isCallPrefix,
+						isIndexPrefix,
+						isGenericLt,
+						isGenericGt,
+						isUnaryNeg,
+						isAssignSuffix,
+						isAdjacentSameLine
+			)
+
+			gaps.push(gap)
+
+			// Track last tokens (skip comments for the chain)
+			if t != Token.CommentLine and t != Token.Comment {
+				lastLastToken = lastToken
+				lastToken = t
+			}
+		}
+
+		// Compute indentation
+		let indents = computeIndents(enriched, gaps)
+
+		// Assemble output
+		var result = assemble(enriched, gaps, indents)
+
+		// Ensure file ends with newline
+		if result.length > 0 and result.charAt(result.length - 1) != '\n' {
+			result += '\n'
+		}
+
+		return result
+	} catch e CompilerErrors {
+		return file
+	}
+
+	return file
+}
