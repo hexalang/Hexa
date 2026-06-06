@@ -288,6 +288,27 @@ class TestFormat {
 		// Array literal with drifting tabs
 		shouldFormat("fun f() {\nlet x = [\n1,\n\t2,\n\t\t3\n]\n}", "fun f() {\n\tlet x = [\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}\n")
 
+		// Edge case: inline array .includes() in if condition
+		shouldFormat("fun f() {\nif to == typeUInt16, [\ntypeUInt8\n].includes(fromValue) {\nreturn to\n}\n}", "fun f() {\n\tif to == typeUInt16, [\n\t\ttypeUInt8\n\t].includes(fromValue) {\n\t\treturn to\n\t}\n}\n")
+		// Edge case: multi-line condition with and ( continuation
+		shouldFormat("fun f() {\nif (typeA == typeB) and (\n(op == Greater) or\n(op == Less)\n) {\ntypes.set(node, typeBool)\n}\n}", "fun f() {\n\tif (typeA == typeB) and (\n\t\t(op == Greater) or\n\t\t(op == Less)\n\t) {\n\t\ttypes.set(node, typeBool)\n\t}\n}\n")
+		// Edge case: array with drifting tabs in if condition
+		shouldFormat("fun f() {\nif to == typeFloat, [\ntypeUInt32,\n\ttypeUInt16,\n\t\ttypeUInt8\n].includes(fromValue) {\nreturn to\n}\n}", "fun f() {\n\tif to == typeFloat, [\n\t\ttypeUInt32,\n\t\ttypeUInt16,\n\t\ttypeUInt8\n\t].includes(fromValue) {\n\t\treturn to\n\t}\n}\n")
+		// Edge case: multi-line call with drifted callback args
+		shouldFormat("fun f() {\nrun(\na,\n\tb,\n\t\tc\n)\n}", "fun f() {\n\trun(\n\t\ta,\n\t\tb,\n\t\tc\n\t)\n}\n")
+		// Edge case: array with drifting tabs and blank lines in if condition
+		shouldFormat("fun f() {\nif to == typeFloat, [\ntypeUInt32,\n\ttypeUInt16,\n\n\t\ttypeInt32,\ntypeInt8\n].includes(fromValue) {\nreturn to\n}\n}", "fun f() {\n\tif to == typeFloat, [\n\t\ttypeUInt32,\n\t\ttypeUInt16,\n\n\t\ttypeInt32,\n\t\ttypeInt8\n\t].includes(fromValue) {\n\t\treturn to\n\t}\n}\n")
+		// Edge case: function call with multiple callback arguments
+		shouldFormat("fun f() {\nrun(\nstate, text,\nfun (update) { },\nfun (result) { },\n\tfun (err) { }\n)\n}", "fun f() {\n\trun(\n\t\tstate, text,\n\t\tfun (update) { },\n\t\tfun (result) { },\n\t\tfun (err) { }\n\t)\n}\n")
+		// Edge case: complex multi-line condition with or continuation
+		shouldFormat("fun f() {\nif (\n(op == GreaterOrEqual) or\n(op == Greater) or\n(op == LessOrEqual) or\n(op == Less)\n) {\ntypes.set(node, typeBool)\n}\n}", "fun f() {\n\tif (\n\t\t(op == GreaterOrEqual) or\n\t\t(op == Greater) or\n\t\t(op == LessOrEqual) or\n\t\t(op == Less)\n\t) {\n\t\ttypes.set(node, typeBool)\n\t}\n}\n")
+		// Edge case: multi-arg call with function literals (no drift)
+		shouldFormat("fun f() {\nrunLoop(\nstate, text,\nfun (update) {\nif (update.type == 'thinking') {\nstate.msg.push(update.text)\n}\n},\nfun (result) {\nstate.msg.push(result.text)\n}\n)\n}", "fun f() {\n\trunLoop(\n\t\tstate, text,\n\t\tfun (update) {\n\t\t\tif (update.type == 'thinking') {\n\t\t\t\tstate.msg.push(update.text)\n\t\t\t}\n\t\t},\n\t\tfun (result) {\n\t\t\tstate.msg.push(result.text)\n\t\t}\n\t)\n}\n")
+		// Edge case: drifting multi-arg call with function literals
+		shouldFormat("fun f() {\nrunLoop(\nstate, text,\nfun (update) {\nif (update.type == 'thinking') {\nstate.msg.push(update.text)\n}\n},\nfun (result) {\nstate.msg.push(result.text)\n},\n\tfun (err) {\nstate.msg.push(err.message)\n}\n)\n}", "fun f() {\n\trunLoop(\n\t\tstate, text,\n\t\tfun (update) {\n\t\t\tif (update.type == 'thinking') {\n\t\t\t\tstate.msg.push(update.text)\n\t\t\t}\n\t\t},\n\t\tfun (result) {\n\t\t\tstate.msg.push(result.text)\n\t\t},\n\t\tfun (err) {\n\t\t\tstate.msg.push(err.message)\n\t\t}\n\t)\n}\n")
+		// Edge case: deeply nested array in if condition with drifted items after blank lines
+		shouldFormat("fun f() {\nif to == typeFloat, [\ntypeUInt32,\n\ttypeUInt16,\n\n\t\ttypeInt32,\n\t\ttypeInt8,\n\n\t\ttypeFloat32,\ntypeInt\n].includes(fromValue) {\nreturn to\n}\n}", "fun f() {\n\tif to == typeFloat, [\n\t\ttypeUInt32,\n\t\ttypeUInt16,\n\n\t\ttypeInt32,\n\t\ttypeInt8,\n\n\t\ttypeFloat32,\n\t\ttypeInt\n\t].includes(fromValue) {\n\t\treturn to\n\t}\n}\n")
+
 		// Regression: comma inside array inside case block should NOT add hanging indent
 		shouldFormat("fun f() {\nswitch x {\ncase For(name, over, by, range):\nlet iterableIntegers = [\ntypeInt,\ntypeUInt64,\ntypeUInt32,\ntypeUInt16,\ntypeUInt8,\ntypeInt64,\ntypeInt32,\ntypeInt16,\ntypeInt8\n]\n}\n}", "fun f() {\n\tswitch x {\n\t\tcase For(name, over, by, range):\n\t\t\tlet iterableIntegers = [\n\t\t\t\ttypeInt,\n\t\t\t\ttypeUInt64,\n\t\t\t\ttypeUInt32,\n\t\t\t\ttypeUInt16,\n\t\t\t\ttypeUInt8,\n\t\t\t\ttypeInt64,\n\t\t\t\ttypeInt32,\n\t\t\t\ttypeInt16,\n\t\t\t\ttypeInt8\n\t\t\t]\n\t}\n}\n")
 		// Regression: comma inside function call inside case block should NOT add hanging indent
