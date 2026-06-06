@@ -34,6 +34,8 @@ fun autoFormatWholeFile(file: String): String {
 		]
 		var parenthesis = -1000000
 		var hangingExtra = ''
+		// Tracks comma-separated if-condition context for hanging indent
+		var conditionComma = false
 
 		fun updateTab() {
 			tabs = tabStack.slice(0, depth + 1).join('')
@@ -101,6 +103,7 @@ fun autoFormatWholeFile(file: String): String {
 			// Clear hanging indent when the condition body starts
 			if token == Token.BlockOpen {
 				hangingExtra = ''
+				conditionComma = false
 			}
 
 			if token == Token.KCase {
@@ -227,7 +230,7 @@ fun autoFormatWholeFile(file: String): String {
 				// Only applies at condition level (parenthesis == 0, set by KIf),
 				// not inside nested parens/arrays (parenthesis > 0) or outside any if (parenthesis < 0).
 				// Don't add when hangingExtra is already active (from if/for/while alone on a line).
-				if lastToken == Token.Comma and parenthesis == 0 and hangingExtra == '' {
+				if lastToken == Token.Comma and conditionComma and hangingExtra == '' {
 					result.push('\t')
 					indentation += '\t'
 				}
@@ -610,6 +613,7 @@ fun autoFormatWholeFile(file: String): String {
 					appendTab()
 				case KIf:
 					parenthesis = 0
+					conditionComma = true
 			}
 
 			lastLine = line
