@@ -22,7 +22,7 @@
 // THE SOFTWARE.
 
 @final
-declare class Any {}
+declare class Any { }
 
 // Global constants
 @rename('undefined') declare let undefined: Any?
@@ -33,6 +33,10 @@ declare fun decodeURIComponent(s: String): String
 declare fun typeof(value: Any?): String
 declare fun __js__(code: String): Any
 declare fun eval(code: String): Any
+declare fun isNaN(value: Any): Bool
+declare fun isFinite(value: Any): Bool
+declare fun encodeURI(uri: String): String
+declare fun decodeURI(uri: String): String
 /// Parses `123` and `0xFF` to integer
 declare fun parseInt(text: String, radix: Int? = null): Int
 @rename('BigInt') declare fun parseBigInt(text: String): BigInt
@@ -42,7 +46,10 @@ declare fun parseFloat(text: String): Float
 @infix('===') declare fun strictEqual(a: Any, b: Any): Bool
 @infix('!==') declare fun strictNotEqual(a: Any, b: Any): Bool
 declare fun delete(field: Any?): Bool
-declare fun setTimeout(callback: ()=>Void, timeout: Int): Int
+declare fun setTimeout(callback: () => Void, timeout: Int): Int
+declare fun setInterval(callback: () => Void, timeout: Int): Int
+declare fun clearTimeout(id: Int): Void
+declare fun clearInterval(id: Int): Void
 
 // Generated
 @rename('selfVersion')
@@ -58,10 +65,23 @@ fun hasOwnProperty(object: Any, name: String): Bool {
 declare class Number {
 	// TODO overload for value Int, value Float
 	static fun isNaN(value: Any): Bool
+	static fun isFinite(value: Any): Bool
+	static fun isInteger(value: Any): Bool
+	static fun isSafeInteger(value: Any): Bool
+	static fun parseFloat(string: String): Float
+	static fun parseInt(string: String, radix: Int = 10): Int
+	@rename('EPSILON') static let epsilon: Float
+	@rename('MAX_SAFE_INTEGER') static let maxSafeInteger: Int
+	@rename('MAX_VALUE') static let maxValue: Float
+	@rename('MIN_SAFE_INTEGER') static let minSafeInteger: Int
+	@rename('MIN_VALUE') static let minValue: Float
+	@rename('NaN') static let numberNaN: Float
+	@rename('NEGATIVE_INFINITY') static let negativeInfinity: Float
+	@rename('POSITIVE_INFINITY') static let positiveInfinity: Float
 }
 
 @final
-declare class Void {}
+declare class Void { }
 
 @final
 declare class Int {
@@ -128,6 +148,55 @@ declare class Float {
 	fun toString(format: Int = 10): String
 }
 
+@rename('Object')
+declare class Object {
+	static fun keys(obj: Any): [String]
+	static fun values(obj: Any): [Any]
+	static fun entries(obj: Any): [[String: Any]]
+	static fun assign(target: Any,...sources: Any): Any
+	static fun freeze(obj: Any): Any
+	static fun seal(obj: Any): Any
+	@rename("is") static fun isSame(value1: Any, value2: Any): Bool
+	static fun create(proto: Any?, propertiesObject: Any? = null): Any
+	static fun defineProperty(obj: Any, prop: String, descriptor: Any): Any
+	static fun defineProperties(obj: Any, props: Any): Any
+	static fun getOwnPropertyNames(obj: Any): [String]
+	static fun getOwnPropertySymbols(obj: Any): [Symbol]
+	static fun getPrototypeOf(obj: Any): Any?
+	static fun setPrototypeOf(obj: Any, proto: Any?): Any
+	static fun hasOwn(obj: Any, prop: String): Bool
+	static fun fromEntries(entries: [[String: Any]]): Any
+	static fun preventExtensions(obj: Any): Any
+	static fun isExtensible(obj: Any): Bool
+	static fun isFrozen(obj: Any): Bool
+	static fun isSealed(obj: Any): Bool
+	static fun getOwnPropertyDescriptor(obj: Any, prop: String): Any?
+	static fun getOwnPropertyDescriptors(obj: Any): Any
+	new ()
+	// TODO new (value: Any)
+}
+
+@rename('Symbol')
+declare class Symbol {
+	fun toString(): String
+	fun valueOf(): Symbol
+	@rename('for') static fun forKey(key: String): Symbol
+	static fun keyFor(sym: Symbol): String?
+	static let asyncIterator: Symbol
+	static let hasInstance: Symbol
+	static let isConcatSpreadable: Symbol
+	static let iterator: Symbol
+	static let match: Symbol
+	static let matchAll: Symbol
+	static let replace: Symbol
+	static let search: Symbol
+	static let species: Symbol
+	static let split: Symbol
+	static let toPrimitive: Symbol
+	static let toStringTag: Symbol
+	static let unscopables: Symbol
+}
+
 @final
 declare class String {
 	let length: Int
@@ -138,6 +207,9 @@ declare class String {
 	fun includes(str: String): Bool
 	fun replace(what: String, with: String): String
 	fun replaceAll(what: String, with: String): String
+	// Overloads for RegExp first arg
+	@rename('replace') fun replaceRegExp(what: RegExp, withString: String): String
+	@rename('replaceAll') fun replaceAllRegExp(what: RegExp, withString: String): String
 	fun charAt(index: Int): String
 	fun indexOf(str: String, startIndex: Int = 0): Int
 	fun lastIndexOf(str: String, startIndex: Int?): Int
@@ -149,7 +221,23 @@ declare class String {
 	fun trim(): String
 	fun substr(pos: Int, len: Int? = 1073741824): String
 	// TODO new optional syntax fun substr(pos: Int, len: Int? = _): String
-	fun slice(pos: Int, len: Int?): String
+	fun slice(pos: Int, len: Int? = 1073741824): String
+	fun padStart(targetLength: Int, padString: String? = null): String
+	fun padEnd(targetLength: Int, padString: String? = null): String
+	fun repeat(count: Int): String
+	fun trimStart(): String
+	fun trimEnd(): String
+	fun match(regexp: RegExp): RegExpMatch?
+	fun search(regexp: RegExp): Int
+	fun at(index: Int): String?
+	fun concat(...strings: String): String
+	fun codePointAt(pos: Int): Int?
+	fun localeCompare(compareString: String, locales: Any? = null, options: Any? = null): Int
+	fun normalize(form: String? = 'NFC'): String
+	fun valueOf(): String
+	static fun fromCodePoint(...codePoints: Int): String
+	fun trimLeft(): String
+	fun trimRight(): String
 }
 
 declare class Math {
@@ -172,13 +260,70 @@ declare class Math {
 	static fun sin(v: Float): Float
 	static fun sqrt(v: Float): Float
 	static fun tan(v: Float): Float
+	@rename('E') static let e: Float
+	@rename('LN2') static let ln2: Float
+	@rename('LN10') static let ln10: Float
+	@rename('LOG2E') static let log2e: Float
+	@rename('LOG10E') static let log10e: Float
+	@rename('PI') static let pi: Float
+	@rename('SQRT1_2') static let sqrt1_2: Float
+	@rename('SQRT2') static let sqrt2: Float
+	static fun trunc(v: Float): Float
+	static fun sign(v: Float): Int
+	static fun cbrt(v: Float): Float
+	static fun hypot(...values: Float): Float
+	static fun log2(v: Float): Float
+	static fun log10(v: Float): Float
+	static fun log1p(v: Float): Float
+	static fun expm1(v: Float): Float
+	static fun cosh(v: Float): Float
+	static fun sinh(v: Float): Float
+	static fun tanh(v: Float): Float
+	static fun acosh(v: Float): Float
+	static fun asinh(v: Float): Float
+	static fun atanh(v: Float): Float
+	static fun imul(a: Int, b: Int): Int
+	static fun clz32(v: Int): Int
+	static fun fround(v: Float): Float
 }
 
 @rename('JSON')
 declare class JSON {
 	static fun parse(text: String): Any
 	// TODO `= _`
-	static fun stringify(value: Any, replacer: (Any, Any)=>Any? = null, space: String? = null): String
+	static fun stringify(value: Any, replacer: (Any, Any) => Any? = null, space: String? = null): String
+}
+
+@rename('Set')
+declare class Set<T> {
+	let size: Int
+	fun add(value: T): Set<T>
+	fun has(value: T): Bool
+	fun delete(value: T): Bool
+	fun clear(): Void
+	fun forEach(f: (value: T, key: T, set: Set<T>) => Void): Void
+	fun keys(): [T]
+	fun values(): [T]
+	fun entries(): [[T: T]]
+	new ()
+	// TODO new (values: [T]?)
+}
+
+@rename('WeakMap')
+declare class WeakMap<K, V> {
+	fun get(k: K): V?
+	fun set(k: K, v: V): WeakMap<K, V>
+	fun has(k: K): Bool
+	fun delete(k: K): Bool
+	new ()
+}
+
+@rename('WeakSet')
+declare class WeakSet<T> {
+	fun add(value: T): WeakSet<T>
+	fun has(value: T): Bool
+	fun delete(value: T): Bool
+	new ()
 }
 
 @rename('Map')
@@ -199,6 +344,17 @@ declare class Console {
 	fun log(...message: Any?): Void
 	fun trace(...message: Any?): Void
 	fun error(...message: Any?): Void
+	fun warn(...message: Any?): Void
+	fun info(...message: Any?): Void
+	fun dir(value: Any?): Void
+	fun time(label: String? = 'default'): Void
+	fun timeEnd(label: String? = 'default'): Void
+	fun table(value: Any?): Void
+	fun count(label: String? = 'default'): Void
+	fun group(...label: Any?): Void
+	fun groupEnd(): Void
+	fun assert(condition: Bool,...message: Any?): Void
+	fun clear(): Void
 }
 
 declare let console: Console
@@ -215,35 +371,110 @@ declare class Array<T> {
 	fun slice(pos: Int = 0, end: Int = 1073741824): [T]
 	// Yeah magic trick
 	@rename('slice') fun clone() [T]
-	fun sort(f: (T, T)=>Int): Void
+	fun sort(f: (T, T) => Int): Void
 	fun splice(pos: Int, len: Int): [T]
 	fun toString(): String
 	fun unshift(value: T): Void
 	fun indexOf(value: T, fromIndex: Int = 0): Int
 	fun lastIndexOf(value: T, fromIndex: Int?): Int
-	fun filter(f: (element: T, index: Int)=>Bool): [T]
+	fun filter(f: (element: T, index: Int) => Bool): [T]
 	// TODO index
-	fun map(f: T=>T): [T]
+	fun map(f: T => T): [T]
 	// TODO `initialValue = _`
-	fun reduce(f: (accumulator: T, currentValue: T)=>T, initialValue: T = null): T
+	fun reduce(f: (accumulator: T, currentValue: T) => T, initialValue: T = null): T
 	// TODO `reduce<U>(callbackfn: (previousValue: U, currentValue: T, currentIndex: number, array: readonly T[]) => U, initialValue: U): U`
 	fun copyWithin(target: Int, start: Int?, end: Int?): [T]
 	fun fill(value: T, start: Int, end: Int): [T]
-	fun forEach(f: (accumulator: T, currentValue: T)=>Void): Void
+	fun forEach(f: (accumulator: T, currentValue: T) => Void): Void
+
+	// ES5 iteration methods
+	fun every(f: (element: T, index: Int) => Bool): Bool
+	fun some(f: (element: T, index: Int) => Bool): Bool
+
+	// ES6 search methods
+	fun find(f: (element: T, index: Int) => Bool): T?
+	fun findIndex(f: (element: T, index: Int) => Bool): Int
+
+	// ES2023 search methods
+	fun findLast(f: (element: T, index: Int) => Bool): T?
+	fun findLastIndex(f: (element: T, index: Int) => Bool): Int
+
+	// ES2019 flattening
+	fun flat(depth: Int = 1): [T]
+	fun flatMap(f: (element: T, index: Int) =>[T]): [T]
+
+	// ES5 reduce from right
+	fun reduceRight(f: (accumulator: T, currentValue: T) => T, initialValue: T = null): T
+
+	// ES2022 relative indexing
+	fun at(index: Int): T?
+
+	// ES2023 immutable methods (return new arrays instead of mutating in place)
+	fun toReversed(): [T]
+	fun toSorted(f: (T, T) => Int): [T]
+	@rename('toSorted') fun toSortedDefault(): [T]
+	fun toSpliced(pos: Int, len: Int,...items: T): [T]
+	fun with(index: Int, value: T): [T]
+
+	// ES2015 iteration methods
+	fun keys(): [Int]
+	fun values(): [T]
+	fun entries(): [[Int: T]]
+
+	// ES2019 toLocaleString
+	fun toLocaleString(locales: Any? = null, options: Any? = null): String
 
 	static fun isArray(value: Any): Bool
 	static fun of(...values: T): [T]
-	@rename('from')
-	static fun fromArrayLike(arrayLike: Any, mapFn: Any?, thisArg: Any?): [T]
 	new (arrayLength: Int)
+	static fun from(arrayLike: Any, mapFn: Any?, thisArg: Any?): [T]
 }
 
 declare class Date {
 	static fun now(): Float
+	static fun parse(dateString: String): Float
+	@rename('UTC') static fun utc(year: Int, monthIndex: Int, day: Int? = 1, hours: Int? = 0, minutes: Int? = 0, seconds: Int? = 0, milliseconds: Int? = 0): Float
 	new ()
+	// TODO
+	// new (value: Any)
+	// new (dateString: String)
+	// new (year: Int, monthIndex: Int, day: Int? = 1, hours: Int? = 0, minutes: Int? = 0, seconds: Int? = 0, milliseconds: Int? = 0)
 	fun getFullYear(): Int
 	fun getMonth(): Int
 	fun getDate(): Int
+	fun getDay(): Int
+	fun getHours(): Int
+	fun getMinutes(): Int
+	fun getSeconds(): Int
+	fun getMilliseconds(): Int
+	fun getTime(): Float
+	fun getTimezoneOffset(): Int
+	fun getUTCFullYear(): Int
+	fun getUTCMonth(): Int
+	fun getUTCDate(): Int
+	fun getUTCDay(): Int
+	fun getUTCHours(): Int
+	fun getUTCMinutes(): Int
+	fun getUTCSeconds(): Int
+	fun getUTCMilliseconds(): Int
+	fun setFullYear(year: Int, month: Int? = 1073741824, day: Int? = 1073741824): Float
+	fun setMonth(month: Int, day: Int? = 1073741824): Float
+	fun setDate(day: Int): Float
+	fun setHours(hours: Int, minutes: Int? = 1073741824, seconds: Int? = 1073741824, milliseconds: Int? = 1073741824): Float
+	fun setMinutes(minutes: Int, seconds: Int? = 1073741824, milliseconds: Int? = 1073741824): Float
+	fun setSeconds(seconds: Int, milliseconds: Int? = 1073741824): Float
+	fun setMilliseconds(milliseconds: Int): Float
+	fun setTime(time: Float): Float
+	fun toDateString(): String
+	fun toISOString(): String
+	fun toJSON(): String
+	fun toLocaleDateString(locales: Any? = null, options: Any? = null): String
+	fun toLocaleString(locales: Any? = null, options: Any? = null): String
+	fun toLocaleTimeString(locales: Any? = null, options: Any? = null): String
+	fun toString(): String
+	fun toTimeString(): String
+	fun toUTCString(): String
+	fun valueOf(): Float
 }
 
 declare class Reflect {
@@ -251,6 +482,20 @@ declare class Reflect {
 	static fun get(object: Any, name: String): Any?
 	static fun set(object: Any, name: String, value: Any?): Bool
 	static fun ownKeys(object: Any): [String]
+}
+
+@rename('Promise')
+declare class Promise<T> {
+	fun then(onFulfilled: (value: T) => Any?, onRejected: (reason: Any) => Any?): Promise<Any>
+	@rename('catch') fun except(onRejected: (reason: Any) => Any?): Promise<Any>
+	fun finally(onFinally: () => Void): Promise<T>
+	static fun resolve(value: T): Promise<T>
+	static fun reject(reason: Any): Promise<Any>
+	static fun all(promises: [Promise<Any>]): Promise<[Any]>
+	static fun race(promises: [Promise<Any>]): Promise<Any>
+	static fun allSettled(promises: [Promise<Any>]): Promise<[Any]>
+	static fun any(promises: [Promise<Any>]): Promise<Any>
+	new (executor: (resolve: (value: T) => Void, reject: (reason: Any) => Void) => Void)
 }
 
 @rename('RegExp')
@@ -272,12 +517,391 @@ declare class RegExpMatch extends Array< String > {
 }
 
 // Typed Arrays
-declare class Uint8Array {
+declare class ArrayBuffer {
+	let byteLength: Int
+	fun slice(begin: Int, end: Int? = null): ArrayBuffer
+	static fun isView(value: Any): Bool
+	new (byteLength: Int)
+}
+
+declare class DataView {
+	let buffer: ArrayBuffer
+	let byteLength: Int
+	let byteOffset: Int
+	fun getInt8(byteOffset: Int): Int
+	fun getUint8(byteOffset: Int): Int
+	fun getInt16(byteOffset: Int, littleEndian: Bool? = false): Int
+	fun getUint16(byteOffset: Int, littleEndian: Bool? = false): Int
+	fun getInt32(byteOffset: Int, littleEndian: Bool? = false): Int
+	fun getUint32(byteOffset: Int, littleEndian: Bool? = false): Int
+	fun getFloat32(byteOffset: Int, littleEndian: Bool? = false): Float
+	fun getFloat64(byteOffset: Int, littleEndian: Bool? = false): Float
+	fun getBigInt64(byteOffset: Int, littleEndian: Bool? = false): BigInt
+	fun getBigUint64(byteOffset: Int, littleEndian: Bool? = false): BigInt
+	fun setInt8(byteOffset: Int, value: Int): Void
+	fun setUint8(byteOffset: Int, value: Int): Void
+	fun setInt16(byteOffset: Int, value: Int, littleEndian: Bool? = false): Void
+	fun setUint16(byteOffset: Int, value: Int, littleEndian: Bool? = false): Void
+	fun setInt32(byteOffset: Int, value: Int, littleEndian: Bool? = false): Void
+	fun setUint32(byteOffset: Int, value: Int, littleEndian: Bool? = false): Void
+	fun setFloat32(byteOffset: Int, value: Float, littleEndian: Bool? = false): Void
+	fun setFloat64(byteOffset: Int, value: Float, littleEndian: Bool? = false): Void
+	fun setBigInt64(byteOffset: Int, value: BigInt, littleEndian: Bool? = false): Void
+	fun setBigUint64(byteOffset: Int, value: BigInt, littleEndian: Bool? = false): Void
+	new (buffer: ArrayBuffer, byteOffset: Int? = 0, byteLength: Int? = null)
+}
+
+// Typed Arrays
+declare class Int8Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Int8Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Int8Array
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Int8Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Int8Array
+	fun filter(f: (value: Int, index: Int) => Bool): Int8Array
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Int8Array
+	fun reverse(): Int8Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Int8Array
 	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Uint8Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Uint8Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Uint8Array
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Uint8Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Uint8Array
+	fun filter(f: (value: Int, index: Int) => Bool): Uint8Array
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Uint8Array
+	fun reverse(): Uint8Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Uint8Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Uint8ClampedArray {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Uint8ClampedArray
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Uint8ClampedArray
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Uint8ClampedArray
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Uint8ClampedArray
+	fun filter(f: (value: Int, index: Int) => Bool): Uint8ClampedArray
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Uint8ClampedArray
+	fun reverse(): Uint8ClampedArray
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Uint8ClampedArray
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Int16Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Int16Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Int16Array
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Int16Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Int16Array
+	fun filter(f: (value: Int, index: Int) => Bool): Int16Array
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Int16Array
+	fun reverse(): Int16Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Int16Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Uint16Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Uint16Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Uint16Array
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Uint16Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Uint16Array
+	fun filter(f: (value: Int, index: Int) => Bool): Uint16Array
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Uint16Array
+	fun reverse(): Uint16Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Uint16Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Int32Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Int32Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Int32Array
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Int32Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Int32Array
+	fun filter(f: (value: Int, index: Int) => Bool): Int32Array
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Int32Array
+	fun reverse(): Int32Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Int32Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
 }
 
 declare class Uint32Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Int?
+	fun set(array: [Int], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Uint32Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Uint32Array
+	fun fill(value: Int, start: Int? = 0, end: Int? = 1073741824): Uint32Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Int, fromIndex: Int? = 0): Int
+	fun includes(value: Int, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Int, index: Int) => Void): Void
+	fun map(f: (value: Int, index: Int) => Int): Uint32Array
+	fun filter(f: (value: Int, index: Int) => Bool): Uint32Array
+	fun some(f: (value: Int, index: Int) => Bool): Bool
+	fun every(f: (value: Int, index: Int) => Bool): Bool
+	fun find(f: (value: Int, index: Int) => Bool): Int?
+	fun findIndex(f: (value: Int, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Int, currentValue: Int) => Int, initialValue: Int): Int
+	fun sort(f: (a: Int, b: Int) => Int): Uint32Array
+	fun reverse(): Uint32Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Uint32Array
 	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Int])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Float32Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Float?
+	fun set(array: [Float], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Float32Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Float32Array
+	fun fill(value: Float, start: Int? = 0, end: Int? = 1073741824): Float32Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Float, fromIndex: Int? = 0): Int
+	fun includes(value: Float, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Float, index: Int) => Void): Void
+	fun map(f: (value: Float, index: Int) => Float): Float32Array
+	fun filter(f: (value: Float, index: Int) => Bool): Float32Array
+	fun some(f: (value: Float, index: Int) => Bool): Bool
+	fun every(f: (value: Float, index: Int) => Bool): Bool
+	fun find(f: (value: Float, index: Int) => Bool): Float?
+	fun findIndex(f: (value: Float, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Float, currentValue: Float) => Float, initialValue: Float): Float
+	fun sort(f: (a: Float, b: Float) => Int): Float32Array
+	fun reverse(): Float32Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Float32Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Float])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class Float64Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): Float?
+	fun set(array: [Float], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): Float64Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): Float64Array
+	fun fill(value: Float, start: Int? = 0, end: Int? = 1073741824): Float64Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: Float, fromIndex: Int? = 0): Int
+	fun includes(value: Float, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: Float, index: Int) => Void): Void
+	fun map(f: (value: Float, index: Int) => Float): Float64Array
+	fun filter(f: (value: Float, index: Int) => Bool): Float64Array
+	fun some(f: (value: Float, index: Int) => Bool): Bool
+	fun every(f: (value: Float, index: Int) => Bool): Bool
+	fun find(f: (value: Float, index: Int) => Bool): Float?
+	fun findIndex(f: (value: Float, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: Float, currentValue: Float) => Float, initialValue: Float): Float
+	fun sort(f: (a: Float, b: Float) => Int): Float64Array
+	fun reverse(): Float64Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): Float64Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [Float])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class BigInt64Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): BigInt?
+	fun set(array: [BigInt], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): BigInt64Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): BigInt64Array
+	fun fill(value: BigInt, start: Int? = 0, end: Int? = 1073741824): BigInt64Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: BigInt, fromIndex: Int? = 0): Int
+	fun includes(value: BigInt, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: BigInt, index: Int) => Void): Void
+	fun map(f: (value: BigInt, index: Int) => BigInt): BigInt64Array
+	fun filter(f: (value: BigInt, index: Int) => Bool): BigInt64Array
+	fun some(f: (value: BigInt, index: Int) => Bool): Bool
+	fun every(f: (value: BigInt, index: Int) => Bool): Bool
+	fun find(f: (value: BigInt, index: Int) => Bool): BigInt?
+	fun findIndex(f: (value: BigInt, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: BigInt, currentValue: BigInt) => BigInt, initialValue: BigInt): BigInt
+	fun sort(f: (a: BigInt, b: BigInt) => Int): BigInt64Array
+	fun reverse(): BigInt64Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): BigInt64Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [BigInt])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
+}
+
+declare class BigUint64Array {
+	let length: Int
+	let byteLength: Int
+	let byteOffset: Int
+	let buffer: ArrayBuffer
+	@rename("BYTES_PER_ELEMENT") static let bytesPerElement: Int
+	fun at(index: Int): BigInt?
+	fun set(array: [BigInt], offset: Int? = 0): Void
+	fun subarray(begin: Int, end: Int? = null): BigUint64Array
+	fun slice(begin: Int? = 0, end: Int? = 1073741824): BigUint64Array
+	fun fill(value: BigInt, start: Int? = 0, end: Int? = 1073741824): BigUint64Array
+	fun join(separator: String? = ','): String
+	fun toString(): String
+	fun indexOf(value: BigInt, fromIndex: Int? = 0): Int
+	fun includes(value: BigInt, fromIndex: Int? = 0): Bool
+	fun forEach(f: (value: BigInt, index: Int) => Void): Void
+	fun map(f: (value: BigInt, index: Int) => BigInt): BigUint64Array
+	fun filter(f: (value: BigInt, index: Int) => Bool): BigUint64Array
+	fun some(f: (value: BigInt, index: Int) => Bool): Bool
+	fun every(f: (value: BigInt, index: Int) => Bool): Bool
+	fun find(f: (value: BigInt, index: Int) => Bool): BigInt?
+	fun findIndex(f: (value: BigInt, index: Int) => Bool): Int
+	fun reduce(f: (accumulator: BigInt, currentValue: BigInt) => BigInt, initialValue: BigInt): BigInt
+	fun sort(f: (a: BigInt, b: BigInt) => Int): BigUint64Array
+	fun reverse(): BigUint64Array
+	fun copyWithin(target: Int, start: Int, end: Int? = 1073741824): BigUint64Array
+	new ()
+	// TODO new (length: Int)
+	// TODO new (array: [BigInt])
+	// TODO new (buffer: ArrayBuffer, byteOffset: Int? = 0, length: Int? = null)
 }
 
 // Error
@@ -317,4 +941,10 @@ declare class ReferenceError extends Error {
 @rename('RangeError')
 declare class RangeError extends Error {
 	new (message: String?)
+}
+
+@rename('AggregateError')
+declare class AggregateError extends Error {
+	var errors: [Any]
+	new (errors: [Any]?, message: String?)
 }
