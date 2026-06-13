@@ -190,7 +190,7 @@ class Typer {
 									pushFuncParamsIfRequired(node)
 									types.set(
 										node,
-										Type.Function(varTypes(vars), toType(rettype, node), variadic)
+										Type.Function(varTypes(vars, variadic: variadic), toType(rettype, node), variadic)
 									)
 									popFuncParamsIfRequired(node)
 								}
@@ -840,7 +840,7 @@ class Typer {
 								if let rettype = rettype {
 									types.set(
 										field,
-										Type.Function(varTypes(vars), toType(rettype, field), variadic)
+										Type.Function(varTypes(vars, variadic: variadic), toType(rettype, field), variadic)
 									)
 								}
 
@@ -849,7 +849,7 @@ class Typer {
 								if name == 'new-TODO#' {
 									types.set(
 										field,
-										Type.Function(varTypes(vars), toType(t, field), variadic)
+										Type.Function(varTypes(vars, variadic: variadic), toType(t, field), variadic)
 									)
 								}
 
@@ -911,7 +911,7 @@ class Typer {
 									types.set(
 										field,
 										Type.Function(
-											varTypes(vars),
+											varTypes(vars, variadic: variadic),
 											// TODO is `rettype == null` valid for externals?
 											rettype != null? toType(rettype, field) : typeVoid,
 											variadic
@@ -1254,9 +1254,9 @@ class Typer {
 								// if function called within self
 
 								if let rettype = rettype {
-									types.set(field, Type.Function(varTypes(vars), toType(rettype, field), variadic))
+									types.set(field, Type.Function(varTypes(vars, variadic: variadic), toType(rettype, field), variadic))
 								} else {
-									types.set(field, Type.Function(varTypes(vars), typeVoid, variadic))
+									types.set(field, Type.Function(varTypes(vars, variadic: variadic), typeVoid, variadic))
 								}
 
 								fillFunction(field, expr, vars, rettype)
@@ -2269,7 +2269,7 @@ class Typer {
 	}
 
 	// Used only for function arguments
-	fun varTypes(vars: [Node]): [FunctionArgument] {
+	fun varTypes(vars: [Node], variadic: Bool = false): [FunctionArgument] {
 		let varTypes: [FunctionArgument] = []
 		// var pushedScope = false
 		// params: [NodeType]? = null
@@ -2298,12 +2298,19 @@ class Typer {
 						let arg = new FunctionArgument(types.get(v) ?? toType(t, v))
 						arg.optional = expr != null
 						arg.name = name
+
+						if variadic, i == vars.length - 1 {
+							arg.dataType = typeArray.instantiateGeneric([arg.dataType])
+						}
 						varTypes.push(arg)
 						// console.log('<--after')
 					} else {
 						// TODO same
 						let arg = new FunctionArgument(types.get(v) ?? Type.Unknown({ value: null }))
 
+						if variadic, i == vars.length - 1 {
+							arg.dataType = typeArray.instantiateGeneric([arg.dataType])
+						}
 						varTypes.push(arg)
 					}
 			}
@@ -2354,46 +2361,6 @@ class Typer {
 		let _functionActuallyReturns = functionActuallyReturns
 		let _insideTry = insideTry
 
-		for i in vars.length {
-			let v = vars[i]
-
-			switch v {
-				case Var(vname, t, e, const):
-					if argNames.includes(vname) {
-						fail('Argument `\(vname)` defined multiple times', v)
-					}
-					argNames.push(vname)
-
-					if t != null, toType(t, v) == typeVoid {
-						fail('Argument cannot be of type `Void`', v)
-					}
-
-					if t != null {
-						var varType = toType(t, v)
-
-						types.set(v, varType)
-					} else {
-						var varType = expectedArrow[i]
-
-						types.set(v, varType)
-					}
-
-					if e != null {
-						// TODO fillExpression should return type of `e` to not do `types.get(e)`
-						fillExpression(e)
-
-						if let t = types.get(v) {
-							// unify(types.get(e), t, e) TODO
-							unify(to: t, fromValue: types.get(e), e)
-						}
-
-						// TODO `Unknown` or something, argument shouldn't be of type `null`
-					}
-
-					addScope(vname, v)
-			}
-		}
-
 		var variadic = false
 		var constructor = false
 		switch node {
@@ -2413,6 +2380,52 @@ class Typer {
 				// TODO
 				// //console.log('what? ' + Node.stringify(node) + ' ' + node)
 				// }
+		}
+
+		for i in vars.length {
+			let v = vars[i]
+
+			switch v {
+				case Var(vname, t, e, const):
+					if argNames.includes(vname) {
+						fail('Argument `\(vname)` defined multiple times', v)
+					}
+					argNames.push(vname)
+
+					if t != null, toType(t, v) == typeVoid {
+						fail('Argument cannot be of type `Void`', v)
+					}
+
+					if t != null {
+						var varType = toType(t, v)
+
+						if variadic, i == vars.length - 1 {
+							varType = typeArray.instantiateGeneric([varType])
+						}
+						types.set(v, varType)
+					} else {
+						var varType = expectedArrow[i]
+
+						if variadic, i == vars.length - 1, varType != null {
+							varType = typeArray.instantiateGeneric([varType])
+						}
+						types.set(v, varType)
+					}
+
+					if e != null {
+						// TODO fillExpression should return type of `e` to not do `types.get(e)`
+						fillExpression(e)
+
+						if let t = types.get(v) {
+							// unify(types.get(e), t, e) TODO
+							unify(to: t, fromValue: types.get(e), e)
+						}
+
+						// TODO `Unknown` or something, argument shouldn't be of type `null`
+					}
+
+					addScope(vname, v)
+			}
 		}
 
 		// Reset stack
@@ -2484,7 +2497,7 @@ class Typer {
 
 		// Set function type
 		// varTypes(vars)
-		types.set(node, Type.Function(args: varTypes(vars), returns: ret, variadic))
+		types.set(node, Type.Function(args: varTypes(vars, variadic: variadic), returns: ret, variadic))
 		// types.set(node, Type.Function(args: [for v in vars new FunctionArgument(types.get(v))], returns: ret))
 	}
 
@@ -3945,9 +3958,9 @@ class Typer {
 							pushFuncParamsIfRequired(node)
 
 							if let rettype = rettype {
-								types.set(node, Type.Function(varTypes(vars), toType(rettype, node), variadic))
+								types.set(node, Type.Function(varTypes(vars, variadic: variadic), toType(rettype, node), variadic))
 							} else {
-								types.set(node, Type.Function(varTypes(vars), Type.Unknown({ handle: null }), variadic))
+								types.set(node, Type.Function(varTypes(vars, variadic: variadic), Type.Unknown({ handle: null }), variadic))
 							}
 							popFuncParamsIfRequired(node)
 					}
@@ -4001,7 +4014,24 @@ class Typer {
 							fail('Too many function arguments, expected only \(expectedAtMax) but got \(provided)', node)
 						}
 
-						evaluateArguments(el, args.map(arg => arg.dataType))
+						let expectedTypes: [Type] = []
+
+						for i in args.length {
+							let arg = args[i]
+
+							if variadic, i == args.length - 1 {
+								// Unwrap array type [T] to element type T for variadic argument checking
+								switch arg.dataType {
+									case ClassInstance(_, generic) if generic.length == 1:
+										expectedTypes.push(generic[0])
+									case _:
+										expectedTypes.push(arg.dataType)
+								}
+							} else {
+								expectedTypes.push(arg.dataType)
+							}
+						}
+						evaluateArguments(el, expectedTypes)
 
 						/*
 							for i in el.length { if let arg = args[i] {
