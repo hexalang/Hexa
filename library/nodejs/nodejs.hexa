@@ -32,8 +32,11 @@ declare class Buffer {
 	static fun alloc(size: Int): Buffer
 	let length: Int
 	let buffer: ArrayBuffer
+	let byteOffset: Int
 	fun slice(offset: Int = 0): Buffer
 	fun copy(to: Buffer, offset: Int): Void // TODO returns Int?
+	// Read methods
+	// Write methods
 	fun writeUInt8(value: Int, offset: Int): Int
 	fun writeUInt16LE(value: Int, offset: Int): Int
 	fun writeUInt32LE(value: Int, offset: Int): Int
@@ -47,12 +50,10 @@ declare class Buffer {
 	static fun concat(buffers: [Buffer]): Buffer
 }
 
-declare class ArrayBuffer {}
-
 declare class ProcessStd {
 	fun write(text: String): Void
-	fun once(name: String, callback: ()=>Void): Void
-	fun on(name: String, callback: (data: Any)=>Void): Void
+	fun once(name: String, callback: () => Void): Void
+	fun on(name: String, callback: (data: Any) => Void): Void
 	fun setEncoding(encoding: String): Void
 	let fd: Any
 }
@@ -77,13 +78,23 @@ declare class ProcessModule {
 	let stdout: ProcessStd
 	let stderr: ProcessStd
 	let argv: [String]
-	fun exit(errorCode: Int): Void
+	let arch: String
+	let title: String
+	let pid: Int
+	let ppid: Int
+	let platform: String
 	var exitCode: Int
+	let features: Any
+	let release: Any
+	fun exit(errorCode: Int): Void
 	fun cwd(): String
 	let versions: { node: String } // todo not require value = for lets in declare
 	let env: Any // todo not require value = for lets in declare
-	let platform: String
 	fun memoryUsage(): { rss: Int, heapTotal: Int, heapUsed: Int }
+	fun chdir(directory: String): Void
+	fun uptime(): Float
+	fun hrtime(): [Int: Int]
+	fun nextTick(callback: () => Void): Void
 }
 
 // TODO @require("process")
@@ -101,10 +112,15 @@ declare class ParsedPath {
 @require("path")
 declare class Path {
 	static let sep: String
+	static let delimiter: String
+	static fun basename(path: String, ext: String? = null): String
 	static fun dirname(path: String): String
 	static fun resolve(path: String): String
+	static fun extname(path: String): String
+	static fun normalize(path: String): String
 	static fun isAbsolute(path: String): Bool
 	static fun relative(from: String, to: String): String
+	static fun format(pathObject: ParsedPath): String
 	static fun parse(path: String): ParsedPath
 	static fun join(...path: String): String
 }
@@ -115,12 +131,26 @@ declare class Fs {
 	static fun writeFileSync(path: String, data: String): Void
 	static fun readdirSync(path: String): [String]
 	static fun readFileSync(path: String): Buffer
+	static fun appendFileSync(path: String, data: Any, options: Any? = null): Void
+	static fun rmdirSync(path: String, options: Any? = null): Void
+	static fun unlinkSync(path: String): Void
+	static fun rmSync(path: String, options: Any? = null): Void
+	static fun statSync(path: String): Any
 	static fun lstatSync(path: String): Any
 	static fun existsSync(path: String): Bool
 	static fun mkdirSync(path: String): Void
 	static fun readSync(fd: Int, buffer: Buffer, offset: Int, length: Int, position: Int = 0): Int
 	static fun openSync(path: String, flags: String): Int
 	static fun renameSync(oldPath: String, newPath: String): Void
+	static fun realpathSync(path: String, options: Any? = null): String
+	static fun closeSync(fd: Int): Void
+	static fun writeSync(fd: Int, buffer: Buffer, offset: Int? = null, length: Int? = null, position: Int? = null): Int
+	static fun fstatSync(fd: Int): Any
+	static fun ftruncateSync(fd: Int, len: Int? = null): Void
+	static fun chmodSync(path: String, mode: Int): Void
+	static fun chownSync(path: String, uid: Int, gid: Int): Void
+	static fun symlinkSync(target: String, path: String, typed: String? = null): Void
+	static fun linkSync(existingPath: String, newPath: String): Void
 }
 
 fun btoa(text: String) {
@@ -129,4 +159,27 @@ fun btoa(text: String) {
 
 fun atob(base64: String) {
 	return Buffer.from(base64, 'base64').toString('binary')
+}
+
+declare fun setImmediate(callback: () => Void,...args: Any): Int
+declare fun clearImmediate(id: Int): Void
+declare fun queueMicrotask(callback: () => Void): Void
+
+@require("os")
+declare class Os {
+	static fun platform(): String
+	@rename('type') static fun typed(): String
+	static fun release(): String
+	static fun arch(): String
+	static fun homedir(): String
+	static fun tmpdir(): String
+	static fun hostname(): String
+	static fun uptime(): Float
+	static fun totalmem(): Float
+	static fun freemem(): Float
+	static fun cpus(): [Any]
+	static fun networkInterfaces(): Any
+	static fun endianness(): String
+	@rename('EOL') static let eol: String
+	static fun userInfo(options: Any? = null): Any
 }
