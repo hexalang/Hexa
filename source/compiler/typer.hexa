@@ -836,7 +836,7 @@ class Typer {
 
 								// `function a(args with known types or no args): known ret type`
 							case Function(name, expr, vars, rettype, _, variadic):
-								// console.log('class fun', name, type.name)
+								// console.log('class fun', name, classType.name)
 								if let rettype = rettype {
 									types.set(
 										field,
@@ -879,7 +879,7 @@ class Typer {
 					for field in f { switch field {
 							// Instance method or static method
 							case Function(name, expr, vars, rettype, _, variadic):
-								// console.log('class fun [full]', name, type.name)
+								// console.log('class fun [full]', name, classType.name)
 								if name == 'new' {
 									// TODO this is wrong
 									// type.constructor = type.fieldNames.length - 1
@@ -2919,6 +2919,60 @@ class Typer {
 				if eelse != null {
 					fill(eelse)
 				}
+
+				// `guard let x = expr, condition else { block }`
+			case Guard(conditions, otherwise):
+				for e in conditions {
+					switch e {
+						case Var(name, t, expr, const):
+							if not const {
+								fail('Only `guard let` bindings supported, not `guard var`', node)
+							}
+
+							if t != null {
+								fail('Do not specify a type `: T` in `guard let` bindings', node)
+							}
+
+							if expr == null {
+								fail('`guard let` binding should have a value `\(name) = value`', node)
+							}
+
+							fillExpression(expr)
+
+							switch types.get(expr) as!Type {
+								case Nullable(t): types.set(e, t)
+								case UnknownNullable(handle):
+									if let t = handle.value {
+										types.set(e, t)
+									} else {
+										fail('`guard let` cannot bind not fully known nullable type', node)
+									}
+								case _: types.set(e, types.get(expr))
+							}
+
+							addScope(name, e)
+
+						case _:
+							fillExpression(e)
+							let exprType = types.get(e)
+
+							if exprType != typeBool, exprType != typeAny, exprType != null {
+								if exprType == typeInt {
+									fail('Use `guard ' + Node.stringify(e) + ' != 0` syntax to compare `Int` values with zero', e)
+								}
+
+								switch e {
+									case Binop(a, op, b):
+										if op == Token.Assign {
+											fail('Probably change `=` to `==` here. `guard value` expects `value` only of type `Bool`, but got `' + Type.stringify(exprType) + '`', e)
+										}
+								}
+
+								fail('`guard value` expects `value` only of type `Bool`, but got `' + Type.stringify(exprType) + '`', e)
+							}
+					}
+				}
+				fill(otherwise)
 
 				// `switch exprs { case conds if (guards): { cases } }`
 			case Switch(exprs, conds, guards, cases):

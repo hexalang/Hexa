@@ -912,6 +912,10 @@ class Normalizer {
 					return Expression.Await(nodeToExpression(e))
 
 				case Index(expr, index):
+					let exprType = typer.types.get(expr)
+					if exprType == typer.typeString {
+						return Expression.StringIndex(nodeToExpression(expr), nodeToExpression(index), typer.types.get(e))
+					}
 				return Expression.Index(nodeToExpression(expr), nodeToExpression(index), typer.types.get(e))
 
 				case As(e, kind, t): switch kind {
@@ -1842,6 +1846,32 @@ class Normalizer {
 
 				case Throw(value):
 				return Statement.Throw(nodeToExpression(value))
+
+				case Guard(conditions, otherwise):
+				let block [Statement] = []
+				let checks [Expression] = []
+				for cond in conditions {
+					switch cond {
+						case Var(name, t, expr, const):
+							let varName = unique(name, cond)
+							let varType = typer.types.get(cond)
+							block.push(Statement.Const(varName, nodeToExpression(expr), varType))
+							// Check that variable is not null (unwraps nullable type)
+							checks.push(
+								Expression.Binop(Expression.Ident(varName, varType), Token.Unequal, Expression.Null(varType), typer.typeBool)
+							)
+						case _:
+							checks.push(nodeToExpression(cond))
+					}
+				}
+				// Combine all checks with &&
+				var combined = checks[0]
+				for i in 1...checks.length - 1 {
+					combined = Expression.Binop(combined, Token.LogicalAnd, checks[i], typer.typeBool)
+				}
+				// If all checks pass, do nothing; otherwise execute else block
+				block.push(Statement.If(combined, Statement.Block([]), nodeToStatement(otherwise)))
+				return Statement.Block(block)
 
 				case AssignOp(a, op, b): {
 					var source: Node? = typer.parents.get(a)
