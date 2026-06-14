@@ -2641,6 +2641,16 @@ class Typer {
 				// fillExpression(a)
 				// fillExpression(b)
 
+				// Disallow `string[index] = value`
+				if op == Token.Assign {
+					switch a {
+						case Index(e, _):
+							if types.get(e) == typeString {
+								fail('Cannot assign to a string index, strings are immutable', node)
+							}
+					}
+				}
+
 				var parent: Node = parents.get(a)
 				// `a = b`
 				// TODO separate assign node? or just nested pattern...
@@ -2690,6 +2700,7 @@ class Typer {
 
 							}
 						case Ident(name):
+							// TODO document this logic of `case` param detection by parent
 							fail('Cannot reassign case parameter `\(name)`', node)
 						case Function(name, _):
 							fail('Cannot reassign a function `\(name)`', node)
@@ -4549,7 +4560,11 @@ class Typer {
 
 				switch eType {
 					case ClassInstance(classType, generic):
-						if generic != null, generic.length >= 1 {
+						if eType == typeString {
+							// `"string"[index]` returns `String?`
+							// TODO cache nullable standard types
+							types.set(node, asNullable(typeString))
+						} else if generic != null, generic.length >= 1 {
 							// TODO check actual types
 							if classType.name == 'Map' {
 								types.set(node, generic[1])
@@ -4585,6 +4600,15 @@ class Typer {
 				}
 
 				fillExpression(a)
+
+				// Disallow `string[index] = value`
+				switch a {
+					case Index(e, _):
+						if types.get(e) == typeString {
+							fail('Cannot assign to a string index, strings are immutable', node)
+						}
+				}
+
 				let parent: Node = parents.get(a)
 
 				switch parent {

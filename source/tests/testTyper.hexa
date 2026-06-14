@@ -194,6 +194,12 @@ class TestTyper {
 		shouldError('fun variadic(...args Int, ...extra Int) Int { return args.length }') // Only last arg can be variadic
 		shouldError('fun variadic(...args Int) Int { variadic(1, "abc") return args.length }') // Type mismatch in variadic call
 
+		// String indexing
+		shouldNotError('fun test() { let c = "hello"[0] } test()')
+		shouldNotError('fun test() { let c: String? = "hello"[0] } test()')
+		shouldNotError('fun test(s: String, i: Int) { let c = s[i] } test("xx", 1)')
+		shouldError('fun test() { let s = "hello" s[0] = "a" }') // Strings are immutable
+
 		// Function arguments and returns
 		shouldError('fun x(y: Int): Void {} var z: Int = x(1)')
 		shouldError('fun x(y: Int) {} var z: Int = x(1)')
@@ -481,6 +487,7 @@ class TestTyper {
 	static fun shouldNotError(input: String): Void {
 		overall++
 		var errorText = didError(input)
+
 		if errorText != null {
 			throw 'TestTyper test fail: `\(input)` should NOT throw error, but it did.\r\n' + errorText
 		}
@@ -489,6 +496,7 @@ class TestTyper {
 
 	static fun shouldError(input: String): Void {
 		overall++
+
 		if didError(input) == null {
 			throw 'TestTyper test fail: `\(input)` should throw error, but it did not.'
 		}
@@ -497,14 +505,19 @@ class TestTyper {
 
 	static fun template(code: String, a: [String], b: [String] = null, c: [String] = null, d: [String] = null): [String] {
 		let tests = []
+
 		for ta in a {
 			let ca = code.split('$a$').join(ta)
+
 			if let bs = b { for tb in bs {
 					let cb = ca.split('$b$').join(tb)
+
 					if let cs = c { for tc in cs {
 							let cc = cb.split('$c$').join(tc)
+
 							if let ds = d { for td in ds {
 									let cd = cc.split('$d$').join(td)
+
 									if tests.indexOf(cd) == -1 { tests.push(cd) }
 								} } else { if tests.indexOf(cc) == -1 { tests.push(cc) } }
 						} } else if tests.indexOf(cb) == -1 { tests.push(cb) }
@@ -537,9 +550,11 @@ class TestTyper {
 			let lib = Parser.parseNodes(tokenizedLibrary, project)
 			let code = Parser.parseNodes(tokenizedInput, project)
 			let info = new Module()
+
 			for node in lib {
 				info.nodes.push(node)
 			}
+
 			for node in code {
 				info.nodes.push(node)
 			}
