@@ -204,6 +204,32 @@ class TestTyper {
 		shouldError('fun variadic(...args Int, ...extra Int) Int { return args.length }') // Only last arg can be variadic
 		shouldError('fun variadic(...args Int) Int { variadic(1, "abc") return args.length }') // Type mismatch in variadic call
 
+		// Static variadic functions
+		shouldNotError('class Logger { static fun log(...arguments String) {} } Logger.log("hello")')
+		shouldNotError('class Logger { static fun log(...arguments String) {} } Logger.log("a", "b", "c")')
+		shouldError('class Logger { static fun log(...arguments String) {} } Logger.log(123)') // Type mismatch in static variadic call
+
+		// Variadic functions without explicit return type (no `: RetType`)
+		shouldNotError('fun variadic(...args String) { } variadic("a", "b", "c")')
+		shouldError('fun variadic(...args String) { } variadic(1, 2, 3)') // Type mismatch
+
+		// Calling variadic from another function (cross-function call)
+		shouldNotError('fun log(...args String) { } fun test() { log("a", "b", "c") } test()')
+		shouldError('fun log(...args String) { } fun test() { log(1, 2, 3) } test()') // Type mismatch
+
+		// Static variadic functions in classes
+		shouldNotError('class Logger { static fun log(...args String) { } } Logger.log("a", "b", "c")')
+		shouldError('class Logger { static fun log(...args String) { } } Logger.log(1, 2, 3)') // Type mismatch
+		shouldNotError('class Logger { static fun log(...args String) { } static fun test() { Logger.log("x", "y") } } Logger.test()')
+
+		// Variadic with array element type (...args [String])
+		shouldNotError('fun variadic(...args [String]) { } variadic(["a"], ["b"], ["c"])')
+		shouldError('fun variadic(...args [String]) { } variadic(["a"], "b")') // Type mismatch: String vs [String]
+
+		// Static variadic with array element type
+		shouldNotError('class Logger { static fun log(...args [String]) {} } Logger.log(["a"], ["b"])')
+		shouldError('class Logger { static fun log(...args [String]) {} } Logger.log(["a"], "b")') // Type mismatch
+
 		// String indexing
 		shouldNotError('fun test() { let c = "hello"[0] } test()')
 		shouldNotError('fun test() { let c: String? = "hello"[0] } test()')
