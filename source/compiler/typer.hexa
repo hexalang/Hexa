@@ -3913,7 +3913,18 @@ class Typer {
 			// `...value`
 			case Spread(value):
 				fillExpression(value)
-				types.set(node, types.get(value))
+				let vType = types.get(value)
+				// Spread of Array<T> contributes elements of type T
+				switch vType {
+					case ClassInstance(_, generic):
+						if generic != null, generic.length == 1 {
+							types.set(node, generic[0])
+						} else {
+							types.set(node, vType)
+						}
+					case _:
+						types.set(node, vType)
+				}
 
 				// `a ?? b`
 			case Elvis(a, b):
