@@ -4500,7 +4500,18 @@ class Typer {
 				}
 				fillExpression(e)
 				// TODO if e is Promise<T>, return T
-				types.set(node, types.get(e))
+				// If e is Promise<T>, return T
+				let eType = types.get(e)
+				switch eType {
+					case ClassInstance(classType, generic):
+						if generic != null, generic.length == 1, classType.name == 'Promise' {
+							types.set(node, generic[0])
+						} else {
+							types.set(node, eType)
+						}
+					case _:
+						types.set(node, eType)
+				}
 
 				// `op e` or `e op`
 			case Unop(op, postfix, e):
