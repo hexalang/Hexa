@@ -20,9 +20,9 @@ class TestParser {
 				'\n\n' : 'null',
 				'\r\r\n\r\n\r\t' : 'null',
 
-				'{}' : 'Block([])',
 				'{{}}' : 'Block([Block([])])',
-				'{ 0 0 0 }' : 'Block([Int(0),Int(0),Int(0)])',
+				'\{\}' : 'Block([])',
+				'\{ 0 0 0 \}' : 'Block([Int(0),Int(0),Int(0)])',
 
 				'0' : 'Int(0)',
 				' 0 ' : 'Int(0)',
@@ -78,7 +78,7 @@ class TestParser {
 				"///Doc\nfun foo() {}" : 'Doc(Doc,Function(foo,Block([]),[],null,false,false))',
 				"/// Doc\n/// Docs [foo]\nfun foo() {}" : 'Doc( Docs [foo],Doc( Doc,Function(foo,Block([]),[],null,false,false)))',
 				"/// Variable doc\nvar x = 1" : 'Doc( Variable doc,Var(x,null,Int(1),false,false))',
-				"/// Class doc\nclass Test {}" : 'Doc( Class doc,Class(Type(Test),null,[],[],false))',
+				"/// Class doc\nclass Test \{\}" : 'Doc( Class doc,Class(Type(Test),null,[],[],false))',
 				"/// Type doc\ntype Alias = String" : 'Doc( Type doc,TypeAlias(Type(Alias),Type(String)))',
 				"/// Fun doc\nfun test(
 					/// One
@@ -155,24 +155,24 @@ class TestParser {
 		// Modularity
 		// shouldAllEqual([
 		// // New syntax
-		// 'module { }': 'Block([Module(,[]),Block([])])',
+		// 'module \{ \}': 'Block([Module(,[]),Block([])])',
 		// 'module': 'Module(, [])',
 		// //'code module x code': 'Block([Ident(code),Module(x,[Ident(code)])])',
 		// //'code module x module y code': 'Block([Ident(code),Module(x,[]),Module(y,[Ident(code)])])',
 		// //'code module x module y code {code}': 'Block([Ident(code),Module(x,[]),Module(y,[Ident(code)]),Block([Ident(code)])])',
 		// //'module a': 'Module(a, [])',
 		// //'module a.b': 'Module(a.b, [])',
-		// 'module class Inner { }': 'Module(,[Class(Type(Inner),null,[],[],false)])',
-		// 'module private class Inner {}' : 'Module(,[Private(Class(Type(Inner),null,[],[],false))])'
+		// 'module class Inner \{ \}': 'Module(,[Class(Type(Inner),null,[],[],false)])',
+		// 'module private class Inner \{\}' : 'Module(,[Private(Class(Type(Inner),null,[],[],false))])'
 		// //'module a module b': 'Block([Module(a,[]),Module(b,[])])'
 		// ])
 		shouldAllEqual([
 				'import "test"': 'Import([],test)',
 				'import xxx in "test"': 'Import([Lower(xxx)],test)',
-				'import xxx as yyy in "test"': 'Import([Lower(xxx){as}Lower(yyy)],test)',
-				'import XXX as YYY in "test"': 'Import([Upper(XXX){as}Upper(YYY)],test)',
-				'import * as mmm in "test"': 'Import([*{as}Lower(mmm)],test)',
-				'import XXX, YYY as ZZZ, www in "test"': 'Import([Upper(XXX),Upper(YYY){as}Upper(ZZZ),Lower(www)],test)'
+				'import xxx as yyy in "test"': 'Import([Lower(xxx)\{as\}Lower(yyy)],test)',
+				'import XXX as YYY in "test"': 'Import([Upper(XXX)\{as\}Upper(YYY)],test)',
+				'import * as mmm in "test"': 'Import([*\{as\}Lower(mmm)],test)',
+				'import XXX, YYY as ZZZ, www in "test"': 'Import([Upper(XXX),Upper(YYY)\{as\}Upper(ZZZ),Lower(www)],test)'
 			])
 
 		shouldAllError([
@@ -207,9 +207,9 @@ class TestParser {
 
 		// Enumerations
 		shouldAllEqual([
-				'enum A {}' : 'Enum(Type(A),[],null,null)',
-				'enum A { A B C }' : 'Enum(Type(A),[NodeTypeValue(Type(A)),NodeTypeValue(Type(B)),NodeTypeValue(Type(C))],null,null)',
 				'enum A { A(v:Int) B C(v:[K:V], a:Array<T>) }' :
+				'enum A \{\}' : 'Enum(Type(A),[],null,null)',
+				'enum A \{ A B C \}' : 'Enum(Type(A),[NodeTypeValue(Type(A)),NodeTypeValue(Type(B)),NodeTypeValue(Type(C))],null,null)',
 				'Enum(Type(A),[
 					Call(NodeTypeValue(Type(A)),[v:NodeTypeValue(Type(Int))]),
 					NodeTypeValue(Type(B)),
@@ -223,10 +223,10 @@ class TestParser {
 		// Constructor
 		shouldAllEqual([
 				'new A(a: 1, b: 2)' : 'New([],Type(A),[Int(1),Int(2)],[],[],[a,b])',
-				'class A {} var a = new A { } ()' : "Block([Class(Type(A),null,[],[],false),Var(a,null,New([],Type(A),[],[],[],[]),false,false)])",
 				'class A { var field: String } var a = new A { field: "Value" } ()' :
+				'class A \{\} var a = new A \{ \} ()' : "Block([Class(Type(A),null,[],[],false),Var(a,null,New([],Type(A),[],[],[],[]),false,false)])",
 				"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false)],false),Var(a,null,New([],Type(A),[],[field],[String(Value)],[]),false,false)])",
-				'class A { var field: String var otherField: Int } var a = new A { field: "Value", otherField: 25 } ()' :
+				'class A \{ var field: String var otherField: Int \} var a = new A \{ field: "Value", otherField: 25 \} ()' :
 				"Block([Class(Type(A),null,[],[Var(field,Type(String),null,false,false),Var(otherField,Type(Int),null,false,false)],false),Var(a,null,New([],Type(A),[],[field,otherField],[String(Value),Int(25)],[]),false,false)])"
 			])
 
@@ -237,39 +237,39 @@ class TestParser {
 				'class A { new(,) {} }',
 				'fun f(a b c) {}',
 				'fun f(a b) {}',
-				'fun f(a, b,) {}',
-				'fun f(a,) {}',
-				'fun f(,) {}'
+				'fun f(a, b,) \{\}',
+				'fun f(a,) \{\}',
+				'fun f(,) \{\}'
 			])
 
 		// Async
 		shouldAllEqual([
-				'async fun a() {}': 'Async(Function(a,Block([]),[],null,false,false),null)',
 				'async(1) fun a() {}': 'Async(Function(a,Block([]),[],null,false,false),Int(1))',
 				'private async(mode) static fun a() {}': 'Private(Async(Static(Function(a,Block([]),[],null,false,false)),Ident(mode)))',
 				'class A { async fun a() {} }': 'Class(Type(A),null,[],[Async(Function(a,Block([]),[],null,false,false),null)],false)',
 				'class A { async(1 + 1) fun a() {} }': 'Class(Type(A),null,[],[Async(Function(a,Block([]),[],null,false,false),Binop(Int(1),+,Int(1)))],false)'
+				'async fun a() \{\}': 'Async(Function(a,Block([]),[],null,false,false),null)',
 			])
 
 		// Property
 		shouldAllError([
-				'class A { var i: Int { set (value) {} } }', // set before get
 				'class A { var i: Int { get {} set () {} } }', // No `value` in setter
 				'class A { var i: Int { get {} set {} } }', // No `(value)` in setter
 				'class A { let i: Int { get {} set (value) {} } }', // set in let
 				'class A { let i: Int { get {} set (value, val) {} } }', // Multiple `value`
 				'class A { var i: Int { get {} set (Value) {} } }', // Upper `Value`
 				'class A { var i: Int { get (value) {} set (value) {} } }', // `value` in get
-				'class A { var i: Int {} }' // No get/set
+				'class A \{ var i: Int \{ set (value) \{\} \} \}', // set before get
+				'class A \{ var i: Int \{\} \}' // No get/set
 				// TODO private set/private get
 			])
 
 		// Commas
 		shouldAllError([
-				'if (,) {}',
-				'if (a,) {}',
-				'switch (,) {}',
-				'switch (a,) {}',
+				'if (,) \{\}',
+				'if (a,) \{\}',
+				'switch (,) \{\}',
+				'switch (a,) \{\}',
 				'@att(,) x',
 				'@att(a,) x',
 				'@att(a,b,) x',
@@ -301,11 +301,11 @@ class TestParser {
 				'["a": 1,\n,]', // comma then newline then comma - not allowed
 				'[1:1,\n,]',
 				'[1:1,,]',
-				'{a:1 b:2}',
-				'{,}',
 				'{a:1,}',
 				'{a:1,b:2,}',
 				'{a:1,\n,}' // comma then newline then comma - not allowed
+				'\{a:1 b:2\}',
+				'\{,\}',
 			])
 
 		// Misc
@@ -316,10 +316,10 @@ class TestParser {
 
 		// Conditions
 		shouldAllEqual([
-				'if this { this }' : 'If([This],Block([This]),null)',
-				'if this, this { this } else { break }' : 'If([This,This],Block([This]),Block([Break]))',
 				'if this, let a = this { this } else { break }' : 'If([This,Var(a,null,This,true,false)],Block([This]),Block([Break]))',
 				'if let a = this, let b = this, this { this }' : 'If([Var(a,null,This,true,false),Var(b,null,This,true,false),This],Block([This]),null)'
+				'if this \{ this \}' : 'If([This],Block([This]),null)',
+				'if this, this \{ this \} else \{ break \}' : 'If([This,This],Block([This]),Block([Break]))',
 			])
 
 		// External declarations
@@ -329,8 +329,8 @@ class TestParser {
 				'declare fun name()' : 'Function(name,null,[],null,true,false)',
 				'declare fun name() hi()' : 'Block([Function(name,null,[],null,true,false),Call(Ident(hi),[])])',
 				// External functions do not parse body
-				'declare fun name() {}' : 'Block([Function(name,null,[],null,true,false),Block([])])',
-				'declare class A {}' : 'Class(Type(A),null,[],[],true)',
+				'declare fun name() \{\}' : 'Block([Function(name,null,[],null,true,false),Block([])])',
+				'declare class A \{\}' : 'Class(Type(A),null,[],[],true)',
 				'declare A = B' : 'TypeAlias(Type(A),Type(B))'
 			])
 
@@ -351,8 +351,8 @@ class TestParser {
 				'[].length' : 'Dot(Array([]),length)',
 				'[:].length' : 'Dot(Map([],[]),length)',
 				'[[:]]': 'Array([Map([],[])])',
-				'{a:1,\n}' : 'Object([a],[Int(1)])', // object trailing comma on different line - allowed
 				'{a:1,b:2,\n}' : 'Object([a,b],[Int(1),Int(2)])', // object trailing comma on different line - allowed
+				'\{a:1,\n\}' : 'Object([a],[Int(1)])', // object trailing comma on different line - allowed
 				'add(1,\n)' : 'Call(Ident(add),[Int(1)])', // call trailing comma on different line - allowed
 				'add(1,2,\n)' : 'Call(Ident(add),[Int(1),Int(2)])', // call trailing comma on different line - allowed
 				'[0, ...a, ...b]' : 'Array([Int(0),Spread(Ident(a)),Spread(Ident(b))])',
@@ -400,8 +400,8 @@ class TestParser {
 				// 4. String Interpolation (Curly braces)
 
 				// 5. Control Flow (If/Switch)
-				'if x > 0 { y }' : 'If([Binop(Ident(x),>,Int(0))],Block([Ident(y)]),null)',
 				'switch x { case 1: 2 case _: 3 }' : 'Switch([Ident(x)],[Int(1),Wildcard],[null,null],[Int(2),Int(3)])',
+				'if x > 0 \{ y \}' : 'If([Binop(Ident(x),>,Int(0))],Block([Ident(y)]),null)',
 
 				// 6. Functions (Space separated args, return type after paren)
 				'fun add(a Int, b Int) Int { a + b }' : 'Function(add,Block([Binop(Ident(a),+,Ident(b))]),[Var(a,Type(Int),null,true,false),Var(b,Type(Int),null,true,false)],Type(Int),false,false)',
