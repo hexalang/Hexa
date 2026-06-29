@@ -1092,11 +1092,14 @@ class Parser {
 			case Backtick:
 				result = Node.String(getgo(Token.Backtick))
 			case QuotedString:
+				let quoteKind = lex.kind[i]
+				let strLine = lex.line[i]
+				let strCol = lex.column[i]
 				let str = getgo(Token.QuotedString)
-				// TODO Check have interpolations in string
 
 				if hasInterpolation(str) {
-					result = Node.Parenthesis(parseInterpolations(str))
+					let quoteChar = quoteKind == Meta.DoubleQuote ? "\"" : "'"
+					result = Node.Parenthesis(parseInterpolations(str, quoteChar, strLine, strCol))
 				} else {
 					result = Node.String(str)
 				}
@@ -2990,108 +2993,138 @@ class Parser {
 	}
 
 	fun hasInterpolation(str: String): Bool {
-		var chars = str.split("")
 		var i = 0
+		let len = str.length
 
-		while i < chars.length {
-			if chars[i] == "\\" {
-				if i + 1 < chars.length {
-					if chars[i + 1] == "\\" {
-						i++
-					} else if chars[i + 1] == "(" {
+		while i < len {
+			let ch = str.charAt(i)
+
+			if ch == "\\" {
+				// Handle escape sequences by skipping the escaped character
+				if i + 1 < len {
+					let next = str.charAt(i + 1)
+
+					if next == "(" {
 						return true
 					}
+					i += 2
+					continue
 				}
+			} else if ch == "\{" {
+				return true
 			}
 			i++
 		}
 		return false
 	}
 
-	fun parseInterpolations(str: String): Node {
+	fun parseInterpolations(str: String, quote: String, strLine: Int, strCol: Int): Node {
 		fun interpolate(s: String): String {
-			var out = ['"']
-
-			if s.length < 2 {
-				return s
-			}
+			var parts: [String] = []
 			var i = 0
-			let s = s.split('"').join('\\"')
-			fun pushInterpolator() {
-				i++
-				i++
-				fun pushParen(): Void {
-					i++
+			let len = s.length
 
-					while i < s.length {
-						out.push(s.charAt(i))
+			// Start first string literal
+			parts.push(quote)
 
-						if s.charAt(i) == '(' {
-							pushParen()
-							continue
-						}
+			while i < len {
+				let ch = s.charAt(i)
 
-						if s.charAt(i) == ')' {
-							i++
-							return
-						}
-						i++
-					}
 					// TODO wrap into error
 					throw 'String interpolation error: unclosed inner parenthesis'
-				}
+				if ch == "\\" and i + 1 < len {
+					let next = s.charAt(i + 1)
 
-				while i < s.length {
-					out.push(s.charAt(i))
+					if next == "(" {
+						// Old \(expr)
+						parts.push(quote + " + (")
+						i += 2
+						let start = i
+						var depth = 0
 
-					if s.charAt(i) == '(' {
-						pushParen()
-						continue
+						while i < len {
+							let c = s.charAt(i)
+
+							if c == "(" { depth++ }
+							else if c == ")" {
+								if depth == 0 { break }
+								depth--
+							}
+							i++
+						}
+						parts.push(s.substring(start, i))
+						parts.push(") + " + quote)
+
+						if i < len and s.charAt(i) == ")" { i++ }
+					} else {
+						// Preserve any other escape sequences intact, including \{ and \}
+						parts.push("\\" + next)
+						i += 2
 					}
+				} else if ch == "\{" {
+					// New {expr} syntax
+					parts.push(quote + " + (")
+					i++ // skip {
+					let start = i
+					var depth = 0
 
-					if s.charAt(i) == ')' {
+					while i < len {
+						let c = s.charAt(i)
+
+						if c == "\{" { depth++ }
+						else if c == "\}" {
+							if depth == 0 { break }
+							depth--
+						}
 						i++
 						return
 					}
-					i++
-				}
 				// TODO wrap into error
 				throw 'String interpolation error: unclosed parenthesis'
-			}
-			var result = ['"']
-			while i < s.length {
-				if s.charAt(i) == '\\' and s.charAt(i + 1) == '(' {
-					result.push('" + ')
-					out.push('" + (')
-					var ii = i + 1
-					pushInterpolator()
-					result.push(s.substring(ii, i + 1))
-					result.push(' + "')
-					out.push(' + "')
+					parts.push(s.substring(start, i))
+					parts.push(") + " + quote)
+
+					if i < len and s.charAt(i) == "\}" { i++ }
 				} else {
-					out.push(s.charAt(i))
-					result.push(s.charAt(i))
+					// Escape the quote character in content to avoid breaking string delimiters
+					if ch == quote {
+						parts.push("\\" + quote)
+					} else {
+						parts.push(ch)
+					}
 					i++
 				}
 			}
-			result.push('"')
-			out.push('"')
-			return out.join('')
-		}
-		var resStr = interpolate(str)
-		var tokens = Lexer.tokenize(Buffer.from(resStr), lex.fileName)
-		try {
-			var parsed = toNode(parseNodes(tokens, project))
 
-			switch parsed {
-				case Block(_):
+			// Close the last string literal
+			parts.push(quote)
+
+			return parts.join("")
+		}
+
+		var resStr = ""
+
+		try {
+			resStr = interpolate(str)
+		} catch e: Any {
+			fail("String interpolation error: " + e, strLine, strCol)
+		}
+
 					// TODO wrap into error
 					throw "String interpolation error: got a block"
-				case _: return parsed
-			}
+		var tokens = Lexer.tokenize(Buffer.from(resStr), lex.fileName)
+
+		// Adjust token positions to point back to the original source
+		var t = 0
+
+		while t < tokens.length {
+			tokens.line[t] = tokens.line[t] + strLine - 1
+			tokens.column[t] = tokens.column[t] + strCol
+			t++
 		}
-		catch e: Any {
-			fail("String interpolation error\n" + e)
+
+		try {
+			return toNode(parseNodes(tokens, project))
 		}
 	}
 
