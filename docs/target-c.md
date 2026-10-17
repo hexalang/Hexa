@@ -31,18 +31,19 @@ Runtime prologue/epilogue comes from disk:
 
 ## Binding architecture decisions (do not re-litigate without compiler-dev sign-off)
 
-- A Hexa function value is **two** C values, never one: a raw C function pointer plus a
-  closure-object pointer. The C function takes the env as its **first** argument
-  (matches `docs/native.md`: `ClosureFunc(Closure* closure, int z)`; call: `f$ptr(f$env, args...)`).
 - In objects, a method-typed field is **two fields** (`name$f_`, `name$e_` or equivalent).
   As locals/params, a function value is **two locals** (or one struct of two — decision F1).
-- `@noCapture` is the escape hatch: single raw pointer, C-ABI-compatible, zero overhead.
   Default (no decorator) is fat, even if the target function captures nothing — in that case
   `genC` still emits a thin forwarding wrapper and pairs it with the sentinel env (D2), so
   all call sites can use one uniform fat-call shape (or document the two call shapes if we
   keep the `native.md` zero-overhead direct-call optimization — see F1-Q).
-- Rationale: keeps plain calls (`outer()`) at zero overhead while making capture uniform.
 ### D1. Function values are two variables, never a struct
+- A Hexa function value is **two C values**: raw C function pointer + closure-object pointer.
+- No `{funcPtr, objRef}` mini-struct: not every C/C++ compiler optimizes struct passing.
+- A param of function-reference type expands to **two C params** (`f$ptr`, `f$env`).
+- A return of function-reference type expands to **`void**` out-param for the code pointer + return value is the closure ref** (unifies ARC: only the returned ref is ref-counted, no fake countable arg).
+- Non-capturing references accept **only** non-capturing functions (typer-enforced).
+- `@noCapture` stays single raw pointer for C ABI.
 
 ### D2. All nulls are sentinels, never raw zero for managed refs
 - Every `null` of managed/nullable/fat-pointer type materializes as a **sentinel/placeholder
