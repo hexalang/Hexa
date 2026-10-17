@@ -40,20 +40,26 @@ Runtime prologue/epilogue comes from disk:
 ### D1. Function values are two variables, never a struct
 - A Hexa function value is **two C values**: raw C function pointer + closure-object pointer.
 - No `{funcPtr, objRef}` mini-struct: not every C/C++ compiler optimizes struct passing.
+- C callee takes env as **first** argument (`f$ptr(f$env, args...)`).
 - A param of function-reference type expands to **two C params** (`f$ptr`, `f$env`).
 - A return of function-reference type expands to **`void**` out-param for the code pointer + return value is the closure ref** (unifies ARC: only the returned ref is ref-counted, no fake countable arg).
+- Capturing-function reference accepting a non-capturing function: compiler generates a **thin wrapper** that calls through.
 - Non-capturing references accept **only** non-capturing functions (typer-enforced).
 - `@noCapture` stays single raw pointer for C ABI.
 
 ### D2. All nulls are sentinels, never raw zero for managed refs
-- Every `null` of managed/nullable/fat-pointer type materializes as a **sentinel/placeholder
   value that is always addressable** (global shared object for refs; `2` for `Bool`; `{0,0}` /
   `{0.0,0}` structs for nullable numerics; null-fat-pointer = `(wrapperForNothing, sentinelEnv)`).
 - Consequences: null checks are sentinel compares (never `== 0` on a managed pointer except
-  inside the runtime); **ARC over the sentinel is a no-op** (refcount ops ignore it — avoids
   null-check branches on the hot path); `EnumTag(null) == -1` and `if let` lowering keep working
   because the sentinel is a real object the runtime recognizes.
-- `genC` today emits a mix (`nullptr` for classes, `int32_t$null`, `(uint8_t)2`, ...). F2 unifies this.
+- Every `null` of managed/nullable/fat-pointer type is an **addressable sentinel**.
+- `Bool` as `Any` uses **two global sentinel objects** (one for `true`, one for `false`).
+- `Bool`/`BigInt` stay stored **plainly** (not as heap objects) until converted to `Any`.
+- `as Any` conversion must preserve **referential equality**: `((true as Any) == (true as Any)) == true`.
+- `BigInt` as `Any` needs **interning similar to `String`** (see `library/c/string.hexa` dedup via `root`/`next`).
+- ARC over any sentinel is a **no-op**.
+- `genC` today emits a mix (`nullptr`, `int32_t$null`, `(uint8_t)2`, ...). F2 unifies this.
 
 ### D3. ARC = `RefInc` immediately followed by nearby `DeferRefDec`
 - Ownership rule: whenever `arc.hexa` retains an object (passing/assigning/storing it does `rc++`
