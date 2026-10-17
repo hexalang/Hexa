@@ -7,20 +7,20 @@
 /// Compatible with Zed, VSCode, and other LSP clients
 
 class LspServer {
-	var buffer: String
+	var buffer: Buffer
 	var contentLength: Int
 	var documents: [String: String]
 
 	new () {
-		this.buffer = ''
+		// Initialize compiler
+		Lexer.init()
+
+		this.buffer = Buffer.alloc(0)
 		this.contentLength = 0
 		this.documents = [:]
 
-		// Set stdin to raw UTF-8 mode
-		process.stdin.setEncoding('utf8')
-
-		// Listen for incoming data
-		process.stdin.on('data', (chunk: String) => {
+		// Listen for incoming raw binary data
+		process.stdin.on('data', (chunk: Buffer) => {
 			this.onData(chunk)
 		})
 
@@ -36,22 +36,22 @@ class LspServer {
 		})
 	}
 
-	fun onData(chunk: String) Void {
-		this.buffer += chunk
+	fun onData(chunk: Buffer) Void {
+		this.buffer = this.buffer.length == 0 ? chunk : Buffer.concat([this.buffer, chunk])
 		this.processBuffer()
 	}
 
 	fun processBuffer() Void {
 		while true {
 			if this.contentLength == 0 {
-				// Look for Content-Length header
+				// Look for Content-Length header in the binary buffer
 				let headerEnd = this.buffer.indexOf('\r\n\r\n')
 				if headerEnd == -1 {
 					// Not enough data yet
 					return
 				}
 
-				let header = this.buffer.substring(0, headerEnd)
+				let header = this.buffer.toString('utf8', 0, headerEnd)
 				let lines = header.split('\r\n')
 
 				for line in lines {
@@ -63,18 +63,18 @@ class LspServer {
 
 				if this.contentLength == 0 {
 					console.error('LSP: Missing Content-Length header')
-					this.buffer = ''
+					this.buffer = Buffer.alloc(0)
 					return
 				}
 
 				// Remove headers from buffer, keep the rest (after \r\n\r\n)
-				this.buffer = this.buffer.substring(headerEnd + 4)
+				this.buffer = this.buffer.subarray(headerEnd + 4)
 			}
 
-			// Check if we have enough data for the full message
+			// Check if we have enough raw bytes for the full message
 			if this.buffer.length >= this.contentLength {
-				let jsonStr = this.buffer.substring(0, this.contentLength)
-				this.buffer = this.buffer.substring(this.contentLength)
+				let jsonStr = this.buffer.toString('utf8', 0, this.contentLength)
+				this.buffer = this.buffer.subarray(this.contentLength)
 				this.contentLength = 0
 
 				// Parse and handle the message
@@ -351,7 +351,7 @@ class LspServer {
 
 	fun sendMessage(message: Any) Void {
 		let jsonStr = JSON.stringify(message)
-		let header = 'Content-Length: ' + jsonStr.length + '\r\n\r\n'
+		let header = 'Content-Length: ' + Buffer.bytesLength(jsonStr) + '\r\n\r\n'
 		process.stdout.write(header + jsonStr)
 	}
 }
