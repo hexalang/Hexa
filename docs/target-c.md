@@ -31,34 +31,31 @@ Runtime prologue/epilogue comes from disk:
 
 ## Binding architecture decisions (do not re-litigate without compiler-dev sign-off)
 
-- In objects, a method-typed field is **two fields** (`name$f_`, `name$e_` or equivalent).
-  As locals/params, a function value is **two locals** (or one struct of two — decision F1).
-  Default (no decorator) is fat, even if the target function captures nothing — in that case
-  `genC` still emits a thin forwarding wrapper and pairs it with the sentinel env (D2), so
-  all call sites can use one uniform fat-call shape (or document the two call shapes if we
-  keep the `native.md` zero-overhead direct-call optimization — see F1-Q).
 ### D1. Function values are two variables, never a struct
 - A Hexa function value is **two C values**: raw C function pointer + closure-object pointer.
 - No `{funcPtr, objRef}` mini-struct: not every C/C++ compiler optimizes struct passing.
 - C callee takes env as **first** argument (`f$ptr(f$env, args...)`).
 - A param of function-reference type expands to **two C params** (`f$ptr`, `f$env`).
+- In objects, a method-typed field is **two fields** (`name$f_`, `name$e_` or equivalent).
+- As locals/params, a function value is **two locals** (never a two-field struct value).
+- Default (no decorator) is fat even when the target captures nothing: `genC` emits a thin forwarding wrapper paired with the sentinel env (D2), so all call sites use one uniform fat-call shape (two call shapes only if we keep the `native.md` zero-overhead direct-call optimization — see F1-Q).
 - A return of function-reference type expands to **`void**` out-param for the code pointer + return value is the closure ref** (unifies ARC: only the returned ref is ref-counted, no fake countable arg).
 - Capturing-function reference accepting a non-capturing function: compiler generates a **thin wrapper** that calls through.
 - Non-capturing references accept **only** non-capturing functions (typer-enforced).
 - `@noCapture` stays single raw pointer for C ABI.
 
 ### D2. All nulls are sentinels, never raw zero for managed refs
-  value that is always addressable** (global shared object for refs; `2` for `Bool`; `{0,0}` /
-  `{0.0,0}` structs for nullable numerics; null-fat-pointer = `(wrapperForNothing, sentinelEnv)`).
-- Consequences: null checks are sentinel compares (never `== 0` on a managed pointer except
-  null-check branches on the hot path); `EnumTag(null) == -1` and `if let` lowering keep working
-  because the sentinel is a real object the runtime recognizes.
 - Every `null` of managed/nullable/fat-pointer type is an **addressable sentinel**.
 - `Bool` as `Any` uses **two global sentinel objects** (one for `true`, one for `false`).
 - `Bool`/`BigInt` stay stored **plainly** (not as heap objects) until converted to `Any`.
 - `as Any` conversion must preserve **referential equality**: `((true as Any) == (true as Any)) == true`.
 - `BigInt` as `Any` needs **interning similar to `String`** (see `library/c/string.hexa` dedup via `root`/`next`).
-- ARC over any sentinel is a **no-op**.
+- ARC over any sentinel is **effectively a no-op** (doing ARC over it IS safe).
+- Null sentinel is **singular for the whole app** and shared between DLLs/`.o` in the future.
+- Sentinel gets a **huge refcount** but the manager never checks it for deallocation (if implementable).
+- Sentinel carries placeholder data + vtable (for reflection), page-aligned, **4096 bytes total**.
+- This avoids null-check branches on the hot path (classic `if obj != null obj.rc++` goes away).
+- Same shape applies to other sentinels (`Bool`, etc).
 - `genC` today emits a mix (`nullptr`, `int32_t$null`, `(uint8_t)2`, ...). F2 unifies this.
 
 ### D3. ARC = `RefInc` immediately followed by nearby `DeferRefDec`
@@ -457,6 +454,9 @@ Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
   `Any` paths (`let_/$set/get_/set_`), `String_$combine_`, `Switch` ⇒ if-ladder (`Null→-1`,
   guards/binds ignored, second C-`switch` emitter dead), `SuperConstructor/RefInc/DeferRefDec`
   unhandled, `For` stub.
+- `Bool_` is in-band tri-state (comment: 1=true, 0=false, 2=null); `Bool.null` ⇒ `(uint8_t)2`;
+  empty vtables get `uint8_t padding_` because empty struct is size 0 in C, size 1 in C++ —
+  both facts matter for D2 sentinel layout.
 - Expressions: interning (`''`=0, `'null'`=1; escaper only `' " \n \r \\`), `Dot` specials
   (`ByValue.ref`, `offsetItems` folding), `New/Array/Map/Object`, `Binop` string-combine,
   `EnumTag/Enum/EnumParameter`, `NativeOperator`, big `printTypeConverter` matrix, `%...%` stubs.
@@ -515,7 +515,22 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
   `(closurePtr, closureEnv)`? How do `VirtualMethod` (`_$t->_->m_(_$t,...)`) and fat closures interact
   in one call path?
 - Q: copies: does assigning a fat value `RefInc` the env (D3) — i.e. is the env the only ARC target?
+- [ ] F1.1 Freeze two-var ABI (no struct): params double up; returns take extra `void**` out-param for code ptr and return env ref; fields double up (`name$f_`, `name$e_`).
+- [ ] F1.2 Extend `Nice` IR with captures (`source/data/nice.hexa`).
+- [ ] F1.3 Compute captures in `Normalizer`, typer-enforce `@noCapture`-only-accepts-`@noCapture` (`source/compiler/normalizer.hexa`).
+- [ ] F1.4 Emit env-first signatures + per-closure structs + factories (`source/targets/genC.hexa`).
+- [ ] F1.5 Rewrite `CallKind.Function` sites to fat-call; generate thin wrappers for non-capturing fn → capturing ref; pair with sentinel env.
+- [ ] F1.6 Thread pairs through fields/arrays/globals/params/returns (double slots, not structs).
+- [ ] F1.7 Tests: nested closures, returned closures, method-as-value, `@noCapture` FFI.
 
+**Acceptance.** Captures survive return; fat calls thread env; returns use out-param; no silent capture drop.
+- Q: wrapper cache: one wrapper per non-capturing function, or per (function, signature)?
+- Q: null-fat value shape: `(nullWrapper, sentinelEnv)` — which half does `== null` test?
+- Q: methods: `(methodPtr, thisRef)` with ARC on `thisRef`; vtable slots env-first?
+- Q: copies assign + `RefInc(env)` only; raw code ptr never retained?
+- Q: `typedef _$N` is emitted per `stringifyType(Function)` call (tempId counter), even nested in
+  `printFunctionArguments` — dedup function-type signatures after F1 (source TODO says dedup in
+  normalizer), or keep per-emission typedefs?
 
 ## F2. Sentinel nulls everywhere
 
@@ -526,9 +541,6 @@ ARC ignores it; checks compare against it.
 sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-cased; fat null undefined.
 
 **Steps.**
-- [ ] F2.1 Define sentinels in one place: shared ref sentinel object, `Bool 2`, numeric `{0,0}` /
-  `{0.0,0}` structs, null-fat = `(nullWrapper, sentinelEnv)`. Files: `library/cxx/hexa.c`,
-  `library/c/hexa.c` (or the real `String/Array/Map` runtime when it lands).
 - [ ] F2.2 Unify `Null(of)` + `printTypeConverter` null arms to those sentinels; add fat-null
   construction. File: `source/targets/genC.hexa` (`printExpression(Null)`, converter matrix).
 - [ ] F2.3 Make `== null` / `!= null` / `if let` (already `step` + `!=Null/False`) compare against
@@ -536,15 +548,26 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
   (`Binop(Equal/Unequal)`), `normalizer.hexa` (if-let condition shapes).
 - [ ] F2.4 Define ARC-over-sentinel = no-op in the runtime (`rc++`/`rc--` early-out). File: runtime headers.
 - [ ] F2.5 Document `wchar_t` width + `bytes_` caching interaction (UTF-16 literals vs sentinels are orthogonal, but touch the same `String` bootstrap). File: this doc + `docs/native.md`.
-**Acceptance.** `Null` for every type has exactly one lowering; `x == null`, `if let`, `EnumTag`,
-fat-null checks all pass; refcount ops on sentinels are safe no-ops.
 - Q: fat-null equality — env-only compare, or `(func==nullWrapper && env==sentinel)`? What does
   `Unknown/UnknownNullable` (unresolved generics) compare against before monomorphization?
-- Q: `Bool` null `2` vs `Bool_` three-state — does the sentinel live in-band (value `2`) while ref
-  sentinels are out-of-band (global object)? Any case needing a separate `has_` flag instead?
 - Q: `String_<id>` globals + `String_$root_` bootstrap (inside `HEXA_MAIN`) — immortal (never
   released) or refcounted? Who decides — immortal simplifies F3 enormously.
+- [ ] F2.1 Define ref/numeric sentinels in `library/cxx/hexa.c` + `library/c/hexa.c`.
+- [ ] F2.2 Add two global `Bool` sentinels; `true as Any` / `false as Any` return them.
+- [ ] F2.3 Intern `BigInt` like `String` (`library/c/string.hexa` `root`/`next` pattern).
+- [ ] F2.4 Unify `Null(of)` + converter null arms; add fat-null construction.
+- [ ] F2.5 Compare `== null` / `if let` / fat-null against sentinels.
+- [ ] F2.6 ARC-over-sentinel = no-op in runtime.
 
+**Acceptance.** One lowering per `Null` type; `((true as Any) == (true as Any)) == true`; interned `BigInt` referential equality; sentinel ops safe.
+- Q: fat-null equality — env-only or both halves?
+- Q: `String_<id>` globals — immortal or refcounted?
+- Q: `BigInt` interning key — value hash + compare, like `fromUTF16` hash/length walk?
+- Q: `Bool?` null is in-band `2` today (`Bool_` tri-state) — keep the in-band third state
+  (D2 says `Bool`/`BigInt` stay stored plainly) or promote `Bool?` null to a sentinel object?
+  How does the tri-state interact with the two `Bool`-as-`Any` sentinels?
+- Q: after the null sentinel, does `EnumTag` collapse (`(e == 0? -1 : e->is_)` → plain `e->is_`
+  with the sentinel carrying `is_ == -1`/tag), or does the tag special-case stay?
 
 ## F3. Revive `ArcInserter` (fix, gate, reconnect)
 
