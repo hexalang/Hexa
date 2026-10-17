@@ -53,13 +53,6 @@ header.join('\n')
 + '// Statements\n'        + out.join('') with %%%HEXA_STRINGS@@@ expanded
 ```
 
-`out` holds everything else: complex-enum factories, `$this_`/`$new_` pairs,
-method bodies, static methods, global functions, and finally `HEXA_MAIN`.
-
-Note: there is a large **dead-code block after the `return`** (legacy `_x`-prefixed
-emitter). It is unreachable. It documents an older naming scheme, keep for archaeology
-until deleted.
-
 ## Configuration
 
 - `memory64: Bool` + `defaultCallingConvention: String` are derived from
@@ -387,6 +380,8 @@ until deleted.
   assumes (`HEXA_*` macros, `Any_/String_/Array_/Map_` ops, nullable structs).
 - `docs/native.md` — the promised native ABI (closures, structs, strings, flags, spans)
   that `genC` must eventually honor; `docs/target-llvm.md` — sibling native TODOs.
+`out` = complex-enum factories, `$this_/$new_` pairs, method/static/global bodies, `HEXA_MAIN`.
+Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
 
 ## Reference II — what `Normalizer` guarantees `genC`
 
