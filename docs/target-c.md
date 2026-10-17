@@ -383,17 +383,10 @@ header.join('\n')
 - Q: can the dead `_x`-prefixed emitter after `return` be deleted now, or does some
   test still diff against it (`genC.diff.txt` in repo root)? Same for the unreachable
   second `Switch` (real C `switch`) — which lowering is canonical?
-## How to read this file next to the others
-- `source/data/nice.hexa` — the IR (`Statement`/`Expression`/`NiceClass`/`NiceLink`/etc.)
-  `genC` pattern-matches on.
 - `source/compiler/normalizer.hexa` + `source/compiler/normalizing/arc.hexa` — what IR
   shape `genC` can assume (closures? ARC nodes? `Switch` guards/binds?).
 - `source/targets/genJs.hexa` — the reference dynamic semantics (`instanceof`,
   `delayedInits`, `Enum_N` arrays) to port to static C.
-- `library/cxx/hexa.c` + `library/c/hexa.c` + `library/c/*.hexa` — the runtime `genC`
-  assumes (`HEXA_*` macros, `Any_/String_/Array_/Map_` ops, nullable structs).
-- `docs/native.md` — the promised native ABI (closures, structs, strings, flags, spans)
-  that `genC` must eventually honor; `docs/target-llvm.md` — sibling native TODOs.
 `out` = complex-enum factories, `$this_/$new_` pairs, method/static/global bodies, `HEXA_MAIN`.
 Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
 
