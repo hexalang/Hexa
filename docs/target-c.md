@@ -1,33 +1,41 @@
-# C Target (`source/targets/genC.hexa`)
+# C Target (`source/targets/genC.hexa`) — future-work guide
 
-`class GenCxx` — generates **C with C++ compatibility** (`cpp: Bool` toggles `spawn()` vs `spawnCpp()`).
-Some features require C11. Input is `NiceProject` (post-`Normalizer` + `ArcInserter` IR),
-output is a single C file (`\r\n` line endings) assembled from string-buffer sections.
+This doc is a **guide for future work**, not just a description of today.
+First half is reference (what `genC` + `Normalizer` + `Nice` + `ArcInserter` actually do,
+verified against source). Second half is **actionable TODOs** implementing the binding
+architecture decisions below. Checkboxes are work items; bullet `Q:`s under each TODO are
+the implementation questions that must be answered while doing that item.
 
-Entry: `perform(normalizer, target, options) -> stringify(target)`.
-Option: `extraUnderscore` (adds `__link` prefix for `_link` names — LLVM 32-bit linker workaround).
+`class GenCxx` generates **C with C++ compatibility** (`spawn()` vs `spawnCpp()`; some
+features require C11). Input is `NiceProject` (`source/data/nice.hexa`) from
+`Normalizer.normalize()` (`source/compiler/normalizer.hexa`); output is one C file
+(`\r\n`). Entry: `perform(normalizer, target, options) -> stringify(target)`.
+Option: `extraUnderscore` (LLVM 32-bit linker workaround).
 
-Runtime prologue/epilogue comes from disk, not from the generator itself:
+Pipeline fact (`source/main.hexa`, ~L810-843): `Main` copies
+`generator.nativeEnums / nativeIterators / globalAccessor / keywords` into the `Normalizer`,
+calls `normalize()`, then `generator.perform(normal, target, options)` directly.
+**`ArcInserter` (`source/compiler/normalizing/arc.hexa`) is currently disconnected**
+(no `new ArcInserter` / `insertArc()` call site). `genC` sets `nativeIterators = false`,
+`globalAccessor = ''`, `nativeEnums` stays default `false`.
 
-- `header` = `library/cxx/hexa.c` + `extern "C" {` guard (`HEXA_NEW`, `HEXA_FREE`,
-  `HEXA_LINK(name) asm(name)`, `HEXA_MAIN`, `HEXA_UNREACHABLE`, `true_`/`false_`,
-  `Any_` forward, platform includes).
-- `Defaults` = `library/c/hexa.c` (currently only `HEXA_UNREACHABLE` body).
-- `String`/`Array`/`Map` runtimes (`String_$combine_`, `String_$fromInt32_`,
-  `Array_$new_`/`$from_`, etc.) are **assumed to exist** — they are not emitted here.
+Runtime prologue/epilogue comes from disk:
 
-## Output assembly (`stringify`)
+- `header` = `library/cxx/hexa.c` + `extern "C" {` (`HEXA_NEW/FREE/LINK/MAIN/UNREACHABLE`,
+  `true_/false_`, `Any_` forward, platform includes).
+- `Defaults` = `library/c/hexa.c` (only `HEXA_UNREACHABLE` body today).
+- `String/Array/Map` ops (`String_$combine_`, `Array_$new_/$from_`, ...) are **assumed**,
+  not emitted here.
 
-Single `return` concatenates sections in fixed order (all are `[String]` ropes joined at the end):
 
 ```
 header.join('\n')
-+ '// Forward\n'           + forward.join('\n')            // struct Foo_; typedef...; #define; #include; String_N decls
-+ '// Typedef functions\n' + typedefFunctions.join('')    // closure/func-pointer typedefs _$N
-+ '// Forward functions\n' + forwardFunctions.join('')     // Class_$method_; Enum_$method_; _$temp;
-+ '// Types\n'             + types.join('')                // struct bodies + vtables + static-method inline decls
-+ '// Global variables\n'  + globalVariables.join('')     // Class_$var_; globals
-+ '// Global functions\n'  + globalFunctions.join('')     // lambdas/closures _$N bodies
++ '// Forward\n'           + forward.join('\n')      // struct Foo_; typedef...; #define; #include; String_N decls
++ '// Typedef functions\n' + typedefFunctions.join('') // func-pointer typedefs _$N (→ fat-pointer typedefs, F1)
++ '// Forward functions\n' + forwardFunctions.join('') // Class_$method_; Enum_$method_; _$temp;
++ '// Types\n'             + types.join('')          // struct bodies + vtables + static decls
++ '// Global variables\n'  + globalVariables.join('') // Class_$var_; globals (→ fat fields are pairs, F1)
++ '// Global functions\n'  + globalFunctions.join('') // lambda bodies _$N (→ env-first signatures, F1)
 + '// Defaults\n'          + library/c/hexa.c
 + '// Statements\n'        + out.join('') with %%%HEXA_STRINGS@@@ expanded
 ```
