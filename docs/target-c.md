@@ -27,6 +27,19 @@ Runtime prologue/epilogue comes from disk:
 - `String/Array/Map` ops (`String_$combine_`, `Array_$new_/$from_`, ...) are **assumed**,
   not emitted here.
 
+## Binding architecture decisions (do not re-litigate without compiler-dev sign-off)
+
+### D1. Function values are fat pointers: `(funcPtr, env)` pairs
+
+### D2. All nulls are sentinels, never raw zero for managed refs
+
+### D3. ARC = `RefInc` immediately followed by nearby `DeferRefDec`
+
+### D4. `DeferRefDec` lowers to RAII `defer` in `genC`, so unwinding is exception-safe
+
+### D5. C++ exception mechanism is required for ARC; pure-C output panics
+
+## Reference I — output assembly (`stringify`)
 
 ```
 header.join('\n')
@@ -374,3 +387,87 @@ until deleted.
   assumes (`HEXA_*` macros, `Any_/String_/Array_/Map_` ops, nullable structs).
 - `docs/native.md` — the promised native ABI (closures, structs, strings, flags, spans)
   that `genC` must eventually honor; `docs/target-llvm.md` — sibling native TODOs.
+
+## Reference II — what `Normalizer` guarantees `genC`
+
+
+## Reference III — `Nice` IR shape (`nice.hexa`)
+
+
+## Reference IV — `genC` today (pressure points for the TODOs)
+
+
+---
+
+# Future work (actionable)
+
+Conventions: each item lists **Goal**, **Current state**, **Steps** (`- [ ]`, with files),
+**Acceptance**, and **`Q:` implementation questions** to resolve while doing it.
+Do items in order F1 → F5; F6–F8 can parallelize after F1/F2 land.
+
+## F1. Fat function values end-to-end (closures, methods, `@noCapture`)
+
+
+
+**Steps.**
+
+
+## F2. Sentinel nulls everywhere
+
+
+
+**Steps.**
+
+
+## F3. Revive `ArcInserter` (fix, gate, reconnect)
+
+
+
+**Steps.**
+
+
+## F4. Lower `DeferRefDec` to RAII `defer` in `genC`
+
+
+
+**Steps.**
+
+
+## F5. Exception model split (C++ ABI vs C panic)
+
+
+
+**Steps.**
+
+
+## F6. Methods, `this`, and vtables under fat pointers + ARC
+
+**Goal.** Method values and virtual dispatch compose with F1/F3 (env = `this` where applicable).
+
+
+**Steps.**
+
+**Acceptance.** Method reference keeps `this` alive; virtual + fat paths don't double-retain.
+
+## F7. Collections, strings, enums under the new rules
+
+**Goal.** `String/Array/Map`, complex enums, `ByValue/ArrayByValue` obey sentinel + ARC + fat rules.
+
+**Steps.**
+
+**Acceptance.** Element/payload lifetimes tested (append/reassign/throw-past-container).
+
+## F8. Parity gaps and hygiene (do alongside, unblock cheaply)
+
+
+## How to read this doc next to the others
+- `source/data/nice.hexa` — IR (`NiceName`/`CapturedVar` TODOs are now F1 inputs).
+- `source/compiler/normalizer.hexa` — F1 captures + F3 predicate inputs live here.
+- `source/compiler/normalizing/arc.hexa` — F3 work site (bug list in F3); header comment already
+  states the `defer` intent D4 implements.
+- `source/main.hexa` (~L810-843) — F3.4 reconnection point; `c`/`cpp` registry.
+- `source/targets/genJs.hexa` — dynamic-semantics reference (not the ARC/fat model).
+- `library/cxx/hexa.c` + `library/c/hexa.c` + `library/c/*.hexa` — F2 sentinels, F4 guard type,
+  F5 handlers live here.
+- `docs/native.md` (Function Pointers and Closures; Null Handling) — update the C sketches to the
+  chosen two-var/two-field + sentinel forms once F1/F2 decide.
