@@ -502,7 +502,6 @@ call sites pass only declared args.
   returns. Files: `genC.hexa` (`Dot/Assign/Index`), `nice.hexa` if field-pair nodes needed.
 - [ ] F1.7 Tests: capture-by-value semantics, nested closures, closure returned from function
   (`native.md` `outer()` example), method-as-value, `@noCapture` FFI call.
-
 **Acceptance.** `outer()`-style test compiles to env-first C, captures survive return, fat calls
 thread env, `@noCapture` emits raw pointer; no capture is silently dropped (typer errors until F1 lands).
 - Q: two vars vs one struct — which keeps `metaBlock` spilling, `Assign`, `Index`, and
@@ -516,6 +515,7 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
   `(closurePtr, closureEnv)`? How do `VirtualMethod` (`_$t->_->m_(_$t,...)`) and fat closures interact
   in one call path?
 - Q: copies: does assigning a fat value `RefInc` the env (D3) — i.e. is the env the only ARC target?
+
 
 ## F2. Sentinel nulls everywhere
 
@@ -536,7 +536,6 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
   (`Binop(Equal/Unequal)`), `normalizer.hexa` (if-let condition shapes).
 - [ ] F2.4 Define ARC-over-sentinel = no-op in the runtime (`rc++`/`rc--` early-out). File: runtime headers.
 - [ ] F2.5 Document `wchar_t` width + `bytes_` caching interaction (UTF-16 literals vs sentinels are orthogonal, but touch the same `String` bootstrap). File: this doc + `docs/native.md`.
-
 **Acceptance.** `Null` for every type has exactly one lowering; `x == null`, `if let`, `EnumTag`,
 fat-null checks all pass; refcount ops on sentinels are safe no-ops.
 - Q: fat-null equality — env-only compare, or `(func==nullWrapper && env==sentinel)`? What does
@@ -545,6 +544,7 @@ fat-null checks all pass; refcount ops on sentinels are safe no-ops.
   sentinels are out-of-band (global object)? Any case needing a separate `has_` flag instead?
 - Q: `String_<id>` globals + `String_$root_` bootstrap (inside `HEXA_MAIN`) — immortal (never
   released) or refcounted? Who decides — immortal simplifies F3 enormously.
+
 
 ## F3. Revive `ArcInserter` (fix, gate, reconnect)
 
