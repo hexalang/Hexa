@@ -1,6 +1,8 @@
 # C Target (`source/targets/genC.hexa`) — future-work guide
 
-This doc is a **guide for future work**, not just a description of today.
+- Keep edits to this doc as small bullet-point diffs (one bullet per fact/decision).
+- Small diffs keep reviews fast; avoid rewording untouched lines.
+- This doc is a **guide for future work**, not just a description of today.
 First half is reference (what `genC` + `Normalizer` + `Nice` + `ArcInserter` actually do,
 verified against source). Second half is **actionable TODOs** implementing the binding
 architecture decisions below. Checkboxes are work items; bullet `Q:`s under each TODO are
@@ -29,7 +31,6 @@ Runtime prologue/epilogue comes from disk:
 
 ## Binding architecture decisions (do not re-litigate without compiler-dev sign-off)
 
-### D1. Function values are fat pointers: `(funcPtr, env)` pairs
 - A Hexa function value is **two** C values, never one: a raw C function pointer plus a
   closure-object pointer. The C function takes the env as its **first** argument
   (matches `docs/native.md`: `ClosureFunc(Closure* closure, int z)`; call: `f$ptr(f$env, args...)`).
@@ -41,6 +42,7 @@ Runtime prologue/epilogue comes from disk:
   all call sites can use one uniform fat-call shape (or document the two call shapes if we
   keep the `native.md` zero-overhead direct-call optimization — see F1-Q).
 - Rationale: keeps plain calls (`outer()`) at zero overhead while making capture uniform.
+### D1. Function values are two variables, never a struct
 
 ### D2. All nulls are sentinels, never raw zero for managed refs
 - Every `null` of managed/nullable/fat-pointer type materializes as a **sentinel/placeholder
@@ -462,7 +464,7 @@ Conventions: each item lists **Goal**, **Current state**, **Steps** (`- [ ]`, wi
 **Acceptance**, and **`Q:` implementation questions** to resolve while doing it.
 Do items in order F1 → F5; F6–F8 can parallelize after F1/F2 land.
 
-## F1. Fat function values end-to-end (closures, methods, `@noCapture`)
+## F1. Two-var function values end-to-end (closures, methods, `@noCapture`)
 
 **Goal.** No more capture-less `_$temp(args)`. Every function value is `(funcPtr, env)`; every
 call passes env first; `@noCapture` stays a single raw pointer for C ABI.
@@ -677,6 +679,28 @@ with location; multi-catch order respected.
 **Acceptance.** Element/payload lifetimes tested (append/reassign/throw-past-container).
 - Q: containers of fat values (array of closures): element = two slots? `get_/set_` signatures?
 - Q: `String` interning + immortal globals (F2-Q) vs refcounted strings — which?
+
+## F9. `async`/`await` on C++ coroutines
+- Coroutine shape: every `async` func **always `co_return`s something** (forces compiler to treat it as a coroutine).
+- Own `co_`-runner with **start-after-create executor** mimicking JS/Node.js async ordering.
+- `genC` gap today: no `Await` case, `isAsync` ignored — reject or lower per this design.
+- [ ] F9.1 Define `co_`-runner + executor placement (runtime headers vs emitted helpers).
+- [ ] F9.2 Lower `async`/`await` to `co_return`/`co_await` in `genC` (`cpp` only); clear error on pure C.
+- Q: how do ARC guards (F4) interact with coroutine frames (suspension = scope exit?)?
+- Q: how do fat-pair closures (F1) cross suspension points (env lifetime)?
+
+## F10. Reflection (`Any`, `JSON.parse`, ...)
+- Dynamic surface stays: `Any` field/method access, `is`/`as`, `JSON.parse`-like materialization.
+- [ ] F10.1 Define `Any` metadata/vtable surface needed by `genC` dynamic paths (`let_/$set/get_/set_`).
+- [ ] F10.2 Scope `JSON.parse` return ownership under ARC (who retains the tree?).
+- Q: does reflection reuse fat-pair/sentinel machinery, or need its own type tags?
+
+## F11. Memory allocator in Hexa itself
+- Allocator is written in `.hexa`, not C++ `new`/`malloc` sprinkled in codegen.
+- `HEXA_NEW/FREE` become calls into that allocator; `genC` only emits allocation sites.
+- [ ] F11.1 Define allocator interface + refcount header layout (where does `rc` live?).
+- [ ] F11.2 Route `HEXA_NEW`, closure/env allocs, `String`/`Array`/`Map`/interned `BigInt` through it.
+- Q: freestanding targets (no libc `malloc`) — which paths must avoid libc entirely?
 
 ## F8. Parity gaps and hygiene (do alongside, unblock cheaply)
 
