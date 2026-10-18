@@ -43,6 +43,15 @@ Runtime prologue/epilogue comes from disk:
 - Capturing-function reference accepting a non-capturing function: compiler generates a **thin wrapper** that calls through.
 - Non-capturing references accept **only** non-capturing functions (typer-enforced).
 - `@noCapture` stays single raw pointer for C ABI.
+- Closure captured state is lowered to a **classic helper object** (heap-allocated, ARC-managed like a
+  class instance; fields = captures) — never C++ `[&]` lambdas, never a boxed tuple.
+- `Arrow` (=>) differs from `Function` only before codegen: arrows are eliminated in the pre-generator
+  lowering (converted into global functions), so `genC` sees plain `Function` only.
+- Closure lowering (capture lifting into the helper object) runs **before** the ARC pass (F3) —
+  either inside `Normalizer` or as a separate pass; the optimal path is to be decided (F1-Q).
+- ABI adapters: capturing function refs are `__fastcall`; if a function's own ABI (calling
+  convention) differs from the expected fat-call ABI, a **wrapper** is generated that calls into the
+  original function.
 
 ### D2. All nulls are sentinels, never raw zero for managed refs
 - Every `null` of managed/nullable/fat-pointer type is an **addressable sentinel**.
@@ -57,6 +66,14 @@ Runtime prologue/epilogue comes from disk:
 - This avoids null-check branches on the hot path (classic `if obj != null obj.rc++` goes away).
 - Same shape applies to other sentinels (`Bool`, etc).
 - `genC` today emits a mix (`nullptr`, `int32_t$null`, `(uint8_t)2`, ...). F2 unifies this.
+- Scope (decided): sentinels apply to **managed refs + fat pointers only**. Native C pointers
+  (`ArrayPointer`/`ConstArrayPointer`, `@rename`d FFI pointers, ...) keep raw zero — their `!= null`
+  compiles to a true null check (`ptr != nullptr`), never a sentinel compare.
+- Scalar nullability is **in-band**, not pointer-sentinel: `Bool_` tri-state (1/0/2) and similar
+  encodings for most nullable integer types are intentional optimizations (no heap object for
+  `Bool?`/`Int?`).
+- Interned globals (`String_<id>`, ...) are **immortal** — never deallocated, since external C code
+  may depend on them unpredictably and indefinitely.
 
 ### D3. ARC = `RefInc` immediately followed by nearby `DeferRefDec`
 - Ownership rule: whenever `arc.hexa` retains an object (passing/assigning/storing it does `rc++`
@@ -82,6 +99,36 @@ Runtime prologue/epilogue comes from disk:
   C++ exception ABI** (`throw/catch`, RAII guards participate); **pure C keeps today’s
   panic behavior** (`HEXA_UNREACHABLE` / `abort`) and ARC is best-effort/leak-tolerated there.
 - `_try/_catch/_throw/$try` stubs in `genC` today are placeholders for this split (F5).
+
+### D6. Memory manager is deferred ref counting (atomic inc/dec, sweep-on-alloc)
+- The ARC pass inserts **atomic `rc++`/`rc--` only** — it never emits a refcount check (`if rc == 0`)
+  at any use site.
+- Deallocation is deferred: "sometimes", when an allocation happens, the manager traverses its
+  linked list of allocated objects and frees the ones observed at `rc == 0`.
+- A `rc--` therefore can never double-free (nothing frees at decrement); conversely a **skipped**
+  decrement is a permanent leak (object never observed at 0). Refines D4/D5: a throw can only leak,
+  never double-free — but the RAII decrements (F4) remain mandatory.
+- Consistent with D2: sentinels carry a huge refcount and are never observed at 0.
+- The linked list is intrusive in allocation headers (`rc` + link) — this is the core of the F11
+  allocator, not a bolt-on GC.
+
+### D7. Dynamic conversions mimic JavaScript semantics
+- Principle: wherever runtime semantics are not fixed by static types, mimic JS as closely as
+  possible — always, not just for `Any`.
+- The typer enforces non-null for non-nullable simple values (`Bool`, `Int`, ...) — those types never
+  observe "missing"; the coercion from `Any` to them follows JS: `Any`→`Bool` is JS truthiness
+  (`null`/`undefined`/`''`/`0`/`NaN`/`false` are falsy), not a raw `_toBool()` bit read.
+- This resolves the `printTypeConverter` TODOs `((==null)?false:_toBool)` / `((==null)?0:_toInt)`:
+  the JS-style coercion helper is the answer, not an extra null check.
+- Interned `'null'` (string id 1) is exactly the JS `ToString(null)` result — consistent with this rule.
+
+### D8. Nice is the canonical IR; generators stay thin
+- Move as much logic as possible into pre-generator passes and into Nice nodes/types (`NiceType`,
+  field indices, `CapturedVar` TODOs in `nice.hexa`); the C/C++ generator implements only what C
+  output strictly requires.
+- Motivation: future LLVM/.asm generators must consume the same fully-lowered Nice IR.
+- Direction for `genC`'s "TODO do it in normalizer" (`Switch`→if-ladder, `guards/binds`, captures);
+  `nativeIterators`/`nativeEnums`/`globalAccessor` are the existing capability-flag pattern to extend.
 
 ## Reference I — output assembly (`stringify`)
 
@@ -286,6 +333,9 @@ Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
   `Any` paths (`let_/$set/get_/set_`), `String_$combine_`, `Switch` ⇒ if-ladder (`Null→-1`,
   guards/binds ignored, second C-`switch` emitter dead), `SuperConstructor/RefInc/DeferRefDec`
   unhandled, `For` stub.
+- Nullable numerics surface: `Null$*` structs (`{value_, has_}` — `null => has_ == 0 and value == 0`),
+  wrap via `toNull$UInt64(...)`, unwrap `.value_`, `==`/`!=` via `equalNull$UInt64`/`equalNull$Float32`;
+  `printValueToNullableConverter`/`printNullableToValueConverter` are `%...%` stubs (feed F2/F8).
 - `Bool_` is in-band tri-state (comment: 1=true, 0=false, 2=null); `Bool.null` ⇒ `(uint8_t)2`;
   empty vtables get `uint8_t padding_` because empty struct is size 0 in C, size 1 in C++ —
   both facts matter for D2 sentinel layout.
@@ -305,13 +355,9 @@ Do items in order F1 → F5; F6–F8 can parallelize after F1/F2 land.
 
 ## F1. Two-var function values end-to-end (closures, methods, `@noCapture`)
 
-**Goal.** No more capture-less `_$temp(args)`. Every function value is `(funcPtr, env)`; every
-call passes env first; `@noCapture` stays a single raw pointer for C ABI.
+**Goal.** Stop emitting every function value as a bare capture-less top-level `_$temp(args)` function (today's behavior — captures silently dropped). Every function value becomes two vars `(f$ptr, f$env)`: calls pass env first, returns use the out-param form, `@noCapture` stays a raw pointer.
 
-**Current state.** `Statement/Expression.Function/Arrow` ⇒ top-level `_$temp` with no env
-(`genC`); `Normalizer` preserves `args/defaults/body` only, no capture analysis; `Nice` has no
-capture field (only `// CapturedVar` comment); `typedef _$N` has no env param; `CallKind.Function`
-call sites pass only declared args.
+**Current state.** `Function/Arrow` ⇒ `_$temp` with no env; no capture analysis; `typedef _$N` has no env param; `CallKind.Function` passes only declared args.
 
 **Steps.**
 - [ ] F1.1 Decide representation (one decision, then uniform): two parallel C vars/fields
@@ -349,7 +395,7 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
 - Q: copies: does assigning a fat value `RefInc` the env (D3) — i.e. is the env the only ARC target?
 - [ ] F1.1 Freeze two-var ABI (no struct): params double up; returns take extra `void**` out-param for code ptr and return env ref; fields double up (`name$f_`, `name$e_`).
 - [ ] F1.2 Extend `Nice` IR with captures (`source/data/nice.hexa`).
-- [ ] F1.3 Compute captures in `Normalizer`, typer-enforce `@noCapture`-only-accepts-`@noCapture` (`source/compiler/normalizer.hexa`).
+- [ ] F1.3 Compute captures + lower closures to helper objects in a pre-ARC pass (late `Normalizer` phase or separate pass — see Q), typer-enforce `@noCapture`-only-accepts-`@noCapture` (`source/compiler/normalizer.hexa` / new `source/compiler/normalizing/` pass).
 - [ ] F1.4 Emit env-first signatures + per-closure structs + factories (`source/targets/genC.hexa`).
 - [ ] F1.5 Rewrite `CallKind.Function` sites to fat-call; generate thin wrappers for non-capturing fn → capturing ref; pair with sentinel env.
 - [ ] F1.6 Thread pairs through fields/arrays/globals/params/returns (double slots, not structs).
@@ -363,6 +409,16 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
 - Q: `typedef _$N` is emitted per `stringifyType(Function)` call (tempId counter), even nested in
   `printFunctionArguments` — dedup function-type signatures after F1 (source TODO says dedup in
   normalizer), or keep per-emission typedefs?
+- Q: closure-lowering placement (D1) — late phase inside `Normalizer.normalize()`, or a separate pass
+  object (like `ArcInserter`) called from `source/main.hexa` between `normalize()` and `insertArc()`?
+  Decide the optimal path.
+- Q: helper object shape — a synthesized `NiceClass` in Nice IR (uniform ARC/type treatment) vs an
+  opaque runtime struct? Mutable captures: per-var cell/box fields so mutation is shared between
+  closures (nice.hexa `capture let with [=]` TODO)?
+- Q: ABI adapters (D1) share the wrapper table with the F1.5 thin wrappers — cache keyed by
+  (function, signature, convention)? Is `__fastcall` for capturing refs meaningful only on
+  `Memory.Old32` (i686, where `defaultCallingConvention` is `__stdcall`) and a no-op on x64 —
+  env-first pairs with fastcall there (env travels in ECX)?
 
 ## F2. Sentinel nulls everywhere
 
@@ -378,12 +434,9 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
 - [ ] F2.3 Make `== null` / `!= null` / `if let` (already `step` + `!=Null/False`) compare against
   sentinels, including fat values (compare env half? both halves?). Files: `genC.hexa`
   (`Binop(Equal/Unequal)`), `normalizer.hexa` (if-let condition shapes).
-- [ ] F2.4 Define ARC-over-sentinel = no-op in the runtime (`rc++`/`rc--` early-out). File: runtime headers.
 - [ ] F2.5 Document `wchar_t` width + `bytes_` caching interaction (UTF-16 literals vs sentinels are orthogonal, but touch the same `String` bootstrap). File: this doc + `docs/native.md`.
 - Q: fat-null equality — env-only compare, or `(func==nullWrapper && env==sentinel)`? What does
   `Unknown/UnknownNullable` (unresolved generics) compare against before monomorphization?
-- Q: `String_<id>` globals + `String_$root_` bootstrap (inside `HEXA_MAIN`) — immortal (never
-  released) or refcounted? Who decides — immortal simplifies F3 enormously.
 - [ ] F2.1 Define ref/numeric sentinels in `library/cxx/hexa.c` + `library/c/hexa.c`.
 - [ ] F2.2 Add two global `Bool` sentinels; `true as Any` / `false as Any` return them.
 - [ ] F2.3 Intern `BigInt` like `String` (`library/c/string.hexa` `root`/`next` pattern).
@@ -393,11 +446,17 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
 
 **Acceptance.** One lowering per `Null` type; `((true as Any) == (true as Any)) == true`; interned `BigInt` referential equality; sentinel ops safe.
 - Q: fat-null equality — env-only or both halves?
-- Q: `String_<id>` globals — immortal or refcounted?
+- Decided: `String_<id>`/interned globals are **immortal**, never deallocated (external C code may
+  depend on them unpredictably and indefinitely) — D2.
 - Q: `BigInt` interning key — value hash + compare, like `fromUTF16` hash/length walk?
-- Q: `Bool?` null is in-band `2` today (`Bool_` tri-state) — keep the in-band third state
-  (D2 says `Bool`/`BigInt` stay stored plainly) or promote `Bool?` null to a sentinel object?
-  How does the tri-state interact with the two `Bool`-as-`Any` sentinels?
+- Decided: scalar nullability stays **in-band** (`Bool_` tri-state 1/0/2 and similar integer
+  encodings) — an intentional optimization, no pointer sentinels for scalars (D2).
+- Q: exact in-band encoding per width — reserved bit-pattern in a widened slot vs the current
+  `Null$*{value_, has_}` pair structs (64-bit/floats today)? Which widths lack a spare code
+  (`UInt64` has none) and must keep the pair struct?
+- Q: native-pointer exemption (D2) — which type kinds qualify (`@rename`d externals,
+  `ArrayPointer`/`ConstArrayPointer`, `@struct*`)? Encode the predicate once (typer `Type` kind vs
+  decorator).
 - Q: after the null sentinel, does `EnumTag` collapse (`(e == 0? -1 : e->is_)` → plain `e->is_`
   with the sentinel carrying `is_ == -1`/tag), or does the tag special-case stay?
 
@@ -440,7 +499,7 @@ flag off reproduces today's output; `needsARC` unit cases (struct vs class vs nu
 - Q: rvalue temps (`temp_call_arg`): retain or just `Defer` (today: temp + dec, no inc — correct only
   if the rvalue is already +1)? Order of evaluation + exception between args (F5)?
 - Q: `globalVars`/statics/field defaults: ARC at `HEXA_MAIN` init time with immortal lifetime
-  (no `Defer`), or excluded? `String_<id>` globals (F2-Q): immortal?
+  (no `Defer`), or excluded? (`String_<id>` globals are settled: immortal per D2.)
 
 ## F4. Lower `DeferRefDec` to RAII `defer` in `genC`
 
@@ -480,6 +539,9 @@ throw past guarded scopes, assert balanced inc/dec); ARC-on + pure C either work
 - Q: IIFE boundaries (`Block`/`Switch`/`Elvis`/`[for]` lowered to `Call(Function(...))`): does the
   guard belong inside the IIFE body (correct) — and does `arc.hexa`'s `processExpression→Function body`
   recursion place it there?
+- Q (per D6): decrements can never double-free — does that allow simpler guards (e.g. a `catch(...)`
+  re-dec table instead of per-object RAII), or keep pure RAII for uniformity? Skipped decs are still
+  permanent leaks, so "best-effort scope-end dec" stays a pure-C-only option.
 
 ## F5. Exception model split (C++ ABI vs C panic)
 
@@ -556,13 +618,32 @@ with location; multi-catch order respected.
 - [ ] F10.1 Define `Any` metadata/vtable surface needed by `genC` dynamic paths (`let_/$set/get_/set_`).
 - [ ] F10.2 Scope `JSON.parse` return ownership under ARC (who retains the tree?).
 - Q: does reflection reuse fat-pair/sentinel machinery, or need its own type tags?
+- Q (per D7): exact truthiness table for `Any`→`Bool` — `0`, `NaN`, `''`, empty arrays/objects? One
+  runtime `Any_toBool` implementing JS truthiness, or per-type fast paths?
+- Q (per D7): `Any`→`Int`/`Float` — JS `ToNumber` (`null → 0`, `'12' → 12`)? `Any`→`String` — JS
+  `ToString` (`null → 'null'`, i.e. interned id 1)? Who owns the returned strings under ARC?
 
 ## F11. Memory allocator in Hexa itself
 - Allocator is written in `.hexa`, not C++ `new`/`malloc` sprinkled in codegen.
 - `HEXA_NEW/FREE` become calls into that allocator; `genC` only emits allocation sites.
+- The manager itself is deferred ref counting (D6): intrusive `rc` + linked-list link in the
+  allocation header; sweep-on-alloc frees `rc == 0` objects.
 - [ ] F11.1 Define allocator interface + refcount header layout (where does `rc` live?).
 - [ ] F11.2 Route `HEXA_NEW`, closure/env allocs, `String`/`Array`/`Map`/interned `BigInt` through it.
+- [ ] F11.3 Runtime linkage model: inline the Hexa runtime into plain `.exe` (static-CRT-like,
+  default), share one runtime across `.dll`s, future: dedicated runtime `.dll` export.
+  Files: `library/cxx/hexa.c`, `library/c/hexa.c`, the F11 allocator.
 - Q: freestanding targets (no libc `malloc`) — which paths must avoid libc entirely?
+- Q: sweep policy (D6) — full list walk on every allocation, or budgeted/periodic? What makes an
+  allocation trigger a sweep "sometimes" (every N allocs, bytes threshold, explicit call)?
+- Q: `rc` atomics — memory order (relaxed?), which threads are expected today, and does the sweep
+  need synchronization against concurrent allocs?
+- Q: retained cycles (instance ↔ closure helper objects) are invisible to plain RC — accepted leak,
+  or trial-deletion during the sweep?
+- Q: shared runtime across `.dll`s — who owns the alloc list + sentinels (exported symbols,
+  init-once)? What happens when an exe and its DLLs each statically link a runtime and objects
+  cross the boundary?
+- Q: runtime `.dll` ABI/versioning for the future export mode?
 
 ## F8. Parity gaps and hygiene (do alongside, unblock cheaply)
 
@@ -580,6 +661,12 @@ with location; multi-catch order respected.
 - [ ] Delete dead `_x` emitter + dead second `Switch` + pipe-operator comment block; confirm no test
   diffs (`genC.diff.txt`); silence `template/duplicate` logs; resolve `%...%` stubs and
   `ConstCharPointer` debug throws.
+- [ ] Per D8 prefer pre-generator lowering over `genC` special cases: `Switch`→if-ladder,
+  `guards/binds`, arrow elimination move to normalizer/passes (target-gated like `nativeIterators`).
+- Q: target-specific lowering (C lacks rich `switch`) — per-target capability flags in the
+  normalizer (existing `nativeIterators`/`nativeEnums` pattern) vs always-generic lowering?
+- Q: which Nice enrichments land first (`NiceType`, field indices, `CapturedVar`) so a future
+  LLVM/.asm generator avoids re-deriving them (D8)?
 
 ## How to read this doc next to the others
 - `source/data/nice.hexa` — IR (`NiceName`/`CapturedVar` TODOs are now F1 inputs).
@@ -587,7 +674,9 @@ with location; multi-catch order respected.
 - `source/compiler/normalizing/arc.hexa` — F3 work site (bug list in F3); header comment already
   states the `defer` intent D4 implements.
 - `source/main.hexa` (~L810-843) — F3.4 reconnection point; `c`/`cpp` registry.
-- `source/targets/genJs.hexa` — dynamic-semantics reference (not the ARC/fat model).
+- `source/targets/genJs.hexa` — dynamic-semantics reference (not the ARC/fat model); JS-semantics
+  baseline for D7 coercions.
+- `docs/target-llvm.md` — future consumer of the same fully-lowered Nice IR (D8).
 - `library/cxx/hexa.c` + `library/c/hexa.c` + `library/c/*.hexa` — F2 sentinels, F4 guard type,
   F5 handlers live here.
 - `docs/native.md` (Function Pointers and Closures; Null Handling) — update the C sketches to the
