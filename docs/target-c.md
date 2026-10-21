@@ -727,9 +727,29 @@ with location; multi-catch order respected.
 
 ## F10. Reflection (`Any`, `JSON.parse`, ...)
 - Dynamic surface stays: `Any` field/method access, `is`/`as`, `JSON.parse`-like materialization.
+- Interface semantics are TypeScript-like: **field** access (not just methods), `JSON.parse` dynamic
+  object creation, reflection.
+- Object shape: no hash table — a sequential `keys[]` array plus a parallel accessor `funcs[]`
+  array; keys are interned-string pointers (pointer identity, no hashing).
+- `Reflect.get` traverses linearly: `key == keys[i]` → `funcs[i](i, self, args)`. The accessor is
+  per-field-type (reads by known offset and converts to `Any`, e.g. raw `uint8_t` Bool → `Any`);
+  method fields' accessors ignore `i` (the index rides in a register anyway — nothing to optimize).
+- Few fields per object by design: structural, nominal & Zig-style compile-time structural typing
+  means runtime-structural interfaces are rare. Users may opt into Go-style typed JSON
+  serialization into nominal class instances (`JSON.parse` takes a field-count hint to avoid
+  realloc during first fill).
+- Uniform mutation: `delete(obj.field)` and `a.newField = 123` both work through the same table.
+  Write/delete accessors operate on the raw `uint64_t` key (interned name ref) with a constant
+  xor/& mask landing in an impossible address range (tombstone marker — no name+prefix
+  allocations). Deleting writes `null` into the slot; `ownKeys` iteration skips nulls and tolerates
+  slots appearing during iteration (new fields append at the end, so they are eventually traversed).
+- Possible future `@optimized interface{}` decorator for Go-like static shape (opt-in).
 - [ ] F10.1 Define `Any` metadata/vtable surface needed by `genC` dynamic paths (`let_/$set/get_/set_`).
 - [ ] F10.2 Scope `JSON.parse` return ownership under ARC (who retains the tree?).
 - Q: does reflection reuse fat-pair/sentinel machinery, or need its own type tags?
+- A: **recommend the accessor-table design above** — the accessor IS the type knowledge (no
+  per-object type tags), reusing D2 sentinels for `Any` null/Bool boxes; fat-pairs appear only if
+  reflection ever exposes function values.
 - Q (per D7): exact truthiness table for `Any`→`Bool` — `0`, `NaN`, `''`, empty arrays/objects? One
   runtime `Any_toBool` implementing JS truthiness, or per-type fast paths?
 - A: **recommend the exact JS table** (falsy: `false`, `±0`, `NaN`, `''`, `null`, `undefined`;
@@ -737,22 +757,6 @@ with location; multi-catch order respected.
   codegen optimization, not a semantic difference.
 - Q (per D7): `Any`→`Int`/`Float` — JS `ToNumber` (`null → 0`, `'12' → 12`)? `Any`→`String` — JS
   `ToString` (`null → 'null'`, i.e. interned id 1)? Who owns the returned strings under ARC?
-
-Dev:
-In our language interface semantics is closer to typesctipt, allowing for fields access (not just methods) and JSON.parse() dynamic object creation, reflection etc
-Okey, you see our strings are interned, so we can just take a pointer to the string object itself and use it as a key. No need for hash.
-The object does not has hash table, but instead just plain sequential array of keys. And other array of function pointers (accessors).
-Reflect.get() basically traverses this array linearly, and if string key == keys[i], then `funcs[i](i, self, args)`
-The accessor is per-type of field: thus, accessing say Bool field (raw uint8_t), accessor knows how to read the field data by known offset to convert it into Any (Bool->Any object).
-If field is a method, its accessor is a method itself that ignores `i`. (how to not pass `i` for optimization? probably CPU regs will have it anyway so prop nothing to worry)
-We have structural, nominal, and compile-time structural (Zig-style) type system, so interfaces (structural at runtime) are supposed to not be very common and objects do not really have that many fields anyway. Users may opt for typed Go-style serialization of JSON into concrete nominal class instance. But here we talk about "average" uncareful coding and JSON.parse logic (requires passing field-count to avoid realloc while first fill).
-This enables `delete(obj.field)` and `let a = Any{}; a.newField = 123` uniformly.
-Operation of writing into a field is a mask:
-x = obj.field // accessor for "field" as raw uint64_t of its interned reference
-obj.field = y // accessor for "field" as raw uint64_t xor/& with constant mask (to make it in impossible address range) -> avoids allocating/reserving any "fieldname+prefix" work
-// same for delete (for proper cleanup)
-Deleting just... write null into this table... Iteration over ownKeys does not break (it will skip nulls, even if they appear WHILE iteration is happening -> new fields always appear on the end, so they ARE traversed eventually)
-We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on demand... opt-in by decorator/annotation.
 - A: **recommend JS `ToNumber`/`ToString`** (`null → 0`, `'12' → 12`, `ToString(null) = 'null'` =
   interned id 1, consistent with the string table); converted strings are +1 (caller-side F4
   guard), interned literal results immortal (D2). Strict `as!` conversions keep today's casts
