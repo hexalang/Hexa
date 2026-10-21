@@ -15,14 +15,18 @@ class Normalizer {
 	var collected: [[Node]] = []
 	var nativeEnums = false
 	var nativeIterators = true
-	var globalAccessor = '<!--global-->'
 	var nativeReverseIterators = false
+	var globalAccessor = '<!--global-->' // TODO hover over string not work, but works on rigth side
 	var typer: Typer
 	var package: Package
 	var thisType: Type? = null
 
 	// Pre-computed value of say `let x = 123` thus `inline[x] == 123`
 	let inline: [Node : Expression] = [:]
+
+	// If `inline[node] != null && nonInlineRead[node] != true`
+	// then node is useless
+	let nonInlineRead: [Node : Bool] = [:]
 
 	/// Never reassigned local variables
 	let neverReassignedLocal: [Node : Bool] = [:]
@@ -260,6 +264,30 @@ class Normalizer {
 			switch e {
 				// Transformation not required
 				case String(v):
+					// TODO remove
+					// Handle `@acpiHeaderSignature`
+					if Decorator.getDecorator(project.mapDecorators.get(e), 'acpiHeaderSignature') != null {
+						fun byteswap(x: BigInt) {
+							return ((x >> 24u32) & 0x000000ffu32) | ((x >> 8u32) & 0x0000ff00u32) | ((x << 8u32) & 0x00ff0000u32) |
+								((x << 24u32) & 0xff000000u32)
+						}
+
+						let v = v.split('')
+						v.reverse()
+						let v = v.join('')
+
+						let num32 = toBigInt(v.charCodeAt(0) as! Int) +
+							toBigInt(v.charCodeAt(1) as! Int) * 256n +
+							toBigInt(v.charCodeAt(2) as! Int) * 256n * 256n +
+							toBigInt(v.charCodeAt(3) as! Int) * 256n * 256n * 256n
+
+						let result = '0x' + byteswap(num32).toString(16)
+
+						console.log(v + ' == ' + num32)
+
+						return Expression.MetaInt(parseBigInt(result), Meta.UInt32, typer.typeUInt32)
+					}
+
 					return Expression.String(v)
 				case Int(v):
 					return Expression.Int(v)
@@ -298,6 +326,8 @@ class Normalizer {
 					if let value = inline.get(source) {
 						return value
 					}
+
+					nonInlineRead.set(source, true)
 
 					switch source {
 						case null:
@@ -365,9 +395,39 @@ class Normalizer {
 					}
 					return result
 
+//				// `name<T>`
+//				case ParametricIdent(name, params):
+//					// TODO
+//					if name == '_sizeOf' {
+//						if params.length != 1 {
+//							throw 'sizeOf takes only one <T>'
+//						}
+//
+//						switch params[0] {
+//							case Type(name): {
+//								let dataType = typer.toType(params[0])
+//								return Expression.SizeOf(dataType)
+//								return Expression.SizeOf('struct ' + name + '_')
+//							}
+//						}
+//					}
+//
+//					return Expression.String('TODO_ParametricIdent')
+//					var source: Node? = typer.parents.get(e)
+//					nonInlineRead.set(source, true)
+//					let fixup = Node.Ident(name)
+//					typer.parents.get(fixup, source)
+//					return nodeToExpressionWithoutPosition(fixup)
+//
 				// `expr.name`
 				// TODO constant propagation
 				case Dot(expr, name):
+
+				// TODO optimize `'String'.length`
+				//if (name == 'length') switch expr {
+				//	case String(s): console.log('String.length', s, name, s.length) return Expression.Int(s.length)
+				//}
+
 				let parent: Node? = typer.parents.get(expr)
 				/*switch expr {
 						return NiceExpression.Dot(NiceExpression.This(typer.types.get(expr)), getClassDotField(typer.types.get(expr).parent, name) ?? name, typer.types.get(e))
@@ -543,6 +603,16 @@ class Normalizer {
 				// TODO extract bin-op handler to function so than can be called commutatively `infixCommutative()`
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
+
+				if op == Token.Assign {
+					var source: Node? = typer.parents.get(a)
+					if let source = source {
+						switch source {
+							case Var(name, _):
+								neverReassignedLocal.set(source, false)
+						}
+					}
+				}
 
 				// TODO refactor `if op` to `switch op`
 				if op == Token.Add { switch ea {
@@ -864,12 +934,18 @@ class Normalizer {
 
 					let expression = nodeToExpression(e)
 					switch op {
+						case Exclamation if postfix:
+							// TODO probably better introduce PostfixUnop or just Node.Postfix/Suffix Node.Prefix
+							return Expression.RemoveNullability(expression, typer.types.get(e))
 						case KNot:
 							switch expression {
 								// `not true = false`
 								case True: return Expression.False
 								// `not false = true`
 								case False: return Expression.True
+								//	return Expression.True
+								//case False:
+									return Expression.True // TODO bug!
 							}
 					}
 					return Expression.Unop(op, postfix, expression)
@@ -921,7 +997,83 @@ class Normalizer {
 					return Expression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
 				}
 
-				return Expression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+				// Expression if-let: wrap in IIFE to contain bindings
+				let resultType = typer.types.get(e)
+				let iifeBlock = []
+				var ifCurrent = 0
+				let ifStep = unique('step')
+				iifeBlock.push(Statement.Var(ifStep, Expression.Int(0), typer.typeInt))
+				var ifNullable = false
+				var ifLast = ''
+				var ifLastType = typer.types.get(econd[0])
+				switch econd[0] {
+					case Var(name, t, expr, const):
+					ifLast = unique(name, econd[0])
+					ifNullable = true
+					iifeBlock.push(Statement.Const(ifLast, nodeToExpression(expr), typer.types.get(econd[0])))
+					ifLastType = ifLastType ?? typer.types.get(expr)
+					case _:
+					ifLast = unique('temp')
+					iifeBlock.push(Statement.Const(ifLast, nodeToExpression(econd[0]), typer.types.get(econd[0])))
+				}
+				while ifCurrent < econd.length - 1 { switch econd[ifCurrent + 1] {
+					case Var(vname, t, expr, const):
+					let ifName = unique(vname, econd[ifCurrent + 1])
+					iifeBlock.push(Statement.Var(ifName, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
+					iifeBlock.push(Statement.If(
+						Expression.Binop(
+							Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(ifCurrent + 0), typer.typeBool),
+							Token.LogicalAnd,
+							Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
+							typer.typeBool
+						),
+						Statement.Block([
+							Statement.Assign(Expression.Ident(ifName, typer.types.get(expr)), nodeToExpression(expr), null),
+							Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(ifCurrent + 1), null)
+						]), null))
+						ifCurrent++
+						ifLast = ifName
+						ifLastType = typer.types.get(expr)
+						ifNullable = true
+					case _:
+					let ifNext = unique('temp')
+					let ifNextType = typer.types.get(econd[ifCurrent + 1])
+					iifeBlock.push(Statement.Var(ifNext, Expression.Null(ifNextType), ifNextType))
+					iifeBlock.push(Statement.If(
+						Expression.Binop(
+							Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(ifCurrent + 0), typer.typeBool),
+							Token.LogicalAnd,
+							Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
+							typer.typeBool
+						),
+						Statement.Block([
+							Statement.Assign(Expression.Ident(ifNext, ifNextType), nodeToExpression(econd[ifCurrent + 1]), null),
+							Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(ifCurrent + 1), null)
+						]), null))
+						ifCurrent++
+						ifLast = ifNext
+						ifLastType = ifNextType
+						ifNullable = false
+				}}
+				// Last step
+				iifeBlock.push(Statement.If(
+					Expression.Binop(
+						Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
+						Token.LogicalAnd,
+						Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
+						typer.typeBool
+					),
+					Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(econd.length), null), null))
+				// Return result based on step
+				var ifElseReturn: Statement = Statement.Return(Expression.Null(resultType))
+				if eelse != null {
+					ifElseReturn = Statement.Return(nodeToExpression(eelse))
+				}
+				iifeBlock.push(Statement.If(
+					Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(econd.length), typer.typeBool),
+					Statement.Return(nodeToExpression(eif)),
+					ifElseReturn))
+				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(iifeBlock), [], [], Type.Function([], resultType, false), isAsync: false)), [], resultType, CallKind.Function)
 
 				case Await(e):
 					return Expression.Await(nodeToExpression(e))
@@ -1053,6 +1205,26 @@ class Normalizer {
 					}
 				}
 
+				// Collect RC cleanups (in reverse order for LIFO unwind)
+				// let cleanups: [Statement] = []
+				// for s in els {  // Scan backwards to collect in reverse (last declared first)
+				// 	switch s {
+				// 		// TODO case Var(name, expr, type) | Const(name, expr, type):
+				// 		case Var(name, expr, type):
+				// 			if type.needsRefCount {  // Assume this check; adjust as needed
+				// 				cleanups.unshift(  // Unshift to reverse: inner-most first
+				// 					Statement.RefDec(Expression.Ident(name, type))  // Your new node
+				// 				)
+				// 			}
+				// 		case _: {}  // Ignore non-decls
+				// 	}
+				// }
+
+				// Append cleanups if any (as sub-block to avoid empty-block opt)
+				// if cleanups.length > 0 {
+				// 	els.push(Statement.Block(cleanups))
+				// }
+
 				// Unwrap `{{{{block}}}}`
 				if els.length == 1 { switch els[0] {
 					case Block(_):
@@ -1116,7 +1288,7 @@ class Normalizer {
 									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 								}
 							}
-						case Function(name, expr, vars, rettype, external):
+						case Function(name, expr, vars, rettype, external, variadic):
 							if project.mapStatic.get(f) == true {
 								let uname = parentNames.get(f) ?? unique(name, f)
 								let a = []
@@ -1132,7 +1304,8 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+								let variadicKind = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
 							}
 						case _: console.error("(internal warning) Unknown complex enum field kind:", f)
 					}}
@@ -1193,7 +1366,7 @@ class Normalizer {
 									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 								}
 							}
-						case Function(name, expr, vars, rettype, external):
+						case Function(name, expr, vars, rettype, external, variadic):
 							if project.mapStatic.get(f) == true {
 								let uname = parentNames.get(f) ?? unique(name, f)
 								let a = []
@@ -1209,7 +1382,8 @@ class Normalizer {
 											defaults.push(null)
 										}
 								}}
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+								let variadicKind = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
+								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
 							}
 						case _: console.error("(internal warning) Unknown simple enum field kind:", f)
 					}}
@@ -1329,7 +1503,7 @@ class Normalizer {
 								}
 								niceClass.property.push(uname)
 						}
-					case Function(name, expr, vars, rettype, external):
+					case Function(name, expr, vars, rettype, external, variadic):
 						// TODO `getClassDotField`
 						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
 						let a = []
@@ -1346,10 +1520,11 @@ class Normalizer {
 									defaults.push(null)
 								}
 						}}
+						let variadicKind = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
 						if project.mapStatic.get(f) == true {
-							niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+							niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
 						} else {
-							niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), VariadicKind.NotVariadic, isAsync: project.mapAsync.get(f) == true))
+							niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
 						}
 					case _: console.error("(internal warning) Unknown class field kind:", f)
 				}}
@@ -1378,6 +1553,12 @@ class Normalizer {
 								// TODO are enum instances support generic-ness now?
 								case EnumInstance(enumType):
 									signature.push(enumType.name)
+									// TODO this syntax should work `let generic = generic ?? []`
+									//let generic = generic ?? ([] as! [Type])
+									//for param in generic {
+									// TODO this syntax should work `for param in generic ?? [] {`
+									//	fillSignature(signature, param)
+									//}
 								case Class(classType):
 									signature.push(classType.name)
 								case Enum(enumType):
@@ -1507,6 +1688,14 @@ class Normalizer {
 
 				if const {
 					let value = nodeToExpression(expr)
+				//	switch value {
+				//		case Int(_): inline.set(e, value)
+				//		case String(_): inline.set(e, value)
+				//		case Float(_): inline.set(e, value)
+				//		case True(_): inline.set(e, value)
+				//		case False(_): inline.set(e, value)
+				//		case Null(_): inline.set(e, value)
+				//	}
 
 					saveInlineIfViable(e, value)
 
@@ -2000,7 +2189,10 @@ class Normalizer {
 				}
 				// If all checks pass, do nothing; otherwise execute else block
 				block.push(Statement.If(combined, Statement.Block([]), nodeToStatement(otherwise)))
-				return Statement.Block(block)
+				if block.length == 1 {
+					return block[0]
+				}
+				return Statement.Statements(block)
 
 				case AssignOp(a, op, b): {
 					var source: Node? = typer.parents.get(a)
@@ -2271,8 +2463,11 @@ class Normalizer {
 				case Null:
 					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
 				case Module(_):
+				case null:
+					console.log('(internal warning) seems like null node passed to normalizer')
 				case _:
 					return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
+					//return Statement.UnusedExpression(nodeToExpression(e))
 			}
 
 			return null

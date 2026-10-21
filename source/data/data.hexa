@@ -5,16 +5,21 @@
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 
 // TODO refactor to nodes.hexa
+// declare Handle<T> = {value: T}
 // TODO move to nodes.hexa
 /// Syntax tree
 // TODO unindent
+// NOTE All (value, ...) names unique across all enum tags to avoid confusion
+// TODO ^ `@ensureUniqueTagParameter/Value/ArgumentNames enum`
 enum Node {
+	// TODO
+	// private PrivateCase // only for enum with fields
 	/// `"text"`
 	String(text String)
 
 	/// `/pattern/flags`
 	// TODO flags as bit mask
-	RegExp(pattern String, flags String)
+	RegExp(pattern String, flags String?)
 
 	/// `ident` or `ident<T>`
 	// TODO rename to something better
@@ -57,10 +62,20 @@ enum Node {
 	AssignOp(storage Node, op Token, value Node)
 
 	/// { el[0] ... el[n] }
+	// TODO `, commaSeparated Bool` for `{a,b}` and `{a:b,c}
+	// TODO remove `:` here!
 	Block(el [Node])
 
+	/// a : b, c : d, ...
+	/// a : b just this?
+	// Used to detect `{ a : b }` in blocks and `a? b:c` to parse without backtracking
+	// ColonPairs(names [String], values [Node])
+
 	/// `e(args[0], ...args[n])`
-	Call(e Node, args [Node], argNames [String]/*, generic [NodeType]*/)
+	// TODO maybe add unified MethodCall(e, methodName, args...) thus e.methodName(args)
+	// ^ will simplify code gen, decorators, macro and optimizations
+	// ^ this also saves some allocations
+	Call(e Node, args [Node], argNames [String] /*, generic [NodeType]*/)
 
 	/// if econd[0], ...econd[n] { eif } [else { eelse }]
 	// TODO rename to `econd=condition`, `eif=then`, `eelse=otherwise`
@@ -98,11 +113,15 @@ enum Node {
 	/// `declare fun name<params>(vars) retType { body }`
 	// Name is `new` for constructor
 	// TODO expr Node.Block (goal is *not* to `Node extends NodeBlock` but to actually limit tags)
+	// TODO rename to Fun to now confuse with Nice.Function LLMs, leave a NOTE
 	Function(name String?, body Node, vars [Node], returnType NodeType, external Bool, variadic Bool)
 
+	/// `[declare] fun name<T>(vars) rettype { expr }`
+	// ParametricFunction(name String?, expr Node, vars [Node], retType NodeType, external Bool, params [NodeType]?)
 
 	/// `(vars) retType => expr`
 	// TODO parser `: retType` is really needed at all?
+	// TODO unify to `fun` with `isArrow` flag
 	Arrow(expr Node, vars [Node], retType NodeType)
 
 	/// [external ? `declare`] (const ? `let` : `var`) `name nodeType` [`= expr`]
@@ -153,6 +172,8 @@ enum Node {
 	/// expr[x, y, z]
 	Index3D(expr Node, x Node, y Node, z Node)
 
+	// TODO update names in this doc
+	// TODO better pack into single object, not array of fields
 	/// switch exprs[0], exprs[n] {
 	///     case cases[0]: conds[0]
 	///     case cases[n]: conds[n]
@@ -172,13 +193,23 @@ enum Node {
 	// NOTE: Do not use Map here
 	Object(names [String], el [Node])
 
+	// TODO unify into `Node.Class` and rename to `ClassLike` or `Prototype`
+	// ^ avoid `class` word to not look too much focused on OOP
 	/// enum t : valuesType extends extend { fields[0] ... fields[n] }
 	Enum(enumType/*uniq name classType etc for easy bind*/ NodeType, fields [Node], valuesType NodeType?, extend NodeType?)
 
 	/// let expr(extract[0], ..., extract[n]) = name
 	EnumExtract(path [String], bind [Node/*.Var TODO*/], expr Node)
 
+	// TODO
+	// A.B
+	// A.B(c, d)
+	// A.B(c: d, d: d)
 	EnumConstructor
+	// TODO
+	// case `B()`
+	// case `B(c, d)`
+	// case `B(c: d, d: d)` ?
 	EnumPattern
 	/// `expr is T`
 	Is(expr Node, aType NodeType)
@@ -210,6 +241,7 @@ enum Node {
 	/// for name in over ... range statement
 	For(iterator String, over Node, statement Node, range Node)
 	// TODO `range Node?`
+	// For(name String, over Node, by Node, range Node, index Node?)
 
 	/// Elvis Presley operator `nullable ?? alternative`
 	Elvis(nullable Node, alternative Node)
@@ -221,6 +253,7 @@ enum Node {
 	Guard(conditions [Node], otherwise Node)
 
 	/// `T<A, B>` but as expression
+	// TODO rename to `Type/Upper/Capital/TypeName(!= Tags, so bad)`
 	NodeTypeValue(dataType NodeType)
 
 	/// Produces readable string representation for node
@@ -228,7 +261,7 @@ enum Node {
 	static fun stringify(node Node) String {
 		switch node {
 			case String(s): return "'\(s)'"
-			case RegExp(pattern, flags): return '/' + pattern + '/' + flags
+			case RegExp(pattern, flags): return '/' + pattern + '/' + (flags ?? '')
 			case Ident(name): return name
 			case Bool(b): return b? "true" : "false"
 			case Int(s): return s.toString()
@@ -239,14 +272,17 @@ enum Node {
 			case Elvis(nullable, alternative): return 'Elvis(' + stringify(nullable) + ',' + stringify(alternative) + ')'
 			case Cascade(e, names, keys, values):
 				var res = "Cascade(" + stringify(e) + ",["
+
 				if names.length > 0 {
 					for i in names.length {
 						res += names[i] + ":" + stringify(values[i])
+
 						if i != names.length - 1 { res += "," }
 					}
 				} else {
 					for i in keys.length {
 						res += stringify(keys[i]) + ":" + stringify(values[i])
+
 						if i != keys.length - 1 { res += "," }
 					}
 				}
@@ -260,6 +296,7 @@ enum Node {
 			case DotMeta(expr, name, args, argNames):
 				if let args = args, let argNames = argNames {
 					let arg = []
+
 					for i in args.length {
 						if let argName = argNames[i] {
 							arg.push(argName + ': ' + Node.stringify(args[i]))
@@ -274,6 +311,7 @@ enum Node {
 			case Meta(name, args, argNames):
 				if let args = args, let argNames = argNames {
 					let arg = []
+
 					for i in args.length {
 						if let argName = argNames[i] {
 							arg.push(argName + ': ' + Node.stringify(args[i]))
@@ -287,6 +325,7 @@ enum Node {
 				}
 			case Call(e, args, argNames):
 				let arg = []
+
 				for i in args.length {
 					if let name = argNames[i] {
 						arg.push(name + ': ' + Node.stringify(args[i]))
@@ -552,6 +591,7 @@ enum Node {
 				))
 			case Underscore: return cloneData(p, node, Node.Underscore)
 			case Break: return cloneData(p, node, Node.Break)
+				// TODO for <T> no need to copy those? just pass as is?
 			case Continue: return cloneData(p, node, Node.Continue)
 			case Spread(value): return cloneData(p, node, Node.Spread(cloneData(p, value, clone(p, value))))
 			case null:
@@ -559,6 +599,7 @@ enum Node {
 			case _:
 		}
 
+		// TODO bruh make it exhaustive
 		console.log('Cannot clone', node)
 		return node
 	}
@@ -571,7 +612,9 @@ enum Node {
 		}
 
 		let project = project as! Any // TODO
+		// TODO decorators also should deep-copy until their content is simple string lexeme or no args
 		project.mapDecorators.set(to, project.mapDecorators.get(from))
+		// TODO other maps
 		project.data.set(to, project.data.get(from))
 		return to
 	}

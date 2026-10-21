@@ -892,7 +892,7 @@ class Typer {
 										fail('External class constructor `new ()` cannot have a body `\{\}`', field)
 									} else {
 										let prefix = isStatic ? 'static ' : ''
-										fail('External class field `\(prefix)function \(name)` cannot have a body `{}`', field)
+										fail('External class field `\(prefix)function \(name)` cannot have a body `\{\}`', field)
 									}
 								}
 
@@ -1022,7 +1022,7 @@ class Typer {
 					}
 
 					if f.length == 0, extend == null {
-						fail('Enum `\(enumType.name)` must have at least one value `enum \(enumType.name) { Value }`', node)
+						fail('Enum `\(enumType.name)` must have at least one value `enum \(enumType.name) \{ Value \}`', node)
 						// TODO autocomplete and hint `{ TODO }` for placeholder tag
 					}
 
@@ -2990,7 +2990,7 @@ class Typer {
 				switch e {
 					case Block(_):
 					case _:
-						fail('Try body must be a `{ block }`', e)
+						fail('Try body must be a `\{ block \}`', e)
 				}
 				fill(e)
 				// Restore stack
@@ -3531,7 +3531,7 @@ class Typer {
 								}
 
 								if (names.length == 0) {
-									fail('Object\(object) is empty `{}` and has no fields. Create object with all fields defined upfront, like this: `obj = { \(n): value }`', node)
+									fail('Object\(object) is empty `\{\}` and has no fields. Create object with all fields defined upfront, like this: `obj = \{ \(n): value \}`', node)
 								}
 
 								if (names.length != 0) {
@@ -3824,37 +3824,84 @@ class Typer {
 				types.set(node, types.get(e))
 
 				// `if (econd) eif else eelse`
-			case If(econd, eif, eelse, ternary):
-				if econd.length > 1 {
-					fail('More than one condition is not yet supported', econd[1])
-				}
-
-				switch econd[0] {
-					case Var(_):
-						fail('Variable bindings in ternary conditions are not yet supported', econd[0])
-				}
-
-				if eelse == null {
-					fail('Expression `if` should have an `else` clause', eif)
-				}
-				fillExpression(econd[0])
-
-				if ternary == false {
-					switch eif {
-						case Block(_):
-						case _:
-							fail('Ternary `if` should have a `{ block }` as a body', eif)
+				case If(econd, eif, eelse, ternary):
+					if eelse == null {
+						fail('Expression `if` should have an `else` clause', eif)
 					}
 
-					switch eelse {
-						case Block(_):
-						case _:
-							fail('Ternary `else` should have a `{ block }` as a body', eelse)
+					// Check if it contains if-let bindings
+					var exprBinds = false
+					for cond in econd { switch cond {
+						case Var(_):
+						exprBinds = true
+					}}
+
+					if exprBinds {
+						// Expression if-let: process bindings with scopes
+						var exprDepth = 0
+						for e in econd {
+							switch e {
+								case Var(name, t, expr, const):
+									if not const {
+										fail('Only `if let` bindings supported, not `if var`', node)
+									}
+									if t != null {
+										fail('Do not specify a type `: T` in `if let` bindings', node)
+									}
+									if expr == null {
+										fail('`if let` binding should have a value `\(name) = value', node)
+									}
+									exprDepth++
+									pushScope()
+									pushScope()
+									fillExpression(expr)
+									popScope()
+									switch types.get(expr) as!Type {
+										case Nullable(t): types.set(e, t)
+										case UnknownNullable(handle):
+											if let t = handle.value {
+												types.set(e, t)
+											} else {
+												fail('`if let` cannot bind not fully known nullable type', node)
+											}
+										case _: types.set(e, types.get(expr))
+									}
+									addScope(name, e)
+								case _:
+									fillExpression(e)
+									let exprType = types.get(e)
+									if exprType != typeBool, exprType != typeAny, exprType != null {
+										fail('`if value` expects `value` only of type `Bool`, but got `' + Type.stringify(exprType) + '`', e)
+									}
+							}
+						}
+						fillExpression(eif)
+						while exprDepth > 0 {
+							exprDepth--
+							popScope()
+						}
+						fillExpression(eelse)
+					} else {
+						if econd.length > 1 {
+							fail('More than one condition is not yet supported', econd[1])
+						}
+						fillExpression(econd[0])
+						if ternary == false {
+							switch eif {
+								case Block(_):
+								case _:
+									fail('Ternary `if` should have a `\{ block \}` as a body', eif)
+							}
+							switch eelse {
+								case Block(_):
+								case _:
+									fail('Ternary `else` should have a `\{ block \}` as a body', eelse)
+							}
+						}
+						fillExpression(eif)
+						fillExpression(eelse)
 					}
-				}
-				fillExpression(eif)
-				fillExpression(eelse)
-				types.set(node, unify(types.get(eif), types.get(eelse), eelse))
+					types.set(node, unify(types.get(eif), types.get(eelse), eelse))
 
 				// Simple nodes
 				// `null`
@@ -4527,6 +4574,23 @@ class Typer {
 						fail('Operator `not value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
 					}
 					types.set(node, typeBool)
+					return
+				}
+
+				if op == Token.Exclamation, postfix {
+					switch types.get(e) {
+						case Nullable(t):
+							types.set(node, t)
+						case UnknownNullable(handle):
+							if handle.value != null {
+								types.set(node, types.get(handle.value))
+							} else {
+								fail('Operator `value!` expects `value` of nullable type, but got `\(Type.stringify(types.get(e)))`', node)
+							}
+						case _: // TODO `case nonNullable:`
+							// fail('Operator `value!` expects `value` of nullable type, but got `\(Type.stringify(types.get(e)))`', node)
+							types.set(node, types.get(e)) // No-op for non-nullable values
+					}
 					return
 				}
 

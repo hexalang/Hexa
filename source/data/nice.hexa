@@ -21,6 +21,10 @@
 //	Field(index Int)
 //	ClassField(index Int, ref NiceClass)
 //}
+// true // Hint#10: Unused boolean `true` not in vshexa TODO this is CLEARLY a bug, so must be error, not "hint"
+0x1234563434u64 // same, unused
+// 0x1234563434u64 render as 0x1_234_563_434u64 in vshexa?
+// at least JUST 8 SYMBOLS FFFF_FFFF but not 3-paris cause different langs
 
 /// Does not return a value
 enum Statement {
@@ -57,6 +61,7 @@ enum Statement {
 	Switch(expr Expression, cases [[Expression]], statements [Statement], guards [Expression], binds [[Statement]])
 	Continue
 	Break
+	// TODO .BreakFromLoop(nah) .BreakFromSwitch
 	SuperConstructor(args [Expression])
 	// TODO seems like types *here* `EnumValue(e THISTYPE)` not checked
 
@@ -70,6 +75,10 @@ enum Statement {
 	/// Can be un-counted (ARC--)
 	// TODO it is better to unref early, not a func return
 	// TODO NotNeededRef(name String)
+
+	RefInc(name [Expression])
+	// TODO capture `let` with `[=]`
+	DeferRefDec(name [Expression])
 }
 
 /// Returns a value
@@ -84,15 +93,18 @@ enum Expression {
 	// TODO UInt32, BigInt
 	// TODO : Float
 	Float(v Float)
+	// TODO Avoid allocation of every Expression.True or
+	@singletonTag
 	True
+	// static let exprTrue = Expression.True
 	False
 	// TODO `underscore Bool` for idents?
 	Ident(name String, dataType Type)
 	// TODO ^ `(name and originalName)`
 	// TODO ^ instead of `globalAccessor` just add `kind Global/Local`
 	// TODO ^ `LocalVar`
-//		Reference(name NiceName, type Type)
-//		NativeIdent(s String) // Just textual as is, sorta hack
+	// Reference(name NiceName, type Type)
+	// NativeIdent(s String) // Just textual as is, sorta hack
 	Null(nullOf Type)
 	// TODO UnwrapNullable
 	This(me Type)
@@ -100,8 +112,8 @@ enum Expression {
 	// Dot(expr Expression, name String, result Type, renamed Bool `= false`) // TODO default enum values
 	// TODO ^ resolved references, not `expr Expression, name String`
 	// ^ but instead something precise like `ClassStaticField`, `LocalVar`, `CapturedVar`
-//		Field(expr Expression, field Int)
-//		DynamicField(expr Expression, name String, result Type)
+	// Field(expr Expression, field Int)
+	// DynamicField(expr Expression, name String, result Type)
 	Call(e Expression, args [Expression], result Type, kind CallKind)
 	// CallMethod(e, name, rags)
 	// ^ todo expects
@@ -124,6 +136,9 @@ enum Expression {
 	UnsafeBitCast(expr Expression, to Type)
 	Is(expr Expression, of Type)
 
+	/// `nullable!`
+	RemoveNullability(expr Expression, result Type)
+
 	/// `name op= value`
 	Assignop(name Expression, op Token, value Expression)
 	NativeOperator(kind NativeOperatorKind, args [Expression], name String, params [Type], result Type)
@@ -144,6 +159,9 @@ enum Expression {
 	/// `...expr`
 	Spread(expr Expression)
 
+	/// `"hello" + "world"
+	StringConcatenation(leftString Expression, rightString Expression)
+
 	/// `"string"[index]` produces `String?`
 	StringIndex(expr Expression, index Expression, result Type)
 }
@@ -153,7 +171,7 @@ enum NativeOperatorKind : Int {
 	Infix = 0
 
 	// `operator(value)`
-	Function = 1
+	Function = 1 // TODO rename to Functional/Callable
 
 	// `operator value`
 	Prefix = 2
@@ -164,7 +182,7 @@ enum NativeOperatorKind : Int {
 
 enum CallKind : Int {
 	Static = 10
-	Function = 11
+	Function = 11 // TODO rename to Callable
 	VirtualMethod = 12
 	// TODO KnownVirtualMethod = 13
 }
@@ -241,7 +259,15 @@ class NiceClass {
 	new () { }
 	var external Bool
 	var useless Bool
+
+	/// Fully-renamed type name, additional postfixes are not needed
 	var name String
+
+	/// Name from Hexa source code, useful for debugging
+	// var originalName String
+	// var file String
+	// var line Int
+
 	var extend String?
 	var genericParams [String]
 	var api ClassBinaryInterface
@@ -298,3 +324,16 @@ class NiceComplexEnum {
 	var staticVars [Statement] = []
 	var expose Bool
 }
+
+// TODO add this to every enum where type:Type as niceType: NiceType and slowly replace usage to nice types
+
+/*
+enum NiceType {
+	// TODO `@singletonTag`
+	Int
+	Int64
+	Float
+	Bool
+	Class(theClass NiceClass)
+}
+*/

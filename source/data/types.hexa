@@ -22,28 +22,29 @@ enum Type {
 	UnknownNullable(handle: { value: Type? })
 	/// Non-void
 	// TODO `private` disallows direct instantiation
+	Nullable(dataType: Type)
 
 	// Classes
+	Class(dataType: ClassType) // Type of `class` node itself
 	// TODO `generic: [Type]?` or is late allocation is useless with new allocator?
 	// TODO ^ only if arrays a conjoined too or lazy-allocated internally
 	// TODO `private` disallows direct instantiation
+	ClassInstance(dataType: ClassType, generic: [Type]) // Instance of class (constructed with `new`)
+	SuperOf(dataType: ClassType) // `super` of current class (not parent)
 
 	// Enums
 	/// Type of `enum` node itself
 	// TODO generic enums
+	Enum(dataType: EnumType)
 	/// Instance of enum value
+	EnumInstance(dataType: EnumType, tag: Int)
 	/// `EnumType.EnumConstructor` without call (...)
-	Nullable(dataType: Type)
- 	Class(dataType: ClassType) // Type of `class` node itself
- 	ClassInstance(dataType: ClassType, generic: [Type]) // Instance of class (constructed with `new`)
- 	SuperOf(dataType: ClassType) // `super` of current class (not parent)
- 	Enum(dataType: EnumType)
- 	EnumInstance(dataType: EnumType, tag: Int)
- 	EnumConstructor(dataType: EnumType, tag: Int)
+	EnumConstructor(dataType: EnumType, tag: Int)
 
 	// Modularity
 	/// Type of `declare T = A` node itself
 	Alias(alias: AliasType)
+	// Aliass(alias: AliasType, alias: AliasType)
 	// TODO temporarily class FunctionType { throws : [] } etc
 	// \/ , type: FunctionType as class like ClassType etc do
 	// TODO preserve argument names
@@ -195,6 +196,26 @@ class ClassType {
 			}
 		}
 
+		/*
+		dupes:       method.type = .InProcessOfTyping(partiallyKownType)
+- type inference!!! LOCAL VARS INSIDE FUNCS!      static var <T = T> t TNONONONONO
+- per-template AST transformers;what about passing @some(value_let)?Type.String('')
+- cache of return vlaues, like from `new`
+- better speed overall? BAD: Node*Ntimes * 2NiceNode
+- still need to dupe most classes even despite dedup?
+- some syntax transformers already built-in, like @enableIf() var field PE32Header
+@privateIf()
+Map.get(@weak(unsafe) key)
+{ @sqlRequestTemplate var request = 'select *' <- only at module level or function level } @sql value = `select * from table`(table: tbl)
+           ! sql`raw`() souhle be parsed to ~(~@sql `raw`~)~(wait but args typecheck!)  naah better @ outside: @styled something `template` to produce root-level jsx like func-component or class ...or just allow creation of anonimous root-level staff (or better `private` to the module?) no pulbic is more flexible! also multiple statements!!! can use any-name for namespace like '@sql' but not ''
+@sql               inline nested generic functions?!!!!!! Scoper
+class SqlRequestTemplate<request String>
+var x = SqlRequestTemplate<"select * *>(tableNmae).result <- at any position at file + instantiated only once, not per-function (aka not inline)!
+
+Array<type {}> error T must be class or interface: set flag inferred from T usage in code to check upfront, not inside the template...butt what the point? we need to know where it happens anyway
+
+@lazyTypeCheck if knownConstantOrClassGenericConstantOr_TisT { } /*optional else {}*/
+*/
 		// TODO clone parent node right here?
 		// TODO should be compatible with native generics and external types
 		// ^ so can do typing as normal by directly referencing parent,
@@ -267,6 +288,7 @@ class AliasType {
 class FunctionArgument {
 	var name: String? = null // TODO null or required?
 	var optional: Bool = false
+	// var rest: Bool = false
 	var dataType: Type
 
 	new (withType: Type) {

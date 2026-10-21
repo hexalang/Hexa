@@ -1,0 +1,248 @@
+// The Hexa Compiler
+// SPDX-FileCopyrightText: 2025-2026 Oleh Petrenko
+// SPDX-License-Identifier: MPL-2.0
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+
+/// Ref-counting (ARC) implementation
+/// (here DeferRefDec implemented in code gen as automatic `defer` operation on scope exit)
+/// ArcInserter to insert RefInc/DeferRefDec after Normalizer.
+@final
+class ArcInserter {
+	var niceProject: NiceProject // The IR to mutate
+	var typer: Typer // For types, needsARC uses typer.types if needed
+	var expressionType: [Expression : Type] // Copy from niceProject.expressionType
+	var id Int = 0
+
+	new (niceProject: NiceProject) {
+		this.niceProject = niceProject
+		this.typer = niceProject.typer
+		this.expressionType = niceProject.expressionType // Assume map is accessible
+	}
+
+	fun insertArc() { // Main entry to process all top-level
+		for func in niceProject.globalFuncs { // Process global functions
+			this.processStatement(func) // Mutate in place
+		}
+		for cls in niceProject.classes { // Process class methods
+			for method in cls.methods {
+				this.processStatement(method)
+			}
+			for staticMethod in cls.staticMethods {
+				this.processStatement(staticMethod)
+			}
+		}
+		for enu in niceProject.enumsSimple { // If enums have static methods
+			for method in enu.staticMethods {
+				this.processStatement(method)
+			}
+		}
+		for enu in niceProject.enumsComplex { // Similar for complex enums
+			for method in enu.staticMethods {
+				this.processStatement(method)
+			}
+		}
+		// Process init if needed, assume init is Block in niceProject.init
+		for init_block in niceProject.init {
+			this.processStatement(init_block)
+		}
+		return niceProject // Return mutated
+	}
+
+	fun processStatement(s: Statement) Void { // Recurse and mutate statements
+		switch s {
+			case Block(els):
+				for el in els { this.processStatement(el) } // Recurse first to handle nested
+				var i = 0
+				while i < els.length { // Use while to handle inserts
+					switch els[i] {
+						case Const(name, expr, _): // Use expr.type? Assume type from expressionType.get(expr) or add to IR
+							let dataType = this.getType(els[i]) // Helper to get stmt type, assume Const has type param as in IR
+							if expr != null and this.needsARC(dataType) { // If initialized ARC local
+								let obj = Expression.Ident(name, dataType) // Object to ref count
+								els.spliceAndInsert(i + 1, 0, Statement.RefInc([obj])) // Insert inc after decl
+								els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([obj])) // Insert dec after inc
+								i += 2 // Skip inserted
+							}
+						case Var(name, expr, dataType): // Similar for Var, but if reassigned, handled separately
+							if expr != null and this.needsARC(dataType) {
+								let obj = Expression.Ident(name, dataType)
+								els.spliceAndInsert(i + 1, 0, Statement.RefInc([obj]))
+								els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([obj]))
+								i += 2
+							}
+						case Call(func, args, expects, kind):
+							let pre_stmts = [] // Collect inserts for rvalue args
+							for j in args.length {
+								let arg = args[j]
+								let arg_type = this.getType(arg) // From expressionType.get(arg)
+								if not this.isLvalueExpr(arg) and this.needsARC(arg_type) { // Rvalue ARC arg needs temp + dec (no inc)
+									let temp_name = this.unique('temp_call_arg')
+									let temp = Expression.Ident(temp_name, arg_type)
+									pre_stmts.push(Statement.Const(temp_name, arg, arg_type)) // Materialize temp
+									pre_stmts.push(Statement.DeferRefDec([temp])) // Defer release
+									args[j] = temp // Replace arg with temp
+								}
+							}
+							if pre_stmts.length > 0 { // Insert before call
+								// TODO els.spliceAndInsert(i, 0, ...pre_stmts) // Insert array at i
+								for stmt in pre_stmts {
+									// TODO i + N?
+									els.spliceAndInsert(i, 0, stmt)
+								}
+								i += pre_stmts.length // Skip inserted
+							}
+						case Assign(left, right, _):
+							let left_dataType = this.getType(left)
+							switch left {
+								case Ident(name, _):
+									if this.needsARC(left_dataType) { // Handle reassign for ARC var
+										let temp_name = this.unique('temp_old')
+										let temp = Expression.Ident(temp_name, left_dataType)
+										els.spliceAndInsert(i, 0, Statement.Const(temp_name, left, left_dataType)) // Save old
+										els.spliceAndInsert(i + 2, 0, Statement.RefInc([left])) // Inc new after assign (i+1 is assign)
+										els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp])) // Dec old
+										i += 3 // Skip inserted
+									}
+							}
+						case Assignop(left, op, right):
+							// Similar to Assign, but for correctness, assume no for ARC or handle eval
+							// For now, insert similar, but op may use left, so eval right first? Complex, assume no Assignop for ARC
+							// To be correct: temp_old = left temp_right = eval Binop(left, op - =, right) assign left = temp_right inc left dec temp_old
+							// But if op is +=, Binop(left, +, right)
+							let left_type = this.getType(left)
+							switch left {
+								case Ident(name, _):
+									if this.needsARC(left_type) {
+										let temp_old_name = this.unique('temp_old')
+										let temp_old = Expression.Ident(temp_old_name, left_type)
+										let temp_right_name = this.unique('temp_right')
+										let temp_right = Expression.Ident(temp_right_name, left_type)
+										let binop = Expression.Binop(left, this.opWithoutAssign(op), right, left_type) // Helper opWithoutAssign: += -> +
+										els.spliceAndInsert(i, 0, Statement.Const(temp_old_name, left, left_type)) // Save old
+										els.spliceAndInsert(i + 1, 0, Statement.Const(temp_right_name, binop, left_type)) // Eval new
+										els.spliceAndInsert(i + 2, 0, Statement.Assign(left, temp_right, null)) // Assign
+										els.spliceAndInsert(i + 3, 0, Statement.RefInc([left])) // Inc new
+										els.spliceAndInsert(i + 4, 0, Statement.DeferRefDec([temp_old])) // Dec old
+										els.splice(i + 5, 1) // Remove original Assignop
+										i += 4 // Skip to after inserts (original removed)
+									}
+							}
+						case _:
+					}
+					i++
+				}
+			case Function(name, body, args, defaults, dataType, variadic):
+				if body != null {
+					this.processStatement(body) // Recurse on body
+					let param_objs = []
+					switch dataType {
+						case Function(args, returns):
+							for j in args.length {
+								let param_dataType = args[j].dataType // Get param type
+								if this.needsARC(param_dataType) {
+									let obj = Expression.Ident(args[j].name, param_dataType)
+									param_objs.push(obj)
+								}
+							}
+					}
+					if param_objs.length > 0 {
+						switch body { // New: Switch to handle body variants directly
+							case Block(els):
+								els.unshift(Statement.DeferRefDec(param_objs)) // Mutate existing els in-place
+								els.unshift(Statement.RefInc(param_objs)) // Mutate existing els
+								// No need to re-assign s.body, as els mutated
+							case _:
+								// let body_els = [body] // For non-Block, create wrapper array
+								// body_els.unshift(Statement.DeferRefDec(param_objs))
+								// body_els.unshift(Statement.RefInc(param_objs))
+								// s.body = Statement.Block(body_els) // Only re-assign if was non-Block
+								throw 'Not a block for ARC'
+						}
+					}
+				}
+			case If(cond, then, else_):
+				this.processExpression(cond) // Recurse expr
+				this.processStatement(then)
+				if else_ != null { this.processStatement(else_) }
+			case While(cond, body, pre):
+				this.processExpression(cond)
+				this.processStatement(body)
+			case For(name, over, body):
+				this.processExpression(over)
+				this.processStatement(body)
+			case Switch(index, cases, stmts, guardians, binds):
+				this.processExpression(index)
+				for stmt in stmts { this.processStatement(stmt) }
+				// Guardians are expr, processExpression
+				for g in guardians { if g != null { this.processExpression(g) } }
+			case Try(body, types, vars, catches, temp):
+				this.processStatement(body)
+				for catch_ in catches { this.processStatement(catch_) }
+				// Add cases for other statements like Return(expr): processExpression(expr), etc.
+			case Return(expr): if expr != null { this.processExpression(expr) }
+				// TODO function result should be handled somehow specially?
+			case Throw(expr): this.processExpression(expr)
+			case Increment(expr) | Decrement(expr): this.processExpression(expr) // But not for rc, for numbers
+			case _:
+		}
+	}
+
+	fun processExpression(e: Expression) Void { // Recurse on subexpressions, no mutate here (lifts happen in stmt context)
+		switch e {
+			case Binop(a, op, b): this.processExpression(a) this.processExpression(b)
+			case Unop(op, postfix, inner): this.processExpression(inner)
+			case Dot(expr, _): this.processExpression(expr)
+			case Index(expr, index): this.processExpression(expr) this.processExpression(index)
+			case StringIndex(expr, index, _): this.processExpression(expr) this.processExpression(index)
+			case Call(func, args, dataType, kind): this.processExpression(func) for arg in args { this.processExpression(arg) }
+			case If(cond, then, else_): this.processExpression(cond) this.processExpression(then) if else_ != null { this.processExpression(else_) }
+			case New(_, args, dataType): for arg in args { this.processExpression(arg) }
+			case Function(name, body, args, defaults, dataType): if body != null { this.processStatement(body) }
+			case Arrow(expr, args, defaults, types, rettype, dataType): this.processExpression(expr) // Body is expr
+			case Parenthesis(inner): this.processExpression(inner)
+			case Array(els, dataType): for el in els { this.processExpression(el) }
+			case Object(_, els, types): for el in els { this.processExpression(el) }
+			case Map(keys, values, _, _, dataType): for k in keys { this.processExpression(k) } for v in values { this.processExpression(v) }
+			case _: // TODO
+		}
+	}
+
+	fun isLvalueExpr(e: Expression): Bool { // Helper for lvalue check on IR expr
+		switch e {
+			case Ident(_): return true // Simple var
+			case Dot(_, _): return true // Field access
+			case Index(_, _): return true // Array access
+			case Parenthesis(inner): return this.isLvalueExpr(inner) // Unwrap
+			case _: return false // Others rvalue
+		}
+	}
+
+	fun needsARC(dataType: Type): Bool { // As provided
+		switch dataType {
+			case ClassInstance(c, _): return true // TODO c.api == ClassBinaryInterface.Normal // Heap class
+			case Nullable(inner): return this.needsARC(inner) // Recurse nullable
+			case UnknownNullable(inner): return this.needsARC(inner) // Recurse nullable
+			case Unknown(inner): return this.needsARC(inner.value) // Recurse nullable
+			case _: return false // No for structs, primitives
+		}
+	}
+
+	fun getType(node: Node): Type { // Helper, assume from typer.types or expressionType
+		// For stmt, perhaps add type to Statement variants, or use niceProject.statementType? Assume implemented
+		return this.typer.types.get(node) ?? this.expressionType.get(node) // Fallback to void or error
+	}
+
+	fun unique(name: String): String { // Simple unique, assume id counter
+		// Similar to Normalizer unique, but simplified
+		return name + '_' + (++ id) // Assume id var
+	}
+
+	fun opWithoutAssign(op: Token): Token { // Helper for Assignop to Binop
+		switch op {
+			// case AddAssign: return Token.Add
+			// case SubAssign: return Token.Sub
+			// ... for others
+			case _: return op // There is no `=` in `op` anyway
+		}
+	}
+}
