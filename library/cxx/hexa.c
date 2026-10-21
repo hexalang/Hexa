@@ -94,6 +94,8 @@
 #define true_ (uint8_t)1
 #define false_ (uint8_t)0
 
+//#define variadicArgumentsInit() va_list va_lst; va_start(va_lst, c);
+
 #ifndef HEXA_MAIN
 	#define HEXA_MAIN main
 #endif
@@ -110,6 +112,12 @@ int HEXA_MAIN(int, char **);
 			#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
 			#define HEXA_UNREACHABLE_PRESENT 1
 			static void HEXA_UNREACHABLE(uint32_t where);
+			//	unsigned long $_;
+			//	HANDLE _ = GetStdHandle((DWORD)(uint32_t)(-11));
+			//	WriteFile(_, "UNREACHABLE", 11, &$_, nullptr);
+			//	FlushFileBuffers(_);
+			//	ExitProcess(where);
+			//}
 		#else
 			#define HEXA_NEW(z) malloc(z)
 			#define HEXA_UNREACHABLE(where) {}
@@ -122,10 +130,12 @@ int HEXA_MAIN(int, char **);
 		// TODO ^
 	#endif
 #endif
+
 // TODO malloc must be at #ifdef _WIN32 or NOT USED AT ALL, but use HEXA_NEW in code gen
 #ifdef _WIN32
 	//#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
 #endif
+#define HEXA_TRACE(z) wprintf(L"Trace: %s\n    at %s:%d\n", z, __func__, __LINE__)
 
 #ifndef HEXA_FREE
 	#ifdef _WIN32
@@ -133,6 +143,11 @@ int HEXA_MAIN(int, char **);
 	#else
 		#define HEXA_FREE(p, z) free(p)
 	#endif
+#endif
+
+// Deallocation of all resources
+#ifndef HEXA_END
+	#define HEXA_END hexaEnd();
 #endif
 
 // DLL precise (unmangled) linking names
@@ -169,11 +184,17 @@ typedef struct Any_ Any_;
 //typedef _GUID _IID;
 //typedef _IID* _REFIID;
 #ifdef _WIN32
+	// TODO better just HEXA_STDCALL no wait, its just in case if compiler has no
+	// If compiler has no __stdcall built-in, then create it
+	// TODO maybe __attribute__((stdcall))
 	#ifndef __stdcall
+		#define __stdcall __stdcall
 	#endif
 #else
+	// TODO is even applicable? what about COM
 	#define __stdcall__
 #endif
+// TODO use actual SEH headers
 #define _try
 #define _catch(_)
 #define _throw(_) {}
@@ -425,6 +446,14 @@ struct Object_ {};
 
 #define Bool_ uint8_t
 
+// The first bit is a sign bit, so nullable is `second bit equals 1`
+//#define int32_t$null (int64_t)0b1100000000000000000000000000000000000000000000000000000000000000LL
+//#define int32_t$null$ (int64_t)0b0100000000000000000000000000000000000000000000000000000000000000LL
+//struct Null$Int32 {
+//	int32_t value_;
+//	uint8_t has_;
+//};
+//typedef struct Null$Int32 Null$Int32;
 struct Null$Float64 {
 	double value_;
 	uint8_t has_;
