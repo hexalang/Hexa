@@ -445,14 +445,7 @@ ARC ignores it; checks compare against it.
 sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-cased; fat null undefined.
 
 **Steps.**
-- [ ] F2.2 Unify `Null(of)` + `printTypeConverter` null arms to those sentinels; add fat-null
-  construction. File: `source/targets/genC.hexa` (`printExpression(Null)`, converter matrix).
-- [ ] F2.3 Make `== null` / `!= null` / `if let` (already `step` + `!=Null/False`) compare against
-  sentinels, including fat values (compare env half? both halves?). Files: `genC.hexa`
-  (`Binop(Equal/Unequal)`), `normalizer.hexa` (if-let condition shapes).
 - [ ] F2.5 Document `wchar_t` width + `bytes_` caching interaction (UTF-16 literals vs sentinels are orthogonal, but touch the same `String` bootstrap). File: this doc + `docs/native.md`.
-- Q: fat-null equality — env-only compare, or `(func==nullWrapper && env==sentinel)`? What does
-  `Unknown/UnknownNullable` (unresolved generics) compare against before monomorphization?
 - [ ] F2.1 Define ref/numeric sentinels in `library/cxx/hexa.c` + `library/c/hexa.c`.
 - [ ] F2.2 Add two global `Bool` sentinels; `true as Any` / `false as Any` return them.
 - [ ] F2.3 Intern `BigInt` like `String` (`library/c/string.hexa` `root`/`next` pattern).
