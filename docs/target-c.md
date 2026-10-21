@@ -53,6 +53,9 @@ Runtime prologue/epilogue comes from disk:
   convention) differs from the expected fat-call ABI, a **wrapper** is generated that calls into the
   original function.
 
+Dev:
+- "Array of function refs" and "function as Any" may still require some kind of mini-struct and singular referential value
+
 ### D2. All nulls are sentinels, never raw zero for managed refs
 - Every `null` of managed/nullable/fat-pointer type is an **addressable sentinel**.
 - `Bool` as `Any` uses **two global sentinel objects** (one for `true`, one for `false`).
@@ -129,6 +132,9 @@ Runtime prologue/epilogue comes from disk:
 - Motivation: future LLVM/.asm generators must consume the same fully-lowered Nice IR.
 - Direction for `genC`'s "TODO do it in normalizer" (`Switch`→if-ladder, `guards/binds`, captures);
   `nativeIterators`/`nativeEnums`/`globalAccessor` are the existing capability-flag pattern to extend.
+
+Dev:
+- Plain non-pattern matching `Switch` should be a native `switch` at IR, as LLVM does support it at IR level
 
 ## Reference I — output assembly (`stringify`)
 
@@ -276,6 +282,9 @@ header.join('\n')
 `out` = complex-enum factories, `$this_/$new_` pairs, method/static/global bodies, `HEXA_MAIN`.
 Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
 
+Dev:
+- The definitions are sorted before generation, so the ones that depend on each other may see them (limitation of C language)
+
 ## Reference II — what `Normalizer` guarantees `genC`
 
 - **Single init.** One `Block(init)` in `niceProject.init` (per-file `Block(initial)`s inside).
@@ -420,6 +429,13 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
   `Memory.Old32` (i686, where `defaultCallingConvention` is `__stdcall`) and a no-op on x64 —
   env-first pairs with fastcall there (env travels in ECX)?
 
+Dev:
+- We probably need CallKind.Closure for capturing functions calls
+- Non-COM 32-bit functions that are class methods (i.e. vtable and static ones) & closures are fastcall too, global ones are platform-default; we may later also use regcall instead of fastcall for Hexa-specific (as mentioned) functions
+- When callconv-incompatible function is passed to ref, the wrapping functions supposed to be generated: note limitation on native variadics wrappers - are they possible in C ABI?
+- Function types like `let f () => Void = funcReturningVoid` default to capturing
+- Sentinel-null is used for wrappers around non-capturing functions
+
 ## F2. Sentinel nulls everywhere
 
 **Goal.** No raw-zero managed nulls. Every nullable/fat-pointer null is a well-known sentinel;
@@ -459,6 +475,10 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
   decorator).
 - Q: after the null sentinel, does `EnumTag` collapse (`(e == 0? -1 : e->is_)` → plain `e->is_`
   with the sentinel carrying `is_ == -1`/tag), or does the tag special-case stay?
+
+Dev:
+- Types like `ArrayPointer` supposed to contain @struct decorator (they are declared in std .hexa files), there's also combination of @struct+@byValue
+- The idea Null$*{value_, has_} is promoted to same "two vars" approach as for function refs, applied for types >32bit. <=32bit types generally can be encoded as a single larger type + scalar sentinel
 
 ## F3. Revive `ArcInserter` (fix, gate, reconnect)
 
