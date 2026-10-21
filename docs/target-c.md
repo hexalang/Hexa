@@ -650,7 +650,14 @@ The object does not has hash table, but instead just plain sequential array of k
 Reflect.get() basically traverses this array linearly, and if string key == keys[i], then `funcs[i](i, self, args)`
 The accessor is per-type of field: thus, accessing say Bool field (raw uint8_t), accessor knows how to read the field data by known offset to convert it into Any (Bool->Any object).
 If field is a method, its accessor is a method itself that ignores `i`. (how to not pass `i` for optimization? probably CPU regs will have it anyway so prop nothing to worry)
+We have structural, nominal, and compile-time structural (Zig-style) type system, so interfaces (structural at runtime) are supposed to not be very common and objects do not really have that many fields anyway. Users may opt for typed Go-style serialization of JSON into concrete nominal class instance. But here we talk about "average" uncareful coding and JSON.parse logic (requires passing field-count to avoid realloc while first fill).
 This enables `delete(obj.field)` and `let a = Any{}; a.newField = 123` uniformly.
+Operation of writing into a field is a mask:
+x = obj.field // accessor for "field" as raw uint64_t of its interned reference
+obj.field = y // accessor for "field" as raw uint64_t xor/& with constant mask (to make it in impossible address range) -> avoids allocating/reserving any "fieldname+prefix" work
+// same for delete (for proper cleanup)
+Deleting just... write null into this table... Iteration over ownKeys does not break (it will skip nulls, even if they appear WHILE iteration is happening -> new fields always appear on the end, so they ARE traversed eventually)
+We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on demand... opt-in by decorator/annotation.
 ## F11. Memory allocator in Hexa itself
 - Allocator is written in `.hexa`, not C++ `new`/`malloc` sprinkled in codegen.
 - `HEXA_NEW/FREE` become calls into that allocator; `genC` only emits allocation sites.
