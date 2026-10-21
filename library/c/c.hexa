@@ -51,14 +51,22 @@ declare let selfVersion: String
 //@nativeGeneric
 //declare fun constPointerOf<T>(value: T): ConstPointer<T>
 
+//@rename('^sizeOf')
+//@header('#define sizeOf(v) sizeOf(v)')
 @nativeGeneric
 @operator('*sizeof')
 declare fun sizeOf<T>(): UInt64 // TODO `UInt32` aka `PointerSize` alias
 
+//@rename('^sizeOfPreferPointer')
+//@header('#define sizeOf(v) sizeOf(v)')
 @nativeGeneric
 @operator('&sizeof')
 declare fun sizeOfPreferPointer<T>(): UInt64 // TODO UInt32
 
+//@rename('dereferenceOf')
+//@header('#define dereferenceOf(v) (*(v))')
+//@nativeGeneric
+//declare fun dereferenceOf<T>(value: T):
 //@:native("::hx::AddressOf")
 //	static function addressOf<T>(t:T):RawConstPointer<T>;
 //@rename('arrayByValue')
@@ -70,10 +78,14 @@ declare fun sizeOfPreferPointer<T>(): UInt64 // TODO UInt32
 
 // Basic //
 
+//@byValue T
 @struct
 @rename('ConstArrayPointer')
 declare class ConstArrayPointer<T> {
+	// NOTE in C pointer comparison (`>` and `<`) is UB (not allowed)
 	let address SizeOfPointer
+	fun offsetBytes(bytes SizeOfPointer) ConstArrayPointer<T>
+	fun offsetBytesBackwards(bytes SignedSizeOfPointer) ConstArrayPointer<T>
 	fun offsetItems(index SizeOfPointer) ConstArrayPointer<T>
 	// TODO rename to offsetItemsSigned cause action is SAME for POSITIVE value
 	fun offsetItemsBack(index SignedSizeOfPointer) ConstArrayPointer<T>
@@ -84,26 +96,54 @@ declare class ConstArrayPointer<T> {
 @struct
 @rename('ArrayPointer')
 declare class ArrayPointer<T> {
+	// let single SinglePointer<T>
+	// let singleConst ConstSinglePointer<T>
+	let first: ArrayPointer<T> // TODO SinglePointer
+	// TODO
 	let address SizeOfPointer
 	// TODO Maximum call stack size exceeded
 	let pointerToSelf SizeOfPointer // ArrayPointer<ArrayPointer<T>>
 	// let pointer ArrayPointer<ArrayPointer<T>>
+	// TODO pointerToElement(index) SinglePointer
+	fun offsetBytes(bytes SizeOfPointer) ArrayPointer<T>
+	fun offsetBytesBack(bytes SignedSizeOfPointer) ArrayPointer<T>
 	fun offsetItems(index SizeOfPointer) ArrayPointer<T>
 	fun offsetItemsBack(index SignedSizeOfPointer) ArrayPointer<T>
-
 }
 
+/*
+TODO single element pointer for **safety**?
+TODO hexa server: when `*` or `**` over _selected_ input in comment, wrap as `**xxx**` instead of replace `xxx` to `**`
+TODO support _this_ markdown?
+ArrayPointer extends SinglePointer
+Also ConstSinglePointer
+class SinglePointer<T> { or call it ValuePointer...meh confusing to ByValue...
+	var value T // p.value = X, and (= p.value)
+	let array // convert to ArrayPointer (unsafe1!!!)
+	let arrayConst ConstArrayPointer
+}
+*/
+
+/// Constructible with `let bv = @byVale T(arguments)`
 declare class ByValue<T> {
 	@stack // TODO
 	/// Use this reference to access underlining <T> object fields
 	// ^ TODO could replace <T> with type name on hints
 	// also hl them in vshexa
+	// TODO `let ref @refType T` filled with proper T or Pointer<T>/PrimitiveWrapper<T> as "inference"
 	let ref: T
 	/// Take pointer to a primitive type like `Int`
 	let pointer: ArrayPointer<T>
 	// TODO `let pointer: ArrayPointer<T>` to avoid usage of `ArrayByValue`
 	// TODO `let address: PointerSize`
 	new ()
+	//@operator('&') fun ref(): T
+	// TODO let byValueRef ByValueRef<T>
+	// TODO safe memcpy copyTo(destination ByValueRef<T>)
+	// TODO safe memcpy copyFrom(source ByValueRef<T>)
+	// TODO ^ same for [Const]ArrayByValue
+	// TODO memmove?
+	// TODO copy? also do fields support ref counting? and thus destruction of ByValue does rc--?
 }
 
 @struct
@@ -119,7 +159,15 @@ declare class ConstArrayByValue<T, size> {
 // TODO ^ disallows `==`?
 // TODO @stack?
 declare class ArrayByValue<T, size> {
+//	fun asPointer(): Pointer<T> how? uhh just as! ConstArrayPointer
+//	fun pointer(): ArrayPointer<T> yeah this and ConstArrayPointer version, no plain Pointer
+// ^ const pointer has not this write-able methods
+//	fun pointerToElement(): ArrayPointer<T> yeah this and ConstArrayPointer version, no plain Pointer
+//	fun constPointer(): ConstArrayPointer<T>
+// how to have pointer to class FIELD or local var? ArrayByValue<T, 1>.asPointer
+// C++n't: Opaque memory model
 	let ref: ArrayPointer<T>
+	let first: ArrayPointer<T> // TODO SinglePointer
 	let address: UInt64 // TODO UInt32
 	// TODO let size
 }
@@ -147,6 +195,19 @@ declare class Any {}
 ////@nativeMapIndexRead(T)
 //@nativeArrayIndexWrite(T)
 //declare class PointerArray<T> {}
+//@keep class AnyRef {
+//	//var meta: UInt64
+//	//var ref: UInt32
+//	//var xxx: (()=>Void)? // TODO Expected `=>` before `?`
+//}
+@keep
+@rename('^unRefIfViable')
+@infix('^unRefIfViable')
+declare fun unRefIfViable<T>(any: T): UInt64 // TODO UInt32
+@keep
+@rename('^refIfViable')
+@infix('^refIfViable')
+declare fun refIfViable<T>(any: T): UInt64 // TODO UInt32
 
 @final
 @rename('int32_t')
@@ -202,6 +263,7 @@ declare class Number {
 	static fun isNaN(value: Any): Bool
 }
 
+// TODO also `CppBool` for native `true` and `false`? Or `CBool` does it? `NativeBool`?
 @final
 // TODO @rename('Bool') ?
 @nativeBasicType
@@ -231,6 +293,7 @@ declare class CBool {}
 
 @final
 @rename('double')
+@reflect(false) // means no dynamic `interface` support
 @nativeBasicType
 declare class Float {
 	fun toString(): String
@@ -250,6 +313,9 @@ declare class Float32 {
 @struct
 // TODO just @native @nativeType
 declare class UInt64 {
+	// TODO fun toString(): String {
+	// TODO 	return ''
+	// TODO }
 }
 
 @final
@@ -306,9 +372,19 @@ class Char8 {}
 declare
 class ArrayPointer<UInt16> {}
 */
+// TODO ClangWideString + `type ClangString PTR { toString { String.from(this) } }`
+// ^ + methods like lib C str cmp, copy, dupe, etc, `towupper`
 @rename('wchar_t')
 declare
+// TODO rename to ClangUnicodeChar, ClangChar is fine cause does *not* imply Ascii string
 class ClangWideChar {
+	// TODO taking value as UInt16
+	//static fun fromUInt16() {}
+	// TODO same for Char
+	// TODO conversion from UInt16 and other unicode code points
+	// TODO `== 's'` and `!= 's'` and `= 's'` and `arg('s')` and `case 's'`
+	// TODO ^ same for arrays of char
+	// TODO also support char arrays passing by value
 }
 
 //@rename('const void *')
@@ -385,7 +461,11 @@ class ConstPointer<T> {
 @rename('size_t')
 declare
 // TODO maybe just UInt64 alias?
+// TODO ACTUALLY calling it `U*` is much clearer for sure! UIntPointer
 class SizeOfPointer {
+	// TODO must be toNumber or toInteger cause different between archs
+	// ^ or toUIntN() (like js calling) + toUInt64 for cross-platform?
+	fun toInt(): #if bit32 UInt32 #else UInt64 #end
 }
 
 // NOTE `ssize_t` is system-specific
@@ -402,9 +482,11 @@ class Embed<T> {}
 //@rename('malloc') declare fun malloc(size: SizeOfPointer): RuntimeAllocated
 //@rename('strlen') declare fun strlen(string: ConstArrayPointer<UInt8>): SizeOfPointer
 //@rename('memcpy') declare fun memcpy(dst: ConstArrayPointer<UInt8>, src: ConstArrayPointer<UInt8>, size: SizeOfPointer): Void
+//@rename('printInt') declare fun printInt(val: Int): Void
 @rename('malloc') declare fun malloc(size: UInt64): RuntimeAllocated
 // TODO rename to HeapAllocated?
 @rename('free') declare fun free(pointer: RuntimeAllocated): Void
+// TODO c/headers/string.hexa @include <string.h> @rename('strlen') declare fun strlen(string: ConstArrayPointer<UInt8>): Int // TODO Ain't ClangChar?
 @rename('wcslen') declare fun wcslen(string: ConstArrayPointer<UInt16>): Int
 @rename('memcpy') declare fun memcpy(dest: ArrayPointer<UInt8>, src: ConstArrayPointer<UInt8>, size: Int): Void
 @rename('memset') declare fun memset(dest: ArrayPointer<UInt8>, value: Int, count: SizeOfPointer): Void
@@ -506,6 +588,8 @@ class FILE {}
 @rename('fflush') declare fun fflush(port: FILE): Void
 @rename('printf') declare fun printf(text: ConstArrayPointer<ClangChar>): Void
 @rename('wprintf') declare fun wprintf(text: ConstArrayPointer<ClangWideChar>, ...data: Any): Void
+@rename('HEXA_TRACE') declare fun trace(text: ConstArrayPointer<ClangWideChar>): Void
+@rename('HEXA_TRACE') declare fun traceLine(text: ConstArrayPointer<ClangWideChar>): Void
 @rename('putchar') declare fun putchar(char: Int): Void
 @rename('ZeroMemory') declare fun zeroMemory(destination: ArrayPointer<UInt8>, bytes: UInt32): Void
 //@rename('wprintf') declare fun wprintf(text: ConstArrayPointer<UInt8>): Void
@@ -531,13 +615,19 @@ class FILE {}
 // TODO ^ make `.log` calls non-virtual
 class Console {
 	new() {}
+
+	@nativeVariadic
 	//fun log(str: Any): Void {
 	fun log(any: Any, ...args): Void {
 	}
 
 	fun trace(message: String): Void {
-		logString(message)
-		// TODO trace
+		//logString(message)
+		// TODO trace lines of Hexa code, not only generated
+		// TODO lmao how to access module-level `trace` here?
+		// ^ at the module level add `private let module = this`
+		// `this.class.module.trace` and `class.module.trace`
+		traceLine(message.utf16())
 	}
 
 	fun logString(str: String): Void {
