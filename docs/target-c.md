@@ -658,6 +658,7 @@ obj.field = y // accessor for "field" as raw uint64_t xor/& with constant mask (
 // same for delete (for proper cleanup)
 Deleting just... write null into this table... Iteration over ownKeys does not break (it will skip nulls, even if they appear WHILE iteration is happening -> new fields always appear on the end, so they ARE traversed eventually)
 We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on demand... opt-in by decorator/annotation.
+
 ## F11. Memory allocator in Hexa itself
 - Allocator is written in `.hexa`, not C++ `new`/`malloc` sprinkled in codegen.
 - `HEXA_NEW/FREE` become calls into that allocator; `genC` only emits allocation sites.
@@ -679,6 +680,11 @@ We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on 
   init-once)? What happens when an exe and its DLLs each statically link a runtime and objects
   cross the boundary?
 - Q: runtime `.dll` ABI/versioning for the future export mode?
+
+Dev:
+- The core concept is intrusive linked list of per-size-group allocations
+- Basically we have N*2 roots, for size groups (aligned to 16 bytes), and N ones are in-use roots, and extra unused roots
+- Memory allocator just picks the available chunk, otherwise scans the in-use roots, checks their rc==0, and migrates them into unused roots
 
 ## F8. Parity gaps and hygiene (do alongside, unblock cheaply)
 
