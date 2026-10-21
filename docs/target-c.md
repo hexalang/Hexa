@@ -274,7 +274,6 @@ header.join('\n')
   `console.log('template'/'duplicate')` noise; `String_199` / `ConstCharPointer` debug throws.
 - Q: can the dead `_x`-prefixed emitter after `return` be deleted now, or does some
   test still diff against it (`genC.diff.txt` in repo root)? Same for the unreachable
-  second `Switch` (real C `switch`) — which lowering is canonical?
 - `source/compiler/normalizer.hexa` + `source/compiler/normalizing/arc.hexa` — what IR
   shape `genC` can assume (closures? ARC nodes? `Switch` guards/binds?).
 - `source/targets/genJs.hexa` — the reference dynamic semantics (`instanceof`,
@@ -692,8 +691,7 @@ Dev:
 - [ ] `NiceLink`/`HEXA_LINK`/`extraUnderscore`/32-bit `__stdcall` scope (internal vs FFI-only),
   `customHeader`+`dllexport` errors, `@restrict/@volatile`, header-gen mode.
 - [ ] String escaper beyond `' " \n \r \\` (`\0 \t`, surrogates, `String_199` throw); `wchar_t` width.
-- [ ] Delete dead `_x` emitter + dead second `Switch` + pipe-operator comment block; confirm no test
-  diffs (`genC.diff.txt`); silence `template/duplicate` logs; resolve `%...%` stubs and
+- [ ] Delete dead `_x` emitter + dead second `Switch` + pipe-operator comment block; silence `template/duplicate` logs; resolve `%...%` stubs and
   `ConstCharPointer` debug throws.
 - [ ] Per D8 prefer pre-generator lowering over `genC` special cases: `Switch`→if-ladder,
   `guards/binds`, arrow elimination move to normalizer/passes (target-gated like `nativeIterators`).
