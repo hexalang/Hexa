@@ -243,6 +243,7 @@ class String {
 			if let now = cursor.next {
 				cursor = now
 
+				//if now.bytesHash != hash or now.bytesLength != bytesSize {
 				if now.bytesHash != hash, now.bytesLength != bytesSize {
 					continue
 				}
@@ -276,7 +277,9 @@ class String {
 		// TODO use hexa allocator instead of malloc
 		// TODO allocate as `malloc(sizeof String + bytes)` to avoid pointer indirection
 		// TODO allocate 8-byte aligned for 8-byte comparison steps
-		result.bytes = malloc(bytesSize as! UInt64) as! ConstArrayPointer<UInt16>
+		let bytesStorage = malloc(bytesSize as! UInt64) as! ConstArrayPointer<UInt16>
+
+		result.bytes = bytesStorage
 		let bytes: ArrayPointer<UInt16> = result.bytes as! ArrayPointer<UInt16>
 		if chars > 0 {
 			// TODO respect `offset` !!!
@@ -439,12 +442,13 @@ class String {
 
 		while value >= 10 {
 			// TODO optimize if non-null value in normalizer? wrap to return 0?
-			bytes[pos] = '0'.charCodeAt(0) + (value % 10)
-			value = value \ 10
+			bytes[pos] = '0'.charCodeAt(0) + (value % 10u64)
+			value = value \ 10u64
 			pos--
 		}
 
-		bytes[pos] = '0'.charCodeAt(0) + (value % 10)
+		// TODO `% 10` produces `% (int32_t)10` which causes truncation
+		bytes[pos] = '0'.charCodeAt(0) + (value % 10u64)
 		pos--
 
 		if negative {
@@ -456,6 +460,40 @@ class String {
 		let bytes = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
 		// TODO use with known size
 		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+	}
+
+	static fun fromUInt64n(value: UInt64): String {
+		// Reserve 22 elements, including null terminator
+		var bytes: ArrayByValue<UInt16, 22> = [0]
+
+		// TODO This zero-fill is redundant
+		for i in 22 {
+			bytes[i] = 0
+		}
+
+		var value = value
+		var pos = 20
+
+		// Handle zero explicitly
+		if value == 0 {
+			bytes[20] = '0'.charCodeAt(0)
+			pos = 20
+		} else {
+			// Convert digits from right to left
+			while value > 0 {
+				bytes[pos] = '0'.charCodeAt(0) + (value % 10)
+				value = value \ 10
+				pos--
+			}
+			pos++ // Point to the first digit
+		}
+
+		// Ensure null terminator
+		bytes[21] = 0
+
+		// Point to the start of the string
+		let bytesPtr = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
+		return fromUTF16z(bytesPtr)
 	}
 
 	static fun fromNullableInt32(value: Int?): String {
