@@ -38,7 +38,7 @@ Runtime prologue/epilogue comes from disk:
 - A param of function-reference type expands to **two C params** (`f$ptr`, `f$env`).
 - In objects, a method-typed field is **two fields** (`name$f_`, `name$e_` or equivalent).
 - As locals/params, a function value is **two locals** (never a two-field struct value).
-- Default (no decorator) is fat even when the target captures nothing: `genC` emits a thin forwarding wrapper paired with the sentinel env (D2), so all call sites use one uniform fat-call shape (two call shapes only if we keep the `native.md` zero-overhead direct-call optimization — see F1-Q).
+- Default (no decorator) is fat even when the target captures nothing: `genC` emits a thin forwarding wrapper paired with the **sentinel-null** env (D2), so all call sites use one uniform fat-call shape (two call shapes only if we keep the `native.md` zero-overhead direct-call optimization — see F1-Q). Function types default to capturing: `let f () => Void = funcReturningVoid` is fat (thin wrapper + sentinel-null env).
 - A return of function-reference type expands to **`void**` out-param for the code pointer + return value is the closure ref** (unifies ARC: only the returned ref is ref-counted, no fake countable arg).
 - Capturing-function reference accepting a non-capturing function: compiler generates a **thin wrapper** that calls through.
 - Non-capturing references accept **only** non-capturing functions (typer-enforced).
@@ -49,12 +49,11 @@ Runtime prologue/epilogue comes from disk:
   lowering (converted into global functions), so `genC` sees plain `Function` only.
 - Closure lowering (capture lifting into the helper object) runs **before** the ARC pass (F3) —
   either inside `Normalizer` or as a separate pass; the optimal path is to be decided (F1-Q).
-- ABI adapters: capturing function refs are `__fastcall`; if a function's own ABI (calling
-  convention) differs from the expected fat-call ABI, a **wrapper** is generated that calls into the
-  original function.
-
-Dev:
-- "Array of function refs" and "function as Any" may still require some kind of mini-struct and singular referential value
+- ABI adapters: if a function's own ABI (calling convention) differs from the expected fat-call ABI, a **wrapper** is generated that calls into the original function (limitation: native **variadics** cannot be wrapped portably in C ABI — no `va_list` forwarding; see F1-A).
+- Exception to the no-struct rule: contexts that need a single addressable value — **arrays of
+  function refs** and **function-as-`Any` boxing** — may still use a small `{ptr, env}` mini-struct
+  (or a boxed heap object) plus one singular referential value, so equality stays meaningful
+  (cross-check F7-A for element layout).
 
 ### D2. All nulls are sentinels, never raw zero for managed refs
 - Every `null` of managed/nullable/fat-pointer type is an **addressable sentinel**.
@@ -71,10 +70,15 @@ Dev:
 - `genC` today emits a mix (`nullptr`, `int32_t$null`, `(uint8_t)2`, ...). F2 unifies this.
 - Scope (decided): sentinels apply to **managed refs + fat pointers only**. Native C pointers
   (`ArrayPointer`/`ConstArrayPointer`, `@rename`d FFI pointers, ...) keep raw zero — their `!= null`
-  compiles to a true null check (`ptr != nullptr`), never a sentinel compare.
+  compiles to a true null check (`ptr != nullptr`), never a sentinel compare. The exemption predicate
+  is decorator-based: `ArrayPointer`-style types carry `@struct` in their std `.hexa` declarations
+  (`@struct`+`@byValue` combos exist too).
 - Scalar nullability is **in-band**, not pointer-sentinel: `Bool_` tri-state (1/0/2) and similar
   encodings for most nullable integer types are intentional optimizations (no heap object for
-  `Bool?`/`Int?`).
+  `Bool?`/`Int?`). Encoding plan: **≤32-bit nullable scalars = single larger C type + reserved
+  scalar sentinel code** (widening always buys a spare code); **>32-bit (64-bit ints/floats) = the
+  two-var approach like function refs** (value + presence halves) instead of `Null$*{value_, has_}`
+  structs.
 - Interned globals (`String_<id>`, ...) are **immortal** — never deallocated, since external C code
   may depend on them unpredictably and indefinitely.
 
@@ -319,7 +323,7 @@ Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
   `Function [no variadic]/Arrow/Parenthesis/Object/Array/Map/Await/Elvis(Node,Node)/If/Index/`
   `UnsafeBitCast/Is/RemoveNullability/Assignop/NativeOperator/EnumTag/Enum/EnumParameter/`
   `Underscore/Spread/StringConcatenation/StringIndex`.
-- `CallKind{Static,Function,VirtualMethod}`, `VariadicKind`, `CallingConvention`,
+- `CallKind{Static,Function,VirtualMethod}` (+ `Closure` planned for capturing calls, F1.2), `VariadicKind`, `CallingConvention`,
   `Memory`, `ClassBinaryInterface{Normal,StructureNoVirtual}`, `NiceLink`, `NiceProject`
   (note `native[]`, `expressionType/Position`, `mapDecorators`, `memory`),
   `NiceClass` (note `extend/implement/usedByValueDepth/template`), enum types.
@@ -359,6 +363,8 @@ Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
 
 Conventions: each item lists **Goal**, **Current state**, **Steps** (`- [ ]`, with files),
 **Acceptance**, and **`Q:` implementation questions** to resolve while doing it.
+Each `Q:` is followed by `A:` bullet(s) exploring candidate answers with a rated recommendation —
+informative, not binding until the item lands.
 Do items in order F1 → F5; F6–F8 can parallelize after F1/F2 land.
 
 ## F1. Two-var function values end-to-end (closures, methods, `@noCapture`)
@@ -402,7 +408,7 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
   in one call path?
 - Q: copies: does assigning a fat value `RefInc` the env (D3) — i.e. is the env the only ARC target?
 - [ ] F1.1 Freeze two-var ABI (no struct): params double up; returns take extra `void**` out-param for code ptr and return env ref; fields double up (`name$f_`, `name$e_`).
-- [ ] F1.2 Extend `Nice` IR with captures (`source/data/nice.hexa`).
+- [ ] F1.2 Extend `Nice` IR with captures + `CallKind.Closure` for capturing calls (`source/data/nice.hexa`).
 - [ ] F1.3 Compute captures + lower closures to helper objects in a pre-ARC pass (late `Normalizer` phase or separate pass — see Q), typer-enforce `@noCapture`-only-accepts-`@noCapture` (`source/compiler/normalizer.hexa` / new `source/compiler/normalizing/` pass).
 - [ ] F1.4 Emit env-first signatures + per-closure structs + factories (`source/targets/genC.hexa`).
 - [ ] F1.5 Rewrite `CallKind.Function` sites to fat-call; generate thin wrappers for non-capturing fn → capturing ref; pair with sentinel env.
@@ -427,13 +433,7 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
   (function, signature, convention)? Is `__fastcall` for capturing refs meaningful only on
   `Memory.Old32` (i686, where `defaultCallingConvention` is `__stdcall`) and a no-op on x64 —
   env-first pairs with fastcall there (env travels in ECX)?
-
-Dev:
-- We probably need CallKind.Closure for capturing functions calls
 - Non-COM 32-bit functions that are class methods (i.e. vtable and static ones) & closures are fastcall too, global ones are platform-default; we may later also use regcall instead of fastcall for Hexa-specific (as mentioned) functions
-- When callconv-incompatible function is passed to ref, the wrapping functions supposed to be generated: note limitation on native variadics wrappers - are they possible in C ABI?
-- Function types like `let f () => Void = funcReturningVoid` default to capturing
-- Sentinel-null is used for wrappers around non-capturing functions
 
 ## F2. Sentinel nulls everywhere
 
@@ -467,10 +467,6 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
   decorator).
 - Q: after the null sentinel, does `EnumTag` collapse (`(e == 0? -1 : e->is_)` → plain `e->is_`
   with the sentinel carrying `is_ == -1`/tag), or does the tag special-case stay?
-
-Dev:
-- Types like `ArrayPointer` supposed to contain @struct decorator (they are declared in std .hexa files), there's also combination of @struct+@byValue
-- The idea Null$*{value_, has_} is promoted to same "two vars" approach as for function refs, applied for types >32bit. <=32bit types generally can be encoded as a single larger type + scalar sentinel
 
 ## F3. Revive `ArcInserter` (fix, gate, reconnect)
 
