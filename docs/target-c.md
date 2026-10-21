@@ -643,6 +643,14 @@ with location; multi-catch order respected.
 - Q (per D7): `Any`→`Int`/`Float` — JS `ToNumber` (`null → 0`, `'12' → 12`)? `Any`→`String` — JS
   `ToString` (`null → 'null'`, i.e. interned id 1)? Who owns the returned strings under ARC?
 
+Dev:
+In our language interface semantics is closer to typesctipt, allowing for fields access (not just methods) and JSON.parse() dynamic object creation, reflection etc
+Okey, you see our strings are interned, so we can just take a pointer to the string object itself and use it as a key. No need for hash.
+The object does not has hash table, but instead just plain sequential array of keys. And other array of function pointers (accessors).
+Reflect.get() basically traverses this array linearly, and if string key == keys[i], then `funcs[i](i, self, args)`
+The accessor is per-type of field: thus, accessing say Bool field (raw uint8_t), accessor knows how to read the field data by known offset to convert it into Any (Bool->Any object).
+If field is a method, its accessor is a method itself that ignores `i`. (how to not pass `i` for optimization? probably CPU regs will have it anyway so prop nothing to worry)
+This enables `delete(obj.field)` and `let a = Any{}; a.newField = 123` uniformly.
 ## F11. Memory allocator in Hexa itself
 - Allocator is written in `.hexa`, not C++ `new`/`malloc` sprinkled in codegen.
 - `HEXA_NEW/FREE` become calls into that allocator; `genC` only emits allocation sites.
