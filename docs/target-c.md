@@ -113,7 +113,9 @@ Dev:
   never double-free — but the RAII decrements (F4) remain mandatory.
 - Consistent with D2: sentinels carry a huge refcount and are never observed at 0.
 - The linked list is intrusive in allocation headers (`rc` + link) — this is the core of the F11
-  allocator, not a bolt-on GC.
+  allocator, not a bolt-on GC. Lists are per **size group** (16-byte-aligned): `N*2` roots
+  (N in-use, N unused); allocation takes a free chunk, else scans the in-use roots and **migrates**
+  `rc == 0` entries to the unused roots — that scan is the "sometimes" sweep.
 
 ### D7. Dynamic conversions mimic JavaScript semantics
 - Principle: wherever runtime semantics are not fixed by static types, mimic JS as closely as
@@ -132,9 +134,8 @@ Dev:
 - Motivation: future LLVM/.asm generators must consume the same fully-lowered Nice IR.
 - Direction for `genC`'s "TODO do it in normalizer" (`Switch`→if-ladder, `guards/binds`, captures);
   `nativeIterators`/`nativeEnums`/`globalAccessor` are the existing capability-flag pattern to extend.
-
-Dev:
-- Plain non-pattern matching `Switch` should be a native `switch` at IR, as LLVM does support it at IR level
+- `Switch` stays a **native switch** in Nice when it is plain non-pattern matching (LLVM supports
+  switch at IR level); only pattern-matching switches become step-machines/if-ladders.
 
 ## Reference I — output assembly (`stringify`)
 
@@ -280,9 +281,8 @@ header.join('\n')
   `delayedInits`, `Enum_N` arrays) to port to static C.
 `out` = complex-enum factories, `$this_/$new_` pairs, method/static/global bodies, `HEXA_MAIN`.
 Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
-
-Dev:
-- The definitions are sorted before generation, so the ones that depend on each other may see them (limitation of C language)
+- Definitions are sorted before generation so the ones that depend on each other see them first
+  (limitation of the C language); the forward section + sorting together cover mutual references.
 
 ## Reference II — what `Normalizer` guarantees `genC`
 
@@ -672,11 +672,6 @@ We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on 
   init-once)? What happens when an exe and its DLLs each statically link a runtime and objects
   cross the boundary?
 - Q: runtime `.dll` ABI/versioning for the future export mode?
-
-Dev:
-- The core concept is intrusive linked list of per-size-group allocations
-- Basically we have N*2 roots, for size groups (aligned to 16 bytes), and N ones are in-use roots, and extra unused roots
-- Memory allocator just picks the available chunk, otherwise scans the in-use roots, checks their rc==0, and migrates them into unused roots
 
 ## F8. Parity gaps and hygiene (do alongside, unblock cheaply)
 
