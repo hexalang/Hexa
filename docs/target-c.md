@@ -50,6 +50,8 @@ Runtime prologue/epilogue comes from disk:
 - Closure lowering (capture lifting into the helper object) runs **before** the ARC pass (F3) —
   either inside `Normalizer` or as a separate pass; the optimal path is to be decided (F1-Q).
 - ABI adapters: if a function's own ABI (calling convention) differs from the expected fat-call ABI, a **wrapper** is generated that calls into the original function (limitation: native **variadics** cannot be wrapped portably in C ABI — no `va_list` forwarding; see F1-A).
+- Fastcall scope: capturing function refs **and** non-COM 32-bit class methods (vtable + static) are `__fastcall`; globals stay platform-default. `regcall` may replace fastcall for Hexa-specific functions later; on x64 it is a no-op (single ABI).
+- Capturing calls get their own `CallKind.Closure` (Nice `CallKind` extension, F1.2).
 - Exception to the no-struct rule: contexts that need a single addressable value — **arrays of
   function refs** and **function-as-`Any` boxing** — may still use a small `{ptr, env}` mini-struct
   (or a boxed heap object) plus one singular referential value, so equality stays meaningful
@@ -417,23 +419,49 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
 
 **Acceptance.** Captures survive return; fat calls thread env; returns use out-param; no silent capture drop.
 - Q: wrapper cache: one wrapper per non-capturing function, or per (function, signature)?
+- A: ideas: (a) one thin wrapper per function (each function has exactly one C signature), (b) per
+  (function, fat-signature) pair for ad-hoc casts; **recommend (a)** — Hexa types are strict and
+  ad-hoc `as` casts route through the ABI-wrapper table anyway.
 - Q: null-fat value shape: `(nullWrapper, sentinelEnv)` — which half does `== null` test?
+- A: constraint: sentinel-null **is** the env of wrappers around non-capturing functions (D1), so
+  the env half cannot distinguish null from "plain function". Ideas: (a) test the code-ptr half
+  against a unique `f$null` wrapper, (b) test both halves; **recommend (b) for `==` (one `&&`), with
+  (a) as the single-compare `== null` fast path**.
 - Q: methods: `(methodPtr, thisRef)` with ARC on `thisRef`; vtable slots env-first?
+- A: **recommend yes to both** — `this` is the env for methods (retain `thisRef` per D3) and
+  env-first vtable slots give one uniform fat-call shape shared with closures (ties F6-Q).
 - Q: copies assign + `RefInc(env)` only; raw code ptr never retained?
+- A: **yes (settled)** — the code ptr is not heap memory; D3 releases only the env half. Encode in
+  `arc.hexa` (F3.3).
 - Q: `typedef _$N` is emitted per `stringifyType(Function)` call (tempId counter), even nested in
   `printFunctionArguments` — dedup function-type signatures after F1 (source TODO says dedup in
   normalizer), or keep per-emission typedefs?
+- A: ideas: (a) dedup in `genC` short-term (signature→typedef map), (b) dedup in normalizer as
+  `funcTypes[id]` (nice.hexa TODO) per D8; **recommend (b)** with (a) as stopgap — fat typedefs
+  (`ret (*)(void* env, ...)`) make dedup matter more.
 - Q: closure-lowering placement (D1) — late phase inside `Normalizer.normalize()`, or a separate pass
   object (like `ArcInserter`) called from `source/main.hexa` between `normalize()` and `insertArc()`?
   Decide the optimal path.
+- A: ideas: (a) late `Normalizer` phase (reuses `unique`/renames/`parentNames`), (b) separate pass in
+  `source/compiler/normalizing/` invoked from `main.hexa` (ArcInserter pattern — explicit pre-ARC
+  ordering, D8-style); **recommend (b)** — keeps `Normalizer` stable and the pipeline explicit;
+  (a) viable if pass plumbing feels heavy.
 - Q: helper object shape — a synthesized `NiceClass` in Nice IR (uniform ARC/type treatment) vs an
   opaque runtime struct? Mutable captures: per-var cell/box fields so mutation is shared between
   closures (nice.hexa `capture let with [=]` TODO)?
+- A: **recommend synthesized `NiceClass`** (free `needsARC`/`stringifyType`/reflection integration)
+  with per-var cell fields for mutable `var` captures and by-value copies for `let` (`[=]`); uniform
+  cells for everything is simpler but adds allocs; opaque runtime struct only if class machinery
+  gets in the way.
 - Q: ABI adapters (D1) share the wrapper table with the F1.5 thin wrappers — cache keyed by
   (function, signature, convention)? Is `__fastcall` for capturing refs meaningful only on
   `Memory.Old32` (i686, where `defaultCallingConvention` is `__stdcall`) and a no-op on x64 —
   env-first pairs with fastcall there (env travels in ECX)?
-- Non-COM 32-bit functions that are class methods (i.e. vtable and static ones) & closures are fastcall too, global ones are platform-default; we may later also use regcall instead of fastcall for Hexa-specific (as mentioned) functions
+- A: **recommend one wrapper table keyed (function, signature, convention)** shared by thin + ABI
+  wrappers. Fastcall scope is decided (D1): closures and non-COM 32-bit class methods (vtable +
+  static) fastcall, globals platform-default, possible future `regcall`; a no-op on x64. Open
+  limitation: native **variadics** cannot be wrapped portably (no `va_list` forwarding) — likely
+  require matching convention + typer error otherwise.
 
 ## F2. Sentinel nulls everywhere
 
@@ -454,19 +482,37 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
 
 **Acceptance.** One lowering per `Null` type; `((true as Any) == (true as Any)) == true`; interned `BigInt` referential equality; sentinel ops safe.
 - Q: fat-null equality — env-only or both halves?
+- A: constraint: sentinel-null doubles as the env of non-capturing wrappers (D1), so env-only
+  conflates. Ideas: (a) both halves vs `(f$null, nullEnv)`, (b) code-ptr half only; **recommend (a)**
+  for `==` and (b) as the `== null` fast path (same resolution as F1-Q).
 - Decided: `String_<id>`/interned globals are **immortal**, never deallocated (external C code may
   depend on them unpredictably and indefinitely) — D2.
 - Q: `BigInt` interning key — value hash + compare, like `fromUTF16` hash/length walk?
+- A: **recommend yes** — mirror `library/c/string.hexa` `root`/`next` dedup keyed by (bit-length,
+  hash, word compare); `BigInt` has no `-0`/`NaN` normalization pitfalls (floats should NOT be
+  interned for that reason). Alternative: intern only when boxing to `Any` (weaker referential
+  equality).
 - Decided: scalar nullability stays **in-band** (`Bool_` tri-state 1/0/2 and similar integer
   encodings) — an intentional optimization, no pointer sentinels for scalars (D2).
 - Q: exact in-band encoding per width — reserved bit-pattern in a widened slot vs the current
   `Null$*{value_, has_}` pair structs (64-bit/floats today)? Which widths lack a spare code
   (`UInt64` has none) and must keep the pair struct?
+- A: **decided direction (D2)**: ≤32-bit nullable scalars = single larger C type + reserved scalar
+  sentinel (widening always buys a spare code); >32-bit (`Int64`/`UInt64`/`Float64`) = the **two-var**
+  approach like function refs (value + presence halves) replacing `Null$*{value_, has_}` structs —
+  so no width keeps a pair struct. `Float32?` fits the ≤32-bit rule via exact widening to double
+  (or its own reserved NaN-ish code — TBS).
 - Q: native-pointer exemption (D2) — which type kinds qualify (`@rename`d externals,
   `ArrayPointer`/`ConstArrayPointer`, `@struct*`)? Encode the predicate once (typer `Type` kind vs
   decorator).
+- A: **recommend decorator-based predicate** — `ArrayPointer`-style types already carry `@struct`
+  in their std `.hexa` declarations (incl. `@struct`+`@byValue` combos), matching `genC`'s existing
+  `isStruct` derivation; typer `Type`-kind alternative only if decorators prove too coarse.
 - Q: after the null sentinel, does `EnumTag` collapse (`(e == 0? -1 : e->is_)` → plain `e->is_`
   with the sentinel carrying `is_ == -1`/tag), or does the tag special-case stay?
+- A: **recommend collapse** — the sentinel enum carries `is_` (and empty `enum_[]`), making
+  `EnumTag` a plain field read per D2 "no null-check branches"; keep `-1` as the sentinel's tag and
+  verify `getTag()` numbering interplay with `Switch` lowering.
 
 ## F3. Revive `ArcInserter` (fix, gate, reconnect)
 
@@ -502,12 +548,27 @@ missed expression kinds (see Reference + prior Q2 list).
 flag off reproduces today's output; `needsARC` unit cases (struct vs class vs nullable vs fat env) pass.
 - Q: who owns the env on **copy** (`x = f` where `f` is fat): `RefInc(env)` + `DeferRefDec(oldEnv)`?
   What about copies through fields/array elements/`Any` payloads/`enum_`/`Map` values?
+- A: **recommend per-D3 everywhere** — any store (local assign incl. old-value release, field write,
+  element `set`, `enum_` factory, `Any` boxing, `Map` value) retains the env half; container/`Any`
+  helpers keep an internal inc/dec contract (documented per F7.1) rather than caller-side retains.
+  Alternative (caller-side retain before each helper call) is more codegen-visible but easier to get
+  wrong in runtime internals; rate helper-contract higher.
 - Q: params on entry (`RefInc`+`Defer` at top, as today) vs call-site retain: both, or is entry-side
   enough? Return values: +1 (caller releases) or borrow (callee keeps)? Pick one, document, enforce.
+- A: D6 warning: a borrowed ref reaching 0 mid-call can be swept at the callee's next allocation →
+  **recommend entry-side retain (today's shape) + returns +1 (caller guards via F4)**; call-site
+  retains for lvalue args are then unnecessary (callee retains before any allocation). Alternative
+  all-+1 everywhere (call-site + entry) — belt-and-braces, more inc/dec traffic; rate entry-side.
 - Q: rvalue temps (`temp_call_arg`): retain or just `Defer` (today: temp + dec, no inc — correct only
   if the rvalue is already +1)? Order of evaluation + exception between args (F5)?
+- A: **recommend today's shape** (temp + `DeferRefDec`, no inc) under the F7.2 contract that
+  factories/computed rvalues return +1; each temp gets its F4 guard at materialization, making
+  argument-order throws safe. Uniform inc+dec is a safe-but-slower debug mode.
 - Q: `globalVars`/statics/field defaults: ARC at `HEXA_MAIN` init time with immortal lifetime
   (no `Defer`), or excluded? (`String_<id>` globals are settled: immortal per D2.)
+- A: **recommend immortal globals** — excluded from the sweep lists or tagged with huge rc (D2
+  sentinel trick), no `Defer` at `HEXA_MAIN`; rc-managed-at-exit adds teardown ordering problems
+  (static destructors vs sweep) for zero benefit. Rate immortal.
 
 ## F4. Lower `DeferRefDec` to RAII `defer` in `genC`
 
@@ -538,18 +599,34 @@ flag off reproduces today's output; `needsARC` unit cases (struct vs class vs nu
 throw past guarded scopes, assert balanced inc/dec); ARC-on + pure C either works best-effort or errors clearly.
 - Q: guard granularity — one RAII var per object vs one per `DeferRefDec` list vs one per `Block`
   (aggregate)? Per-object is simplest to reason about; per-block is fewer destructors. Measure?
+- A: **recommend one guard per `DeferRefDec` list** (matches the IR batching; LIFO within the block;
+  modest destructor count). Per-object if debugging needs 1:1 traceability; per-block aggregate if
+  generated C++ compile times hurt. Rate per-list > per-object > per-block.
 - Q: where exactly does the guard live when `arc.hexa` puts `RefInc/Defer` at different indices
   (today: inc at `i+1`, dec at `i+2`)? Must the guard declaration sit **adjacent to the inc**
   (D3 "immediately nearby") to be exception-correct between inc and guard?
+- A: **yes — guard emitted immediately after (same statement group as) the `RefInc`**, before any
+  further evaluation can allocate/throw; `arc.hexa` should treat `RefInc`/`Defer` as one conceptual
+  pair (F3.3) and `genC` prints them adjacently. Alternative guard-before-inc with later assignment
+  adds moving parts for no gain.
 - Q: interaction with `printFunctionBody`'s appended `return 0` and with `metaBlock` lines that
   evaluate receivers/args — can an exception occur **between** `RefInc` and guard construction?
   If yes, reorder (construct guard first with null, then assign+inc?).
+- A: only if the guard ctor can throw — **recommend a trivial (non-allocating, non-throwing) guard
+  struct**, making the window empty by construction; `metaBlock` temps get their own guards at
+  materialization. Keep the construct-then-assign pattern as fallback for non-trivial guards.
 - Q: IIFE boundaries (`Block`/`Switch`/`Elvis`/`[for]` lowered to `Call(Function(...))`): does the
   guard belong inside the IIFE body (correct) — and does `arc.hexa`'s `processExpression→Function body`
   recursion place it there?
+- A: **yes, inside the IIFE body** — the guard belongs to the Block owning the `RefInc`;
+  `arc.hexa`'s `processExpression→Function body` recursion already visits it, F3.2 must keep pair
+  placement inside that Block. Hoisting out would over-extend lifetimes and break LIFO.
 - Q (per D6): decrements can never double-free — does that allow simpler guards (e.g. a `catch(...)`
   re-dec table instead of per-object RAII), or keep pure RAII for uniformity? Skipped decs are still
   permanent leaks, so "best-effort scope-end dec" stays a pure-C-only option.
+- A: **recommend keeping RAII (D4)** — it also covers `return`/`break`/`continue` exits that a
+  `catch(...)` table misses, and D6 only removed double-free risk, not leak risk; the re-dec table
+  remains an emergency simplification if generated C++ compile times demand it.
 
 ## F5. Exception model split (C++ ABI vs C panic)
 
@@ -573,8 +650,13 @@ no runtime defs; `$try`-as-arg vs thread-local undecided.
 with location; multi-catch order respected.
 - Q: exception value type — always `Any_*` (today's `$try` shape) or typed (`t[i]`)? How do
   `catch` type tests codegen (`Is`-like check vs vtable compare)?
+- A: **recommend uniform `Any_*` thrown values** (matches D7 JS-ish semantics and today's `$try`
+  shape) with catch tests via the same type-tag check `Is` uses (F10 metadata); fully-typed
+  `catch (Foo_*)` C++ throws are a later optimization but break uniform lowering.
 - Q: `Await/async` (no `genC` case): reject under both modes until async design lands, or map onto
   exceptions/coroutines? Explicitly out of scope — but say so.
+- A: **recommend a clear rejection in `c`/`cpp` until F9 lands** (no silent miscompile); mapping
+  onto exceptions would fake semantics that F9 must later unwind. Out of scope for F5.
 
 ## F6. Methods, `this`, and vtables under fat pointers + ARC
 
@@ -593,8 +675,14 @@ with location; multi-catch order respected.
 **Acceptance.** Method reference keeps `this` alive; virtual + fat paths don't double-retain.
 - Q: vtable slot signature — env-first uniformly (`m_(This*,...)`), so closures and methods share
   the fat-call shape? Or distinct?
+- A: **recommend uniform env-first** (`m_(This* env, ...)`) — `this` IS the env for methods (F1-Q
+  agreed) and one call shape serves closures and methods; distinct shapes save nothing on x64 and
+  fork codegen.
 - Q: `StructureNoVirtual` (normalizer never sets it today): set it for `@struct`, or keep
   decorator-derived `isStruct`? One source of truth.
+- A: **recommend normalizer sets `api = StructureNoVirtual` for `@struct`** (D8: IR is canonical),
+  migrating `genC`'s decorator re-derivations to read `c.api`; decorators remain the *input* the
+  normalizer reads.
 
 ## F7. Collections, strings, enums under the new rules
 
@@ -610,7 +698,17 @@ with location; multi-catch order respected.
 
 **Acceptance.** Element/payload lifetimes tested (append/reassign/throw-past-container).
 - Q: containers of fat values (array of closures): element = two slots? `get_/set_` signatures?
+- A: **recommend two slots per element** with the D1 return convention (`get_` fills the `void**`
+  code-ptr out-param, returns the env ref; `set_` takes the pair and retains the env per F7.1).
+  Per D1's exception, a **single-slot mini-struct** element is the fallback if two-slot `get_/set_`
+  gets awkward — decide together with the F1 array decision (D1 notes arrays/`Any`-boxing may need
+  a mini-struct + singular referential value). Alternative boxed closure objects per element
+  (uniform `Any_`-like storage) costs an alloc + indirection per element; rate two-slots >  mini-struct > boxed.
 - Q: `String` interning + immortal globals (F2-Q) vs refcounted strings — which?
+- A: **recommend both, split by origin** — literal `String_<id>` globals immortal (D2); computed
+  strings (`String_$combine_`, `fromInt32`, ...) refcounted +1 and also interned via `root`/`next`,
+  the intern table holding weak links removed by the sweep (D6) once rc hits 0. Alternative
+  "intern ⇒ immortal" leaks computed strings — reject.
 
 ## F9. `async`/`await` on C++ coroutines
 - Coroutine shape: every `async` func **always `co_return`s something** (forces compiler to treat it as a coroutine).
@@ -619,7 +717,13 @@ with location; multi-catch order respected.
 - [ ] F9.1 Define `co_`-runner + executor placement (runtime headers vs emitted helpers).
 - [ ] F9.2 Lower `async`/`await` to `co_return`/`co_await` in `genC` (`cpp` only); clear error on pure C.
 - Q: how do ARC guards (F4) interact with coroutine frames (suspension = scope exit?)?
+- A: suspension is **not** scope exit — locals live on in the coroutine frame; **recommend guards as
+  frame locals** whose destructors run at promise destruction (final suspend/destroy), preserving D4
+  semantics. A static "no ARC across `await`" restriction is a possible v1 simplification.
 - Q: how do fat-pair closures (F1) cross suspension points (env lifetime)?
+- A: **recommend +1 in the frame** — a fat value held across `co_await` retains its env (F3 entry
+  rule) and the frame's guard releases at frame destruction; borrowing across suspension would race
+  the sweep (D6).
 
 ## F10. Reflection (`Any`, `JSON.parse`, ...)
 - Dynamic surface stays: `Any` field/method access, `is`/`as`, `JSON.parse`-like materialization.
@@ -628,6 +732,9 @@ with location; multi-catch order respected.
 - Q: does reflection reuse fat-pair/sentinel machinery, or need its own type tags?
 - Q (per D7): exact truthiness table for `Any`→`Bool` — `0`, `NaN`, `''`, empty arrays/objects? One
   runtime `Any_toBool` implementing JS truthiness, or per-type fast paths?
+- A: **recommend the exact JS table** (falsy: `false`, `±0`, `NaN`, `''`, `null`, `undefined`;
+  `[]`/`{}` truthy) in one `Any_toBool` runtime helper; per-type inlined fast paths are a later
+  codegen optimization, not a semantic difference.
 - Q (per D7): `Any`→`Int`/`Float` — JS `ToNumber` (`null → 0`, `'12' → 12`)? `Any`→`String` — JS
   `ToString` (`null → 'null'`, i.e. interned id 1)? Who owns the returned strings under ARC?
 
@@ -646,28 +753,54 @@ obj.field = y // accessor for "field" as raw uint64_t xor/& with constant mask (
 // same for delete (for proper cleanup)
 Deleting just... write null into this table... Iteration over ownKeys does not break (it will skip nulls, even if they appear WHILE iteration is happening -> new fields always appear on the end, so they ARE traversed eventually)
 We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on demand... opt-in by decorator/annotation.
+- A: **recommend JS `ToNumber`/`ToString`** (`null → 0`, `'12' → 12`, `ToString(null) = 'null'` =
+  interned id 1, consistent with the string table); converted strings are +1 (caller-side F4
+  guard), interned literal results immortal (D2). Strict `as!` conversions keep today's casts
+  (D7 governs dynamic semantics, not `as!`).
 
 ## F11. Memory allocator in Hexa itself
 - Allocator is written in `.hexa`, not C++ `new`/`malloc` sprinkled in codegen.
 - `HEXA_NEW/FREE` become calls into that allocator; `genC` only emits allocation sites.
 - The manager itself is deferred ref counting (D6): intrusive `rc` + linked-list link in the
-  allocation header; sweep-on-alloc frees `rc == 0` objects.
+  allocation header. The lists are per **size group** (16-byte-aligned): `N*2` roots — N in-use,
+  N unused. Allocation picks an available chunk from the unused roots; when a group runs dry it
+  scans the in-use roots, checks `rc == 0`, and **migrates** those entries to the unused roots
+  (that scan is the "sometimes" sweep).
 - [ ] F11.1 Define allocator interface + refcount header layout (where does `rc` live?).
 - [ ] F11.2 Route `HEXA_NEW`, closure/env allocs, `String`/`Array`/`Map`/interned `BigInt` through it.
 - [ ] F11.3 Runtime linkage model: inline the Hexa runtime into plain `.exe` (static-CRT-like,
   default), share one runtime across `.dll`s, future: dedicated runtime `.dll` export.
   Files: `library/cxx/hexa.c`, `library/c/hexa.c`, the F11 allocator.
 - Q: freestanding targets (no libc `malloc`) — which paths must avoid libc entirely?
+- A: **recommend confining libc to the allocator bottom layer** (page backends: VirtualAlloc/mmap or
+  a linker-provided heap) plus debug printing; all container/runtime logic is generated/Hexa code.
+  A fully libc-free runtime is a later audit, not a design constraint.
 - Q: sweep policy (D6) — full list walk on every allocation, or budgeted/periodic? What makes an
   allocation trigger a sweep "sometimes" (every N allocs, bytes threshold, explicit call)?
+- A: **recommend the size-group migrate-on-pressure scheme** (decided direction): no sweep while
+  unused roots have chunks; when a group runs dry, scan that group's in-use root and migrate
+  `rc == 0` entries — self-budgeting, O(group size). Periodic full sweeps only as a leak-debug aid.
 - Q: `rc` atomics — memory order (relaxed?), which threads are expected today, and does the sweep
   need synchronization against concurrent allocs?
+- A: **recommend `relaxed` atomics + a documented "no cross-thread object sharing without external
+  sync" rule** for now (programs are effectively single-threaded; atomics buy future-proofing
+  cheaply); the sweep needs no locking under that rule. Upgrade to acquire/release when real
+  threads land; plain non-atomic counters behind the same ops are a single-thread build option.
 - Q: retained cycles (instance ↔ closure helper objects) are invisible to plain RC — accepted leak,
   or trial-deletion during the sweep?
+- A: **recommend accepting cycle leaks for now** (classic RC semantics, documented); the sweep walk
+  is the natural place to add trial-deletion/cycle-collection later.
 - Q: shared runtime across `.dll`s — who owns the alloc list + sentinels (exported symbols,
   init-once)? What happens when an exe and its DLLs each statically link a runtime and objects
   cross the boundary?
+- A: **recommend one runtime instance per process** (init-once exported state: roots + sentinels,
+  matching D2 "singular, shared between DLLs"); objects are freed by their owning runtime via the
+  narrow C ABI (`hexa_release` back into the owner). Per-module runtimes must forbid cross-boundary
+  frees — workable but a footgun; rate single-instance higher.
 - Q: runtime `.dll` ABI/versioning for the future export mode?
+- A: **recommend a narrow exported C ABI** (`hexa_alloc/retain/release`, sentinel accessors,
+  `hexa_abi_version()` checked at load) — C++ classes would freeze compiler-specific ABI; the
+  inlined exe mode `static inline`s the same functions.
 
 ## F8. Parity gaps and hygiene (do alongside, unblock cheaply)
 
@@ -684,12 +817,21 @@ We may also introduce ad-hoc @optimized interface{} syntax for Go-like logic on 
 - [ ] String escaper beyond `' " \n \r \\` (`\0 \t`, surrogates, `String_199` throw); `wchar_t` width.
 - [ ] Delete dead `_x` emitter + dead second `Switch` + pipe-operator comment block; silence `template/duplicate` logs; resolve `%...%` stubs and
   `ConstCharPointer` debug throws.
-- [ ] Per D8 prefer pre-generator lowering over `genC` special cases: `Switch`→if-ladder,
-  `guards/binds`, arrow elimination move to normalizer/passes (target-gated like `nativeIterators`).
+- [ ] Per D8 prefer pre-generator lowering over `genC` special cases: `guards/binds`, arrow
+  elimination move to normalizer/passes (target-gated like `nativeIterators`); plain non-pattern
+  `Switch` stays a **native switch** in Nice (LLVM supports it) — only pattern switches become
+  step-machines, and `genC`'s dead C-`switch` emitter gets revived for those (or deleted consciously).
 - Q: target-specific lowering (C lacks rich `switch`) — per-target capability flags in the
   normalizer (existing `nativeIterators`/`nativeEnums` pattern) vs always-generic lowering?
+- A: **recommend capability flags + native switch retained in IR** — normalizer keeps plain switches
+  intact for LLVM, lowers pattern switches generically, and only truly target-specific shapes (C's
+  switch limits) fall to `genC` printer choices; always-lowering would permanently degrade future
+  LLVM output.
 - Q: which Nice enrichments land first (`NiceType`, field indices, `CapturedVar`) so a future
   LLVM/.asm generator avoids re-deriving them (D8)?
+- A: **recommend order**: (1) `NiceType` + field-index `Field/DynamicField` (unblocks F1.6/F7 and
+  LLVM value typing), (2) `CapturedVar`/closure IR + `CallKind.Closure` (F1), (3) `ToNullable/IsNull`
+  (F2/F7); ordering by codegen pain yields the same list.
 
 ## How to read this doc next to the others
 - `source/data/nice.hexa` — IR (`NiceName`/`CapturedVar` TODOs are now F1 inputs).
