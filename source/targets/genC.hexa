@@ -2867,50 +2867,51 @@ class GenCxx {
 								let kind = typeString + ' _$\(temp) = ' + printExpression(expr)
 
 								if name == 'offsetItems' or name == 'offsetItemsBack' {
+									switch exprType {
+										case ClassInstance(c):
+											if
+												c.name == 'ConstArrayPointer' or c.name == 'ArrayPointer',
+												name == 'offsetItems' or name == 'offsetItemsBack'
+											{
+												return '((' + printExpression(expr) + ') + (' + printExpression(args[0]) + '))'
+											}
+									}
+								}
+
+								var isStruct = false
 								switch exprType {
-									case ClassInstance(c):
-										if
-											c.name == 'ConstArrayPointer' or c.name == 'ArrayPointer',
-											name == 'offsetItems' or name == 'offsetItemsBack'
-										{
-											return '((' + printExpression(expr) + ') + (' + printExpression(args[0]) + '))'
+									case ClassInstance(classType, params): {
+											let atts = project.mapDecorators.get(classType.parent)
+											isStruct = Decorator.getDecorator(atts, 'struct') != null
 										}
+										// TODO `case ClassInstance(type, _) | Class(type)`
+										// TODO same for statement
+										// TODO this should be a NiceClass actually
+										// TODO seems like `this` gets type of `Class` instead of instance somewhere
+									case Class(classType): {
+											let atts = project.mapDecorators.get(classType.parent)
+											isStruct = Decorator.getDecorator(atts, 'struct') != null
+										}
+									case _:
 								}
 
-							var isStruct = false
-							switch exprType {
-								case ClassInstance(classType, params): {
-									let atts = project.mapDecorators.get(classType.parent)
-									isStruct = Decorator.getDecorator(atts, 'struct') != null
+								let result = if isStruct {
+									omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+								} else {
+									'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
 								}
-								// TODO `case ClassInstance(type, _) | Class(type)`
-								// TODO same for statement
-								// TODO this should be a NiceClass actually
-								// TODO seems like `this` gets type of `Class` instead of instance somewhere
-								case Class(classType): {
-									let atts = project.mapDecorators.get(classType.parent)
-									isStruct = Decorator.getDecorator(atts, 'struct') != null
+
+								for b in metaBlock {
+									mb.push(b)
 								}
-								case _:
-							}
+								mb.push(kind)
+								// mb.push('/*result*/auto _$\(temp1) = ' + result)
+								metaBlock = mb
+								// return '_$\(temp1)'//result
+								return result
 
-							let result = if isStruct {
-								omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
-							} else {
-								'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
-							}
-
-							for b in metaBlock {
-								mb.push(b)
-							}
-							mb.push(kind)
-							//mb.push('/*result*/auto _$\(temp1) = ' + result)
-							metaBlock = mb
-							//return '_$\(temp1)'//result
-							return result
-
-							//return // + ';\n' + tabs// +
-							//return printExpression(expr) + '/*virtual*/' + printCallArguments(args)
+								// return // + ';\n' + tabs// +
+								// return printExpression(expr) + '/*virtual*/' + printCallArguments(args)
 						}
 				}
 
