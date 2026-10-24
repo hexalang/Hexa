@@ -6,11 +6,32 @@
 /// Formatting preserves user personal style to some degree
 // TODO hexa format cli .hexa .json
 // TODO cover in testFormat.hexa
-fun autoFormatWholeFile(file: String): String {
+/// `noParsingCheck` skips the AST validation pass — used by tests that feed
+/// formatter snippets which aren't valid standalone programs.
+fun autoFormatWholeFile(file: String, noParsingCheck: Bool = false): String {
 	let content = Buffer.from(file)
+
 	try {
 		// TODO range formatter
 		let tokens = Lexer.tokenize(content, 'hexa.hexa', format: true)
+
+		// Validate the AST FIRST: the formatter below is purely token-based and
+		// would happily re-emit malformed code (wrong spacing/indentation on a
+		// broken tree), so run the real parser (preprocessor + parser) on the
+		// same tokens before touching anything. On ANY syntax error we return
+		// the file UNCHANGED — formatting must never write back broken code
+		// (the LSP then simply answers with no effective edits).
+		// NOTE: parsing only READS the token buffers (the preprocessor compacts
+		// into fresh ones), so `tokens` below still holds the original stream.
+		if not noParsingCheck {
+			try {
+				Parser.parseNodes(tokens, new Project(), lint: true)
+			} catch e: CompilerErrors {
+				// Syntax invalid → bail out early, original file is preserved
+				return file
+			}
+		}
+
 		let count = tokens.line.length - 1
 		let result = ['']
 		var currentCall = [Token.Eof]
@@ -628,6 +649,7 @@ fun autoFormatWholeFile(file: String): String {
 		// TODO (when) use CRLF? or it seems vscode fixes it on its own
 		return result.join('') + '\n'
 	} catch e: CompilerErrors {
+		// Lexer failure (e.g. unterminated string) — original file preserved
 		return file
 	}
 
