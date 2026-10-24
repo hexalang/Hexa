@@ -151,7 +151,7 @@ class GenCxx {
 			types.push('\n\};\n')
 
 			for v in e.staticMethods { switch v {
-					case Function(name, expr, args, defaults, funcType):
+					case Function(name, expr, args, defaults, funcType, _, isAsync):
 						forwardFunctions.push(printFunctionReturnType(funcType))
 						forwardFunctions.push(' ' + e.name + '_$' + name + '_')
 						forwardFunctions.push(printFunctionArguments(args, funcType))
@@ -238,8 +238,8 @@ class GenCxx {
 				} }
 
 			for v in e.staticMethods { switch v {
-					case Function(name, expr, args, defaults, funcType):
 						// types.push('\n\tstatic ')
+					case Function(name, expr, args, defaults, funcType, _, isAsync):
 						// types.push(printFunctionReturnType(funcType))
 						// types.push(' ' + name + '_')
 						// types.push(printFunctionArguments(args, funcType, true))
@@ -457,7 +457,7 @@ class GenCxx {
 			var hasToString = false
 
 			for v in c.methods { switch v {
-					case Function(name, expr, args, defaults, funcType):
+					case Function(name, expr, args, defaults, funcType, _, isAsync):
 						hasToString = hasToString or name == 'toString'
 
 						if (name == null or name == 'new') {
@@ -657,7 +657,7 @@ class GenCxx {
 			types.unshift(vtable.join(''))
 
 			for v in c.staticMethods { switch v {
-					case Function(name, expr, args, defaults, funcType):
+					case Function(name, expr, args, defaults, funcType, _, isAsync):
 						forwardFunctions.push(printFunctionReturnType(funcType))
 						forwardFunctions.push(' ' + c.name + '_$' + name + '_')
 						forwardFunctions.push(printFunctionArguments(args, funcType))
@@ -695,7 +695,7 @@ class GenCxx {
 				b = a.unsafe.xyz
 			}*/
 		for g in project.globalFuncs { switch g {
-				case Function(name, expr, args, defaults, funcType, variadic):
+				case Function(name, expr, args, defaults, funcType, variadic, isAsync):
 					let link = project.globalLink.get(g) // TODO null guard
 					var shouldEmitHeader = false
 					var customHeader: String? = null
@@ -1372,7 +1372,7 @@ class GenCxx {
 				// case Function(name, expr, args, defaults, types, returns):
 				// return printType(returns) + ' _x' + name + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
 				// //return 'const void* _x' + name + ' = ' + ((async==true)?'async ':'') + printFunctionArguments(args, defaults) + ' => ' + printBlock(expr)
-			case Function(name, expr, args, defaults, funcType):
+			case Function(name, expr, args, defaults, funcType, _, isAsync):
 				let _currentReturnType = currentReturnType
 				currentReturnType = getFunctionReturnType(funcType)
 
@@ -2921,14 +2921,14 @@ class GenCxx {
 				// }
 				return printExpression(e) + printCallArguments(args)
 
-			case Arrow(expr, args, defaults, types, returns, funcType): {
+			case Arrow(expr, args, defaults, types, returns, funcType, isAsync): {
 					return printExpression(
 						// TODO temp names '$arrow'
-						Expression.Function(null, expr: Statement.Return(expr), args, defaults, funcType, isAsync: false)
+						Expression.Function(null, expr: Statement.Return(expr), args, defaults, funcType, isAsync: isAsync)
 					)
 				}
 
-			case Function(name, expr, args, defaults, funcType):
+			case Function(name, expr, args, defaults, funcType, isAsync):
 				// TODO this should generate arguments from caller side, ie:
 				// `f A -> B` `((a IA)=>IB)` => generate `((a A)=>B)`
 				// ^ should be done at normalizer

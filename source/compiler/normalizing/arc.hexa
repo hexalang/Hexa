@@ -23,19 +23,23 @@ class ArcInserter {
 		for func in niceProject.globalFuncs { // Process global functions
 			this.processStatement(func) // Mutate in place
 		}
+
 		for cls in niceProject.classes { // Process class methods
 			for method in cls.methods {
 				this.processStatement(method)
 			}
+
 			for staticMethod in cls.staticMethods {
 				this.processStatement(staticMethod)
 			}
 		}
+
 		for enu in niceProject.enumsSimple { // If enums have static methods
 			for method in enu.staticMethods {
 				this.processStatement(method)
 			}
 		}
+
 		for enu in niceProject.enumsComplex { // Similar for complex enums
 			for method in enu.staticMethods {
 				this.processStatement(method)
@@ -53,6 +57,7 @@ class ArcInserter {
 			case Block(els):
 				for el in els { this.processStatement(el) } // Recurse first to handle nested
 				var i = 0
+
 				while i < els.length { // Use while to handle inserts
 					switch els[i] {
 						case Const(name, expr, _): // Use expr.type? Assume type from expressionType.get(expr) or add to IR
@@ -83,6 +88,7 @@ class ArcInserter {
 									args[j] = temp // Replace arg with temp
 								}
 							}
+
 							if pre_stmts.length > 0 { // Insert before call
 								// TODO els.spliceAndInsert(i, 0, ...pre_stmts) // Insert array at i
 								for stmt in pre_stmts {
@@ -93,6 +99,7 @@ class ArcInserter {
 							}
 						case Assign(left, right, _):
 							let left_dataType = this.getType(left)
+
 							switch left {
 								case Ident(name, _):
 									if this.needsARC(left_dataType) { // Handle reassign for ARC var
@@ -110,6 +117,7 @@ class ArcInserter {
 							// To be correct: temp_old = left temp_right = eval Binop(left, op - =, right) assign left = temp_right inc left dec temp_old
 							// But if op is +=, Binop(left, +, right)
 							let left_type = this.getType(left)
+
 							switch left {
 								case Ident(name, _):
 									if this.needsARC(left_type) {
@@ -135,6 +143,7 @@ class ArcInserter {
 				if body != null {
 					this.processStatement(body) // Recurse on body
 					let param_objs = []
+
 					switch dataType {
 						case Function(args, returns):
 							for j in args.length {
@@ -145,6 +154,7 @@ class ArcInserter {
 								}
 							}
 					}
+
 					if param_objs.length > 0 {
 						switch body { // New: Switch to handle body variants directly
 							case Block(els):
@@ -163,6 +173,7 @@ class ArcInserter {
 			case If(cond, then, else_):
 				this.processExpression(cond) // Recurse expr
 				this.processStatement(then)
+
 				if else_ != null { this.processStatement(else_) }
 			case While(cond, body, pre):
 				this.processExpression(cond)
@@ -170,13 +181,19 @@ class ArcInserter {
 			case For(name, over, body):
 				this.processExpression(over)
 				this.processStatement(body)
-			case Switch(index, cases, stmts, guardians, binds):
+			case PlainSwitch(index, cases, stmts):
 				this.processExpression(index)
+
+				for stmt in stmts { this.processStatement(stmt) }
+			case PatternSwitch(index, cases, stmts, guardians, binds):
+				this.processExpression(index)
+
 				for stmt in stmts { this.processStatement(stmt) }
 				// Guardians are expr, processExpression
 				for g in guardians { if g != null { this.processExpression(g) } }
 			case Try(body, types, vars, catches, temp):
 				this.processStatement(body)
+
 				for catch_ in catches { this.processStatement(catch_) }
 				// Add cases for other statements like Return(expr): processExpression(expr), etc.
 			case Return(expr): if expr != null { this.processExpression(expr) }
