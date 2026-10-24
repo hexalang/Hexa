@@ -48,6 +48,7 @@ class Main {
 	fun processFile(target String, project Project): [Node] {
 		let content = Fs.readFileSync(target)
 		let tokens = Lexer.tokenize(content, target)
+
 		if tokens.length > 0 {
 			lines += tokens.line[tokens.length - 1]
 		}
@@ -71,35 +72,44 @@ class Main {
 		// REPL
 		var linesAll: [String] = []
 		var linesLatest: [String] = []
+
 		while true {
 			var line = question('\x1b[32m' + "> " + '\x1b[0m').trim()
+
 			if line == '.clear' {
 				linesAll = []
 				linesLatest = []
 				continue
 			}
+
 			if line == '.exit' {
 				return
 			}
+
 			if line.length == 0 {
 				continue
 			}
 			linesLatest.push(line)
+
 			try {
 				var code = '"use strict"\r\n'
+
 				try {
 					let content = linesAll.join('\n') + '\n' + linesLatest.join('\n')
 					let compiled = simplyCompileToJs(Buffer.from(content), "REPL")
+
 					if compiled == null {
 						linesLatest.pop()
 						continue
 					}
+
 					if let compiled = compiled {
 						code = compiled
 					}
 				} catch e: Any {
 					let error = '' + e
 					if error.indexOf('<!--end-->')  == -1 {
+
 						// Do not remember previous command
 						linesLatest = []
 						console.error('\x1b[31mCompilation Error: ' + e, '\x1b[0m')
@@ -127,6 +137,7 @@ class Main {
 
 		if let info = project.moduleInfo[index] {
 			let nodes = info.nodes
+
 			for e in nodes {
 				var named = true
 				switch e {
@@ -134,13 +145,14 @@ class Main {
 					case Enum(_):
 					case Function(_):
 					case Class(_):
-					// TODO type alias
+						// TODO type alias
 					case _:
 						named = false
 				}
 
 				if named {
 					let name = DataHelper.nameOf(e)
+
 					if project.globals.has(name) {
 						let data = project.data.get(e)
 						let already = project.data.get(project.globals.get(name))
@@ -163,6 +175,7 @@ class Main {
 		fun tryInRoot(root: String, fullPath: String) {
 			let file = Path.join(root, path + '.hexa')
 			if (Fs.existsSync(file)) {
+
 				try {
 				let resolved = Path.resolve(file)
 				var cachedBuffer = Buffer.from('')
@@ -221,12 +234,14 @@ class Main {
 			// Find project-relative path
 			let file = Path.join(root, path + '.hexa')
 			var fullPath = ''
+
 			if Fs.existsSync(file) {
 				fullPath = Path.relative(Path.dirname(project.json), file).slice(0,-5).split('\\').join('/')
 			}
 
 			// Do not parse again, but upload all globals
 			let index = project.moduleName.indexOf(fullPath)
+
 			if index > -1 {
 				if global == true {
 					processGlobals(project, path, fullPath)
@@ -238,12 +253,14 @@ class Main {
 
 			// Process
 			let lines = tryInRoot(root, fullPath)
+
 			if lines > -1 {
 				return lines
 			}
 		}
 
 		var msg = "Cannot find file `\(path)` in any of the roots.\n"
+
 		if path.endsWith('.hexa') {
 			msg += "Do not write `.hexa` extension in imports, just use `import ... in '\(path.replace('.hexa', ''))'`.\n"
 		}
@@ -264,6 +281,7 @@ class Main {
 	fun processFiles(targets: [String], relativePath: String, loaded: [String: Bool], project: Project): [[Node]] {
 		var res: [[Node]] = []
 		let imports: [String] = []
+
 		for target in targets {
 			if not Fs.existsSync(target) {
 				console.log('No such source file on disk `\(target)`')
@@ -292,10 +310,12 @@ class Main {
 				console.log(quote('\x1b[31m' + e.toString() + '\x1b[0m'))
 			}
 		}
+
 		if targets.length != res.length {
 			console.log('[Stopped on errors]')
 			Process.exit(1)
 		}
+
 		if imports.length > 0 {
 			// TODO [...a, ...b]
 			for file in processFiles(imports, relativePath, loaded, project) {
@@ -361,6 +381,7 @@ class Main {
 		})()
 
 		let generator = availableGenerators(t.generator)
+
 		if generator == null {
 			let msg = "Generator `\(t.generator)` not available or not supported by this compiler version\n"
 			throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
@@ -384,6 +405,7 @@ class Main {
 		}
 
 		pack.global = pack.global ?? []
+
 		for i in pack.global.length {
 			if let file = pack.global[i], !file.startsWith('/') {
 				pack.global[i] = '/' + file
@@ -393,11 +415,11 @@ class Main {
 		// for v : i in pack.global // TODO
 		let global = pack.global
 		global.forEach(fun (item, index) {
-			if global.indexOf(item) != index {
-				let msg = "Package `\(item)` included multiple times in the `global` section of `hexa.json`\n"
-				throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
-			}
-		})
+				if global.indexOf(item) != index {
+					let msg = "Package `\(item)` included multiple times in the `global` section of `hexa.json`\n"
+					throw new CompilerErrors([new CompilerError(Fail.ProjectError, msg, 1, 1, project.json)])
+				}
+			})
 
 		if pack.noLib == true {
 			// Nothing
@@ -418,7 +440,7 @@ class Main {
 	}
 
 	/// Entry
-	new () {}
+	new () { }
 
 	fun loadModules(project: Project, input: Package) {
 		let moduleErrors: [CompilerError] = []
@@ -429,6 +451,7 @@ class Main {
 					lines += processModule(project, path, true)
 				} catch e: CompilerErrors {
 					let errors: [CompilerError] = e.errors
+
 					for error in errors {
 						moduleErrors.push(error)
 					}
@@ -440,6 +463,7 @@ class Main {
 			processModule(project, input.entry, false)
 		} catch e: CompilerErrors {
 			let errors: [CompilerError] = e.errors
+
 			for error in errors {
 				moduleErrors.push(error)
 			}
@@ -479,7 +503,8 @@ class Main {
 		}
 
 		// Gather defines `--define name=value`
-		let defines: Any = {}
+		let defines: Any = { }
+
 		while Process.argv[0] == "--define" {
 			if (Process.argv.length < 2) {
 				console.log("Usage: `--define name=value`")
@@ -487,6 +512,7 @@ class Main {
 			}
 			Process.argv.shift()
 			let kv = (Process.argv.shift() ?? '').split('=')
+
 			if kv.length < 2 {
 				console.log("Usage: `--define name=value`")
 				Process.exit(1)
@@ -506,10 +532,13 @@ class Main {
 				console.log("Usage: `hexa syntax-linter file.hexa`")
 			} else {
 				let file = Process.argv[1]
+
 				try {
 					let content = Fs.readFileSync(file)
+
 					try {
 						let tokens = Lexer.tokenize(content, file)
+
 						try {
 							let parser = Parser.parseNodes(tokens, project, true)
 						} catch e: Any {
@@ -548,6 +577,7 @@ class Main {
 			let args = []
 			let count: Int = Process.argv.length - fromIndex
 			var i = 0
+
 			while i < count {
 				args.push(Process.argv[i++ + fromIndex])
 			}
@@ -577,11 +607,14 @@ class Main {
 		// Build the selected project
 		if currentParsedFile.ext == ".json" {
 			process.argv.shift()
+
 			if process.argv[0] == 'targets' {
 				let pack = readPackage(currentFile)
+
 				if pack.name == null {
 					incorrect('name', project)
 				}
+
 				if pack.targets == null {
 					incorrect('targets', project)
 				}
@@ -595,6 +628,7 @@ class Main {
 				console.log(quote('The project `\(pack.name)` has following targets: ' + targets.join(', ')))
 				return null
 			}
+
 			if process.argv[0] == '--target' {
 				process.argv.shift()
 				targetName = process.argv[0] ?? 'default'
@@ -622,7 +656,7 @@ class Main {
 		}
 		// Evaluate file directly
 		else if (currentParsedFile.ext == ".hexa") {
-			//let code = '"use strict"\r\n' + GenJs.stringifyProject(Normalizer.normalize(Node.Block([processFile(currentFile)]), GenJs.reserved))
+			// let code = '"use strict"\r\n' + GenJs.stringifyProject(Normalizer.normalize(Node.Block([processFile(currentFile)]), GenJs.reserved))
 			try {
 				eval(simplyCompileToJs(Fs.readFileSync(currentFile), currentFile))
 			} catch e: Any {
@@ -674,10 +708,12 @@ class Main {
 		#end
 
 		let typer = new Typer(project)
+
 		try {
 			typer.fillModules()
 		} catch e: Any {
 			console.log(quote('\x1b[31m' + e.toString() + '\x1b[0m'))
+
 			if noWrite {
 				return null
 			}
@@ -715,6 +751,7 @@ class Main {
 				let target = packageFolder + Path.sep + Path.parse(input.targets[targetIndex].output).name + generator.extension
 
 				var target = Path.join(packageFolder, input.targets[targetIndex].output)
+
 				if let outputFolder = outputFolder {
 					if Path.isAbsolute(outputFolder) {
 						target = outputFolder
@@ -731,9 +768,11 @@ class Main {
 				normalizer.nativeIterators = generator.nativeIterators ?? true
 				normalizer.reservedGlobals = generator.reservedGlobals ?? normalizer.reservedGlobals
 				normalizer.package = input
+
 				if let randomSeed = input.randomSeed {
 					normalizer.id = randomSeed
 				}
+
 				if let globalAccessor = generator.globalAccessor {
 					normalizer.globalAccessor = globalAccessor
 				}
@@ -792,26 +831,26 @@ class Main {
 		// Spawn project
 		try {
 
-		let project = new Project()
-		typecheckProject = project
-		let defines: Any = {}
-		project.defines = defines
-		let input = loadPackage(dir + Path.sep + "hexa.json", targetName, project)
+			let project = new Project()
+			typecheckProject = project
+			let defines: Any = { }
+			project.defines = defines
+			let input = loadPackage(dir + Path.sep + "hexa.json", targetName, project)
 
-		try {
-			loadModules(project, input)
-		} catch e: Any {
-			return e
-		}
+			try {
+				loadModules(project, input)
+			} catch e: Any {
+				return e
+			}
 
-		let typer = new Typer(project)
-		typecheckProjectTyper = typer
-		typer.onlyTypeCheck = true
-		try {
-			typer.fillModules()
-		} catch e: Any {
-			return e
-		}
+			let typer = new Typer(project)
+			typecheckProjectTyper = typer
+			typer.onlyTypeCheck = true
+			try {
+				typer.fillModules()
+			} catch e: Any {
+				return e
+			}
 
 		} catch e: Any {
 			return e
