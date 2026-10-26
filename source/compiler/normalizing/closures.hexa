@@ -1,0 +1,1379 @@
+// The Hexa Compiler
+// SPDX-FileCopyrightText: 2025-2026 Oleh Petrenko
+// SPDX-License-Identifier: MPL-2.0
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+
+/// Closure capture-lifting (F1 lite) — runs after Normalizer, before codegen,
+/// following the `ArcInserter` pattern: generators stay unaware of capturing
+/// lambdas (D8 — Nice is the canonical IR).
+///
+/// Every `fun`/`=>` VALUE is lowered to a plain top-level function; captured
+/// variables live in per-closure-site global env variables filled at the
+/// creation site (assignments hoisted before the owning statement).
+///
+/// NOTE Phase 1 limitation (recorded in docs/target-c.md): the env is a
+/// global per closure SITE — two live closures created at the same site (e.g.
+/// in a loop) share it. Real per-instance envs (heap helper objects + fat
+/// function values per D1) replace the globals INSIDE this pass later, with
+/// no generator changes.
+///
+/// FINDINGS (from closures-trace.log on the Perfide native build, Oct 2026):
+/// 1. FIXED `globals` over-approximation: class/enum members were registered
+/// as globals, so same-named LOCALS were wrongly SKIPped (trace: `state` <-
+/// classVar:Promise, `file` <- classVar:Tab, `resolve` <- static:Promise,
+/// `treeRowBoxes` <- classVar:WindowUi, `root` <- static:String, `data` <-
+/// classVar:Array, `line` <- classVar:Cursor, `command` <- classVar:RunBuildArgs,
+/// `targetWindow` <- classVar:ToolContext, `first` <- classVar:ArrayByValue).
+/// Members are always Dot-qualified in Nice, never bare idents — members are
+/// no longer registered (type names + module-level + externals stay).
+/// 2. REFINED nested-capture story: the old UNRENAMED lines for parent locals
+/// (e.g. `rowY` in closure$180) were an instrumentation artifact (stale
+/// `currentDeclared`, fixed by the outer-restore) — the current trace shows
+/// zero UNRENAMED and zero related C2065. What REMAINS is the mutation-sharing
+/// hole: nested captures of parent BODY locals place fills correctly (lexical
+/// scope saves us) but copy into globals, so writes diverge. The new
+/// VERIFY-FAIL/FWD-REF post-pass decides this mechanically — see its lines.
+/// 3. FIXED `kindOf` probe (was `undefined`): exhaustive `kindOfStmt/kindOfExpr`
+/// tag switches — every future MISS line now names the exact Nice case.
+/// 4. OPEN `This`/`Elvis` rewrite arms added (a live C2355 + a latent C2065
+/// hole); THIS-LEAK in the new verifier proves the `this` half.
+/// IR status: `CallKind.Closure` (F1.2) exists and the lifter tags lifted-call
+/// sites with it (genC-shared-path, no behavior change — canary for tolerant
+/// matching); `Expression.CapturedVar` exists but NOTHING produces it yet
+/// (the verifier asserts zero occurrences).
+@final
+class ClosureLifter {
+	var niceProject: NiceProject // The IR to mutate
+	/// Names that live at the global scope (funcs/vars/classes/enums and
+	/// externals) — references to them are never captures
+	let globals: [String : Bool] = [:]
+	/// TEMPORARY INSTRUMENTATION — provenance of every `globals` entry so
+	/// capture SKIP decisions can be explained (remove once pinpointed)
+	let globalSources: [String : String] = [:]
+	/// TEMPORARY INSTRUMENTATION — written to `closures-trace.log` at the end
+	/// of `lift()` (one line per capture decision / unknown IR node)
+	let trace: [String] = []
+
+	/// TEMPORARY INSTRUMENTATION helper
+	fun traceLog(line: String) {
+		trace.push(line)
+	}
+
+	/// TEMPORARY INSTRUMENTATION: registers a global name WITH provenance
+	fun markGlobal(name: String, source: String) {
+		globals.set(name, true)
+
+		if globalSources.get(name) == null {
+			globalSources.set(name, source)
+		}
+	}
+	/// Capture-name -> replacement expression, threaded into nested closures
+	var renames: [String : Expression] = [:]
+	/// Names declared in the closure being rewritten (args/self) — snapshot
+	/// from `liftClosure` so `rewriteExpr` can flag truly-unrenamed idents
+	var currentDeclared: [String : Bool] = [:]
+	/// TEMPORARY INSTRUMENTATION — >0 only while rewriting a lifted closure
+	/// body (top-level fn rewrites rename nothing, so UNRENAMED there is noise)
+	var insideLift = 0
+	/// Env-fill assignments for the statement being rewritten (hoisted)
+	var hoisted: [Statement] = []
+	var id Int = 0
+	/// `this` type seen during the current `collect` walk
+	var foundThis: Type = null as!Type
+
+	new (niceProject: NiceProject) {
+		this.niceProject = niceProject
+	}
+
+	/// Main entry: lift every closure in the project
+	fun lift() {
+		// Global names as they appear in Nice (post-rename)
+		for f in niceProject.globalFuncs {
+			switch f {
+				case Function(name, _, _, _, _, _, _):
+					markGlobal(name, 'globalFunc')
+				case _:
+			}
+		}
+
+		for v in niceProject.globalVars {
+			switch v {
+				case Var(name, _, _):
+					markGlobal(name, 'globalVar')
+				case Const(name, _, _):
+					markGlobal(name, 'globalConst')
+				case _:
+			}
+		}
+
+		for c in niceProject.classes {
+			markGlobal(c.name, 'class')
+			// NOTE members are INTENTIONALLY not registered: instance/static
+			// members are always Dot-qualified in Nice (`this.x`, `C.x`),
+			// never bare idents — a bare name is a local/param/global capture
+			// candidate. Registering them skipped real captures (trace:
+			// `state` <- classVar:Promise, `resolve` <- static:Promise,
+			// `treeRowBoxes` <- classVar:WindowUi, `root` <- static:String)
+		}
+
+		for e in niceProject.enumsSimple {
+			markGlobal(e.name, 'enum')
+			// NOTE same as classes above: enum members are Dot-qualified in
+			// Nice, never bare — only the type name is global
+		}
+
+		for e in niceProject.enumsComplex {
+			markGlobal(e.name, 'enum')
+			// NOTE same as classes above (value factories are Expression.Enum,
+			// never bare idents — but keep the ctor names: zero collision
+			// risk either way and they ARE module-level callables)
+
+			for names in e.constructors {
+				for name in names {
+					markGlobal(name, 'enumCtor:' + e.name)
+				}
+			}
+		}
+
+		// Externals (`declare fun/let`) are not in the Nice lists but are
+		// referenced by their plain names — the typer knows them all
+		for name in niceProject.typer.project.globals.keys() {
+			markGlobal(name, 'typerGlobal')
+		}
+
+		// Walk all bodies (index loops — statements are rebuilt in place)
+		for i in niceProject.globalFuncs.length {
+			niceProject.globalFuncs[i] = rewriteFnStmt(niceProject.globalFuncs[i])
+		}
+
+		for c in niceProject.classes {
+			for i in c.methods.length {
+				c.methods[i] = rewriteFnStmt(c.methods[i])
+			}
+
+			for i in c.staticMethods.length {
+				c.staticMethods[i] = rewriteFnStmt(c.staticMethods[i])
+			}
+
+			processVarList(c.vars)
+			processVarList(c.staticVars)
+		}
+
+		for e in niceProject.enumsSimple {
+			processVarList(e.staticVars)
+
+			for i in e.staticMethods.length {
+				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
+			}
+		}
+
+		for e in niceProject.enumsComplex {
+			processVarList(e.staticVars)
+
+			for i in e.staticMethods.length {
+				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
+			}
+		}
+
+		processVarList(niceProject.globalVars)
+
+		if niceProject.init.length > 0 {
+			let wrapped = processStatementList(niceProject.init)
+			niceProject.init.splice(0, niceProject.init.length)
+
+			for s in wrapped {
+				niceProject.init.push(s)
+			}
+		}
+
+		// TEMPORARY INSTRUMENTATION — post-pass checks (see each method's doc):
+		// independent re-derivation of every capture decision + the closure
+		// value-flow census for the F1.6 design. Any VERIFY-FAIL / FWD-REF /
+		// THIS-LEAK / DROPPED-FILL line is a live hole in the pass
+		verifyLifted()
+		censusClosureUses()
+		traceLog('CENSUS calls=' + censusCalls + ' stored=' + censusStored + ' methodValues=' + censusMethodValues + ' closureKind=' + censusClosureKind)
+
+		// TEMPORARY INSTRUMENTATION — dump the capture-decision trace
+		Fs.writeFileSync('closures-trace.log', trace.join('\n'))
+	}
+
+	/// Registers names of functions/vars into the globals set
+	fun collectDeclaredNames(list: [Statement], source: String) {
+		for s in list {
+			switch s {
+				case Function(name, _, _, _, _, _, _):
+					markGlobal(name, source)
+				case Var(name, _, _):
+					markGlobal(name, source)
+				case Const(name, _, _):
+					markGlobal(name, source)
+				case _:
+			}
+		}
+	}
+
+	/// Rewrites initializers of `var`/`const` lists in place
+	fun processVarList(list: [Statement]) {
+		for i in list.length {
+			let saved = hoisted
+			hoisted = []
+			let old = list[i]
+			list[i] = rewriteStmt(old)
+
+			// TEMPORARY INSTRUMENTATION (tests H3): fills created inside an
+			// initializer have nowhere to go (no owning statement list) and
+			// are dropped here — a closure literal in a field/global/var
+			// initializer silently gets a never-filled env (runtime bug that
+			// compiles clean). Any DROPPED-FILL line is a live instance
+			if hoisted.length > 0 {
+				traceLog('DROPPED-FILL var-init ' + kindOfStmt(old) + ' fills=' + hoisted.length)
+			}
+
+			hoisted = saved
+
+			// NOTE `globalLink` is keyed by the STATEMENT object — rebuilt
+			// statements must inherit their link info
+			if list[i] != old {
+				if let link = niceProject.globalLink.get(old) {
+					niceProject.globalLink.set(list[i], link)
+				}
+			}
+		}
+	}
+
+	/// Rewrites the body of a top-level function/method statement
+	fun rewriteFnStmt(s: Statement): Statement {
+		switch s {
+			case Function(name, body, args, defaults, funcType, variadic, isAsync):
+				let saved = hoisted
+				hoisted = []
+				let newDefaults = rewriteExprList(defaults)
+				let newBody = rewriteStmt(body)
+				let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
+				hoisted = saved
+
+				// NOTE `globalLink` is keyed by the STATEMENT object — the
+				// rebuilt statement must inherit its link info (`@rename`,
+				// `@customHeader`, ...) or the generator loses it
+				if let link = niceProject.globalLink.get(s) {
+					niceProject.globalLink.set(result, link)
+				}
+
+				return result
+			case _:
+				return s
+		}
+	}
+
+	/// Rewrites a statement list, inserting env fills before their owners
+	fun processStatementList(els: [Statement]): [Statement] {
+		let out: [Statement] = []
+
+		for s in els {
+			let saved = hoisted
+			hoisted = []
+			let s2 = rewriteStmt(s)
+
+			for h in hoisted {
+				out.push(h)
+			}
+
+			hoisted = saved
+			out.push(s2)
+		}
+
+		return out
+	}
+
+	/// Rewrites a statement child that has no surrounding list — wraps hoisted
+	/// fills into a block when needed
+	fun rewriteStmtHoisted(s: Statement): Statement {
+		let saved = hoisted
+		hoisted = []
+		let s2 = rewriteStmt(s)
+
+		if hoisted.length > 0 {
+			let els: [Statement] = []
+
+			for h in hoisted {
+				els.push(h)
+			}
+
+			els.push(s2)
+			hoisted = saved
+			return Statement.Block(els)
+		}
+
+		hoisted = saved
+		return s2
+	}
+
+	/// Rewrites statements: applies capture renames and lifts nested closures
+	fun rewriteStmt(s: Statement): Statement { switch s {
+			case Statements(els):
+				return Statement.Statements(processStatementList(els))
+			case Block(els):
+				return Statement.Block(processStatementList(els))
+			case Call(e, args, expects, kind):
+				let newCallee = rewriteExpr(e)
+				return Statement.Call(newCallee, rewriteExprList(args), expects, closureCallKind(newCallee, kind))
+			case Var(name, expr, dataType):
+				return Statement.Var(name, rewriteExpr(expr), dataType)
+			case Const(name, expr, dataType):
+				return Statement.Const(name, rewriteExpr(expr), dataType)
+			case Function(name, body, args, defaults, funcType, variadic, isAsync):
+				// Nested named function — lift like a closure and bind its name
+				// NOTE a DECLARATION (`Var`), not an assignment: the lifted
+				// `closure$N` value must introduce the local or the C output
+				// references an undeclared identifier
+				let lifted = liftClosure(body, args, defaults, funcType, variadic, isAsync, name)
+				return Statement.Var(name, lifted, funcType)
+			case Return(e):
+				return Statement.Return(rewriteExpr(e))
+			case If(econd, eif, eelse):
+				return Statement.If(rewriteExpr(econd), rewriteStmtHoisted(eif), rewriteStmtHoisted(eelse))
+			case Try(expr, t, v, catches, temp):
+				// NOTE `expr` holds a STATEMENT (the normalizer stores
+				// `nodeToStatement(...)` here) despite the enum typing
+				let newCatches: [Statement] = []
+
+				for c in catches {
+					newCatches.push(rewriteStmtHoisted(c))
+				}
+
+				return Statement.Try(rewriteStmt(expr), t, v, newCatches, temp)
+			case Throw(value):
+				return Statement.Throw(rewriteExpr(value))
+			case Assign(name, value, to):
+				return Statement.Assign(rewriteExpr(name), rewriteExpr(value), to)
+			case Assignop(name, op, value):
+				return Statement.Assignop(rewriteExpr(name), op, rewriteExpr(value))
+			case For(name, over, by, reverse):
+				return Statement.For(name, rewriteExpr(over), rewriteStmtHoisted(by), reverse)
+			case While(econd, e, pre):
+				return Statement.While(rewriteExpr(econd), rewriteStmtHoisted(e), pre)
+			case Increment(e):
+				return Statement.Increment(rewriteExpr(e))
+			case Decrement(e):
+				return Statement.Decrement(rewriteExpr(e))
+			case PatternSwitch(expr, cases, statements, guards, binds):
+				let newCases: [[Expression]] = []
+
+				for case_ in cases {
+					newCases.push(rewriteExprList(case_))
+				}
+
+				let newStatements: [Statement] = []
+
+				for st in statements {
+					newStatements.push(rewriteStmtHoisted(st))
+				}
+
+				let newGuards: [Expression] = []
+
+				for g in guards {
+					newGuards.push(rewriteExpr(g))
+				}
+
+				let newBinds: [[Statement]] = []
+
+				for b in binds {
+					newBinds.push(processStatementList(b))
+				}
+
+				return Statement.PatternSwitch(rewriteExpr(expr), newCases, newStatements, newGuards, newBinds)
+			case PlainSwitch(expr, cases, statements):
+				let newCases: [[Expression]] = []
+
+				for case_ in cases {
+					newCases.push(rewriteExprList(case_))
+				}
+
+				let newStatements: [Statement] = []
+
+				for st in statements {
+					newStatements.push(rewriteStmtHoisted(st))
+				}
+
+				return Statement.PlainSwitch(rewriteExpr(expr), newCases, newStatements)
+			case SuperConstructor(args):
+				return Statement.SuperConstructor(rewriteExprList(args))
+			case RefInc(name):
+				return Statement.RefInc(rewriteExprList(name))
+			case DeferRefDec(name):
+				return Statement.DeferRefDec(rewriteExprList(name))
+			// Leaves: nothing to rewrite (silent — no MISS noise)
+		case Continue | Break:
+			return s
+		case _:
+			// TEMPORARY INSTRUMENTATION — an unhandled statement kind is
+			// returned UNREWRITTEN: capture renames inside it never apply
+			// (null list slots are not misses)
+			if s != null, kindOfStmt(s) != 'UnknownStmt' {
+				traceLog('REWRITE-MISS stmt ' + kindOfStmt(s))
+			}
+
+			return s
+	} }
+
+	/// TEMPORARY INSTRUMENTATION — tags calls to lifted closures with the new
+	/// `CallKind.Closure` (F1.2 canary: genC/normalizer/arc must all tolerate
+	/// the 4th kind; printing stays on the shared thin-call path for now)
+	fun closureCallKind(callee: Expression, kind: CallKind): CallKind {
+		var k = kind
+
+		switch callee {
+			case Ident(name, _):
+				if name.startsWith('closure$') {
+					k = CallKind.Closure
+				}
+			// IIFE shape from the normalizer: `Call(Parenthesis(Function...))`
+			// — the function inside still lifts to a closure call
+			case Parenthesis(inner):
+				k = closureCallKind(inner, kind)
+		}
+
+		return k
+	}
+
+	fun rewriteExprList(list: [Expression]): [Expression] {
+		let out: [Expression] = []
+
+		for e in list {
+			out.push(rewriteExpr(e))
+		}
+
+		return out
+	}
+
+	/// Rewrites expressions: applies capture renames and lifts closures
+		fun rewriteExpr(e: Expression): Expression { switch e {
+			case Ident(name, dataType):
+				if let replacement = renames.get(name) {
+					return replacement
+				}
+
+				// TEMPORARY INSTRUMENTATION — an ident that survives inside a
+				// lifted body unrenamed is only legal if it is a global/arg
+				if insideLift > 0, globals.get(name) == null, currentDeclared.get(name) == null {
+					traceLog('UNRENAMED      closure$' + this.id + ' `' + name + '`')
+				}
+
+				return e
+			case Dot(expr, name, result):
+				return Expression.Dot(rewriteExpr(expr), name, result)
+			case Index(expr, index, result):
+				return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
+			case StringIndex(expr, index, result):
+				return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
+			case Call(callee, args, result, kind):
+				let newCallee = rewriteExpr(callee)
+				return Expression.Call(newCallee, rewriteExprList(args), result, closureCallKind(newCallee, kind))
+			case New(callee, args, result):
+				return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
+			case Binop(a, op, b, result):
+				return Expression.Binop(rewriteExpr(a), op, rewriteExpr(b), result)
+			case Unop(op, postfix, inner):
+				return Expression.Unop(op, postfix, rewriteExpr(inner))
+			case Parenthesis(inner):
+				return Expression.Parenthesis(rewriteExpr(inner))
+			case Array(values, arrayType):
+				return Expression.Array(rewriteExprList(values), arrayType)
+			case Object(names, el, types):
+				return Expression.Object(names, rewriteExprList(el), types)
+			case Map(keys, values, keyType, valueType, mapType):
+				return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
+			case If(econd, eif, eelse):
+				return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse))
+			case Elvis(a, b):
+				// NOTE payloads are Nice Expressions (normalizer builds them
+				// via `nodeToExpression`, typed as `Node`) — recurse so
+				// captures inside `x ?? y` are not missed (latent C2065 hole)
+				return Expression.Elvis(rewriteExpr(a as!Expression), rewriteExpr(b as!Expression))
+			case This(me):
+				// `this` captured as pseudo-name `closureEnv$N$this` (filled
+				// from the real `this` at the creation site) — without this
+				// arm a bare `this` leaks into the lifted global (C2355)
+				if let replacement = renames.get('this') {
+					return replacement
+				}
+
+				return e
+			case Await(inner):
+				return Expression.Await(rewriteExpr(inner))
+			case UnsafeBitCast(inner, to):
+				return Expression.UnsafeBitCast(rewriteExpr(inner), to)
+			case Is(inner, of):
+				return Expression.Is(rewriteExpr(inner), of)
+			case RemoveNullability(inner, result):
+				return Expression.RemoveNullability(rewriteExpr(inner), result)
+			case Assignop(name, op, value):
+				return Expression.Assignop(rewriteExpr(name), op, rewriteExpr(value))
+			case EnumTag(inner):
+				return Expression.EnumTag(rewriteExpr(inner))
+			case Enum(enumType, tagName, tag, args):
+				return Expression.Enum(enumType, tagName, rewriteExpr(tag), rewriteExprList(args))
+			case EnumParameter(inner, index):
+				return Expression.EnumParameter(rewriteExpr(inner), index)
+			case Spread(inner):
+				return Expression.Spread(rewriteExpr(inner))
+			case StringConcatenation(leftString, rightString):
+				return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
+			case NativeOperator(kind, args, name, params, result):
+				return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
+						// Leaves: nothing to rewrite (silent — no MISS noise)
+			case String(_): return e
+			case Int(_): return e
+			case Float(_): return e
+			case Null(_): return e
+			case Underscore: return e
+			case True: return e
+			case False: return e
+			case MetaInt(_, _, _): return e
+			case Function(name, body, args, defaults, funcType, isAsync):
+				return liftClosure(body, args, defaults, funcType, VariadicKind.NotVariadic, isAsync, name)
+			case Arrow(expr, args, defaults, types, returns, funcType, isAsync):
+				// Arrow body is an expression — wrap as `return expr`
+				let body = Statement.Block([Statement.Return(expr)])
+				return liftClosure(body, args, defaults, funcType, VariadicKind.NotVariadic, isAsync)
+			case _:
+				// TEMPORARY INSTRUMENTATION — an unhandled expression kind is
+				// returned UNREWRITTEN: capture renames inside it never apply
+				if e != null {
+					traceLog('REWRITE-MISS expr ' + kindOfExpr(e))
+				}
+
+				return e
+		} }
+
+	/// Lowers one closure to a global function + env variables; returns the
+	/// function-name expression that replaces the closure value.
+	/// `selfName` (named nested functions) resolves to the lifted function
+	/// itself — self-recursion must not become a capture
+	fun liftClosure(body: Statement, args: [String], defaults: [Expression], funcType: Type, variadic: VariadicKind, isAsync: Bool, selfName: String? = null): Expression {
+		this.id = this.id + 1
+		let id = this.id
+		traceLog('--- LIFT closure$' + id + ' args=' + args + ' self=' + (selfName ?? ''))
+		let newDefaults = rewriteExprList(defaults)
+
+		// TEMPORARY INSTRUMENTATION (tests H6): lifted-function defaults are
+		// believed vestigial (the normalizer pre-fills defaults at call
+		// sites, genC never reads them) — any hit here reopens that question
+		if newDefaults.length > 0 {
+			traceLog('HAS-DEFAULTS closure$' + id + ' n=' + newDefaults.length)
+		}
+
+		// Free-variable analysis over the closure body
+		let used: [String : Type] = [:]
+		let declared: [String : Bool] = [:]
+
+		for a in args {
+			declared.set(a, true)
+		}
+
+		if let me = selfName {
+			declared.set(me, true)
+		}
+
+		foundThis = null as!Type
+		collect(body, used, declared)
+
+		let captures: [String] = []
+
+		for name in used.keys() {
+			if declared.get(name) != null {
+				traceLog('SKIP declared  closure$' + id + ' `' + name + '`')
+				continue
+			}
+
+			if globals.get(name) != null {
+				let source = globalSources.get(name) ?? '?'
+				traceLog('SKIP global    closure$' + id + ' `' + name + '` <- ' + source)
+				continue
+			}
+
+			traceLog('CAPTURE        closure$' + id + ' `' + name + '`')
+			captures.push(name)
+		}
+
+		// `this` is captured as a pseudo-name
+		if foundThis != null as!Type {
+			captures.push('this')
+		}
+
+		// Per-closure-site env: one global per captured name, filled at the
+		// creation site
+		let renames2: [String : Expression] = [:]
+
+		for key in renames.keys() {
+			renames2.set(key, renames.get(key))
+		}
+
+		// Self-recursion goes straight to the lifted function — the local
+		// alias is declared AFTER the closure body is built
+		if let me = selfName {
+			renames2.set(me, Expression.Ident('closure$' + id, funcType))
+		}
+
+		for name in captures {
+			let envName = 'closureEnv$' + id + '$' + name
+			var dataType = used.get(name)
+
+			if name == 'this' {
+				dataType = foundThis
+			}
+
+			niceProject.globalVars.push(Statement.Var(envName, null, dataType))
+
+			var source = renames.get(name)
+
+			if name == 'this' {
+				source = Expression.This(foundThis)
+			}
+
+			if source == null {
+				source = Expression.Ident(name, dataType)
+			}
+
+			traceLog('FILL           closure$' + id + ' `' + name + '` -> `' + envName + '`')
+			hoisted.push(Statement.Assign(Expression.Ident(envName, dataType), source, dataType))
+			renames2.set(name, Expression.Ident(envName, dataType))
+		}
+
+		// Rewrite the body under the new renames — nested closures lift
+		// recursively and capture from this closure's env/locals
+		let outerRenames = renames
+		renames = renames2
+		let outerDeclared = currentDeclared
+		currentDeclared = declared
+		insideLift = insideLift + 1
+		let saved = hoisted
+		hoisted = []
+		let newBody = rewriteStmt(body)
+		hoisted = saved
+		insideLift = insideLift - 1
+		renames = outerRenames
+		// NOTE restore the declared-set too — nested lifts overwrite it and
+		// stale entries would mis-flag the outer body's locals
+		currentDeclared = outerDeclared
+
+		let fnName = 'closure$' + id
+		niceProject.globalFuncs.push(Statement.Function(fnName, newBody, args, newDefaults, funcType, variadic, isAsync))
+		return Expression.Ident(fnName, funcType)
+	}
+
+	/// Records used names (with types) and locally declared names
+	fun collect(s: Statement, used: [String : Type], declared: [String : Bool]) { switch s {
+			case Statements(els):
+				for el in els { collect(el, used, declared) }
+			case Block(els):
+				for el in els { collect(el, used, declared) }
+			case Call(e, args, _, _):
+				collectExpr(e, used, declared)
+
+				for arg in args { collectExpr(arg, used, declared) }
+			case Var(name, expr, _):
+				declared.set(name, true)
+				collectExpr(expr, used, declared)
+			case Const(name, expr, _):
+				declared.set(name, true)
+				collectExpr(expr, used, declared)
+			case Function(name, body, args, defaults, _, _, _):
+				declared.set(name, true)
+
+				for a in args { declared.set(a, true) }
+
+				for d in defaults { collectExpr(d, used, declared) }
+				collect(body, used, declared)
+			case Return(e):
+				collectExpr(e, used, declared)
+			case If(econd, eif, eelse):
+				collectExpr(econd, used, declared)
+				collect(eif, used, declared)
+
+				if eelse != null { collect(eelse, used, declared) }
+			case Try(expr, _, v, catches, _):
+				for name in v { declared.set(name, true) }
+				// NOTE `expr` holds a STATEMENT (see `rewriteStmt`)
+				collect(expr, used, declared)
+
+				for c in catches { collect(c, used, declared) }
+			case Throw(value):
+				collectExpr(value, used, declared)
+			case Assign(name, value, _):
+				collectExpr(name, used, declared)
+				collectExpr(value, used, declared)
+			case Assignop(name, _, value):
+				collectExpr(name, used, declared)
+				collectExpr(value, used, declared)
+			case For(name, over, by, _):
+				declared.set(name, true)
+				collectExpr(over, used, declared)
+				collect(by, used, declared)
+			case While(econd, e, _):
+				collectExpr(econd, used, declared)
+				collect(e, used, declared)
+			case Increment(e):
+				collectExpr(e, used, declared)
+			case Decrement(e):
+				collectExpr(e, used, declared)
+			case PatternSwitch(expr, cases, statements, guards, binds):
+				collectExpr(expr, used, declared)
+
+				for case_ in cases {
+					for c in case_ { collectExpr(c, used, declared) }
+				}
+
+				for st in statements { collect(st, used, declared) }
+
+				for g in guards {
+					if g != null { collectExpr(g, used, declared) }
+				}
+
+				for b in binds {
+					for st in b { collect(st, used, declared) }
+				}
+			case PlainSwitch(expr, cases, statements):
+				collectExpr(expr, used, declared)
+
+				for case_ in cases {
+					for c in case_ { collectExpr(c, used, declared) }
+				}
+
+				for st in statements { collect(st, used, declared) }
+			case SuperConstructor(args):
+				for arg in args { collectExpr(arg, used, declared) }
+			case RefInc(name):
+				for n in name { collectExpr(n, used, declared) }
+			case DeferRefDec(name):
+				for n in name { collectExpr(n, used, declared) }
+			case _:
+				// Leaves carry no idents — silence them so MISS stays signal
+				if s != null {
+					let k = kindOfStmt(s)
+
+					if k != 'Continue', k != 'Break' {
+						traceLog('COLLECT-MISS stmt ' + k)
+					}
+				}
+		} }
+
+	/// TEMPORARY INSTRUMENTATION — exact case tags (no runtime guessing)
+	fun kindOfStmt(s: Statement): String { switch s {
+			case Statements(_): return 'Statements'
+			case Block(_): return 'Block'
+			case Call(_, _, _, _): return 'Call'
+			case Var(_, _, _): return 'Var'
+			case Const(_, _, _): return 'Const'
+			case Function(_, _, _, _, _, _, _): return 'Function'
+			case Return(_): return 'Return'
+			case If(_, _, _): return 'If'
+			case Try(_, _, _, _, _): return 'Try'
+			case Throw(_): return 'Throw'
+			case Assign(_, _, _): return 'Assign'
+			case Assignop(_, _, _): return 'Assignop'
+			case For(_, _, _, _): return 'For'
+			case While(_, _, _): return 'While'
+			case Increment(_): return 'Increment'
+			case Decrement(_): return 'Decrement'
+			case PatternSwitch(_, _, _, _, _): return 'PatternSwitch'
+			case PlainSwitch(_, _, _): return 'PlainSwitch'
+			case Continue: return 'Continue'
+			case Break: return 'Break'
+			case SuperConstructor(_): return 'SuperConstructor'
+			case RefInc(_): return 'RefInc'
+			case DeferRefDec(_): return 'DeferRefDec'
+			case _: return 'UnknownStmt'
+		} }
+
+	/// TEMPORARY INSTRUMENTATION — exact case tags (no runtime guessing)
+	fun kindOfExpr(e: Expression): String { switch e {
+			case String(_): return 'String'
+			case Int(_): return 'Int'
+			case MetaInt(_, _, _): return 'MetaInt'
+			case Float(_): return 'Float'
+			case True: return 'True'
+			case False: return 'False'
+			case Ident(_, _): return 'Ident'
+			case Null(_): return 'Null'
+			case This(_): return 'This'
+			case Dot(_, _, _): return 'Dot'
+			case Call(_, _, _, _): return 'Call'
+			case New(_, _, _): return 'New'
+			case Binop(_, _, _, _): return 'Binop'
+			case Function(_, _, _, _, _, _): return 'Function'
+			case Arrow(_, _, _, _, _, _, _): return 'Arrow'
+			case Parenthesis(_): return 'Parenthesis'
+			case Object(_, _, _): return 'Object'
+			case Array(_, _): return 'Array'
+			case Map(_, _, _, _, _): return 'Map'
+			case Unop(_, _, _): return 'Unop'
+			case Await(_): return 'Await'
+			case Elvis(_, _): return 'Elvis'
+			case If(_, _, _): return 'If'
+			case Index(_, _, _): return 'Index'
+			case UnsafeBitCast(_, _): return 'UnsafeBitCast'
+			case Is(_, _): return 'Is'
+			case RemoveNullability(_, _): return 'RemoveNullability'
+			case Assignop(_, _, _): return 'Assignop'
+			case EnumTag(_): return 'EnumTag'
+			case Enum(_, _, _, _): return 'Enum'
+			case EnumParameter(_, _): return 'EnumParameter'
+			case Underscore: return 'Underscore'
+			case Spread(_): return 'Spread'
+			case CapturedVar(_, _): return 'CapturedVar'
+			case StringConcatenation(_, _): return 'StringConcatenation'
+			case StringIndex(_, _, _): return 'StringIndex'
+			case NativeOperator(_, _, _, _, _): return 'NativeOperator'
+			case _: return 'UnknownExpr'
+		} }
+
+	fun collectExpr(e: Expression, used: [String : Type], declared: [String : Bool]) { switch e {
+			case Ident(name, dataType):
+				if used.get(name) == null {
+					used.set(name, dataType)
+				}
+			case This(me):
+				foundThis = me
+			case Dot(expr, _, _):
+				collectExpr(expr, used, declared)
+			case Index(expr, index, _):
+				collectExpr(expr, used, declared)
+				collectExpr(index, used, declared)
+			case StringIndex(expr, index, _):
+				collectExpr(expr, used, declared)
+				collectExpr(index, used, declared)
+			case Call(callee, args, _, _):
+				collectExpr(callee, used, declared)
+
+				for arg in args { collectExpr(arg, used, declared) }
+			case New(callee, args, _):
+				collectExpr(callee, used, declared)
+
+				for arg in args { collectExpr(arg, used, declared) }
+			case Binop(a, _, b, _):
+				collectExpr(a, used, declared)
+				collectExpr(b, used, declared)
+			case Unop(_, _, inner):
+				collectExpr(inner, used, declared)
+			case Parenthesis(inner):
+				collectExpr(inner, used, declared)
+			case Array(values, _):
+				for v in values { collectExpr(v, used, declared) }
+			case Object(_, el, _):
+				for v in el { collectExpr(v, used, declared) }
+			case Map(keys, values, _, _, _):
+				for v in keys { collectExpr(v, used, declared) }
+
+				for v in values { collectExpr(v, used, declared) }
+			case If(econd, eif, eelse):
+				collectExpr(econd, used, declared)
+				collectExpr(eif, used, declared)
+				collectExpr(eelse, used, declared)
+			case Elvis(a, b):
+				// NOTE see `rewriteExpr` — payloads are Nice Expressions
+				collectExpr(a as!Expression, used, declared)
+				collectExpr(b as!Expression, used, declared)
+			case Await(inner):
+				collectExpr(inner, used, declared)
+			case UnsafeBitCast(inner, _):
+				collectExpr(inner, used, declared)
+			case Is(inner, _):
+				collectExpr(inner, used, declared)
+			case RemoveNullability(inner, _):
+				collectExpr(inner, used, declared)
+			case Assignop(name, _, value):
+				collectExpr(name, used, declared)
+				collectExpr(value, used, declared)
+			case EnumTag(inner):
+				collectExpr(inner, used, declared)
+			case Enum(_, _, tag, args):
+				collectExpr(tag, used, declared)
+
+				for arg in args { collectExpr(arg, used, declared) }
+			case EnumParameter(inner, _):
+				collectExpr(inner, used, declared)
+			case Spread(inner):
+				collectExpr(inner, used, declared)
+			case StringConcatenation(leftString, rightString):
+				collectExpr(leftString, used, declared)
+				collectExpr(rightString, used, declared)
+			case NativeOperator(_, args, _, _, _):
+				for arg in args { collectExpr(arg, used, declared) }
+			case Function(name, body, args, defaults, _, _):
+				// Nested closure — its free names are captures of THIS closure
+				// (lifted later, with the renames already applied)
+				declared.set(name, true)
+
+				for a in args { declared.set(a, true) }
+
+				for d in defaults { collectExpr(d, used, declared) }
+				collect(body, used, declared)
+			case Arrow(expr, args, defaults, _, _, _, _):
+				for a in args { declared.set(a, true) }
+
+				for d in defaults { collectExpr(d, used, declared) }
+				collectExpr(expr, used, declared)
+			case _:
+				// Leaves carry no idents — silence them so MISS stays signal
+				if e != null {
+					let k = kindOfExpr(e)
+
+					if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore' {
+						traceLog('COLLECT-MISS expr ' + k)
+					}
+				}
+		} }
+
+	/// TEMPORARY INSTRUMENTATION — the census + verifier block
+	let methodNames: [String : Bool] = [:]
+	/// TEMPORARY INSTRUMENTATION — census counters (summary at end of lift)
+	var censusCalls Int = 0
+	var censusStored Int = 0
+	var censusMethodValues Int = 0
+	var censusClosureKind Int = 0
+
+	/// TEMPORARY INSTRUMENTATION (tests H7/H8): where do lifted-closure values
+	/// flow? Every `Ident(closure$N)` is classified CALLEE (direct call — the
+	/// only shape the thin stub supports) vs STORED (var init / arg / return /
+	/// array / field / anything else — all need fat values per D1/F1.6).
+	/// Non-callee `obj.name` with a method name is a METHOD-VALUE (drops
+	/// `this` today — discrepancy #6). Summary counts at end of lift().
+	fun censusClosureUses() {
+		for c in niceProject.classes {
+			collectMethodNames(c.methods)
+			collectMethodNames(c.staticMethods)
+		}
+
+		for f in niceProject.globalFuncs { censusTopFn(f) }
+
+		for c in niceProject.classes {
+			for m in c.methods { censusTopFn(m) }
+			for m in c.staticMethods { censusTopFn(m) }
+			censusVarList(c.vars)
+			censusVarList(c.staticVars)
+		}
+
+		for e in niceProject.enumsSimple {
+			censusVarList(e.staticVars)
+
+			for m in e.staticMethods { censusTopFn(m) }
+		}
+
+		for e in niceProject.enumsComplex {
+			censusVarList(e.staticVars)
+
+			for m in e.staticMethods { censusTopFn(m) }
+		}
+
+		censusVarList(niceProject.globalVars)
+
+		for s in niceProject.init { censusStmt(s) }
+	}
+
+	fun collectMethodNames(list: [Statement]) {
+		for s in list { switch s {
+			case Function(name, _, _, _, _, _, _):
+				if name != null {
+					methodNames.set(name, true)
+				}
+		} }
+	}
+
+	fun censusTopFn(s: Statement) { switch s {
+		case Function(_, body, _, _, _, _, _):
+			censusStmt(body)
+	} }
+
+	fun censusVarList(list: [Statement]) {
+		for s in list { switch s {
+			case Var(_, expr, _):
+				censusExpr(expr, 'var-init')
+			case Const(_, expr, _):
+				censusExpr(expr, 'var-init')
+		} }
+	}
+
+	fun censusStmt(s: Statement) { switch s {
+		case Statements(els):
+			for el in els { censusStmt(el) }
+		case Block(els):
+			for el in els { censusStmt(el) }
+		case Call(e, args, _, kind):
+			if kind == CallKind.Closure {
+				censusClosureKind++
+			}
+
+			censusExpr(e, 'callee')
+
+			for arg in args { censusExpr(arg, 'arg') }
+		case Var(_, expr, _):
+			censusExpr(expr, 'var-init')
+		case Const(_, expr, _):
+			censusExpr(expr, 'var-init')
+		case Function(_, body, _, _, _, _, _):
+			censusStmt(body)
+		case Return(e):
+			censusExpr(e, 'return')
+		case If(econd, eif, eelse):
+			censusExpr(econd, 'if-cond')
+			censusStmt(eif)
+
+			if eelse != null { censusStmt(eelse) }
+		case Try(expr, _, _, catches, _):
+			censusStmt(expr)
+
+			for c in catches { censusStmt(c) }
+		case Throw(value):
+			censusExpr(value, 'throw')
+		case Assign(name, value, _):
+			censusExpr(name, 'assign-target')
+			censusExpr(value, 'assign')
+		case Assignop(name, _, value):
+			censusExpr(name, 'assign-target')
+			censusExpr(value, 'assign')
+		case For(_, over, by, _):
+			censusExpr(over, 'for-over')
+			censusStmt(by)
+		case While(econd, e, _):
+			censusExpr(econd, 'while-cond')
+			censusStmt(e)
+		case Increment(e):
+			censusExpr(e, 'incdec')
+		case Decrement(e):
+			censusExpr(e, 'incdec')
+		case PatternSwitch(expr, cases, statements, guards, binds):
+			censusExpr(expr, 'switch')
+
+			for case_ in cases { for c in case_ { censusExpr(c, 'case') } }
+			for st in statements { censusStmt(st) }
+			for g in guards { if g != null { censusExpr(g, 'guard') } }
+			for b in binds { for st in b { censusStmt(st) } }
+		case PlainSwitch(expr, cases, statements):
+			censusExpr(expr, 'switch')
+
+			for case_ in cases { for c in case_ { censusExpr(c, 'case') } }
+			for st in statements { censusStmt(st) }
+		case SuperConstructor(args):
+			for arg in args { censusExpr(arg, 'arg') }
+		case RefInc(names):
+			for n in names { censusExpr(n, 'arc') }
+		case DeferRefDec(names):
+			for n in names { censusExpr(n, 'arc') }
+		case _:
+			if s != null, kindOfStmt(s) != 'Continue', kindOfStmt(s) != 'Break', kindOfStmt(s) != 'UnknownStmt' {
+				traceLog('CENSUS-MISS stmt ' + kindOfStmt(s))
+			}
+	} }
+
+	fun censusExpr(e: Expression, where: String) { switch e {
+		case Ident(name, _):
+			if name.startsWith('closure$') {
+				if where == 'callee' {
+					censusCalls++
+				} else {
+					censusStored++
+					traceLog('CLOSURE-STORED ' + name + ' in ' + where)
+				}
+			}
+		case Dot(expr, name, _):
+			// A method-typed Dot used as a VALUE (not the callee) drops its
+			// receiver today — trace every site (discrepancy #6)
+			if where != 'callee', methodNames.get(name) != null {
+				censusMethodValues++
+				traceLog('METHOD-VALUE .' + name + ' in ' + where)
+			}
+
+			censusExpr(expr, 'dot-base')
+		case Index(expr, index, _):
+			censusExpr(expr, 'index-base')
+			censusExpr(index, 'index')
+		case StringIndex(expr, index, _):
+			censusExpr(expr, 'index-base')
+			censusExpr(index, 'index')
+		case Call(callee, args, _, kind):
+			if kind == CallKind.Closure {
+				censusClosureKind++
+			}
+
+			censusExpr(callee, 'callee')
+
+			for arg in args { censusExpr(arg, 'arg') }
+		case New(callee, args, _):
+			censusExpr(callee, 'new-callee')
+
+			for arg in args { censusExpr(arg, 'arg') }
+		case Binop(a, _, b, _):
+			censusExpr(a, 'binop')
+			censusExpr(b, 'binop')
+		case Unop(_, _, inner):
+			censusExpr(inner, 'unop')
+		case Parenthesis(inner):
+			censusExpr(inner, where)
+		case Array(values, _):
+			for v in values { censusExpr(v, 'array-elem') }
+		case Object(_, el, _):
+			for v in el { censusExpr(v, 'obj-elem') }
+		case Map(keys, values, _, _, _):
+			for v in keys { censusExpr(v, 'obj-elem') }
+			for v in values { censusExpr(v, 'obj-elem') }
+		case If(econd, eif, eelse):
+			censusExpr(econd, 'if-cond')
+			censusExpr(eif, 'if-branch')
+			censusExpr(eelse, 'if-branch')
+		case Elvis(a, b):
+			censusExpr(a as!Expression, 'elvis')
+			censusExpr(b as!Expression, 'elvis')
+		case Await(inner):
+			censusExpr(inner, 'await')
+		case UnsafeBitCast(inner, _):
+			censusExpr(inner, 'cast')
+		case Is(inner, _):
+			censusExpr(inner, 'is')
+		case RemoveNullability(inner, _):
+			censusExpr(inner, 'unwrap')
+		case Assignop(name, _, value):
+			censusExpr(name, 'assign-target')
+			censusExpr(value, 'assign')
+		case EnumTag(inner):
+			censusExpr(inner, 'enum')
+		case Enum(_, _, tag, args):
+			censusExpr(tag, 'enum')
+
+			for arg in args { censusExpr(arg, 'arg') }
+		case EnumParameter(inner, _):
+			censusExpr(inner, 'enum')
+		case Spread(inner):
+			censusExpr(inner, 'spread')
+		case CapturedVar(name, _):
+			traceLog('CAPTUREDVAR-SEEN ' + name + ' in ' + where)
+		case StringConcatenation(l, r):
+			censusExpr(l, 'concat')
+			censusExpr(r, 'concat')
+		case NativeOperator(_, args, _, _, _):
+			for arg in args { censusExpr(arg, 'arg') }
+		case Function(_, body, _, _, _, _):
+			censusStmt(body)
+		case Arrow(expr, _, _, _, _, _, _):
+			censusExpr(expr, 'arrow')
+		case _:
+			if e != null {
+				let k = kindOfExpr(e)
+
+				if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore', k != 'This' {
+					traceLog('CENSUS-MISS expr ' + k)
+				}
+			}
+	} }
+
+	fun verifyLifted() {
+		for f in niceProject.globalFuncs { switch f {
+			case Function(name, body, args, _, _, _, _):
+				if name != null, name.startsWith('closure$') {
+					// Existence set (reuse the pass's own walk)
+					let used: [String : Type] = [:]
+					let declaredAll: [String : Bool] = [:]
+
+					for a in args { declaredAll.set(a, true) }
+					collect(body, used, declaredAll)
+
+					let soFar: [String : Bool] = [:]
+
+					for a in args { soFar.set(a, true) }
+					verifyStmt(body, declaredAll, soFar, name)
+				}
+			case _: { }
+		} }
+	}
+
+	fun verifyVisible(name: String, declaredAll: [String : Bool], soFar: [String : Bool], fn: String) {
+		if soFar.get(name) != null {
+			return
+		}
+
+		if globals.get(name) != null {
+			return
+		}
+
+		if name.startsWith('closure$') or name.startsWith('closureEnv$') {
+			return
+		}
+
+		if declaredAll.get(name) != null {
+			traceLog('FWD-REF ' + fn + ' `' + name + '` used before declaration')
+			return
+		}
+
+		traceLog('VERIFY-FAIL ' + fn + ' `' + name + '` unresolved')
+	}
+
+	fun verifyStmt(s: Statement, declaredAll: [String : Bool], soFar: [String : Bool], fn: String) { switch s {
+		case Statements(els):
+			for el in els { verifyStmt(el, declaredAll, soFar, fn) }
+		case Block(els):
+			for el in els { verifyStmt(el, declaredAll, soFar, fn) }
+		case Call(e, args, _, _):
+			verifyExpr(e, declaredAll, soFar, fn)
+
+			for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
+		case Var(name, expr, _):
+			// Order: the initializer sees the OUTER scope (H2's rule)
+			verifyExpr(expr, declaredAll, soFar, fn)
+			soFar.set(name, true)
+		case Const(name, expr, _):
+			verifyExpr(expr, declaredAll, soFar, fn)
+			soFar.set(name, true)
+		case Function(name, body, args, defaults, _, _, _):
+			for d in defaults { verifyExpr(d, declaredAll, soFar, fn) }
+
+			if name != null {
+				soFar.set(name, true)
+			}
+
+			for a in args { soFar.set(a, true) }
+			verifyStmt(body, declaredAll, soFar, fn)
+		case Return(e):
+			verifyExpr(e, declaredAll, soFar, fn)
+		case If(econd, eif, eelse):
+			verifyExpr(econd, declaredAll, soFar, fn)
+			verifyStmt(eif, declaredAll, soFar, fn)
+
+			if eelse != null { verifyStmt(eelse, declaredAll, soFar, fn) }
+		case Try(expr, _, v, catches, _):
+			verifyStmt(expr, declaredAll, soFar, fn)
+
+			for name in v { soFar.set(name, true) }
+
+			for c in catches { verifyStmt(c, declaredAll, soFar, fn) }
+		case Throw(value):
+			verifyExpr(value, declaredAll, soFar, fn)
+		case Assign(name, value, _):
+			verifyExpr(name, declaredAll, soFar, fn)
+			verifyExpr(value, declaredAll, soFar, fn)
+		case Assignop(name, _, value):
+			verifyExpr(name, declaredAll, soFar, fn)
+			verifyExpr(value, declaredAll, soFar, fn)
+		case For(name, over, by, _):
+			// Order: `over` sees the OUTER scope, then the var is bound
+			verifyExpr(over, declaredAll, soFar, fn)
+			soFar.set(name, true)
+			verifyStmt(by, declaredAll, soFar, fn)
+		case While(econd, e, _):
+			verifyExpr(econd, declaredAll, soFar, fn)
+			verifyStmt(e, declaredAll, soFar, fn)
+		case Increment(e):
+			verifyExpr(e, declaredAll, soFar, fn)
+		case Decrement(e):
+			verifyExpr(e, declaredAll, soFar, fn)
+		case PatternSwitch(expr, cases, statements, guards, binds):
+			verifyExpr(expr, declaredAll, soFar, fn)
+
+			for case_ in cases { for c in case_ { verifyExpr(c, declaredAll, soFar, fn) } }
+			for st in statements { verifyStmt(st, declaredAll, soFar, fn) }
+			for g in guards { if g != null { verifyExpr(g, declaredAll, soFar, fn) } }
+			for b in binds { for st in b { verifyStmt(st, declaredAll, soFar, fn) } }
+		case PlainSwitch(expr, cases, statements):
+			verifyExpr(expr, declaredAll, soFar, fn)
+
+			for case_ in cases { for c in case_ { verifyExpr(c, declaredAll, soFar, fn) } }
+			for st in statements { verifyStmt(st, declaredAll, soFar, fn) }
+		case SuperConstructor(args):
+			for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
+		case RefInc(names):
+			for n in names { verifyExpr(n, declaredAll, soFar, fn) }
+		case DeferRefDec(names):
+			for n in names { verifyExpr(n, declaredAll, soFar, fn) }
+		case _:
+			if s != null, kindOfStmt(s) != 'Continue', kindOfStmt(s) != 'Break', kindOfStmt(s) != 'UnknownStmt' {
+				traceLog('VERIFY-MISS stmt ' + kindOfStmt(s))
+			}
+	} }
+
+	// NOTE this walk visits ONLY `closure$N` bodies (see verifyLifted), so
+	// any `This` here is a leak — lifted globals have no `this` (the env
+	// carry is `closureEnv$N$this` instead)
+	fun verifyExpr(e: Expression, declaredAll: [String : Bool], soFar: [String : Bool], fn: String) { switch e {
+		case Ident(name, _):
+			verifyVisible(name, declaredAll, soFar, fn)
+		case This(_):
+			traceLog('THIS-LEAK ' + fn + ' bare `this` in lifted body')
+				case Dot(expr, _, _):
+			verifyExpr(expr, declaredAll, soFar, fn)
+		case Index(expr, index, _):
+			verifyExpr(expr, declaredAll, soFar, fn)
+			verifyExpr(index, declaredAll, soFar, fn)
+		case StringIndex(expr, index, _):
+			verifyExpr(expr, declaredAll, soFar, fn)
+			verifyExpr(index, declaredAll, soFar, fn)
+		case Call(callee, args, _, _):
+			verifyExpr(callee, declaredAll, soFar, fn)
+
+			for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
+		case New(callee, args, _):
+			verifyExpr(callee, declaredAll, soFar, fn)
+
+			for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
+		case Binop(a, _, b, _):
+			verifyExpr(a, declaredAll, soFar, fn)
+			verifyExpr(b, declaredAll, soFar, fn)
+		case Unop(_, _, inner):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case Parenthesis(inner):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case Array(values, _):
+			for v in values { verifyExpr(v, declaredAll, soFar, fn) }
+		case Object(_, el, _):
+			for v in el { verifyExpr(v, declaredAll, soFar, fn) }
+		case Map(keys, values, _, _, _):
+			for v in keys { verifyExpr(v, declaredAll, soFar, fn) }
+			for v in values { verifyExpr(v, declaredAll, soFar, fn) }
+		case If(econd, eif, eelse):
+			verifyExpr(econd, declaredAll, soFar, fn)
+			verifyExpr(eif, declaredAll, soFar, fn)
+			verifyExpr(eelse, declaredAll, soFar, fn)
+		case Elvis(a, b):
+			verifyExpr(a as!Expression, declaredAll, soFar, fn)
+			verifyExpr(b as!Expression, declaredAll, soFar, fn)
+		case Await(inner):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case UnsafeBitCast(inner, _):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case Is(inner, _):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case RemoveNullability(inner, _):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case Assignop(name, _, value):
+			verifyExpr(name, declaredAll, soFar, fn)
+			verifyExpr(value, declaredAll, soFar, fn)
+		case EnumTag(inner):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case Enum(_, _, tag, args):
+			verifyExpr(tag, declaredAll, soFar, fn)
+
+			for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
+		case EnumParameter(inner, _):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case Spread(inner):
+			verifyExpr(inner, declaredAll, soFar, fn)
+		case CapturedVar(name, _):
+			traceLog('CAPTUREDVAR-SEEN ' + fn + ' `' + name + '`')
+		case StringConcatenation(l, r):
+			verifyExpr(l, declaredAll, soFar, fn)
+			verifyExpr(r, declaredAll, soFar, fn)
+		case NativeOperator(_, args, _, _, _):
+			for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
+		case Function(_, body, _, _, _, _):
+			verifyStmt(body, declaredAll, soFar, fn)
+		case Arrow(expr, _, _, _, _, _, _):
+			verifyExpr(expr, declaredAll, soFar, fn)
+		case _:
+			if e != null {
+				let k = kindOfExpr(e)
+
+				if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore' {
+					traceLog('VERIFY-MISS expr ' + k)
+				}
+			}
+	} }
+}
