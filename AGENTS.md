@@ -29,6 +29,8 @@ Only `source\...` (compiler) and `library\...` (std) are described below, ignore
 - source\compiler\parser.hexa recursive-descent parser (`class Parser`: tokens → `[Node]`, `toNode`/`parseNodes`, lint/fast modes)
 - source\compiler\typer.hexa type checker (`class Typer.fillModules`: untyped parser `Node` → typed tree, `onlyTypeCheck` mode for language server)
 - source\compiler\normalizer.hexa simplifier (`class Normalizer.normalize`: typed AST → `NiceProject` nice nodes for codegen, keyword/globalAccessor handling, inline opts)
+- source\compiler\normalizing\arc.hexa ARC ref-counting pass (`ArcInserter`: inserts RefInc/DeferRefDec after Normalizer)
+- source\compiler\normalizing\reflect.hexa reflect pre-lowering pass (`ReflectLowerer`: lowers dynamic `Any` shapes to explicit reflection calls after Normalizer, before ClosureLifter; genC stays almost-pure C AST printer)
 - source\compiler\normalizing\renaming.hexa field renaming strategy (`@asTitleCase`/`@asIs` → `FieldRenaming`)
 - source\data\data.hexa `enum Node` — full untyped syntax tree (String/Import/Var/Class/Function/Call/…)
 - source\data\nodes.hexa `NodeData` position info (line/column/fileName) + `ClassKind` (Class/Interface/Type)
