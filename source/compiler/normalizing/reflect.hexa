@@ -1,0 +1,569 @@
+// The Hexa Compiler
+// SPDX-FileCopyrightText: 2026 Oleh Petrenko
+// SPDX-License-Identifier: MPL-2.0
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+
+/// Pre-lowering for dynamic shapes, runs after Normalizer and BEFORE
+/// ClosureLifter, following the ArcInserter pattern. Generators stay thin:
+/// this pass rewrites dynamic-flavored Nice into plainer Nice that calls
+/// into Hexa-written runtime helpers, so genC converges toward an
+/// almost-pure C AST printer instead of carrying reflection branches.
+///
+/// Trial scope, Oct 2026. Census of Any-typed Dots, Calls and Binops plus
+/// one safe desugaring only: side-effect-free `a op= b` becomes
+/// `a = a op b` with identical conversions, reusing the tested Binop and
+/// Assign printers verbatim. genC keeps its Assignop branches untouched as
+/// fallback for impure targets, so output stays green while the new shape
+/// proves itself. Next steps live here later: Any arithmetic targeting new
+/// Hexa-written helpers in library/c/c.hexa, then shrinking genC proxy
+/// branches for the covered shapes.
+///
+/// Ordering note: before ClosureLifter on purpose. This is local
+/// desugaring over original nesting, Arrow bodies included, while the
+/// closure census that gates F1.6 keeps seeing the same value flows.
+/// Lowered nodes reuse existing Binop and Assign shapes only, no new IR.
+@final
+class ReflectLowerer {
+	var niceProject: NiceProject // The IR to mutate
+	/// TEMPORARY INSTRUMENTATION, mirrors ClosureLifter trace discipline.
+	/// Kept until the first real Any lowering lands, then reviewed.
+	let trace: [String] = []
+	var anyDots Int = 0
+	var anyCalls Int = 0
+	var anyBinops Int = 0
+	var stmtAssignop Int = 0
+	var exprAssignop Int = 0
+	var loweredAssignop Int = 0
+
+	new (niceProject: NiceProject) {
+		this.niceProject = niceProject
+	}
+
+	/// TEMPORARY INSTRUMENTATION helper
+	fun traceLog(line: String) {
+		trace.push(line)
+	}
+
+	/// Main entry, same coverage shape as ClosureLifter lift
+	fun lower() {
+		for i in niceProject.globalFuncs.length {
+			niceProject.globalFuncs[i] = rewriteFnStmt(niceProject.globalFuncs[i])
+		}
+
+		for c in niceProject.classes {
+			for i in c.methods.length {
+				c.methods[i] = rewriteFnStmt(c.methods[i])
+			}
+
+			for i in c.staticMethods.length {
+				c.staticMethods[i] = rewriteFnStmt(c.staticMethods[i])
+			}
+
+			processVarList(c.vars)
+			processVarList(c.staticVars)
+		}
+
+		for e in niceProject.enumsSimple {
+			processVarList(e.staticVars)
+
+			for i in e.staticMethods.length {
+				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
+			}
+		}
+
+		for e in niceProject.enumsComplex {
+			processVarList(e.staticVars)
+
+			for i in e.staticMethods.length {
+				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
+			}
+		}
+
+		processVarList(niceProject.globalVars)
+
+		if niceProject.init.length > 0 {
+			let wrapped = processStatementList(niceProject.init)
+			niceProject.init.splice(0, niceProject.init.length)
+
+			for s in wrapped {
+				niceProject.init.push(s)
+			}
+		}
+
+		traceLog('REFLECT anyDots=' + anyDots + ' anyCalls=' + anyCalls + ' anyBinops=' + anyBinops + ' stmtAssignop=' + stmtAssignop + ' exprAssignop=' + exprAssignop + ' loweredAssignop=' + loweredAssignop)
+		Fs.writeFileSync('reflect-trace.log', trace.join('\n'))
+	}
+
+	/// True for the dynamic Any shape that genC routes via reflection.
+	/// Narrow on purpose for the trial: exact typeAny only, erased and
+	/// generic shapes join once the first real Any lowering lands.
+	fun isAnyType(t: Type): Bool {
+		return t == niceProject.typer.typeAny
+	}
+
+	/// True for an Any-typed expression. Consults the Nice expressionType
+	/// map first, then the Ident payload as fallback.
+	fun isAnyExpr(e: Expression): Bool {
+		if let t = niceProject.expressionType.get(e) {
+			if isAnyType(t) {
+				return true
+			}
+		}
+
+		switch e {
+			case Ident(_, dataType):
+				return isAnyType(dataType)
+			case _:
+				return false
+		}
+	}
+
+	/// Side-effect-free assign targets only. Ident and This read no state
+	/// beyond the binding, Dot of a pure base repeats a pure read, so
+	/// spelling the target twice cannot run user code twice.
+	fun isPureTarget(e: Expression): Bool {
+		switch e {
+			case Ident(_, _):
+				return true
+			case This(_):
+				return true
+			case Parenthesis(inner):
+				return isPureTarget(inner)
+			case Dot(base, _, _):
+				return isPureTarget(base)
+			case _:
+				return false
+		}
+	}
+
+	/// Trial lowering, Statement position. Pure-target `a op= b` becomes
+	/// `a = a op b` with the target type as Binop result. Binop and Assign
+	/// printers already implement proxy and bridge rules, so dynamics flow
+	/// through the same tested path as plain Binop. Fat function values are
+	/// out of scope, they keep pair handling in genC.
+fun lowerStmtAssignop(t: Expression, op: Token, v: Expression): Statement? {
+		if op == Token.Assign {
+			traceLog('SKIP-ASSIGNOP stmt op-assign')
+			return null
+		}
+
+		let nt = rewriteExpr(t)
+		let nv = rewriteExpr(v)
+
+		if not isPureTarget(nt) {
+			traceLog('SKIP-ASSIGNOP stmt impure-target ' + kindOfExpr(nt))
+			return null
+		}
+
+		if let tt = targetTypeOf(nt) {
+			if isFatFunctionType(tt) {
+				traceLog('SKIP-ASSIGNOP stmt fat-target')
+				return null
+			}
+
+			let sum = Expression.Binop(nt, op, nv, tt)
+			return Statement.Assign(nt, sum, null)
+		}
+
+		traceLog('SKIP-ASSIGNOP stmt nulltype ' + kindOfExpr(nt))
+		return null
+	}
+
+	/// Trial lowering, Expression position. Pure-target `a op= b` becomes
+	/// assignment-as-expression `a = a op b`, same printer reuse as above.
+fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
+		if op == Token.Assign {
+			traceLog('SKIP-ASSIGNOP expr op-assign')
+			return null
+		}
+
+		let nt = rewriteExpr(t)
+		let nv = rewriteExpr(v)
+
+		if not isPureTarget(nt) {
+			traceLog('SKIP-ASSIGNOP expr impure-target ' + kindOfExpr(nt))
+			return null
+		}
+
+		if let tt = targetTypeOf(nt) {
+			if isFatFunctionType(tt) {
+				traceLog('SKIP-ASSIGNOP expr fat-target')
+				return null
+			}
+
+			let sum = Expression.Binop(nt, op, nv, tt)
+			return Expression.Binop(nt, Token.Assign, sum, tt)
+		}
+
+		traceLog('SKIP-ASSIGNOP expr nulltype ' + kindOfExpr(nt))
+		return null
+	}
+
+	/// Declared type behind an assign target. Ident carries it, Dot carries
+	/// the member type as result. Null when untyped, caller skips those.
+	fun targetTypeOf(e: Expression): Type? {
+		switch e {
+			case Ident(_, dataType):
+				return dataType
+			case Dot(_, _, result):
+				return result
+			case Parenthesis(inner):
+				return targetTypeOf(inner)
+			case _:
+				return null
+		}
+	}
+
+	/// True for function-typed values. Those stay fat pairs in genC, never
+	/// raw arithmetic, so the trial lowering leaves them alone.
+	fun isFatFunctionType(t: Type): Bool {
+		switch t {
+			case Function(_, _, _):
+				return true
+			case Nullable(inner):
+				return isFatFunctionType(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// Rewrites initializers of var and const lists in place
+	fun processVarList(list: [Statement]) {
+		for i in list.length {
+			let old = list[i]
+			list[i] = rewriteVarInit(old)
+
+			if list[i] != old {
+				if let link = niceProject.globalLink.get(old) {
+					niceProject.globalLink.set(list[i], link)
+				}
+			}
+		}
+	}
+
+	/// Rewrites one var or const initializer expression
+	fun rewriteVarInit(s: Statement): Statement { switch s {
+		case Var(name, expr, dataType):
+			return Statement.Var(name, rewriteExpr(expr), dataType)
+		case Const(name, expr, dataType):
+			return Statement.Const(name, rewriteExpr(expr), dataType)
+		case _:
+			return s
+	} }
+
+	/// Rewrites the body of a top-level function or method statement
+	fun rewriteFnStmt(s: Statement): Statement { switch s {
+		case Function(name, body, args, defaults, funcType, variadic, isAsync):
+			let newDefaults = rewriteExprList(defaults)
+			let newBody = rewriteStmt(body)
+			let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
+
+			if let link = niceProject.globalLink.get(s) {
+				niceProject.globalLink.set(result, link)
+			}
+
+			return result
+		case _:
+			return s
+	} }
+
+	/// Rewrites a statement list, no hoisting in this pass
+	fun processStatementList(els: [Statement]): [Statement] {
+		let out: [Statement] = []
+
+		for s in els {
+			out.push(rewriteStmt(s))
+		}
+
+		return out
+	}
+
+	/// Rewrites statements, recursing everywhere Assignop can hide
+	fun rewriteStmt(s: Statement): Statement { switch s {
+		case Statements(els):
+			return Statement.Statements(processStatementList(els))
+		case Block(els):
+			return Statement.Block(processStatementList(els))
+		case Call(e, args, expects, kind):
+			if isAnyExpr(e) {
+				anyCalls++
+			}
+
+			return Statement.Call(rewriteExpr(e), rewriteExprList(args), expects, kind)
+		case Var(name, expr, dataType):
+			return Statement.Var(name, rewriteExpr(expr), dataType)
+		case Const(name, expr, dataType):
+			return Statement.Const(name, rewriteExpr(expr), dataType)
+		case Function(name, body, args, defaults, funcType, variadic, isAsync):
+			return Statement.Var(name, rewriteFnValue(body, args, defaults, funcType, variadic, isAsync, name), funcType)
+		case Return(e):
+			return Statement.Return(rewriteExpr(e))
+		case If(econd, eif, eelse):
+			return Statement.If(rewriteExpr(econd), rewriteStmt(eif), rewriteStmt(eelse))
+		case Try(expr, t, v, catches, temp):
+			let newCatches: [Statement] = []
+
+			for c in catches {
+				newCatches.push(rewriteStmt(c))
+			}
+
+			return Statement.Try(rewriteStmt(expr), t, v, newCatches, temp)
+		case Throw(value):
+			return Statement.Throw(rewriteExpr(value))
+		case Assign(name, value, to):
+			return Statement.Assign(rewriteExpr(name), rewriteExpr(value), to)
+		case Assignop(name, op, value):
+			stmtAssignop++
+
+			if let r = lowerStmtAssignop(name, op, value) {
+				loweredAssignop++
+				traceLog('LOWERED-ASSIGNOP stmt')
+				return r
+			}
+
+			return Statement.Assignop(rewriteExpr(name), op, rewriteExpr(value))
+		case For(name, over, by, reverse):
+			return Statement.For(name, rewriteExpr(over), rewriteStmt(by), reverse)
+		case While(econd, e, pre):
+			return Statement.While(rewriteExpr(econd), rewriteExpr(e), pre)
+		case Increment(e):
+			return Statement.Increment(rewriteExpr(e))
+		case Decrement(e):
+			return Statement.Decrement(rewriteExpr(e))
+		case PatternSwitch(expr, cases, statements, guards, binds):
+			let newCases: [[Expression]] = []
+
+			for case_ in cases {
+				newCases.push(rewriteExprList(case_))
+			}
+
+			let newStatements: [Statement] = []
+
+			for st in statements {
+				newStatements.push(rewriteStmt(st))
+			}
+
+			let newGuards: [Expression] = []
+
+			for g in guards {
+				newGuards.push(rewriteExpr(g))
+			}
+
+			let newBinds: [[Statement]] = []
+
+			for b in binds {
+				newBinds.push(processStatementList(b))
+			}
+
+			return Statement.PatternSwitch(rewriteExpr(expr), newCases, newStatements, newGuards, newBinds)
+		case PlainSwitch(expr, cases, statements):
+			let newCases: [[Expression]] = []
+
+			for case_ in cases {
+				newCases.push(rewriteExprList(case_))
+			}
+
+			let newStatements: [Statement] = []
+
+			for st in statements {
+				newStatements.push(rewriteStmt(st))
+			}
+
+			return Statement.PlainSwitch(rewriteExpr(expr), newCases, newStatements)
+		case SuperConstructor(args):
+			return Statement.SuperConstructor(rewriteExprList(args))
+		case RefInc(name):
+			return Statement.RefInc(rewriteExprList(name))
+		case DeferRefDec(name):
+			return Statement.DeferRefDec(rewriteExprList(name))
+		case Continue | Break:
+			return s
+		case _:
+			if s != null, kindOfStmt(s) != 'UnknownStmt' {
+				traceLog('REFLECT-MISS stmt ' + kindOfStmt(s))
+			}
+
+			return s
+	} }
+
+	/// Nested named function value, body rewritten in place, no lifting here.
+	/// Lifting stays owned by ClosureLifter which runs after this pass.
+	fun rewriteFnValue(body: Statement, args: [String], defaults: [Expression], funcType: Type, variadic: VariadicKind, isAsync: Bool, selfName: String? = null): Expression {
+		let fn = Expression.Function(selfName, rewriteStmt(body), args, rewriteExprList(defaults), funcType, isAsync)
+		return fn
+	}
+
+	/// TEMPORARY INSTRUMENTATION, exact case tags mirroring ClosureLifter
+	fun kindOfStmt(s: Statement): String { switch s {
+		case Statements(_): return 'Statements'
+		case Block(_): return 'Block'
+		case Call(_, _, _, _): return 'Call'
+		case Var(_, _, _): return 'Var'
+		case Const(_, _, _): return 'Const'
+		case Function(_, _, _, _, _, _, _): return 'Function'
+		case Return(_): return 'Return'
+		case If(_, _, _): return 'If'
+		case Try(_, _, _, _, _): return 'Try'
+		case Throw(_): return 'Throw'
+		case Assign(_, _, _): return 'Assign'
+		case Assignop(_, _, _): return 'Assignop'
+		case For(_, _, _, _): return 'For'
+		case While(_, _, _): return 'While'
+		case Increment(_): return 'Increment'
+		case Decrement(_): return 'Decrement'
+		case PatternSwitch(_, _, _, _, _): return 'PatternSwitch'
+		case PlainSwitch(_, _, _): return 'PlainSwitch'
+		case Continue: return 'Continue'
+		case Break: return 'Break'
+		case SuperConstructor(_): return 'SuperConstructor'
+		case RefInc(_): return 'RefInc'
+		case DeferRefDec(_): return 'DeferRefDec'
+		case _: return 'UnknownStmt'
+	} }
+
+	/// TEMPORARY INSTRUMENTATION, exact case tags mirroring ClosureLifter
+	fun kindOfExpr(e: Expression): String { switch e {
+		case String(_): return 'String'
+		case Int(_): return 'Int'
+		case MetaInt(_, _, _): return 'MetaInt'
+		case Float(_): return 'Float'
+		case True: return 'True'
+		case False: return 'False'
+		case Ident(_, _): return 'Ident'
+		case Null(_): return 'Null'
+		case This(_): return 'This'
+		case Dot(_, _, _): return 'Dot'
+		case Call(_, _, _, _): return 'Call'
+		case New(_, _, _): return 'New'
+		case Binop(_, _, _, _): return 'Binop'
+		case Function(_, _, _, _, _, _): return 'Function'
+		case Arrow(_, _, _, _, _, _, _): return 'Arrow'
+		case Parenthesis(_): return 'Parenthesis'
+		case Object(_, _, _): return 'Object'
+		case Array(_, _): return 'Array'
+		case Map(_, _, _, _, _): return 'Map'
+		case Unop(_, _, _): return 'Unop'
+		case Await(_): return 'Await'
+		case Elvis(_, _): return 'Elvis'
+		case If(_, _, _): return 'If'
+		case Index(_, _, _): return 'Index'
+		case UnsafeBitCast(_, _): return 'UnsafeBitCast'
+		case Is(_, _): return 'Is'
+		case RemoveNullability(_, _): return 'RemoveNullability'
+		case Assignop(_, _, _): return 'Assignop'
+		case EnumTag(_): return 'EnumTag'
+		case Enum(_, _, _, _): return 'Enum'
+		case EnumParameter(_, _): return 'EnumParameter'
+		case Underscore: return 'Underscore'
+		case Spread(_): return 'Spread'
+		case CapturedVar(_, _): return 'CapturedVar'
+		case StringConcatenation(_, _): return 'StringConcatenation'
+		case StringIndex(_, _, _): return 'StringIndex'
+		case NativeOperator(_, _, _, _, _): return 'NativeOperator'
+		case _: return 'UnknownExpr'
+	} }
+
+	fun rewriteExprList(list: [Expression]): [Expression] {
+		let out: [Expression] = []
+
+		for e in list {
+			out.push(rewriteExpr(e))
+		}
+
+		return out
+	}
+
+	/// Rewrites expressions, counting dynamic shapes for the census
+	fun rewriteExpr(e: Expression): Expression { switch e {
+		case Ident(_, _):
+			return e
+		case Dot(expr, name, result):
+			if isAnyExpr(expr) {
+				anyDots++
+			}
+
+			return Expression.Dot(rewriteExpr(expr), name, result)
+		case Index(expr, index, result):
+			return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
+		case StringIndex(expr, index, result):
+			return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
+		case Call(callee, args, result, kind):
+			if isAnyExpr(callee) {
+				anyCalls++
+			}
+
+			return Expression.Call(rewriteExpr(callee), rewriteExprList(args), result, kind)
+		case New(callee, args, result):
+			return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
+		case Binop(a, op, b, result):
+			if isAnyExpr(a) or isAnyExpr(b) {
+				anyBinops++
+			}
+
+			return Expression.Binop(rewriteExpr(a), op, rewriteExpr(b), result)
+		case Unop(op, postfix, inner):
+			return Expression.Unop(op, postfix, rewriteExpr(inner))
+		case Parenthesis(inner):
+			return Expression.Parenthesis(rewriteExpr(inner))
+		case Array(values, arrayType):
+			return Expression.Array(rewriteExprList(values), arrayType)
+		case Object(names, el, types):
+			return Expression.Object(names, rewriteExprList(el), types)
+		case Map(keys, values, keyType, valueType, mapType):
+			return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
+		case If(econd, eif, eelse):
+			return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse))
+		case Elvis(a, b):
+			return Expression.Elvis(rewriteExpr(a as!Expression), rewriteExpr(b as!Expression))
+		case This(_):
+			return e
+		case Await(inner):
+			return Expression.Await(rewriteExpr(inner))
+		case UnsafeBitCast(inner, to):
+			return Expression.UnsafeBitCast(rewriteExpr(inner), to)
+		case Is(inner, of):
+			return Expression.Is(rewriteExpr(inner), of)
+		case RemoveNullability(inner, result):
+			return Expression.RemoveNullability(rewriteExpr(inner), result)
+		case Assignop(name, op, value):
+			exprAssignop++
+
+			if let r = lowerExprAssignop(name, op, value) {
+				loweredAssignop++
+				traceLog('LOWERED-ASSIGNOP expr')
+				return r
+			}
+
+			return Expression.Assignop(rewriteExpr(name), op, rewriteExpr(value))
+		case EnumTag(inner):
+			return Expression.EnumTag(rewriteExpr(inner))
+		case Enum(enumType, tagName, tag, args):
+			return Expression.Enum(enumType, tagName, rewriteExpr(tag), rewriteExprList(args))
+		case EnumParameter(inner, index):
+			return Expression.EnumParameter(rewriteExpr(inner), index)
+		case Spread(inner):
+			return Expression.Spread(rewriteExpr(inner))
+		case StringConcatenation(leftString, rightString):
+			return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
+		case NativeOperator(kind, args, name, params, result):
+			return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
+		case String(_): return e
+		case Int(_): return e
+		case Float(_): return e
+		case Null(_): return e
+		case Underscore: return e
+		case True: return e
+		case False: return e
+		case MetaInt(_, _, _): return e
+		case Function(name, body, args, defaults, funcType, isAsync):
+			return Expression.Function(name, rewriteStmt(body), args, rewriteExprList(defaults), funcType, isAsync)
+		case Arrow(expr, args, defaults, types, returns, funcType, isAsync):
+			return Expression.Arrow(rewriteExpr(expr), args, rewriteExprList(defaults), types, returns, funcType, isAsync)
+		case _:
+			if e != null, kindOfExpr(e) != 'UnknownExpr' {
+				traceLog('REFLECT-MISS expr ' + kindOfExpr(e))
+			}
+
+			return e
+	} }
+}
