@@ -19220,7 +19220,7 @@
 						if (result_6981 != null) { return result_6981 };
 						return true;
 					})();
-					files.push('/js/js');
+					files.push('/js/bootstrap.js');
 					if (options.includes('nodejs')) { files.unshift('/nodejs/nodejs') };
 					if (options.includes('browser')) { files.unshift('/browser/html') };
 				}
