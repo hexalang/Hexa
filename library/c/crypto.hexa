@@ -1,0 +1,76 @@
+// The MIT License
+//
+// Copyright (C) 2022-2025 Oleh Petrenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// Crypto surface for the native target (Node `require('crypto')` parity for
+// the bits Perfide needs: session/chat/nid UUIDs).
+
+// Fixed-width lowercase hex (nibbles from the low end, zero-padded)
+fun hexPad(w: UInt32, digits: Int): String {
+	let chars = '0123456789abcdef'.split('')
+	var out = ''
+	var v = w
+	for k in digits {
+		out = chars[(v % 16u32) as!Int] + out
+		v = v \ 16u32
+	}
+	return out
+}
+
+// Fallback entropy counter (tick-seeded LCG-ish mix when UuidCreate is down)
+var cryptoLow UInt32 = 0u32
+
+class Crypto {
+	// RFC 4122 v4 via UuidCreate (rpcrt); version/variant nibbles enforced so
+	// even a v1-shaped provider result reads as v4 downstream
+	static fun randomUUID(): String {
+		var dwords ArrayByValue<UInt32, 4> = [0, 0, 0, 0]
+		if uuidCreateWin(dwords as!ArrayPointer<UUID>) == 0 {
+			let w0 = (dwords as!ArrayPointer<UInt32>)[0]
+			let w1raw = (dwords as!ArrayPointer<UInt32>)[1]
+			let w2raw = (dwords as!ArrayPointer<UInt32>)[2]
+			let w3 = (dwords as!ArrayPointer<UInt32>)[3]
+			let data2 = w1raw \ 65536u32
+			let data3 = w1raw % 65536u32 % 4096u32 + 16384u32
+			dwords[1] = data2 * 65536u32 + data3
+			let b0 = w2raw \ 16777216u32
+			dwords[2] = w2raw % 16777216u32 + ((b0 % 64u32) + 128u32) * 16777216u32
+			let w2 = (dwords as!ArrayPointer<UInt32>)[2]
+			return hexPad(w0, 8) + '-' + hexPad(data2, 4) + '-' + hexPad(data3, 4) + '-' + hexPad(w2 \ 65536u32, 4) + '-' + hexPad(w2 % 65536u32, 4) + hexPad(w3, 8)
+		}
+		// Provider down: counter-driven fallback (documented non-RFC shape)
+		let t32 = hexaTickMs() as!UInt32
+		cryptoLow = cryptoLow + 1u32
+		let a = t32 * 1664525u32 + cryptoLow * 1013904223u32
+		let b = cryptoLow * 22695477u32 + t32
+		return hexPad(a, 8) + '-' + hexPad(b % 65536u32, 4) + '-4' + hexPad((b \ 65536u32) % 4096u32, 3) + '-' + hexPad(32768u32 + a % 16384u32, 4) + '-' + hexPad(a % 1048576u32, 6) + hexPad(b % 1048576u32, 6)
+	}
+}
+
+// crypto — native half of the js `declare let crypto: CryptoModule`
+// (library/nodejs/nodejs.hexa): same TitleCase name and member shape so
+// Perfide's `crypto.randomUUID()` compiles on both targets unchanged.
+// @lazy = typer usage tracking + normalizer skip (see c.hexa block header).
+class CryptoModule {
+	new () { }
+	fun randomUUID(): String { return Crypto.randomUUID() }
+}
+
+@lazy let crypto CryptoModule = CryptoModule()

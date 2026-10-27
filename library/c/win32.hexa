@@ -1,0 +1,170 @@
+// The MIT License
+//
+// Copyright (C) 2022-2025 Oleh Petrenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// Win32 raw ABI for the native target (Hexa-first std surface).
+//
+// Pattern: plain `@rename` declares against the real Win32 APIs (kernel32 is
+// default-linked; UuidCreate needs rpcrt4, already in the Perfide link). No
+// `@dllImport` — same-TU definitions would break with dllimport linkage, and
+// system APIs resolve fine via the CRT import libs (same approach as the
+// `malloc`/`wprintf` declares in c.hexa).
+//
+// Awkward signatures (NULL security attributes, WIN32_FIND_DATAW iteration,
+// FILETIME math) go through tiny `static inline` C shims in the custom header
+// below (the sanctioned raw-C workaround — see `hostNativePrototypes` in
+// Perfide's std/native.hexa for why the holder fun needs a real body).
+
+// ─── Access / share / disposition / attribute consts (UInt32) ───────────────
+let genericRead UInt32 = 0x80000000u32
+let genericWrite UInt32 = 0x40000000u32
+let fileShareRead UInt32 = 0x00000001u32
+let fileShareWrite UInt32 = 0x00000002u32
+let fileShareDelete UInt32 = 0x00000004u32
+let createNew UInt32 = 1u32
+let createAlways UInt32 = 2u32
+let openExisting UInt32 = 3u32
+let openAlways UInt32 = 4u32
+let truncateExisting UInt32 = 5u32
+let fileAttributeReadonly UInt32 = 0x00000001u32
+let fileAttributeHidden UInt32 = 0x00000002u32
+let fileAttributeSystem UInt32 = 0x00000004u32
+let fileAttributeDirectory UInt32 = 0x00000010u32
+let fileAttributeArchive UInt32 = 0x00000020u32
+let fileAttributeNormal UInt32 = 0x00000080u32
+let fileAttributeTemporary UInt32 = 0x00000100u32
+let invalidFileAttributes UInt32 = 0xFFFFFFFFu32
+let invalidFileSize UInt32 = 0xFFFFFFFFu32
+let fileBeginMoveMethod UInt32 = 0u32
+let moveFileReplaceExisting UInt32 = 0x00000001u32
+let maxPathChars Int = 260
+
+// ─── Win32 handle interop (bare `@rename`, no `@struct` — these are pointer
+// typedefs like `void*`, so the Hexa value IS the C pointer, no extra `*`).
+// Pattern matches `ClangWideChar` (`@rename('wchar_t')` → `wchar_t`).
+// Direct Win32 declares below take these instead of `UInt64` so call sites
+// match windows.h without casts (C2664); `null` (nullptr) is the NULL handle.
+@rename('HANDLE') declare class HANDLE { }
+@rename('HMODULE') declare class HMODULE { }
+@rename('HLOCAL') declare class HLOCAL { }
+@rename('LPSECURITY_ATTRIBUTES') declare class LPSECURITY_ATTRIBUTES { }
+@rename('LPOVERLAPPED') declare class LPOVERLAPPED { }
+// DWORD is `unsigned long` (32-bit, distinct from `uint32_t`/`unsigned int` on
+// MSVC) — `LPDWORD` (`DWORD*`) out-params need this, not `UInt32`, or C2664
+// fires on `uint32_t*` vs `unsigned long*` (ReadFile/WriteFile/GetFileSize).
+@rename('DWORD') declare class DWORD { }
+// UUID is a 16-byte struct (RPC `uuidCreate` writes Data1/Data2/Data3/Data4).
+// `@struct @byValue` → plain `UUID` value, so `ArrayPointer<UUID>` is `UUID*`.
+@struct
+@byValue
+@rename('UUID') declare class UUID {
+	let data1: UInt32
+	let data2: UInt16
+	let data3: UInt16
+	let data4a: UInt32
+	let data4b: UInt32
+}
+
+// ─── Host-provided shims (defined in the host TU, e.g. Perfide/main-hexa.cpp)
+// Awkward signatures (NULL security attributes, WIN32_FIND_DATAW iteration,
+// FILETIME math) live in the host as plain C functions — a `@customHeader`
+// C body cannot carry `{`/`}` (interpolation), so the host owns them exactly
+// like the `native_*` bindings (declared here via `@rename`, defined there).
+// Required host symbols: hexaCreateFileRead/Write/Append, hexaFindFirst/Next/
+// Close, hexaWallMs, hexaTickMs.
+
+// ─── Shim declares (Hexa vent over the host C above) ─────────────────────────
+@rename('hexaCreateFileRead') declare fun hexaCreateFileRead(path: ConstArrayPointer<ClangWideChar>): UInt64
+@rename('hexaCreateFileWrite') declare fun hexaCreateFileWrite(path: ConstArrayPointer<ClangWideChar>): UInt64
+@rename('hexaCreateFileAppend') declare fun hexaCreateFileAppend(path: ConstArrayPointer<ClangWideChar>): UInt64
+@rename('hexaFindFirst') declare fun hexaFindFirst(pattern: ConstArrayPointer<ClangWideChar>, nameOut: ArrayPointer<ClangWideChar>, isDirOut: ArrayPointer<Int32>): UInt64
+@rename('hexaFindNext') declare fun hexaFindNext(handle: UInt64, nameOut: ArrayPointer<ClangWideChar>, isDirOut: ArrayPointer<Int32>): Int32
+@rename('hexaFindClose') declare fun hexaFindClose(handle: UInt64): Void
+@rename('hexaWallMs') declare fun hexaWallMs(): Float
+@rename('hexaTickMs') declare fun hexaTickMs(): Float
+// Prototype holder — `declare` emits nothing, so without this the shim calls
+// above have no prototype before use (C3861; host defines them AFTER the
+// include). Body keeps it in `globalFuncs` so the header is emitted.
+@customHeader('
+	uint64_t hexaCreateFileRead(const wchar_t* path);
+	uint64_t hexaCreateFileWrite(const wchar_t* path);
+	uint64_t hexaCreateFileAppend(const wchar_t* path);
+	uint64_t hexaFindFirst(const wchar_t* pattern, wchar_t* nameOut, int32_t* isDirOut);
+	int32_t hexaFindNext(uint64_t handle, wchar_t* nameOut, int32_t* isDirOut);
+	void hexaFindClose(uint64_t handle);
+	double hexaWallMs(void);
+	double hexaTickMs(void);
+')
+fun win32HostPrototypes() {
+	// Nothing — the custom header above carries the C prototypes
+}
+// ─── Direct Win32 declares (clean scalar/pointer signatures only) ───────────
+// HANDLEs travel as real HANDLEs (INVALID_HANDLE_VALUE is (int64)-1)
+@rename('ReadFile') declare fun readFileWin(handle: HANDLE, buffer: ArrayPointer<UInt8>, toRead: UInt32, readOut: ArrayPointer<DWORD>, overlapped: LPOVERLAPPED): Int32
+@rename('WriteFile') declare fun writeFileWin(handle: HANDLE, buffer: ConstArrayPointer<UInt8>, toWrite: UInt32, writtenOut: ArrayPointer<DWORD>, overlapped: LPOVERLAPPED): Int32
+@rename('CloseHandle') declare fun closeHandleWin(handle: HANDLE): Int32
+@rename('GetFileSize') declare fun getFileSizeWin(handle: HANDLE, highOut: ArrayPointer<DWORD>): UInt32
+@rename('GetFileAttributesW') declare fun getFileAttributesW(path: ConstArrayPointer<ClangWideChar>): UInt32
+@rename('CreateDirectoryW') declare fun createDirectoryW(path: ConstArrayPointer<ClangWideChar>, security: LPSECURITY_ATTRIBUTES): Int32
+@rename('RemoveDirectoryW') declare fun removeDirectoryW(path: ConstArrayPointer<ClangWideChar>): Int32
+@rename('DeleteFileW') declare fun deleteFileW(path: ConstArrayPointer<ClangWideChar>): Int32
+@rename('MoveFileW') declare fun moveFileW(from: ConstArrayPointer<ClangWideChar>, to: ConstArrayPointer<ClangWideChar>): Int32
+// Current directory / module path / command line
+@rename('GetCurrentDirectoryW') declare fun getCurrentDirectoryW(length: UInt32, buffer: ArrayPointer<ClangWideChar>): UInt32
+@rename('SetCurrentDirectoryW') declare fun setCurrentDirectoryW(path: ConstArrayPointer<ClangWideChar>): Int32
+@rename('GetModuleFileNameW') declare fun getModuleFileNameW(module: HMODULE, buffer: ArrayPointer<ClangWideChar>, length: UInt32): UInt32
+@rename('GetCommandLineW') declare fun getCommandLineW(): ConstArrayPointer<ClangWideChar>
+@rename('CommandLineToArgvW') declare fun commandLineToArgvW(commandLine: ConstArrayPointer<ClangWideChar>, argcOut: ArrayPointer<Int32>): ArrayPointer<ConstArrayPointer<ClangWideChar>>
+@rename('LocalFree') declare fun localFreeWin(memory: HLOCAL): HLOCAL
+// Process / identity
+@rename('GetCurrentProcessId') declare fun getCurrentProcessId(): UInt32
+@rename('ExitProcess') declare fun exitProcessWin(code: UInt32): Void
+@rename('UuidCreate') declare fun uuidCreateWin(guid: ArrayPointer<UUID>): Int32
+
+// ─── Small Hexa helpers over the declares ───────────────────────────────────
+// INVALID_HANDLE_VALUE as a signed compare (avoids a 20-digit u64 literal)
+fun winHandleFailed(handle: HANDLE): Bool {
+	let signed = handle as!Int64
+	return signed < 0
+}
+// Absolute path of the running module (exe dir seeds session/icons later)
+fun winExePath(): String {
+	var buf ArrayByValue<ClangWideChar, 512> = [0]
+	for i in 512 { buf[i] = 0 }
+	let n = getModuleFileNameW(null, buf as!ArrayPointer<ClangWideChar>, 512u32)
+	if n == 0u32 { return '' }
+	return String.fromUTF16zUpTo(buf as!ConstArrayPointer<UInt16>, n as!Int)
+}
+// Raw command-line words (argv[0] = exe path)
+fun winCommandLineArgs(): [String] {
+	var out [String] = []
+	var argcBox ArrayByValue<Int32, 1> = [0]
+	let argv = commandLineToArgvW(getCommandLineW(), argcBox as!ArrayPointer<Int32>)
+	if argv as!UInt64 == 0u64 { return out }
+	let argc = (argcBox as!ArrayPointer<Int32>)[0]
+	var i = 0
+	while i < argc {
+		let w = (argv as!ArrayPointer<ConstArrayPointer<ClangWideChar>>)[i]
+		out.push(String.fromUTF16z(w as!ConstArrayPointer<UInt16>))
+		i++
+	}
+	localFreeWin(argv as!HLOCAL)
+	return out
+}

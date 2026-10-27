@@ -1,0 +1,533 @@
+// The MIT License
+//
+// Copyright (C) 2022-2025 Oleh Petrenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+// fs.hexa — native filesystem surface (Win32): Path + Fs + node singletons.
+// Split out of library/c/c.hexa (registered in source/targets.hexa
+// setLibrary after win32/crypto). Real static Win32 implementations;
+// the `@lazy` singletons below mirror library/nodejs/nodejs.hexa so
+// Perfide call sites compile on both targets with ZERO changes.
+
+class ParsedPath {
+	var root: String
+	var dir: String
+	var base: String
+	var ext: String
+	var name: String
+	new () { }
+}
+
+// Native current directory (GetCurrentDirectoryW over a stack buffer)
+fun nativeCwd(): String {
+	var buf ArrayByValue<ClangWideChar, 512> = [0]
+	for i in 512 { buf[i] = 0 }
+	let n = getCurrentDirectoryW(512u32, buf as!ArrayPointer<ClangWideChar>)
+	if n == 0u32 { return '.' }
+	return String.fromUTF16zUpTo(buf as!ConstArrayPointer<UInt16>, n as!Int)
+}
+
+// Directory of the running module (exe path minus file name)
+fun nativeExeDir(): String {
+	let p = winExePath()
+	let idx = p.lastIndexOf('\\')
+	if idx < 0 { return '.' }
+	if idx == 0 { return '\\' }
+	return p.substring(0, idx)
+}
+
+class Path {
+	static let sep: String = '\\'
+	// Collapse `.`/`..`, duplicate seps; keeps drive/UNC/root; '' → '.'
+	static fun normalize(path: String): String {
+		if path.length == 0 { return '.' }
+		let flat = path.replaceAll('/', '\\')
+		// Root: UNC \\srv\share | drive X:\ / X: | rooted \ | none
+		var root = ''
+		var rest = flat
+		if rest.length >= 2 {
+			if let c0 = rest.charCodeAt(0) {
+				if c0 == 92 {
+					if let c1 = rest.charCodeAt(1) {
+						if c1 == 92 {
+							let s1 = rest.indexOf('\\', 2)
+							if s1 < 0 { return rest }
+							let s2 = rest.indexOf('\\', s1 + 1)
+							if s2 < 0 {
+								root = rest
+								rest = ''
+							} else {
+								root = rest.substring(0, s2)
+								rest = rest.substring(s2 + 1)
+							}
+						} else {
+							root = '\\'
+							rest = rest.substring(1)
+						}
+					}
+				} else if rest.length >= 2 {
+					if let c1 = rest.charCodeAt(1) {
+						if c1 == 58 {
+							root = rest.substring(0, 2)
+							rest = rest.substring(2)
+							if rest.length > 0 {
+								if let c2 = rest.charCodeAt(0) {
+									if c2 == 92 {
+										root = root + '\\'
+										rest = rest.substring(1)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		var stack [String] = []
+		var depth = 0
+		let parts = rest.split('\\')
+		for i in parts.length {
+			let part = parts[i]
+			if part.length == 0 or part == '.' { continue }
+			if part == '..' {
+				if depth > 0 {
+					depth--
+					stack.length = depth
+				} else if root.length == 0 {
+					stack.push('..')
+					depth++
+				}
+			} else {
+				if depth < stack.length { stack.set(depth, part) } else { stack.push(part) }
+				depth++
+			}
+		}
+		stack.length = depth
+		let joined = stack.join('\\')
+		if root.length == 0 {
+			if joined.length == 0 { return '.' }
+			return joined
+		}
+		if root.endsWith('\\') { return root + joined }
+		if joined.length == 0 { return root }
+		// Drive-relative 'C:' joins without a separator
+		if root.length == 2 { return root + joined }
+		return root + '\\' + joined
+	}
+	static fun dirname(path: String): String {
+		if path.length == 0 { return '.' }
+		var p = normalize(path)
+		while p.length > 1 and p.endsWith('\\') { p = p.substring(0, p.length - 1) }
+		let idx = p.lastIndexOf('\\')
+		if idx < 0 {
+			if p.length >= 2 {
+				if let c1 = p.charCodeAt(1) {
+					if c1 == 58 { return p.substring(0, 2) }
+				}
+			}
+			return '.'
+		}
+		if idx == 0 { return '\\' }
+		let dir = p.substring(0, idx)
+		if dir.endsWith(':') { return dir + '\\' }
+		return dir
+	}
+	static fun basename(path: String, ext: String? = null): String {
+		var p = path.replaceAll('/', '\\')
+		while p.length > 1 and p.endsWith('\\') { p = p.substring(0, p.length - 1) }
+		let idx = p.lastIndexOf('\\')
+		var base = p
+		if idx >= 0 { base = p.substring(idx + 1) }
+		if let e = ext {
+			if e.length > 0 and base.endsWith(e) and base != e { base = base.substring(0, base.length - e.length) }
+		}
+		return base
+	}
+	static fun extname(path: String): String {
+		let b = basename(path)
+		let idx = b.lastIndexOf('.')
+		if idx <= 0 { return '' }
+		return b.substring(idx)
+	}
+	static fun resolve(path: String): String {
+		if isAbsolute(path) { return normalize(path) }
+		return normalize(nativeCwd() + '\\' + path)
+	}
+	static fun relative(from: String, to: String): String {
+		let a = resolve(from)
+		let b = resolve(to)
+		let aa = a.split('\\')
+		let bb = b.split('\\')
+		var i = 0
+		while i < aa.length and i < bb.length {
+			if aa[i].toLowerCase() != bb[i].toLowerCase() { break }
+			i++
+		}
+		if i == 0 { return b }
+		var out [String] = []
+		var k = i
+		while k < aa.length {
+			out.push('..')
+			k++
+		}
+		k = i
+		while k < bb.length {
+			out.push(bb[k])
+			k++
+		}
+		if out.length == 0 { return '' }
+		return out.join('\\')
+	}
+	static fun parse(path: String): ParsedPath {
+		let p = ParsedPath()
+		p.dir = dirname(path)
+		p.base = basename(path)
+		p.ext = extname(path)
+		if p.ext.length > 0 { p.name = p.base.substring(0, p.base.length - p.ext.length) } else { p.name = p.base }
+		// Root recompute (mirrors normalize: UNC / drive / rooted / none)
+		let flat = path.replaceAll('/', '\\')
+		p.root = ''
+		if flat.length >= 2 {
+			if let c0 = flat.charCodeAt(0) {
+				if c0 == 92 {
+					if let c1 = flat.charCodeAt(1) {
+						if c1 == 92 {
+							let s1 = flat.indexOf('\\', 2)
+							if s1 >= 0 {
+								let s2 = flat.indexOf('\\', s1 + 1)
+								if s2 < 0 { p.root = flat } else { p.root = flat.substring(0, s2) }
+							} else { p.root = flat }
+						} else { p.root = '\\' }
+					}
+				} else {
+					if let c1 = flat.charCodeAt(1) {
+						if c1 == 58 {
+							p.root = flat.substring(0, 2)
+							if flat.length > 2 {
+								if let c2 = flat.charCodeAt(2) {
+									if c2 == 92 { p.root = p.root + '\\' }
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if flat.length == 1 {
+			if let c0 = flat.charCodeAt(0) {
+				if c0 == 92 { p.root = '\\' }
+			}
+		}
+		return p
+	}
+	static fun join(...path: String): String {
+		var acc = ''
+		for p in path {
+			if p.length == 0 { continue }
+			if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
+		}
+		if acc.length == 0 { return '.' }
+		return normalize(acc)
+	}
+	static fun isAbsolute(path: String): Bool {
+		if path.length == 0 { return false }
+		if let c0 = path.charCodeAt(0) {
+			if c0 == 92 or c0 == 47 { return true }
+			if path.length >= 3 {
+				if let c1 = path.charCodeAt(1) {
+					if c1 == 58 {
+						if let c2 = path.charCodeAt(2) {
+							if c2 == 92 or c2 == 47 { return true }
+						}
+					}
+				}
+			}
+		}
+		return false
+	}
+}
+
+class Fs {
+	// Full-file read via Win32 (64 KiB streaming chunks, close on every path)
+	static fun readFileSync(path: String): Buffer {
+		let h = hexaCreateFileRead(path.utf16())
+		if winHandleFailed(h as!HANDLE) { return Buffer.alloc(0) }
+		var chunks [Buffer] = []
+		var total = 0
+		while true {
+			let piece = Buffer.alloc(65536)
+			var gotBox ArrayByValue<DWORD, 1> = [0]
+			let ok = readFileWin(h as!HANDLE, piece.bytes, 65536u32, gotBox as!ArrayPointer<DWORD>, null)
+			let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
+			if ok == 0 or got <= 0 { break }
+			piece.length = got
+			chunks.push(piece)
+			total = total + got
+			if got < 65536 { break }
+		}
+		closeHandleWin(h as!HANDLE)
+		return Buffer.concat(chunks)
+	}
+	static fun readFileTextSync(path: String, encoding: String? = 'utf8'): String {
+		var enc = 'utf8'
+		if let e = encoding { enc = e }
+		let buf = readFileSync(path)
+		return buf.toString(enc, 0, buf.length)
+	}
+	// Single CreateFileW + WriteFile loop (encoding honored for text shorthands)
+	static fun writeHandleText(handle: HANDLE, data: String): Void {
+		let bytes = utf8EncodeString(data)
+		var at = 0
+		while at < bytes.length {
+			var n = bytes.length - at
+			if n > 65536 { n = 65536 }
+			let piece = Buffer.alloc(n)
+			for k in n { piece.bytes[k] = bytes[at + k] as!UInt8 }
+			var doneBox ArrayByValue<DWORD, 1> = [0]
+			let ok = writeFileWin(handle, piece.bytes, n as!UInt32, doneBox as!ArrayPointer<DWORD>, null)
+			if ok == 0 { break }
+			at = at + ((doneBox as!ArrayPointer<DWORD>)[0] as!Int)
+		}
+	}
+	static fun writeFileSync(path: String, data: String, encoding: String? = null): Void {
+		let h = hexaCreateFileWrite(path.utf16())
+		if winHandleFailed(h as!HANDLE) { return }
+		writeHandleText(h as!HANDLE, data)
+		closeHandleWin(h as!HANDLE)
+	}
+	static fun appendFileSync(path: String, data: String, encoding: String? = null): Void {
+		let h = hexaCreateFileAppend(path.utf16())
+		if winHandleFailed(h as!HANDLE) { return }
+		writeHandleText(h as!HANDLE, data)
+		closeHandleWin(h as!HANDLE)
+	}
+	static fun existsSync(path: String): Bool { return getFileAttributesW(path.utf16()) != invalidFileAttributes }
+	// Progressive prefix creation (recursive-by-construction; errors ignored)
+	static fun mkdirSync(path: String, options: Any? = null): Void {
+		let norm = Path.normalize(path)
+		for i in norm.length {
+			if i < 3 { continue }
+			if let c = norm.charCodeAt(i) {
+				if c == 92 { createDirectoryW(norm.substring(0, i).utf16(), null) }
+			}
+		}
+		if norm.length > 0 { createDirectoryW(norm.utf16(), null) }
+	}
+	// FindFirstFileW iteration (skips . and .., like Node)
+	static fun readdirSync(path: String): [String] {
+		var out [String] = []
+		let pattern = Path.normalize(path) + '\\*'
+		var nameBuf ArrayByValue<ClangWideChar, 260> = [0]
+		for i in 260 { nameBuf[i] = 0 }
+		var dirBox ArrayByValue<Int32, 1> = [0]
+		let h = hexaFindFirst(pattern.utf16(), nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>)
+		if winHandleFailed(h as!HANDLE) { return out }
+		while true {
+			let name = String.fromUTF16z(nameBuf as!ConstArrayPointer<UInt16>)
+			if name != '.' and name != '..' { out.push(name) }
+			if hexaFindNext(h, nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>) == 0 { break }
+		}
+		hexaFindClose(h)
+		return out
+	}
+	// Names + dir flags (Dirent-shaped data for the promises surface)
+	static fun readdirTypesSync(path: String): [FsDirentInfo] {
+		var out [FsDirentInfo] = []
+		let pattern = Path.normalize(path) + '\\*'
+		var nameBuf ArrayByValue<ClangWideChar, 260> = [0]
+		for i in 260 { nameBuf[i] = 0 }
+		var dirBox ArrayByValue<Int32, 1> = [0]
+		let h = hexaFindFirst(pattern.utf16(), nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>)
+		if winHandleFailed(h as!HANDLE) { return out }
+		while true {
+			let name = String.fromUTF16z(nameBuf as!ConstArrayPointer<UInt16>)
+			if name != '.' and name != '..' { out.push(FsDirentInfo(name, (dirBox as!ArrayPointer<Int32>)[0] != 0)) }
+			if hexaFindNext(h, nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>) == 0 { break }
+		}
+		hexaFindClose(h)
+		return out
+	}
+	static fun renameSync(oldPath: String, newPath: String): Void { moveFileW(oldPath.utf16(), newPath.utf16()) }
+	// Depth-first remove (files + dirs; missing paths are no-ops)
+	static fun rmSync(path: String, options: Any? = null): Void {
+		let attrs = getFileAttributesW(path.utf16())
+		if attrs == invalidFileAttributes { return }
+		if (attrs & fileAttributeDirectory) != 0u32 {
+			for e in readdirSync(path) { rmSync(path + '\\' + e, options) }
+			removeDirectoryW(path.utf16())
+		} else {
+			deleteFileW(path.utf16())
+		}
+	}
+	static fun lstatSync(path: String): Any { return null }
+	// Positional fd layer lands with the handle-table design (later)
+	static fun readSync(fd: Int, buffer: Buffer, offset: Int, length: Int, position: Int): Int { return 0 }
+	static fun openSync(path: String, flags: String): Int { return 0 }
+	// Sync-backed promise surface (settles immediately; .then/await land in F9)
+	static let promises: FsPromisesImpl = FsPromisesImpl()
+}
+
+// Dirent-shaped record (mirrors the FsDirent contract until Any reflection)
+class FsDirentInfo {
+	var name: String
+	var isDir: Bool
+	new (name: String, isDir: Bool) {
+		this.name = name
+		this.isDir = isDir
+	}
+	fun isFile(): Bool { return not isDir }
+	fun isDirectory(): Bool { return isDir }
+}
+
+class FsPromisesImpl {
+	new () { }
+	fun readFile(path: String, encoding: String): Promise<String> { return Promise.resolve(Fs.readFileTextSync(path, encoding)) }
+	fun writeFile(path: String, content: String, encoding: String): Promise<Void> {
+		Fs.writeFileSync(path, content, encoding)
+		return Promise<Void>(fun (resolve) { })
+	}
+	fun rename(oldPath: String, newPath: String): Promise<Void> {
+		Fs.renameSync(oldPath, newPath)
+		return Promise<Void>(fun (resolve) { })
+	}
+	fun readdir(path: String, options: Any? = null): Promise<[FsDirentInfo]> { return Promise.resolve(Fs.readdirTypesSync(path)) }
+	fun mkdir(path: String, options: Any? = null): Promise<Void> {
+		Fs.mkdirSync(path, options)
+		return Promise<Void>(fun (resolve) { })
+	}
+	fun stat(path: String): Promise<Any> { return Promise<Any>(fun (resolve) { }) }
+}
+
+// Readable-stream shape for line readers (flows with the fd/event work)
+class FsReadStream {
+	var path: String
+	var closed: Bool = false
+	var bytesRead: Int = 0
+	new (path: String) { this.path = path }
+	fun on(event: String, listener: Any): Void { }
+	fun destroy(): Void { closed = true }
+	fun pause(): Void { }
+	fun resume(): Void { }
+	fun removeAllListeners(event: String = ''): Void { }
+}
+
+// ─── Node-idiomatic module singletons (native half of the js declare-lets) ──
+// Perfide's `fs.*` / `path.*` call sites compile on both targets with ZERO
+// code changes: js binds them as `declare let x: X` + @require
+// (library/nodejs/nodejs.hexa), native binds them here as `@lazy let x X =
+// X()` wrappers using the SAME TitleCase type names and member shapes.
+// Delegates to the real static Win32 implementations above (Fs./Path.);
+// members without native logic yet are compile-only stubs (fd/stream work
+// lands with M6). `@lazy` skips a never-referenced let ENTIRELY — no `X()`
+// startup instantiation (normalizer whole-let skip; genC DCEs the wrapper).
+
+// fs — mirrors library/nodejs `declare class FsModule` (instance shape).
+class FsModule {
+	// Field initializers emit into the constructor prologue (genC: see
+	// `BlinkState_$this_` — init before the ctor body), so no ctor assign.
+	let promises: FsPromisesImpl = FsPromisesImpl()
+	new () { }
+	// 'utf-8' options → text String; no options → Buffer (Node overloads)
+	fun readFileSync(path: String, options: Any? = null): Any {
+		if options != null { return Fs.readFileTextSync(path, options as String) }
+		return Fs.readFileSync(path)
+	}
+	fun writeFileSync(path: String, data: Any, options: Any? = null): Void {
+		Fs.writeFileSync(path, data as String, options)
+	}
+	fun appendFileSync(path: String, data: Any, options: Any? = null): Void {
+		Fs.appendFileSync(path, data as String, options)
+	}
+	fun readdirSync(path: String, options: Any? = null): [Any] {
+		var out [Any] = []
+		for n in Fs.readdirSync(path) { out.push(n) }
+		return out
+	}
+	fun mkdirSync(path: String, options: Any? = null): Void { Fs.mkdirSync(path, options) }
+	fun rmSync(path: String, options: Any? = null): Void { Fs.rmSync(path, options) }
+	fun renameSync(oldPath: String, newPath: String): Void { Fs.renameSync(oldPath, newPath) }
+	fun existsSync(path: String): Bool { return Fs.existsSync(path) }
+	fun lstatSync(path: String): Any { return Fs.lstatSync(path) }
+	// Callback-form readdir (err-first; Node's `(path, cb)` overload tolerated).
+	// Synchronous on native — the icons loader only needs the entries.
+	fun readdir(path: String, options: Any? = null, callback: Any? = null): Any {
+		// Non-null Any local: `Any?` is not callable, Any is (dynamic call).
+		var cb Any = callback
+		if cb == null { cb = options }
+		var entries [Any] = []
+		for e in Fs.readdirTypesSync(path) { entries.push(e) }
+		if cb != null { cb(null, entries) }
+		return null
+	}
+	// ── Compile-only stubs (M6 fd/stream work) ──
+	fun statSync(path: String, options: Any? = null): Any { return null }
+	fun rmdirSync(path: String, options: Any? = null): Void { }
+	fun unlinkSync(path: String): Void { }
+	fun realpathSync(path: String, options: Any? = null): String { return path }
+	fun openSync(path: String, flags: String, mode: Int? = null): Int { return 0 }
+	fun closeSync(fd: Int): Void { }
+	fun readSync(fd: Int, buffer: Any, offset: Int, length: Int, position: Int? = null): Int { return 0 }
+	fun writeSync(fd: Int, buffer: Any, offset: Int? = null, length: Int? = null, position: Int? = null): Int { return 0 }
+	fun fstatSync(fd: Int): Any { return null }
+	fun createReadStream(path: String, options: Any? = null): Any { return null }
+}
+
+// path — mirrors library/nodejs `declare class PathModule`.
+class PathModule {
+	// Field initializers, not ctor assigns (let is const — see FsModule note).
+	let sep: String = '\\'
+	let delimiter: String = ';'
+	new () { }
+	fun basename(path: String, ext: String? = null): String { return Path.basename(path, ext) }
+	fun dirname(path: String): String { return Path.dirname(path) }
+	fun extname(path: String): String { return Path.extname(path) }
+	fun normalize(path: String): String { return Path.normalize(path) }
+	fun isAbsolute(path: String): Bool { return Path.isAbsolute(path) }
+	fun relative(from: String, to: String): String { return Path.relative(from, to) }
+	fun parse(path: String): Any { return Path.parse(path) }
+	fun format(pathObject: Any): String { return '' }
+	// Rest args materialize by iteration (the shape the static Path.join
+	// already uses — spread-forwarding `Path.join(...path)` is not emitted
+	// for native bodies), so the loop is duplicated verbatim here.
+	fun join(...path: String): String {
+		var acc = ''
+		for p in path {
+			if p.length == 0 { continue }
+			if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
+		}
+		if acc.length == 0 { return '.' }
+		return Path.normalize(acc)
+	}
+	// Left-to-right accumulate (an absolute segment resets the accumulator),
+	// then the static resolve. Matches every Perfide shape: resolve(root, rel)
+	// and resolve(absOrRel).
+	fun resolve(...path: String): String {
+		var acc = ''
+		for p in path {
+			if p.length == 0 { continue }
+			if acc.length == 0 or Path.isAbsolute(p) { acc = p } else { acc = acc + '\\' + p }
+		}
+		return Path.resolve(acc)
+	}
+}
+
+// The singleton lets (lowercase, @lazy — unused ones are dropped whole by
+// the normalizer; used ones instantiate once at startup).
+@lazy let fs FsModule = FsModule()
+@lazy let path PathModule = PathModule()

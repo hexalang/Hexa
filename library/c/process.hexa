@@ -1,0 +1,116 @@
+// The MIT License
+//
+// Copyright (C) 2022-2025 Oleh Petrenko
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+// process.hexa — native process surface: Process + child_process/readline/
+// http stubs + node singletons. Split out of library/c/c.hexa (registered
+// in source/targets.hexa setLibrary after fs). The spawn/exec members are
+// compile-only stubs until M8 (terminal/build/debug); the `@lazy`
+// singletons mirror library/nodejs/nodejs.hexa so Perfide call sites
+// compile on both targets with ZERO changes.
+
+class ProcessStd {
+	fun write(text: String): Void { }
+	fun once(name: String, callback: () => Void): Void { }
+	let fd: Any
+}
+
+class Process {
+	static let stdin: ProcessStd
+	static let stdout: ProcessStd
+	static let stderr: ProcessStd
+	static let argv: [String]
+	static fun exit(errorCode: Int): Void { exitProcessWin(errorCode as!UInt32) }
+	static let versions: Any // TODO iterface { let node: String }
+	fun cwd(): String { return nativeCwd() }
+	let env: Any
+}
+
+// Live command-line words (argv[0] = exe path; static argv hydrates via host)
+fun argvOf(): [String] { return winCommandLineArgs() }
+
+class ProcessModule {
+	let stdin: ProcessStd
+	let stdout: ProcessStd
+	let stderr: ProcessStd
+	let argv: [String]
+	let arch: String = 'x64'
+	let title: String = 'Perfide'
+	let pid: Int
+	let ppid: Int
+	var exitCode: Int
+	let features: Any
+	let release: Any
+	fun exit(errorCode: Int): Void { exitProcessWin(errorCode as!UInt32) }
+	fun cwd(): String { return nativeCwd() }
+	fun chdir(directory: String): Void { setCurrentDirectoryW(directory.utf16()) }
+	fun uptime(): Float { return hexaTickMs() / 1000.0 }
+	fun hrtime(): [Int: Int] { return null }
+	fun nextTick(callback: () => Void): Void { queueMicrotask(callback) }
+	let versions: Any // TODO iterface { let node: String }
+	let env: Any // todo not require value = for lets in declare
+	let platform: String = 'win32'
+	fun memoryUsage(): Any // TODO iterface { let rss: Int, let heapTotal: Int, let heapUsed: Int }
+	fun pidOf(): Int { return getCurrentProcessId() as!Int }
+	fun argvOf(): [String] { return winCommandLineArgs() }
+}
+
+declare let process: ProcessModule
+
+// child_process — mirrors library/nodejs `declare class ChildProcessModule`.
+// Compile-only stubs: native spawn/exec land with M8 (terminal/build/debug);
+// windowsHide monkey-patching is a node-only concern (see native_bridge).
+class ChildProcessModule {
+	new () { }
+	fun spawn(command: String, args: Any? = null, options: Any? = null): Any { return null }
+	fun spawnSync(command: String, args: Any? = null, options: Any? = null): Any { return null }
+	fun exec(command: String, options: Any? = null, callback: Any? = null): Any { return null }
+	fun execFile(file: String, args: Any? = null, options: Any? = null, callback: Any? = null): Any { return null }
+	fun fork(modulePath: String, args: Any? = null, options: Any? = null): Any { return null }
+}
+
+// readline — mirrors library/nodejs `declare class ReadlineModule` (stub:
+// the search tool's line reader arrives with M6).
+class ReadlineModule {
+	new () { }
+	fun createInterface(options: Any): Any { return null }
+}
+
+// https/http — mirrors library/nodejs `declare class HttpsModule`/`HttpModule`
+// (stubs: Perfide's fetch fallback uses global fetch on native, M8).
+class HttpsModule {
+	new () { }
+	fun get(url: String, callback: Any): Any { return null }
+	fun request(url: String, options: Any? = null, callback: Any? = null): Any { return null }
+}
+
+class HttpModule {
+	new () { }
+	fun get(url: String, callback: Any): Any { return null }
+	fun request(url: String, options: Any? = null, callback: Any? = null): Any { return null }
+}
+
+// The singleton lets (lowercase, @lazy — unused ones are dropped whole by
+// the normalizer; used ones instantiate once at startup).
+@lazy let child_process ChildProcessModule = ChildProcessModule()
+@lazy let readline ReadlineModule = ReadlineModule()
+@lazy let https HttpsModule = HttpsModule()
+@lazy let http HttpModule = HttpModule()
