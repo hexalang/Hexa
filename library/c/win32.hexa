@@ -168,3 +168,192 @@ fun winCommandLineArgs(): [String] {
 	localFreeWin(argv as!HLOCAL)
 	return out
 }
+
+// ─── Little-endian byte-blob helpers (addrinfo/sockaddr/frame parsing) ─────
+// Win32 structs crossed by pointer (ADDRINFOW, sockaddr, WS frames) are read
+// and written as raw bytes — no Hexa struct layout to keep in sync.
+fun readU16LE(buf: ArrayPointer<UInt8>, off: Int): Int {
+	return (buf[off] as!Int) + (buf[off + 1] as!Int) * 256
+}
+fun readU32LE(buf: ArrayPointer<UInt8>, off: Int): UInt32 {
+	return (buf[off] as!UInt32) + (buf[off + 1] as!UInt32) * 256u32 + (buf[off + 2] as!UInt32) * 65536u32 + (buf[off + 3] as!UInt32) * 16777216u32
+}
+fun readI32LE(buf: ArrayPointer<UInt8>, off: Int): Int32 {
+	let u = readU32LE(buf, off)
+	if u >= 2147483648u32 { return (u - 2147483648u32) as!Int32 - 2147483647 - 1 }
+	return u as!Int32
+}
+fun readU64LE(buf: ArrayPointer<UInt8>, off: Int): UInt64 {
+	var lo = readU32LE(buf, off) as!UInt64
+	var hi = readU32LE(buf, off + 4) as!UInt64
+	return lo + hi * 4294967296u64
+}
+fun writeU16LE(buf: ArrayPointer<UInt8>, off: Int, v: Int): Void {
+	buf[off] = (v % 256) as!UInt8
+	buf[off + 1] = (v \ 256) as!UInt8
+}
+fun writeU32LE(buf: ArrayPointer<UInt8>, off: Int, v: UInt32): Void {
+	buf[off] = (v % 256u32) as!UInt8
+	buf[off + 1] = ((v \ 256u32) % 256u32) as!UInt8
+	buf[off + 2] = ((v \ 65536u32) % 256u32) as!UInt8
+	buf[off + 3] = (v \ 16777216u32) as!UInt8
+}
+fun writeU64LE(buf: ArrayPointer<UInt8>, off: Int, v: UInt64): Void {
+	writeU32LE(buf, off, (v % 4294967296u64) as!UInt32)
+	writeU32LE(buf, off + 4, (v \ 4294967296u64) as!UInt32)
+}
+// Bitwise ops over the proven `and` (genC maps `&`; `|`/`^`/`~` on ints are
+// unverified, so everything here is add/sub/mul over wrapping UInt32).
+fun uNot32(v: UInt32): UInt32 { return 4294967295u32 - v }
+fun uOr32(a: UInt32, b: UInt32): UInt32 { return a + b - (a and b) }
+fun uXor32(a: UInt32, b: UInt32): UInt32 { return a + b - ((a and b) * 2u32) }
+fun iXor(a: Int, b: Int): Int {
+	let x = a as!UInt32
+	let y = b as!UInt32
+	return (x + y - ((x and y) * 2u32)) as!Int
+}
+
+// ─── Child-process raw ABI (pipes, CreateProcess, wait) ─────────────────────
+// STARTUPINFOW / PROCESS_INFORMATION cross as POINTER-shaped declare structs
+// (`@struct` without `@byValue` → Hexa value IS the C pointer): allocate with
+// malloc, zero with zeroMemory, set fields, pass straight to CreateProcessW.
+@struct
+@rename('STARTUPINFOW') declare class StartupInfoW {
+	var cb: UInt32
+	var lpReserved: ArrayPointer<ClangWideChar>
+	var lpDesktop: ArrayPointer<ClangWideChar>
+	var lpTitle: ArrayPointer<ClangWideChar>
+	var dwX: UInt32
+	var dwY: UInt32
+	var dwXSize: UInt32
+	var dwYSize: UInt32
+	var dwXCountChars: UInt32
+	var dwYCountChars: UInt32
+	var dwFillAttribute: UInt32
+	var dwFlags: UInt32
+	var wShowWindow: UInt16
+	var cbReserved2: UInt16
+	var lpReserved2: ArrayPointer<UInt8>
+	var hStdInput: HANDLE
+	var hStdOutput: HANDLE
+	var hStdError: HANDLE
+}
+@struct
+@rename('PROCESS_INFORMATION') declare class ProcessInfo {
+	var hProcess: HANDLE
+	var hThread: HANDLE
+	var dwProcessId: UInt32
+	var dwThreadId: UInt32
+}
+let handleFlagInherit UInt32 = 1u32
+let startfUseStdHandles UInt32 = 1u32
+let startfUseShowWindow UInt32 = 1u32
+let createNoWindow UInt32 = 0x08000000u32
+let infiniteTimeout UInt32 = 0xFFFFFFFFu32
+let waitObject0 UInt32 = 0u32
+let stillActive UInt32 = 259u32
+let swHide Int32 = 0
+@rename('CreatePipe') declare fun createPipeWin(readOut: ArrayPointer<HANDLE>, writeOut: ArrayPointer<HANDLE>, attrs: LPSECURITY_ATTRIBUTES, size: UInt32): Int32
+@rename('SetHandleInformation') declare fun setHandleInformationWin(handle: HANDLE, mask: DWORD, flags: DWORD): Int32
+@rename('CreateProcessW') declare fun createProcessWin(app: ConstArrayPointer<ClangWideChar>, cmd: ArrayPointer<ClangWideChar>, procAttrs: LPSECURITY_ATTRIBUTES, threadAttrs: LPSECURITY_ATTRIBUTES, inherit: Int32, flags: UInt32, env: ArrayPointer<UInt8>, cwd: ConstArrayPointer<ClangWideChar>?, startup: StartupInfoW, procInfo: ProcessInfo): Int32
+@rename('WaitForSingleObject') declare fun waitForSingleObjectWin(handle: HANDLE, timeoutMs: DWORD): UInt32
+@rename('GetExitCodeProcess') declare fun getExitCodeProcessWin(handle: HANDLE, codeOut: LPDWORD): Int32
+@rename('TerminateProcess') declare fun terminateProcessWin(handle: HANDLE, code: UInt32): Int32
+@rename('PeekNamedPipe') declare fun peekNamedPipeWin(handle: HANDLE, buffer: ArrayPointer<UInt8>, size: UInt32, readOut: LPDWORD, availOut: LPDWORD, leftOut: LPDWORD): Int32
+
+// ─── WinHTTP raw ABI (sync request core for fetch + https/http) ─────────────
+// winsock2 must come AFTER windows.h here only because the generated TU sets
+// WIN32_LEAN_AND_MEAN (which drops winsock.h) — the documented safe order.
+// ws2_32/winhttp link via pragma so build_msvc_hexa.bat stays untouched.
+@customHeader('
+	#include <winsock2.h>
+	#include <ws2tcpip.h>
+	#include <winhttp.h>
+	#pragma comment(lib, "ws2_32.lib")
+	#pragma comment(lib, "winhttp.lib")
+	#pragma comment(lib, "psapi.lib")
+')
+fun win32NetPrototypes() {
+	// Nothing — the custom header above carries the includes + link pragmas
+}
+@rename('HINTERNET') declare class HINTERNET { }
+let winhttpAccessDefaultProxy UInt32 = 0u32
+let winhttpFlagSecure UInt32 = 0x00800000u32
+let winhttpQueryStatusCode UInt32 = 19u32
+let winhttpQueryLocation UInt32 = 33u32
+let winhttpQueryRawHeaders UInt32 = 22u32
+let winhttpQueryFlagNumber UInt32 = 0x20000000u32
+let winhttpOptionRedirectPolicy UInt32 = 88u32
+let winhttpRedirectNever UInt32 = 1u32
+@rename('WinHttpOpen') declare fun winHttpOpen(agent: ConstArrayPointer<ClangWideChar>, access: DWORD, proxy: ConstArrayPointer<ClangWideChar>, bypass: ConstArrayPointer<ClangWideChar>, flags: DWORD): HINTERNET
+@rename('WinHttpConnect') declare fun winHttpConnect(session: HINTERNET, host: ConstArrayPointer<ClangWideChar>, port: UInt16, reserved: DWORD): HINTERNET
+@rename('WinHttpOpenRequest') declare fun winHttpOpenRequest(connect: HINTERNET, verb: ConstArrayPointer<ClangWideChar>, objectName: ConstArrayPointer<ClangWideChar>, version: ConstArrayPointer<ClangWideChar>, referrer: ConstArrayPointer<ClangWideChar>, accept: ArrayPointer<ConstArrayPointer<ClangWideChar>>, flags: DWORD): HINTERNET
+@rename('WinHttpSendRequest') declare fun winHttpSendRequest(request: HINTERNET, headers: ConstArrayPointer<ClangWideChar>, headersLen: UInt32, optional: ArrayPointer<UInt8>, optionalLen: UInt32, totalLen: UInt32, context: UInt64): Int32
+@rename('WinHttpReceiveResponse') declare fun winHttpReceiveResponse(request: HINTERNET, reserved: ArrayPointer<UInt8>): Int32
+@rename('WinHttpQueryHeaders') declare fun winHttpQueryHeaders(request: HINTERNET, infoLevel: DWORD, name: ConstArrayPointer<ClangWideChar>, buffer: ArrayPointer<UInt8>, bufferLen: LPDWORD, index: LPDWORD): Int32
+@rename('WinHttpQueryDataAvailable') declare fun winHttpQueryDataAvailable(request: HINTERNET, available: LPDWORD): Int32
+@rename('WinHttpReadData') declare fun winHttpReadData(request: HINTERNET, buffer: ArrayPointer<UInt8>, toRead: UInt32, readOut: LPDWORD): Int32
+@rename('WinHttpSetTimeouts') declare fun winHttpSetTimeouts(handle: HINTERNET, resolveMs: Int32, connectMs: Int32, sendMs: Int32, receiveMs: Int32): Int32
+@rename('WinHttpSetOption') declare fun winHttpSetOption(handle: HINTERNET, option: DWORD, buffer: ArrayPointer<UInt8>, length: UInt32): Int32
+@rename('WinHttpCloseHandle') declare fun winHttpCloseHandle(handle: HINTERNET): Int32
+
+// ─── Winsock raw ABI (TCP connect for WebSocket; DNS via GetAddrInfoW) ──────
+let afInet Int32 = 2
+let sockStream Int32 = 1
+let ipprotoTcp Int32 = 6
+let fionbioCtl UInt32 = 0x8004667Eu32
+let socketError Int32 = -1
+// SOCKET is UINT_PTR — travels as Int64, INVALID_SOCKET is (int64)-1.
+@rename('WSAStartup') declare fun wsaStartupWin(version: UInt16, data: ArrayPointer<UInt8>): Int32
+@rename('socket') declare fun socketWin(family: Int32, typ: Int32, protocol: Int32): Int64
+@rename('GetAddrInfoW') declare fun getAddrInfoWin(node: ConstArrayPointer<ClangWideChar>, service: ConstArrayPointer<ClangWideChar>, hints: ArrayPointer<UInt8>, resultOut: ArrayPointer<UInt64>): Int32
+@rename('FreeAddrInfoW') declare fun freeAddrInfoWin(info: ArrayPointer<UInt8>): Void
+@rename('connect') declare fun connectWin(sock: Int64, addr: ArrayPointer<UInt8>, addrLen: Int32): Int32
+@rename('send') declare fun sendWin(sock: Int64, buffer: ConstArrayPointer<UInt8>, length: Int32, flags: Int32): Int32
+@rename('recv') declare fun recvWin(sock: Int64, buffer: ArrayPointer<UInt8>, length: Int32, flags: Int32): Int32
+@rename('ioctlsocket') declare fun ioctlSocketWin(sock: Int64, cmd: UInt32, arg: ArrayPointer<ULong>): Int32
+@rename('closesocket') declare fun closeSocketWin(sock: Int64): Int32
+@rename('WSAGetLastError') declare fun wsaGetLastErrorWin(): Int32
+let wsaWouldBlock Int32 = 10035
+
+// ─── Timezone bias (minutes to add to local time to get UTC) ─────────────────
+@rename('GetTimeZoneInformation') declare fun getTimeZoneInformationWin(info: LPTIME_ZONE_INFORMATION): UInt32
+fun winTimezoneBiasMinutes(): Int {
+	var blob ArrayByValue<UInt8, 172> = [0]
+	for i in 172 { blob[i] = 0 }
+	getTimeZoneInformationWin(blob as!LPTIME_ZONE_INFORMATION)
+	return readI32LE(blob as!ArrayPointer<UInt8>, 0) as!Int
+}
+
+// ─── File time + full-path + environment + std handles ──────────────────────
+// FILETIME crosses as 8 raw bytes (two DWORDs, 100ns ticks since 1601).
+@rename('GetFileTime') declare fun getFileTimeWin(handle: HANDLE, creation: LPFILETIME, access: LPFILETIME, write: LPFILETIME): Int32
+// GetFullPathW is intentionally NOT bound (absent from lean windows.h in this
+// TU) — realpath resolves against the native cwd in pure Hexa instead.
+@rename('GetEnvironmentVariableW') declare fun getEnvironmentVariableWin(name: ConstArrayPointer<ClangWideChar>, buffer: ArrayPointer<ClangWideChar>, size: UInt32): UInt32
+// Two-call shape: size query first, then the real fetch (avoids truncation).
+fun winGetEnv(name: String): String {
+	let need = getEnvironmentVariableWin(name.utf16(), null, 0u32)
+	if need == 0u32 { return '' }
+	var buf ArrayByValue<ClangWideChar, 32768> = [0]
+	for i in 32768 { buf[i] = 0 }
+	let n = getEnvironmentVariableWin(name.utf16(), buf as!ArrayPointer<ClangWideChar>, 32768u32)
+	if n == 0u32 or n >= 32768u32 { return '' }
+	return String.fromUTF16zUpTo(buf as!ConstArrayPointer<UInt16>, n as!Int)
+}
+@rename('GetStdHandle') declare fun getStdHandleWin(which: Int32): HANDLE
+@rename('GetCurrentProcess') declare fun getCurrentProcessWin(): HANDLE
+@rename('GetProcessMemoryInfo') declare fun getProcessMemoryInfoWin(process: HANDLE, counters: ArrayPointer<UInt8>, size: UInt32): Int32
+let stdInputHandle Int32 = -10
+let stdOutputHandle Int32 = -11
+let stdErrorHandle Int32 = -12
+@rename('GetLastError') declare fun getLastErrorWin(): UInt32
+// Direct CreateFileW for the fd table (access/disposition per flags string).
+let genericReadWrite UInt32 = 0xC0000000u32
+let fileAppendData UInt32 = 0x00000004u32
+let fileCurrentMoveMethod UInt32 = 1u32
+@rename('CreateFileW') declare fun createFileWin(path: ConstArrayPointer<ClangWideChar>, access: UInt32, share: UInt32, security: LPSECURITY_ATTRIBUTES, disposition: UInt32, attrs: UInt32, template: HANDLE): HANDLE
+// SetFilePointerEx takes LARGE_INTEGER by value (a C union — not expressible
+// in a Hexa declare), so it goes through a tiny host shim like the other
+// awkward signatures (see hexa* shims above).
+@rename('hexaSetFilePointer') declare fun setFilePointerExWin(handle: HANDLE, distance: Int64, outOld: ArrayPointer<UInt8>, method: DWORD): Int32
