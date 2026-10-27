@@ -63,12 +63,35 @@ class ProcessModule {
 	fun cwd(): String { return nativeCwd() }
 	fun chdir(directory: String): Void { setCurrentDirectoryW(directory.utf16()) }
 	fun uptime(): Float { return hexaTickMs() / 1000.0 }
-	fun hrtime(): [Int: Int] { return null }
+	fun hrtime(): [Int: Int] {
+		let ms = hexaTickMs()
+		let sec = Math.floor(ms / 1000.0)
+		let nsec = Math.floor((ms - (sec as!Float) * 1000.0) * 1000000.0)
+		let m = Map<Int, Int>()
+		m.set(0, sec)
+		m.set(1, nsec)
+		return m
+	}
 	fun nextTick(callback: () => Void): Void { queueMicrotask(callback) }
 	let versions: Any // TODO iterface { let node: String }
 	let env: Any // todo not require value = for lets in declare
 	let platform: String = 'win32'
 	fun memoryUsage(): Any // TODO iterface { let rss: Int, let heapTotal: Int, let heapUsed: Int }
+	fun memoryUsage(): Any {
+		var blob ArrayByValue<UInt8, 48> = [0]
+		for i in 48 { blob[i] = 0 }
+		var rss = 0
+		if getProcessMemoryInfoWin(getCurrentProcessWin(), blob as!ArrayPointer<UInt8>, 48u32) != 0 {
+			let ws = readU64LE(blob as!ArrayPointer<UInt8>, 16)
+			if ws >= 2147483647u64 {
+				rss = 2147483647
+			} else {
+				rss = ws as!Int
+			}
+		}
+		// Heap totals have no Win32 counter — shape parity only (M11 allocator).
+		return { rss: rss, heapTotal: 0, heapUsed: 0 }
+	}
 	fun pidOf(): Int { return getCurrentProcessId() as!Int }
 	fun argvOf(): [String] { return winCommandLineArgs() }
 }
@@ -78,6 +101,591 @@ declare let process: ProcessModule
 // child_process — mirrors library/nodejs `declare class ChildProcessModule`.
 // Compile-only stubs: native spawn/exec land with M8 (terminal/build/debug);
 // windowsHide monkey-patching is a node-only concern (see native_bridge).
+class ChildProcPipe {
+	var listeners [Any] = []
+	new () { }
+	fun on(event: String, listener: Any): Void {
+		if event == 'data' { listeners.push(listener) }
+	}
+	fun emitData(buf: Buffer): Void {
+		for l in listeners { l(buf) }
+	}
+}
+class ChildProcStdin {
+	var hWrite: HANDLE = null
+	var closed: Bool = false
+	new () { }
+	fun write(data: Any): Void {
+		if closed or hWrite == null { return }
+		var bytes ArrayPointer<UInt8> = Buffer.alloc(0).bytes
+		var total = 0
+		if data is Buffer {
+			if let b = data as!Buffer {
+				bytes = b.bytes
+				total = b.length
+			}
+		} else if data is String {
+			if let s = data as!String {
+				let b = Buffer.from(s, 'utf8')
+				bytes = b.bytes
+				total = b.length
+			}
+		} else {
+			return
+		}
+		var at = 0
+		while at < total {
+			var n = total - at
+			if n > 65536 { n = 65536 }
+			var piece = Buffer.alloc(n)
+			for k in n { piece.bytes[k] = bytes[at + k] }
+			var doneBox ArrayByValue<DWORD, 1> = [0]
+			let ok = writeFileWin(hWrite, piece.bytes, n as!UInt32, doneBox as!LPDWORD, null)
+			if ok == 0 { return }
+			let got = (doneBox as!ArrayPointer<DWORD>)[0] as!Int
+			if got <= 0 { return }
+			at = at + got
+		}
+	}
+	fun end(data: Any? = null): Void {
+		if data != null {
+			if let d = data { write(d) }
+		}
+		forceClose()
+	}
+	fun forceClose(): Void {
+		if not closed and hWrite != null {
+			closeHandleWin(hWrite)
+			hWrite = null
+		}
+		closed = true
+	}
+}
+// Live child: pipes + exit/close/error listeners + optional output capture
+// (exec/spawnSync collect into outChunks/errChunks, decoded at finish).
+class ChildProc {
+	var pid: Int = -1
+	var hProcess: HANDLE = null
+	var hThread: HANDLE = null
+	var hStdoutRead: HANDLE = null
+	var hStderrRead: HANDLE = null
+	var stdout: ChildProcPipe = ChildProcPipe()
+	var stderr: ChildProcPipe = ChildProcPipe()
+	var stdin: ChildProcStdin = ChildProcStdin()
+	var exited: Bool = false
+	var failed: Bool = false
+	var failText: String = ''
+	var firedError: Bool = false
+	var collecting: Bool = false
+	var outChunks [Buffer] = []
+	var errChunks [Buffer] = []
+	var outText: String = ''
+	var errText: String = ''
+	var deadlineMs: Float = 0
+	var timedOut: Bool = false
+	var killSignal: Any? = null
+	// exec/execFile completion state (fields, not closures — per-site closure
+	// envs are shared pre-S3c, so concurrent execs must not capture proc).
+	var execCb: Any? = null
+	var execName: String = ''
+	var execKillSig: String = 'SIGTERM'
+	var execMaxBytes: Int = 1048576
+	var exitListeners [Any] = []
+	var closeListeners [Any] = []
+	var errorListeners [Any] = []
+	new () { }
+	fun on(event: String, listener: Any): Void {
+		if event == 'exit' {
+			exitListeners.push(listener)
+		} else if event == 'close' {
+			closeListeners.push(listener)
+		} else if event == 'error' {
+			errorListeners.push(listener)
+			if failed and not firedError { pumpFailedNow() }
+		}
+	}
+	fun pumpFailedNow(): Void {
+		if firedError or not failed { return }
+		firedError = true
+		for l in errorListeners { l(Error(failText)) }
+		finishProc(this, -1)
+	}
+	fun kill(signal: Any? = null): Void {
+		if exited or hProcess == null { return }
+		if signal != null { killSignal = signal } else { killSignal = 'SIGTERM' }
+		terminateProcessWin(hProcess, 1u32)
+	}
+}
+// One inheritable SECURITY_ATTRIBUTES blob (nLength=12, bInherit=1).
+fun inheritableAttrs(): ArrayPointer<UInt8> {
+	let mem = malloc(24u64)
+	let blob = mem as!ArrayPointer<UInt8>
+	for i in 24 { blob[i] = 0 }
+	writeU32LE(blob, 0, 12u32)
+	writeU32LE(blob, 16, 1u32)
+	return blob
+}
+// Windows command-line quoting (CommandLineToArgvW round-trip rules).
+fun winQuoteArg(arg: String): String {
+	if arg.length == 0 { return '""' }
+	var need = false
+	for i in arg.length {
+		if let c = arg.charCodeAt(i) {
+			if c == 32 or c == 9 or c == 10 or c == 13 or c == 34 { need = true }
+		}
+	}
+	if not need { return arg }
+	var out = '"'
+	var slashes = 0
+	for i in arg.length {
+		if let c = arg.charCodeAt(i) {
+			if c == 92 {
+				slashes++
+			} else {
+				if c == 34 {
+					for s in slashes * 2 + 1 { out = out + '\\' }
+					out = out + '"'
+				} else {
+					for s in slashes { out = out + '\\' }
+					out = out + String.fromCharCode(c)
+				}
+				slashes = 0
+			}
+		}
+	}
+	for s in slashes * 2 { out = out + '\\' }
+	return out + '"'
+}
+// Join + quote argv into a MUTABLE wchar buffer (CreateProcess may edit it).
+// Caller frees the returned pointer right after CreateProcessW returns.
+fun buildCmdlineBuf(parts: [String]): ArrayPointer<ClangWideChar> {
+	var cmd = ''
+	for i in parts.length {
+		if i > 0 { cmd = cmd + ' ' }
+		cmd = cmd + winQuoteArg(parts[i])
+	}
+	let units = cmd.length + 1
+	let mem = malloc((units * 2 + 2) as!UInt64)
+	let dst = mem as!ArrayPointer<UInt8>
+	let src = cmd.utf16() as!ConstArrayPointer<UInt8>
+	memcpy(dst, src, units * 2 - 2)
+	dst[units * 2 - 2] = 0
+	dst[units * 2 - 1] = 0
+	return dst as!ArrayPointer<ClangWideChar>
+}
+// Resolve an executable via PATHEXT + PATH (mirrors Node on Windows).
+fun resolveExePath(command: String, cwd: String?): String {
+	var cmd = command
+	if cmd.length >= 2 and cmd.startsWith('"') and cmd.endsWith('"') { cmd = cmd.substring(1, cmd.length - 1) }
+	var hasSep = false
+	for i in cmd.length {
+		if let c = cmd.charCodeAt(i) {
+			if c == 92 or c == 47 { hasSep = true }
+		}
+	}
+	var hasExt = false
+	let dot = cmd.lastIndexOf('.')
+	if dot >= 0 {
+		var sep = cmd.lastIndexOf('\\')
+		let fwd = cmd.lastIndexOf('/')
+		if fwd > sep { sep = fwd }
+		if sep < 0 or dot > sep { hasExt = true }
+	}
+	var exts [String] = ['.exe', '.cmd', '.bat', '.com']
+	if not hasExt {
+		let pathext = winGetEnv('PATHEXT')
+		if pathext.length > 0 {
+			var custom [String] = []
+			for e in pathext.split(';') {
+				if e.length > 0 { custom.push(e.toLowerCase()) }
+			}
+			if custom.length > 0 { exts = custom }
+		}
+	}
+	var dirs [String] = []
+	if hasSep {
+		if Path.isAbsolute(cmd) {
+			dirs.push('')
+		} else {
+			if cwd != null {
+				if let c = cwd { dirs.push(c) }
+			}
+			dirs.push('')
+		}
+	} else {
+		let pathEnv = winGetEnv('PATH')
+		if pathEnv.length > 0 {
+			for d in pathEnv.split(';') {
+				if d.length > 0 { dirs.push(d) }
+			}
+		}
+		if cwd != null {
+			if let c = cwd { dirs.push(c) }
+		}
+	}
+	for d in dirs {
+		for e in exts {
+			var cand = cmd + e
+			if d.length > 0 { cand = d + '\\' + cand }
+			if getFileAttributesW(cand.utf16()) != invalidFileAttributes { return cand }
+		}
+	}
+	// Unresolved — return the de-quoted input so CreateProcess reports the
+	// real error (and winQuoteArg below does not double-quote it).
+	return cmd
+}
+fun stdioEntry(stdio: Any?, index: Int): String {
+	try {
+		if stdio == null { return 'pipe' }
+		let v = (stdio as Any)[index]
+		if v == null { return 'pipe' }
+		return v as String
+	} catch e Error { }
+	return 'pipe'
+}
+// Core spawn: pipes per stdio + CreateProcessW + live-list registration.
+// Throws nothing (Node reports spawn failure via 'error' + 'close').
+fun spawnImpl(command: String, args: [String], cwd: String?, stdio: Any?, showWindow: Bool, shell: Bool): ChildProc {
+	let proc = ChildProc()
+	var file = command
+	var argv [String] = []
+	if shell {
+		argv.push('/d')
+		argv.push('/s')
+		argv.push('/c')
+		argv.push(command)
+		for a in args { argv.push(a) }
+		file = 'cmd.exe'
+	} else {
+		for a in args { argv.push(a) }
+	}
+	let exe = resolveExePath(file, cwd)
+	var parts [String] = [exe]
+	for a in argv { parts.push(a) }
+	let cmdBuf = buildCmdlineBuf(parts)
+	let attrs = inheritableAttrs()
+	// Stdio handles for the child (parent ends closed right after spawn).
+	var childIn: HANDLE = null
+	var childOut: HANDLE = null
+	var childErr: HANDLE = null
+	var parentIn: HANDLE = null
+	var parentOut: HANDLE = null
+	var parentErr: HANDLE = null
+	let s0 = stdioEntry(stdio, 0)
+	let s1 = stdioEntry(stdio, 1)
+	let s2 = stdioEntry(stdio, 2)
+	if s0 == 'pipe' {
+		var rBox ArrayByValue<UInt64, 1> = [0]
+		var wBox ArrayByValue<UInt64, 1> = [0]
+		if createPipeWin(rBox as!ArrayPointer<HANDLE>, wBox as!ArrayPointer<HANDLE>, attrs as!LPSECURITY_ATTRIBUTES, 0u32) != 0 {
+			childIn = (rBox as!ArrayPointer<HANDLE>)[0]
+			parentIn = (wBox as!ArrayPointer<HANDLE>)[0]
+			setHandleInformationWin(parentIn, handleFlagInherit, 0u32)
+		}
+	} else if s0 == 'inherit' {
+		childIn = getStdHandleWin(stdInputHandle)
+	} else {
+		childIn = hexaCreateFileRead('NUL'.utf16()) as!HANDLE
+	}
+	if s1 == 'pipe' {
+		var rBox ArrayByValue<UInt64, 1> = [0]
+		var wBox ArrayByValue<UInt64, 1> = [0]
+		if createPipeWin(rBox as!ArrayPointer<HANDLE>, wBox as!ArrayPointer<HANDLE>, attrs as!LPSECURITY_ATTRIBUTES, 0u32) != 0 {
+			parentOut = (rBox as!ArrayPointer<HANDLE>)[0]
+			childOut = (wBox as!ArrayPointer<HANDLE>)[0]
+			setHandleInformationWin(parentOut, handleFlagInherit, 0u32)
+		}
+	} else if s1 == 'inherit' {
+		childOut = getStdHandleWin(stdOutputHandle)
+	} else {
+		childOut = hexaCreateFileWrite('NUL'.utf16()) as!HANDLE
+	}
+	if s2 == 'pipe' {
+		var rBox ArrayByValue<UInt64, 1> = [0]
+		var wBox ArrayByValue<UInt64, 1> = [0]
+		if createPipeWin(rBox as!ArrayPointer<HANDLE>, wBox as!ArrayPointer<HANDLE>, attrs as!LPSECURITY_ATTRIBUTES, 0u32) != 0 {
+			parentErr = (rBox as!ArrayPointer<HANDLE>)[0]
+			childErr = (wBox as!ArrayPointer<HANDLE>)[0]
+			setHandleInformationWin(parentErr, handleFlagInherit, 0u32)
+		}
+	} else if s2 == 'inherit' {
+		childErr = getStdHandleWin(stdErrorHandle)
+	} else {
+		childErr = hexaCreateFileWrite('NUL'.utf16()) as!HANDLE
+	}
+	let siMem = malloc(104u64)
+	let si = siMem as!StartupInfoW
+	zeroMemory(si as!ArrayPointer<UInt8>, 104u32)
+	si.cb = 104u32
+	si.dwFlags = startfUseStdHandles
+	si.hStdInput = childIn
+	si.hStdOutput = childOut
+	si.hStdError = childErr
+	if showWindow {
+		si.dwFlags = startfUseStdHandles + startfUseShowWindow
+		si.wShowWindow = swHide as!UInt16
+	}
+	let piMem = malloc(24u64)
+	let pi = piMem as!ProcessInfo
+	zeroMemory(pi as!ArrayPointer<UInt8>, 24u32)
+	var cwdPtr: ConstArrayPointer<ClangWideChar>? = null
+	if cwd != null {
+		if let c = cwd { cwdPtr = c.utf16() }
+	}
+	var creationFlags = createNoWindow
+	if showWindow { creationFlags = 0u32 }
+	let ok = createProcessWin(null, cmdBuf, null, null, 1, creationFlags, null, cwdPtr, si, pi)
+	free(cmdBuf as!RuntimeAllocated)
+	free(siMem)
+	if ok == 0 {
+		let errCode = getLastErrorWin()
+		proc.failed = true
+		proc.failText = 'spawn ' + command + ' failed (Win32 error ' + (errCode as!Int).toString() + ')'
+		free(piMem)
+		free(attrs as!RuntimeAllocated)
+		if parentIn != null { closeHandleWin(parentIn) }
+		if parentOut != null { closeHandleWin(parentOut) }
+		if parentErr != null { closeHandleWin(parentErr) }
+		liveProcs.push(proc)
+		return proc
+	}
+	proc.pid = pi.dwProcessId as!Int
+	proc.hProcess = pi.hProcess
+	proc.hThread = pi.hThread
+	closeHandleWin(pi.hThread)
+	proc.hThread = null
+	free(piMem)
+	free(attrs as!RuntimeAllocated)
+	// Parent drops the child ends; NUL temps were dup'd by inheritance.
+	if s0 == 'pipe' and childIn != null { closeHandleWin(childIn) }
+	if s1 == 'pipe' and childOut != null { closeHandleWin(childOut) }
+	if s2 == 'pipe' and childErr != null { closeHandleWin(childErr) }
+	if s0 == 'ignore' and childIn != null { closeHandleWin(childIn) }
+	if s1 == 'ignore' and childOut != null { closeHandleWin(childOut) }
+	if s2 == 'ignore' and childErr != null { closeHandleWin(childErr) }
+	proc.stdin.hWrite = parentIn
+	proc.hStdoutRead = parentOut
+	proc.hStderrRead = parentErr
+	liveProcs.push(proc)
+	return proc
+}
+// Poll every live child: drain pipes, reap exits, fire listeners.
+var liveProcs [ChildProc] = []
+fun drainProcPipes(proc: ChildProc): Void {
+	if proc.hStdoutRead != null and not proc.exited {
+		while true {
+			var availBox ArrayByValue<DWORD, 1> = [0]
+			if peekNamedPipeWin(proc.hStdoutRead, null, 0u32, null, availBox as!LPDWORD, null) == 0 { break }
+			let avail = (availBox as!ArrayPointer<DWORD>)[0]
+			if avail == 0u32 { break }
+			var n = avail as!Int
+			if n > 65536 { n = 65536 }
+			let buf = Buffer.alloc(n)
+			var gotBox ArrayByValue<DWORD, 1> = [0]
+			if readFileWin(proc.hStdoutRead, buf.bytes, n as!UInt32, gotBox as!LPDWORD, null) == 0 { break }
+			let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
+			if got <= 0 { break }
+			let slice = buf.subarray(0, got)
+			proc.stdout.emitData(slice)
+			if proc.collecting { proc.outChunks.push(slice) }
+		}
+	}
+	if proc.hStderrRead != null and not proc.exited {
+		while true {
+			var availBox ArrayByValue<DWORD, 1> = [0]
+			if peekNamedPipeWin(proc.hStderrRead, null, 0u32, null, availBox as!LPDWORD, null) == 0 { break }
+			let avail = (availBox as!ArrayPointer<DWORD>)[0]
+			if avail == 0u32 { break }
+			var n = avail as!Int
+			if n > 65536 { n = 65536 }
+			let buf = Buffer.alloc(n)
+			var gotBox ArrayByValue<DWORD, 1> = [0]
+			if readFileWin(proc.hStderrRead, buf.bytes, n as!UInt32, gotBox as!LPDWORD, null) == 0 { break }
+			let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
+			if got <= 0 { break }
+			let slice = buf.subarray(0, got)
+			proc.stderr.emitData(slice)
+			if proc.collecting { proc.errChunks.push(slice) }
+		}
+	}
+}
+fun removeLiveProc(proc: ChildProc): Void {
+	for i in liveProcs.length {
+		if liveProcs[i].pid == proc.pid { liveProcs.splice(i, 1)
+			return
+		}
+	}
+}
+fun finishProc(proc: ChildProc, code: Any?): Void {
+	if proc.exited { return }
+	proc.exited = true
+	if proc.collecting {
+		proc.outText = Buffer.concat(proc.outChunks).toString('utf8')
+		proc.errText = Buffer.concat(proc.errChunks).toString('utf8')
+	}
+	if proc.hStdoutRead != null {
+		closeHandleWin(proc.hStdoutRead)
+		proc.hStdoutRead = null
+	}
+	if proc.hStderrRead != null {
+		closeHandleWin(proc.hStderrRead)
+		proc.hStderrRead = null
+	}
+	proc.stdin.forceClose()
+	if proc.hProcess != null {
+		closeHandleWin(proc.hProcess)
+		proc.hProcess = null
+	}
+	removeLiveProc(proc)
+	for l in proc.exitListeners { l(code) }
+	for l in proc.closeListeners { l(code) }
+	// exec/execFile final callback (node err/stdout/stderr shape).
+	if proc.execCb != null {
+		var outBuf = Buffer.concat(proc.outChunks)
+		var errBuf = Buffer.concat(proc.errChunks)
+		if outBuf.length > proc.execMaxBytes { outBuf = outBuf.subarray(0, proc.execMaxBytes) }
+		if errBuf.length > proc.execMaxBytes { errBuf = errBuf.subarray(0, proc.execMaxBytes) }
+		let stdout = outBuf.toString('utf8', 0, outBuf.length)
+		let stderr = errBuf.toString('utf8', 0, errBuf.length)
+		var err: Any? = null
+		if proc.failed {
+			err = { message: proc.failText, code: 'ENOENT', killed: false, signal: null }
+		} else if proc.timedOut {
+			err = { message: 'Command failed: ' + proc.execName + ' (timed out)', code: null, killed: true, signal: proc.execKillSig }
+		} else if code == null {
+			err = { message: 'Command failed: ' + proc.execName, code: null, killed: true, signal: proc.killSignal }
+		} else if code is Int {
+			if let c = code as!Int {
+				if c != 0 { err = { message: 'Command failed: ' + proc.execName + ' (code ' + c.toString() + ')', code: c, killed: false, signal: null } }
+			}
+		}
+		if let cb = proc.execCb {
+			try { cb(err, stdout, stderr) } catch e Error { }
+		}
+	}
+}
+fun pumpChildProcs(): Void {
+	let now = hexaTickMs()
+	var i = 0
+	while i < liveProcs.length {
+		let proc = liveProcs[i]
+		if proc.exited {
+			i++
+			continue
+		}
+		if proc.failed {
+			proc.pumpFailedNow()
+			continue
+		}
+		drainProcPipes(proc)
+		if proc.hProcess == null {
+			i++
+			continue
+		}
+		// Timeout kill (exec/spawnSync deadlines — no per-call closures).
+		if proc.deadlineMs > 0 and now >= proc.deadlineMs and not proc.exited {
+			proc.timedOut = true
+			if proc.killSignal == null { proc.killSignal = 'SIGTERM' }
+			terminateProcessWin(proc.hProcess, 1u32)
+		}
+		if waitForSingleObjectWin(proc.hProcess, 0u32) == waitObject0 {
+			var codeBox ArrayByValue<DWORD, 1> = [0]
+			getExitCodeProcessWin(proc.hProcess, codeBox as!LPDWORD)
+			let code = (codeBox as!ArrayPointer<DWORD>)[0] as!Int
+			if code == (stillActive as!Int) {
+				i++
+				continue
+			}
+			drainProcPipes(proc)
+			if proc.killSignal != null or proc.timedOut {
+				finishProc(proc, null)
+			} else {
+				finishProc(proc, code)
+			}
+			continue
+		}
+		i++
+	}
+}
+// Read a guarded string/int/bool option off the untyped options object.
+// Dynamic reads land fully with F10 reflection; until then unknown shapes
+// fall back to the default (same degrade path as every Perfide call site).
+fun optStr(options: Any?, name: String): String? {
+	if options == null { return null }
+	try {
+		let v = (options as Any)[name]
+		if v == null { return null }
+		return v as String
+	} catch e Error { return null }
+}
+fun optInt(options: Any?, name: String): Int? {
+	if options == null { return null }
+	try {
+		let v = (options as Any)[name]
+		if v == null { return null }
+		return v as Int
+	} catch e Error { return null }
+}
+fun optsCwd(options: Any?): String? { return optStr(options, 'cwd') }
+fun optsTimeout(options: Any?): Int {
+	let t = optInt(options, 'timeout')
+	if t == null { return 0 }
+	if let ms = t {
+		if ms < 0 { return 0 }
+		return ms
+	}
+	return 0
+}
+fun optsKillSignal(options: Any?): String {
+	let s = optStr(options, 'killSignal')
+	if s == null { return 'SIGTERM' }
+	if let sig = s { return sig }
+	return 'SIGTERM'
+}
+fun optsWindowsHide(options: Any?): Bool {
+	if options == null { return true }
+	try {
+		let v = (options as Any)['windowsHide']
+		if v == null { return true }
+		if v is Bool {
+			if let b = v as!Bool { return b }
+		}
+		return true
+	} catch e Error { return true }
+}
+fun optsShell(options: Any?): Bool {
+	if options == null { return false }
+	try {
+		let v = (options as Any)['shell']
+		if v == null { return false }
+		if v is Bool {
+			if let b = v as!Bool { return b }
+		}
+		if v is String {
+			if let s = v as!String { return s.length > 0 }
+		}
+		return false
+	} catch e Error { return false }
+}
+fun stdioOf(options: Any?): Any? {
+	if options == null { return null }
+	try { return (options as Any)['stdio'] } catch e Error { return null }
+}
+
+// ─── Public spawn family (mirrors the Node shapes Perfide uses) ────────────
+fun spawnArgsArray(args: Any?): [String] {
+	var out [String] = []
+	if args == null { return out }
+	try {
+		let count = (args as Any).length as Int
+		for i in count {
+			let v = (args as Any)[i]
+			if v == null { continue }
+			try { out.push(v as String) } catch e Error { }
+		}
+	} catch e Error { }
+	return out
+}
 class ChildProcessModule {
 	new () { }
 	fun spawn(command: String, args: Any? = null, options: Any? = null): Any { return null }
@@ -86,26 +694,541 @@ class ChildProcessModule {
 	fun execFile(file: String, args: Any? = null, options: Any? = null, callback: Any? = null): Any { return null }
 	fun fork(modulePath: String, args: Any? = null, options: Any? = null): Any { return null }
 }
+// Blocking spawn (Node spawnSync semantics): wait, drain, build the result.
+fun spawnSyncImpl(command: String, argv: [String], options: Any?): Any {
+	var encoding: String? = null
+	let encOpt = optStr(options, 'encoding')
+	if encOpt != null {
+		if let e = encOpt { encoding = e }
+	}
+	var timeoutMs = optsTimeout(options)
+	var maxBytes = 1048576
+	let maxOpt = optInt(options, 'maxBuffer')
+	if maxOpt != null {
+		if let m = maxOpt {
+			if m > 0 { maxBytes = m }
+		}
+	}
+	let proc = spawnImpl(command, argv, optsCwd(options), stdioOf(options), optsWindowsHide(options), optsShell(options))
+	proc.collecting = true
+	if proc.failed {
+		return { pid: -1, output: [null, Buffer.alloc(0), Buffer.alloc(0)], stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), status: null, signal: null, error: { message: proc.failText, code: 'ENOENT' } }
+	}
+	// Feed stdin first (Node writes input before waiting).
+	try {
+		let input = (options as Any)['input']
+		if input != null { proc.stdin.write(input) }
+	} catch e Error { }
+	proc.stdin.forceClose()
+	let waitMs = timeoutMs > 0 ? timeoutMs as!UInt32 : infiniteTimeout
+	let st = waitForSingleObjectWin(proc.hProcess, waitMs)
+	var status: Any? = null
+	var signal: Any? = null
+	var err: Any? = null
+	if st == waitObject0 {
+		var codeBox ArrayByValue<DWORD, 1> = [0]
+		getExitCodeProcessWin(proc.hProcess, codeBox as!LPDWORD)
+		let code = (codeBox as!ArrayPointer<DWORD>)[0] as!Int
+		if code == (stillActive as!Int) {
+			terminateProcessWin(proc.hProcess, 1u32)
+			signal = 'SIGTERM'
+			err = { message: 'spawnSync timeout', code: 'ETIMEDOUT', killed: true, signal: signal }
+		} else {
+			status = code
+		}
+	} else {
+		terminateProcessWin(proc.hProcess, 1u32)
+		signal = 'SIGTERM'
+		err = { message: 'spawnSync timeout', code: 'ETIMEDOUT', killed: true, signal: signal }
+	}
+	drainProcPipes(proc)
+	// Cap + decode collected output (truncate past maxBuffer like Node).
+	var outBuf = Buffer.concat(proc.outChunks)
+	var errBuf = Buffer.concat(proc.errChunks)
+	if outBuf.length > maxBytes { outBuf = outBuf.subarray(0, maxBytes) }
+	if errBuf.length > maxBytes { errBuf = errBuf.subarray(0, maxBytes) }
+	var outVal: Any = outBuf
+	var errVal: Any = errBuf
+	if encoding != null and encoding != 'buffer' {
+		outVal = outBuf.toString(encoding ?? 'utf8', 0, outBuf.length)
+		errVal = errBuf.toString(encoding ?? 'utf8', 0, errBuf.length)
+	}
+	finishProc(proc, status)
+	return { pid: proc.pid, output: [null, outVal, errVal], stdout: outVal, stderr: errVal, status: status, signal: signal, error: err }
+}
+// Async collect (exec/execFile): spawn + pump-driven close → err/stdout/stderr.
+// Completion state rides proc fields (no per-call closures — see ChildProc).
+fun runCollected(file: String, argv: [String], options: Any?, callback: Any?, useShell: Bool): ChildProc {
+	let proc = spawnImpl(file, argv, optsCwd(options), stdioOf(options), optsWindowsHide(options), useShell or optsShell(options))
+	proc.collecting = true
+	proc.execCb = callback
+	proc.execName = file
+	proc.execKillSig = optsKillSignal(options)
+	var maxBytes = 1048576
+	let maxOpt = optInt(options, 'maxBuffer')
+	if maxOpt != null {
+		if let m = maxOpt {
+			if m > 0 { maxBytes = m }
+		}
+	}
+	proc.execMaxBytes = maxBytes
+	if proc.failed { return proc }
+	let timeoutMs = optsTimeout(options)
+	if timeoutMs > 0 { proc.deadlineMs = hexaTickMs() + timeoutMs }
+	return proc
+}
 
 // readline — mirrors library/nodejs `declare class ReadlineModule` (stub:
 // the search tool's line reader arrives with M6).
+class ReadlineInterface {
+	var input: Any? = null
+	var pending: String = ''
+	var closed: Bool = false
+	var lineListeners [Any] = []
+	var closeListeners [Any] = []
+	var questionQueue [Any] = []
+	new (input: Any?) {
+		this.input = input
+		if input is FsReadStream {
+			if let stream = input as!FsReadStream { stream.lineReader = this }
+		} else if input != null {
+			try {
+				// Legacy path (single reader at a time — closure env sharing).
+				(input as Any).on('data', fun (chunk Any) Void { feedChunkAny(chunk) })
+				(input as Any).on('end', fun () Void { feedEnd() })
+			} catch e Error { }
+		}
+	}
+	fun on(event: String, listener: Any): Void {
+		if event == 'line' {
+			lineListeners.push(listener)
+		} else if event == 'close' {
+			closeListeners.push(listener)
+		}
+	}
+	fun removeAllListeners(event: String = ''): Void {
+		if event == '' or event == 'line' { lineListeners = [] }
+		if event == '' or event == 'close' { closeListeners = [] }
+		if event == '' { questionQueue = [] }
+	}
+	fun close(): Void {
+		if closed { return }
+		closed = true
+		for l in closeListeners { l() }
+	}
+	fun question(prompt: Any?, callback: Any): Void {
+		questionQueue.push(callback)
+	}
+	fun feedChunkAny(chunk: Any): Void {
+		if closed { return }
+		if chunk is String {
+			if let s = chunk as!String { feedText(s) }
+		} else if chunk is Buffer {
+			if let b = chunk as!Buffer { feedText(b.toString('utf8', 0, b.length)) }
+		}
+	}
+	fun feedEnd(): Void {
+		if closed { return }
+		if pending.length > 0 {
+			let last = pending
+			pending = ''
+			emitLine(last)
+		}
+		close()
+	}
+	fun feedText(text: String): Void {
+		if closed { return }
+		pending = pending + text
+		while true {
+			let idx = pending.indexOf('\n')
+			if idx < 0 { break }
+			var line = pending.substring(0, idx)
+			if line.endsWith('\n') { line = line.substring(0, line.length - 1) }
+			pending = pending.substring(idx + 1)
+			emitLine(line)
+			if closed { return }
+		}
+	}
+	fun emitLine(line: String): Void {
+		if questionQueue.length > 0 {
+			let cb = questionQueue[0]
+			questionQueue.splice(0, 1)
+			cb(line)
+			return
+		}
+		for l in lineListeners { l(line) }
+	}
+}
 class ReadlineModule {
 	new () { }
-	fun createInterface(options: Any): Any { return null }
+	fun createInterface(options: Any): Any {
+		var input: Any? = null
+		try {
+			input = (options as Any)['input']
+		} catch e Error { }
+		return ReadlineInterface(input) as Any
+	}
 }
 
 // https/http — mirrors library/nodejs `declare class HttpsModule`/`HttpModule`
 // (stubs: Perfide's fetch fallback uses global fetch on native, M8).
+class HttpUrl {
+	var secure: Bool = false
+	var host: String = ''
+	var port: Int = 80
+	var path: String = '/'
+	new () { }
+}
+fun httpSplitUrl(url: String): HttpUrl? {
+	let u = HttpUrl()
+	if url.toLowerCase().startsWith('http://') {
+		u.secure = false
+		u.port = 80
+		parseHttpRest(url.substring(7), u)
+	} else if url.toLowerCase().startsWith('https://') {
+		u.secure = true
+		u.port = 443
+		parseHttpRest(url.substring(8), u)
+	} else {
+		return null
+	}
+	return u
+}
+fun parseHttpRest(rest: String, u: HttpUrl): Void {
+	var slash = rest.indexOf('/')
+	var authority = rest
+	if slash >= 0 {
+		authority = rest.substring(0, slash)
+		u.path = rest.substring(slash)
+	} else {
+		u.path = '/'
+	}
+	let colon = authority.lastIndexOf(':')
+	if colon >= 0 {
+		u.host = authority.substring(0, colon)
+		let portText = authority.substring(colon + 1)
+		if portText.length > 0 { u.port = parseInt(portText, 10) }
+		if u.port <= 0 or u.port > 65535 { u.port = u.secure ? 443 : 80 }
+	} else {
+		u.host = authority
+	}
+}
+fun httpJoinRedirect(base: HttpUrl, location: String): String {
+	if location.toLowerCase().startsWith('http://') or location.toLowerCase().startsWith('https://') { return location }
+	var prefix = base.secure ? 'https://' : 'http://'
+	var host = base.host
+	if (base.secure and base.port != 443) or (not base.secure and base.port != 80) { host = host + ':' + base.port.toString() }
+	if location.startsWith('/') { return prefix + host + location }
+	let slash = base.path.lastIndexOf('/')
+	var dir = '/'
+	if slash >= 0 { dir = base.path.substring(0, slash + 1) }
+	return prefix + host + dir + location
+}
+// Explicit header allowlist (F10 stopgap: Object.keys is a stub natively, so
+// generic enumeration would drop everything — these cover every Perfide use).
+fun httpHeaderValue(headers: Any, names: [String]): String? {
+	if headers == null { return null }
+	for n in names {
+		try {
+			let v = (headers as Any)[n]
+			if v != null { return v as String }
+		} catch e Error { }
+	}
+	return null
+}
+fun httpHeadersToString(headers: Any): String {
+	var out = ''
+	let auth = httpHeaderValue(headers, ['Authorization', 'authorization'])
+	if auth != null {
+		if let a = auth { out = out + 'Authorization: ' + a + '\n' }
+	}
+	let ctype = httpHeaderValue(headers, ['Content-Type', 'content-type'])
+	if ctype != null {
+		if let c = ctype { out = out + 'Content-Type: ' + c + '\n' }
+	}
+	let accept = httpHeaderValue(headers, ['Accept', 'accept'])
+	if accept != null {
+		if let a = accept { out = out + 'Accept: ' + a + '\n' }
+	}
+	let ua = httpHeaderValue(headers, ['User-Agent', 'user-agent'])
+	if ua != null {
+		if let a = ua { out = out + 'User-Agent: ' + a + '\n' }
+	} else {
+		out = out + 'User-Agent: Hexa/1.0\n'
+	}
+	let apiKey = httpHeaderValue(headers, ['api-key', 'x-api-key'])
+	if apiKey != null {
+		if let k = apiKey { out = out + 'api-key: ' + k + '\n' }
+	}
+	return out
+}
+class HttpResult {
+	var status: Int = 0
+	var headersText: String = ''
+	var body: Buffer = Buffer.alloc(0)
+	var error: String? = null
+	new () { }
+}
+// One synchronous WinHTTP round trip with manual redirect follow (max 5).
+// Blocking — matches spawnSync precedent; async delivery happens above this.
+fun httpRequestRaw(method: String, url: String, headers: Any?, body: Buffer?, timeoutMs: Int): HttpResult {
+	let result = HttpResult()
+	var currentUrl = url
+	var currentMethod = method
+	var currentBody = body
+	var redirects = 0
+	while redirects <= 5 {
+		let parsed = httpSplitUrl(currentUrl)
+		if parsed == null {
+			result.error = 'unsupported URL: ' + currentUrl
+			return result
+		}
+		if let u = parsed {
+			if httpSingleRequest(currentMethod, u, headers, currentBody, timeoutMs, result) {
+				if result.status == 301 or result.status == 302 or result.status == 303 or result.status == 307 or result.status == 308 {
+					let loc = httpLocationOf(result.headersText)
+					if loc.length > 0 {
+						currentUrl = httpJoinRedirect(u, loc)
+					redirects++
+					if result.status == 303 or ((result.status == 301 or result.status == 302) and currentMethod == 'POST') {
+						currentMethod = 'GET'
+						currentBody = null
+					}
+					continue
+				}
+			}
+			return result
+		}
+		redirects++
+	}
+	}
+	result.error = 'too many redirects: ' + url
+	return result
+}
+fun httpLocationOf(headersText: String): String {
+	for line in headersText.split('\n') {
+		let idx = line.indexOf(':')
+		if idx > 0 {
+			if line.substring(0, idx).trim().toLowerCase() == 'location' {
+				return line.substring(idx + 1).trim()
+			}
+		}
+	}
+	return ''
+}
+fun httpSingleRequest(method: String, u: HttpUrl, headers: Any?, body: Buffer?, timeoutMs: Int, result: HttpResult): Bool {
+	let session = winHttpOpen('Hexa/1.0'.utf16(), winhttpAccessDefaultProxy, null, null, 0u32)
+	if session as!UInt64 == 0u64 {
+		result.error = 'WinHttpOpen failed'
+		return false
+	}
+	var noRedirectBox ArrayByValue<UInt8, 4> = [0]
+	for i in 4 { noRedirectBox[i] = 0 }
+	writeU32LE(noRedirectBox as!ArrayPointer<UInt8>, 0, winhttpRedirectNever)
+	winHttpSetOption(session, winhttpOptionRedirectPolicy, noRedirectBox as!ArrayPointer<UInt8>, 4u32)
+	winHttpSetTimeouts(session, timeoutMs as!Int32, timeoutMs as!Int32, timeoutMs as!Int32, timeoutMs as!Int32)
+	let conn = winHttpConnect(session, u.host.utf16(), u.port as!UInt16, 0u32)
+	if conn as!UInt64 == 0u64 {
+		result.error = 'WinHttpConnect failed: ' + u.host
+		winHttpCloseHandle(session)
+		return false
+	}
+	var flags = 0u32
+	if u.secure { flags = winhttpFlagSecure }
+	let req = winHttpOpenRequest(conn, method.utf16(), u.path.utf16(), null, null, null, flags)
+	if req as!UInt64 == 0u64 {
+		result.error = 'WinHttpOpenRequest failed: ' + u.path
+		winHttpCloseHandle(conn)
+		winHttpCloseHandle(session)
+		return false
+	}
+	let headerText = httpHeadersToString(headers)
+	var sent = 0
+	if body != null {
+		if let b = body {
+			sent = winHttpSendRequest(req, headerText.utf16(), headerText.length as!UInt32, b.bytes, b.length as!UInt32, b.length as!UInt32, 0u64)
+		}
+	} else {
+		sent = winHttpSendRequest(req, headerText.utf16(), headerText.length as!UInt32, null, 0u32, 0u32, 0u64)
+	}
+	if sent == 0 {
+		result.error = 'WinHttpSendRequest failed'
+		winHttpCloseHandle(req)
+		winHttpCloseHandle(conn)
+		winHttpCloseHandle(session)
+		return false
+	}
+	if winHttpReceiveResponse(req, null) == 0 {
+		result.error = 'WinHttpReceiveResponse failed'
+		winHttpCloseHandle(req)
+		winHttpCloseHandle(conn)
+		winHttpCloseHandle(session)
+		return false
+	}
+	var statusBox ArrayByValue<DWORD, 1> = [0]
+	var statusLenBox ArrayByValue<DWORD, 1> = [4]
+	if winHttpQueryHeaders(req, winhttpQueryStatusCode + winhttpQueryFlagNumber, null, statusBox as!ArrayPointer<UInt8>, statusLenBox as!LPDWORD, null) != 0 {
+		result.status = (statusBox as!ArrayPointer<DWORD>)[0] as!Int
+	}
+	var headBox ArrayByValue<ClangWideChar, 16384> = [0]
+	for i in 16384 { headBox[i] = 0 }
+	var headLenBox ArrayByValue<DWORD, 1> = [32768]
+	if winHttpQueryHeaders(req, winhttpQueryRawHeaders, null, headBox as!ArrayPointer<UInt8>, headLenBox as!LPDWORD, null) != 0 {
+		var byteLen = (headLenBox as!ArrayPointer<DWORD>)[0] as!Int
+		if byteLen >= 2 { byteLen = byteLen - 2 }
+		result.headersText = String.fromUTF16zUpTo(headBox as!ConstArrayPointer<UInt16>, (byteLen \ 2) as!Int)
+	}
+	var chunks [Buffer] = []
+	while true {
+		var availBox ArrayByValue<DWORD, 1> = [0]
+		if winHttpQueryDataAvailable(req, availBox as!LPDWORD) == 0 { break }
+		let avail = (availBox as!ArrayPointer<DWORD>)[0] as!Int
+		if avail <= 0 { break }
+		var n = avail
+		if n > 65536 { n = 65536 }
+		let piece = Buffer.alloc(n)
+		var gotBox ArrayByValue<DWORD, 1> = [0]
+		if winHttpReadData(req, piece.bytes, n as!UInt32, gotBox as!LPDWORD) == 0 { break }
+		let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
+		if got <= 0 { break }
+		chunks.push(piece.subarray(0, got))
+	}
+	result.body = Buffer.concat(chunks)
+	winHttpCloseHandle(req)
+	winHttpCloseHandle(conn)
+	winHttpCloseHandle(session)
+	return true
+}
+// Incoming message (Node shape): statusCode + data/end events.
+class HttpIncoming {
+	var statusCode: Int = 0
+	var headersText: String = ''
+	var dataListeners [Any] = []
+	var endListeners [Any] = []
+	new () { }
+	fun on(event: String, listener: Any): Void {
+		if event == 'data' {
+			dataListeners.push(listener)
+		} else if event == 'end' {
+			endListeners.push(listener)
+		}
+	}
+	fun deliverBody(body: Buffer): Void {
+		pendingHttpDeliveries.push(this)
+		pendingHttpBodies.push(body)
+		// Capture-less kick (see pumpStreams).
+		queueMicrotask(fun () Void { pumpHttpDeliveries() })
+	}
+}
+var pendingHttpDeliveries [HttpIncoming] = []
+var pendingHttpBodies [Buffer] = []
+fun pumpHttpDeliveries(): Void {
+	while pendingHttpDeliveries.length > 0 {
+		let res = pendingHttpDeliveries[0]
+		let body = pendingHttpBodies[0]
+		pendingHttpDeliveries.splice(0, 1)
+		pendingHttpBodies.splice(0, 1)
+		var at = 0
+		while at < body.length {
+			var n = body.length - at
+			if n > 32768 { n = 32768 }
+			let slice = body.subarray(at, at + n)
+			at = at + n
+			for l in res.dataListeners { l(slice) }
+		}
+		for l in res.endListeners { l() }
+	}
+}
+// Client request (Node shape): write/end/on('error'); get() sends at once.
+class HttpClientRequest {
+	var method: String = 'GET'
+	var url: String = ''
+	var headersText: String = ''
+	var bodyChunks [Buffer] = []
+	var sent: Bool = false
+	var errorListeners [Any] = []
+	var responseCallback: Any? = null
+	new (method: String, url: String) {
+		this.method = method
+		this.url = url
+	}
+	fun setHeader(name: String, value: String): Void {
+		headersText = headersText + name + ': ' + value + '\n'
+	}
+	fun write(data: Any): Void {
+		if data is String {
+			if let s = data as!String { bodyChunks.push(Buffer.from(s, 'utf8')) }
+		} else if data is Buffer {
+			if let b = data as!Buffer { bodyChunks.push(b) }
+		}
+	}
+	fun on(event: String, listener: Any): Void {
+		if event == 'error' { errorListeners.push(listener) }
+	}
+	fun end(data: Any? = null): Void {
+		if sent { return }
+		sent = true
+		if data != null { write(data) }
+		var bodyBuf: Buffer? = null
+		if bodyChunks.length > 0 { bodyBuf = Buffer.concat(bodyChunks) }
+		let result = httpRequestRaw(method, url, headersText, bodyBuf, 30000)
+		if result.error != null or result.status == 0 {
+			if let e = result.error {
+				for l in errorListeners { l(Error(e)) }
+			}
+			return
+		}
+		let incoming = HttpIncoming()
+		incoming.statusCode = result.status
+		incoming.headersText = result.headersText
+		if responseCallback != null {
+			if let cb = responseCallback {
+				try { cb(incoming) } catch e Error { }
+			}
+		}
+		incoming.deliverBody(result.body)
+	}
+}
+fun httpDoRequest(secure: Bool, url: String, options: Any?, callback: Any?): HttpClientRequest {
+	var method = 'GET'
+	var headers: Any? = null
+	if options != null {
+		try {
+			let m = (options as Any)['method']
+			if m != null { method = m as String }
+		} catch e Error { }
+		try {
+			let h = (options as Any)['headers']
+			if h != null { headers = h }
+		} catch e Error { }
+	}
+	let req = HttpClientRequest(method, url)
+	req.headersText = httpHeadersToString(headers)
+	req.responseCallback = callback
+	return req
+}
 class HttpsModule {
 	new () { }
-	fun get(url: String, callback: Any): Any { return null }
-	fun request(url: String, options: Any? = null, callback: Any? = null): Any { return null }
+	fun get(url: String, callback: Any): Any {
+		let req = httpDoRequest(true, url, null, callback)
+		req.end()
+		return req as Any
+	}
+	fun request(url: String, options: Any? = null, callback: Any? = null): Any {
+		return httpDoRequest(true, url, options, callback) as Any
+	}
 }
 
 class HttpModule {
 	new () { }
-	fun get(url: String, callback: Any): Any { return null }
-	fun request(url: String, options: Any? = null, callback: Any? = null): Any { return null }
+	fun get(url: String, callback: Any): Any {
+		let req = httpDoRequest(false, url, null, callback)
+		req.end()
+		return req as Any
+	}
+	fun request(url: String, options: Any? = null, callback: Any? = null): Any {
+		return httpDoRequest(false, url, options, callback) as Any
+	}
 }
 
 // The singleton lets (lowercase, @lazy — unused ones are dropped whole by
