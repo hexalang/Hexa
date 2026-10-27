@@ -109,7 +109,27 @@ class String {
 		return this
 	}
 
-	fun substring(startIndex: Int, endIndex: Int?): String {return''} // TODO
+	// JS substring: clamps, swaps when start > end (default = rest of string)
+	fun substring(startIndex: Int, endIndex: Int = 1073741824): String {
+		var end = endIndex
+		var start = startIndex
+		if start < 0 { start = 0 }
+		if end < 0 { end = 0 }
+		if start > length { start = length }
+		if end > length { end = length }
+		if start > end {
+			let t = start
+			start = end
+			end = t
+		}
+		var out = ''
+		var i = start
+		while i < end {
+			if let c = charCodeAt(i) { out = out + String.fromCharCode(c) }
+			i++
+		}
+		return out
+	}
 
 	// TODO Int or UInt16?
 	static fun fromCharCode(code: Int): String {
@@ -494,6 +514,64 @@ class String {
 		// Point to the start of the string
 		let bytesPtr = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
 		return fromUTF16z(bytesPtr)
+	}
+
+	// Decimal form: specials, plain notation in [1e-6, 2e9), exponent otherwise
+	// (shortest-round-trip digits land with the formatting runtime — later)
+	static fun fromFloat(value: Float): String {
+		if value != value { return 'NaN' }
+		if value == infinity { return 'Infinity' }
+		if value == 0.0 - infinity { return '-Infinity' }
+		if value == 0.0 { return '0' }
+		var v = value
+		var out = ''
+		if v < 0.0 {
+			out = '-'
+			v = 0.0 - v
+		}
+		if v >= 2000000000.0 or (v < 0.000001 and v > 0.0) {
+			var exp = 0
+			while v >= 10.0 {
+				v = v / 10.0
+				exp++
+			}
+			while v < 1.0 {
+				v = v * 10.0
+				exp--
+			}
+			let d = Math.floor(v)
+			var f = v - d
+			var digits = ''
+			for k in 6 {
+				f = f * 10.0
+				let dd = Math.floor(f)
+				digits = digits + String.fromInt32(dd)
+				f = f - dd
+			}
+			while digits.endsWith('0') and digits.length > 1 { digits = digits.substring(0, digits.length - 1) }
+			var expSign = ''
+			var expAbs = exp
+			if exp < 0 {
+				expSign = '-'
+				expAbs = 0 - exp
+			}
+			return out + String.fromInt32(d) + '.' + digits + 'e' + expSign + String.fromInt32(expAbs)
+		}
+		let ip = Math.floor(v)
+		var f = v - ip
+		var fracPart = ''
+		if f > 0.0 {
+			var digits = ''
+			for k in 6 {
+				f = f * 10.0
+				let dd = Math.floor(f)
+				digits = digits + String.fromInt32(dd)
+				f = f - dd
+			}
+			while digits.endsWith('0') and digits.length > 1 { digits = digits.substring(0, digits.length - 1) }
+			fracPart = '.' + digits
+		}
+		return out + String.fromInt32(ip) + fracPart
 	}
 
 	static fun fromNullableInt32(value: Int?): String {
