@@ -76,6 +76,1183 @@ declare fun sizeOfPreferPointer<T>(): UInt64 // TODO UInt32
 // TODO in codegen: check one-or-N args
 // declare fun arrayByValue<T, size /* TODO : UInt32*/>(...values: T): ArrayByValue<T, size>
 
+// Timers — Hexa-side registry over the monotonic tick clock. The host loop
+// pumps due callbacks via timerPump() (one-line hookup in main-hexa.cpp lands
+// with the event-loop pass); until then callbacks queue but never fire.
+class TimerEntry {
+	var id: Int
+	var due: Float
+	var interval: Float
+	var repeat: Bool
+	var callback: () => Void
+	new (id: Int, due: Float, interval: Float, repeat: Bool, callback: () => Void) {
+		this.id = id
+		this.due = due
+		this.interval = interval
+		this.repeat = repeat
+		this.callback = callback
+	}
+}
+var activeTimers [TimerEntry] = []
+var nextTimerId Int = 1
+fun armTimer(callback: () => Void, delayMs: Int, repeat: Bool): Int {
+	let id = nextTimerId
+	nextTimerId = id + 1
+	activeTimers.push(TimerEntry(id, hexaTickMs() + delayMs, delayMs as!Float, repeat, callback))
+	return id
+}
+fun disarmTimer(id: Int): Void {
+	for i in activeTimers.length {
+		if activeTimers[i].id == id {
+			activeTimers.splice(i, 1)
+			return
+		}
+	}
+}
+// Fire due one-shots, reschedule intervals (host calls this each loop)
+@rename('hexaPumpResumes') declare fun hexaPumpResumes(): Void
+@rename('hexaSweepCensus') declare fun hexaSweepCensus(): Void
+@rename('hexaSweep') declare fun hexaSweep(): Void
+var sweepCensusTick Int = 0
+fun timerPump(): Void {
+	let now = hexaTickMs()
+	var i = 0
+	while i < activeTimers.length {
+		let t = activeTimers[i]
+		if now >= t.due {
+			if t.repeat {
+				t.due = now + t.interval
+				i++
+			} else {
+				activeTimers.splice(i, 1)
+			}
+			t.callback()
+		} else { i++ }
+	}
+	// Native I/O pumps (defined in process.hexa / fs.hexa / below): poll child
+	// pipes, stream slices, HTTP deliveries and websocket frames.
+	pumpChildProcs()
+	pumpStreams()
+	pumpHttpDeliveries()
+	pumpWebSockets()
+	// F9 resume driver (no-op until `co_await` suspends): resume settled
+	// awaiters. Runs on the frame pump (zero host edits); resuming happens
+	// synchronously here (frame-granular, like the `.then` 0ms re-arm).
+	hexaPumpResumes()
+	// F11 sweep (deferred free) + census. First pump always runs (so every
+	// run leaves a trace), then every 600th pump. The sweep runs before the
+	// census so the log line shows the post-sweep state (`freed=` shows the
+	// delta). `HEXA_SWEEP_MODE` env selects the subset (0 = full incl.
+	// strings, the default: shared interned literals are pinned by ARC
+	// entry/immortal/field retains; 1 = retire strings without freeing,
+	// the old bisect mode — see `printSweep` for why).
+	sweepCensusTick++
+	if sweepCensusTick % 100 == 0 {
+		// Reclaim timeline (taskmgr-comparable): proves each sweep actually
+		// returns memory instead of leaking. Persists to mem-watch.log AND
+		// stdout (the build log truncates, the file does not).
+		process.logMemWatch('watch')
+	}
+	if sweepCensusTick == 1 or sweepCensusTick >= 600 {
+		hexaSweep()
+		hexaSweepCensus()
+		process.logMemWatch('sweep')
+		if sweepCensusTick >= 600 {
+			sweepCensusTick = 0
+		}
+	}
+}
+fun setTimeout(callback: () => Void, timeout: Int): Int { return armTimer(callback, timeout, false) }
+fun setInterval(callback: () => Void, timeout: Int): Int { return armTimer(callback, timeout, true) }
+fun clearTimeout(id: Int): Void { disarmTimer(id) }
+fun clearInterval(id: Int): Void { disarmTimer(id) }
+fun requestAnimationFrame(callback: () => Void): Int { return armTimer(callback, 16, false) }
+fun cancelAnimationFrame(id: Int): Void { disarmTimer(id) }
+fun setImmediate(callback: () => Void,...args: Any): Int { return armTimer(callback, 0, false) }
+fun clearImmediate(id: Int): Void { disarmTimer(id) }
+fun queueMicrotask(callback: () => Void): Void { armTimer(callback, 0, false) }
+
+// Async, Phase 1 (no suspension until F9 — `async fun` runs its body now,
+// `await` reads the settled `.value` inline): the executor runs IMMEDIATELY
+// and synchronously (JS constructor semantics), so sync-backed factories
+// (`Promise.resolve`, fs.promises reads, font/image loaders) settle before
+// the awaiting continuation, which runs right away. Deferred settlement
+// (LSP answers, `setTimeout(resolve, …)` gates, stored resolvers like
+// init.hexa's rootResolve) lands through the per-frame `timerPump()` (wired
+// in perfide/native_bridge.hexa `nativeOnDraw`) + `.then` polling below;
+// true suspension waits for F9.
+class Promise<T> {
+	// 0 = pending, 1 = fulfilled, 2 = rejected
+	var state: Int = 0
+	// NOTE deliberately `Any?`, not `T`: `Promise<Void>` must not emit a
+	// `void value_` field (the method's own `<T>` below covers typed use)
+	var value: Any? = null
+	var reason: Any? = null
+
+	new (executor: (resolve: (value: Any?) => Void, reject: (reason: Any) => Void) => Void) {
+		// Runs now (never deferred): sync producers settle before we return.
+		// Resolve/reject take `Any?` (not `T`) on purpose — a `Void`
+		// closure param would have no C value to reference (C2065).
+		try {
+			executor(fun (v) Void { settleResolve(v) }, fun (e) Void { settleReject(e) })
+		} catch err Error {
+			settleReject(err)
+		}
+	}
+
+	fun settleResolve(v: Any?): Void {
+		if state != 0 { return }
+		state = 1
+		value = v
+	}
+
+	fun settleReject(e: Any?): Void {
+		if state != 0 { return }
+		state = 2
+		reason = e
+	}
+
+	// Generic `then<U>` (F7 step 1 offset): `U` lives at METHOD-BASE so `Dot`
+	// preserves it; anonymous lambdas stay `Any`-bound (skipped) so native
+	// emits erased `Promise<Any>` (M1 green, like `Array.map`); named fns bind
+	// precisely. Param is `Any?`, not `T` (`Void` has no C value).
+	fun then<U>(onFulfilled: (value: Any?) => Any?, onRejected: (reason: Any) => Any? = null): Promise<U> {
+		let next = new Promise<U>(fun (resolve, reject) { })
+		if state == 1 {
+			if let f = onFulfilled {
+				try {
+					next.settleResolve(f(value))
+				} catch e Error {
+					next.settleReject(e)
+				}
+			} else {
+				next.settleResolve(value)
+			}
+		} else if state == 2 {
+			if let r = onRejected {
+				try {
+					next.settleResolve(r(reason))
+				} catch e Error {
+					next.settleReject(e)
+				}
+			} else {
+				next.settleReject(reason)
+			}
+		} else {
+			// Still pending (deferred producer): poll through the timer
+			// queue with typed captures — no function arrays (closures in
+			// arrays stay F10 territory). Same re-arm shape as
+			// pumpStreams' queueMicrotask loop.
+			fun pollThen() Void {
+				if state == 1 {
+					if let f = onFulfilled {
+						try {
+							next.settleResolve(f(value))
+						} catch e Error {
+							next.settleReject(e)
+						}
+					} else {
+						next.settleResolve(value)
+					}
+				} else if state == 2 {
+					if let r = onRejected {
+						try {
+							next.settleResolve(r(reason))
+						} catch e Error {
+							next.settleReject(e)
+						}
+					} else {
+						next.settleReject(reason)
+					}
+				} else {
+					setTimeout(pollThen, 0)
+				}
+			}
+			setTimeout(pollThen, 0)
+		}
+		return next
+	}
+
+	fun except(onRejected: (reason: Any) => Any?): Promise<T> {
+		// Direct (not via `then<U>`): `then` erases to `Promise<Any>` for
+		// anonymous lambdas, but `except` must preserve `T` (identity
+		// pass-through on fulfill). Duplicates the poll shape with `T`.
+		let next = new Promise<T>(fun (resolve, reject) { })
+		if state == 1 {
+			next.settleResolve(value)
+		} else if state == 2 {
+			if let r = onRejected {
+				try {
+					next.settleResolve(r(reason))
+				} catch e Error {
+					next.settleReject(e)
+				}
+			} else {
+				next.settleReject(reason)
+			}
+		} else {
+			fun pollExcept() Void {
+				if state == 1 {
+					next.settleResolve(value)
+				} else if state == 2 {
+					if let r = onRejected {
+						try {
+							next.settleResolve(r(reason))
+						} catch e Error {
+							next.settleReject(e)
+						}
+					} else {
+						next.settleReject(reason)
+					}
+				} else {
+					setTimeout(pollExcept, 0)
+				}
+			}
+			setTimeout(pollExcept, 0)
+		}
+		return next
+	}
+
+	fun finally(onFinally: () => Void): Promise<T> {
+		return this
+	}
+
+	// Own generic param (mini-template): `Promise.resolve(x)` derives its
+	// type from `x` and is independent of the class's `<T>` — `resolve()` on
+	// `Promise<Void>` must not require a `Void` argument
+	static fun resolve<T>(value: T): Promise<T> {
+		let result = new Promise<T>(fun (resolve) { })
+		result.state = 1
+		result.value = value
+		return result
+	}
+
+	static fun all(promises: [Promise<Any>]): Promise<[Any]> {
+		let result = new Promise<[Any]>(fun (resolve, reject) { })
+		// Poll-based (no suspension until F9): sync-settled batches
+		// resolve on the spot; deferred members re-arm a 0ms timer and
+		// land on a later pump. Rejects short-circuit like JS.
+		fun checkAll() Void {
+			var results [Any?] = []
+			for i in promises.length {
+				let p = promises[i]
+				if p.state == 0 {
+					setTimeout(checkAll, 0)
+					return
+				}
+				if p.state == 2 {
+					result.settleReject(p.reason)
+					return
+				}
+				results.push(p.value)
+			}
+			result.settleResolve(results)
+		}
+		checkAll()
+		return result
+	}
+}
+
+// Web-ish APIs used by the shared GUI code (fetch + WebSocket are real;
+// Object reflection typeof/eval stay F10 stubs — see target-c.md).
+// AbortSignal is a real class: fetch checks `aborted` synchronously, so the
+// 30s stall guards in the harness keep working without an async runtime.
+class AbortSignal {
+	var aborted: Bool = false
+	var listeners [Any] = []
+	new () { }
+	fun addEventListener(kind: String, callback: Any): Void {
+		if kind == 'abort' { listeners.push(callback) }
+	}
+}
+class AbortController {
+	var signal: AbortSignal = AbortSignal()
+	new () { }
+	fun abort(): Void {
+		if signal.aborted { return }
+		signal.aborted = true
+		for l in signal.listeners { l() }
+	}
+}
+
+class FetchReadResult {
+	var done: Bool = false
+	var value: Any = null
+	new (done: Bool, value: Any) {
+		this.done = done
+		this.value = value
+	}
+}
+class FetchBodyReader {
+	var chunks [Buffer] = []
+	var idx: Int = 0
+	new (body: Buffer) {
+		var at = 0
+		while at < body.length {
+			var n = body.length - at
+			if n > 32768 { n = 32768 }
+			chunks.push(body.subarray(at, at + n))
+			at = at + n
+		}
+	}
+	// Already-resolved promises (F9 settles .then; `await` passes values
+	// through, so `await reader.read()` works in every Perfide call site).
+	fun read(): Promise<FetchReadResult> {
+		if idx >= chunks.length { return Promise.resolve(FetchReadResult(true, null)) }
+		let piece = chunks[idx]
+		idx++
+		return Promise.resolve(FetchReadResult(false, piece))
+	}
+}
+class FetchBody {
+	var reader: FetchBodyReader
+	new (body: Buffer) { reader = FetchBodyReader(body) }
+	fun getReader(): FetchBodyReader { return reader }
+}
+class FetchResponse {
+	var status: Int = 0
+	var ok: Bool = false
+	var headersText: String = ''
+	var bodyBytes: Buffer = Buffer.alloc(0)
+	var body: FetchBody
+	new (status: Int, headersText: String, bodyBytes: Buffer) {
+		this.status = status
+		this.ok = status >= 200 and status < 300
+		this.headersText = headersText
+		this.bodyBytes = bodyBytes
+		this.body = FetchBody(bodyBytes)
+	}
+	fun text(): String { return bodyBytes.toString('utf8', 0, bodyBytes.length) }
+	fun json(): Any { return JSON.parse(text()) }
+	fun headersGet(name: String): String {
+		for line in headersText.split('\r\n') {
+			let idx = line.indexOf(':')
+			if idx > 0 {
+				if line.substring(0, idx).trim().toLowerCase() == name.toLowerCase() {
+					return line.substring(idx + 1).trim()
+				}
+			}
+		}
+		return ''
+	}
+}
+// Sync-under-the-hood fetch (WinHTTP core in process.hexa). Returns the
+// response directly — `await` passes it through, matching every call site.
+// Failures come back as status-0 responses carrying the message as text
+// (throwing would abort the process pre-F5; callers check response.ok).
+fun fetch(url: String, options: Any? = null): Any {
+	var method = 'GET'
+	var headers: Any? = null
+	var bodyBuf: Buffer? = null
+	var signal: AbortSignal? = null
+	try {
+		if options != null {
+			let m = (options as Any)['method']
+			if m != null { method = m as String }
+			let h = (options as Any)['headers']
+			if h != null { headers = h }
+			let b = (options as Any)['body']
+			if b != null {
+				if b is String {
+					if let s = b as!String { bodyBuf = Buffer.from(s, 'utf8') }
+				}
+			}
+			let s = (options as Any)['signal']
+			if s != null and s is AbortSignal {
+				if let sig = s as!AbortSignal { signal = sig }
+			}
+		}
+	} catch e Error { }
+	if signal != null {
+		if let sig = signal {
+			if sig.aborted { return FetchResponse(0, '', Buffer.from('The operation was aborted', 'utf8')) }
+		}
+	}
+	let result = httpRequestRaw(method, url, headers, bodyBuf, 30000)
+	if signal != null {
+		if let sig = signal {
+			if sig.aborted { return FetchResponse(0, '', Buffer.from('The operation was aborted', 'utf8')) }
+		}
+	}
+	if result.error != null or result.status == 0 {
+		var msg = 'fetch failed: ' + url
+		if let e = result.error { msg = e }
+		return FetchResponse(0, '', Buffer.from(msg, 'utf8'))
+	}
+	return FetchResponse(result.status, result.headersText, result.body)
+}
+
+class TextDecoder {
+	var encoding: String = 'utf-8'
+	// Streaming state: trailing bytes of an incomplete sequence are held back
+	// until the next decode() (the harness passes { stream: true } per chunk).
+	var pending: [Int] = []
+	new (encoding: String = 'utf-8') { this.encoding = encoding }
+	// Decodes Buffer/bytes as encoding (utf8 default); strings pass through
+	fun decode(buffer: Any?, options: Any?): String {
+		if buffer == null { return '' }
+		let enc = encoding.toLowerCase()
+		if buffer is Buffer {
+			if let b = buffer as!Buffer { return decodeBytes(b) }
+			return ''
+		}
+		if buffer is String {
+			if let s = buffer as!String { return s }
+		}
+		return ''
+	}
+	fun decodeBytes(b: Buffer): String {
+		var bytes [Int] = []
+		for p in pending { bytes.push(p) }
+		for i in b.length { bytes.push(b.bytes[i] as!Int) }
+		pending = []
+		// Hold back a trailing incomplete sequence for the next chunk.
+		var cut = bytes.length
+		if cut > 4 {
+			for tail in 4 {
+				let k = bytes.length - 1 - tail
+				if k < 0 { break }
+				let lead = bytes[k]
+				if lead < 128 { break }
+				if lead >= 194 and lead < 224 {
+					if tail < 1 { cut = k }
+					break
+				} else if lead >= 224 and lead < 240 {
+					if tail < 2 { cut = k }
+					break
+				} else if lead >= 240 and lead < 245 {
+					if tail < 3 { cut = k }
+					break
+				}
+				break
+			}
+		}
+		var head [Int] = []
+		for i in cut { head.push(bytes[i]) }
+		for i in bytes.length - cut { pending.push(bytes[cut + i]) }
+		return utf8DecodeBytes(head)
+	}
+}
+
+class WebSocket {
+	var url: String = ''
+	// 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED (same numbers as browsers).
+	var readyState: Int = 0
+	var onopen: Any? = null
+	var onmessage: Any? = null
+	var onclose: Any? = null
+	var onerror: Any? = null
+	var socket: TcpSocket? = null
+	var stash: Buffer = Buffer.alloc(0)
+	var stashOff: Int = 0
+	var fragOpcode: Int = -1
+	var fragText: String = ''
+	var failText: String? = null
+	new (url: String) {
+		this.url = url
+		liveSockets.push(this)
+	}
+	fun send(text: String): Void {
+		if readyState != 1 { return }
+		if let s = socket { s.sendText(text) }
+	}
+	fun close(): Void {
+		if readyState == 3 { return }
+		if readyState == 1 {
+			if let s = socket { s.sendClose() }
+		}
+		readyState = 2
+	}
+}
+// Blocking TCP connect + framed I/O over Winsock (debug CDP is ws:// only;
+// wss:// needs SChannel — clear error, M8).
+class TcpSocket {
+	var sock: Int64 = 0
+	var ioBuf: Buffer = Buffer.alloc(65536)
+	var ioLen: Int = 0
+	new () { }
+	fun isOpen(): Bool { return sock != (0 as!Int64) }
+	fun connectTcp(host: String, port: Int): Bool {
+		if not wsSocketsReady {
+			let blob = Buffer.alloc(400)
+			if wsaStartupWin(514 as!UInt16, blob.bytes) != 0 { return false }
+			wsSocketsReady = true
+		}
+		// Numeric IPv4 fast path (no DNS round trip for 127.0.0.1).
+		let numeric = parseIPv4(host)
+		if numeric != null {
+			if let ip = numeric {
+				let s = socketWin(afInet, sockStream, ipprotoTcp)
+				if s < (0 as!Int64) { return false }
+				var sa = Buffer.alloc(16)
+				writeU16LE(sa.bytes, 0, 2)
+				writeU16LE(sa.bytes, 2, wsFlip16(port))
+				writeU32LE(sa.bytes, 4, ip)
+				for i in 8 { sa.bytes[8 + i] = 0 }
+				if connectWin(s, sa.bytes, 16) != 0 {
+					closeSocketWin(s)
+					return false
+				}
+				sock = s
+				return true
+			}
+		}
+		var hints = Buffer.alloc(48)
+		writeU32LE(hints.bytes, 4, 2u32)
+		writeU32LE(hints.bytes, 8, 1u32)
+		writeU32LE(hints.bytes, 12, 6u32)
+		var outBox ArrayByValue<UInt64, 1> = [0]
+		if getAddrInfoWin(host.utf16(), port.toString().utf16(), hints.bytes, outBox as!ArrayPointer<UInt64>) != 0 { return false }
+		let first = (outBox as!ArrayPointer<UInt64>)[0]
+		if first == 0u64 { return false }
+		var ok = false
+		var cursor = first
+		while cursor != 0u64 {
+			let base = cursor as!ArrayPointer<UInt8>
+			let fam = readU16LE(base, 0)
+			let addrLen = readU32LE(base, 16) as!Int
+			let aiAddr = readU64LE(base, 32)
+			if fam == 2 and addrLen >= 16 {
+				let s = socketWin(afInet, sockStream, ipprotoTcp)
+				if s >= (0 as!Int64) {
+					if connectWin(s, aiAddr as!ArrayPointer<UInt8>, addrLen as!Int32) == 0 {
+						sock = s
+						ok = true
+						break
+					} else {
+						closeSocketWin(s)
+					}
+				}
+			}
+			cursor = readU64LE(base, 40)
+		}
+		freeAddrInfoWin(first as!ArrayPointer<UInt8>)
+		return ok
+	}
+	fun sendAll(data: Buffer): Bool {
+		var at = 0
+		while at < data.length {
+			var n = data.length - at
+			if n > 65536 { n = 65536 }
+		var piece = data.subarray(at, at + n)
+		let sent = sendWin(sock, piece.bytes, n as!Int32, 0) as!Int
+			if sent <= 0 { return false }
+			at = at + sent
+		}
+		return true
+	}
+	// >0 bytes in ioBuf, 0 = nothing yet, -1 = orderly close or fatal error.
+	fun recvChunk(): Int {
+		let n = recvWin(sock, ioBuf.bytes, 65536, 0) as!Int
+		if n == 0 { return -1 }
+		if n < 0 {
+			if wsaGetLastErrorWin() == wsaWouldBlock { return 0 }
+			return -1
+		}
+		ioLen = n
+		return n
+	}
+	fun sendText(text: String): Void {
+		let bytes = Buffer.from(text, 'utf8')
+		var header [Int] = [129]
+		let n = bytes.length
+		if n < 126 {
+			header.push(128 + n)
+		} else if n < 65536 {
+			header.push(254)
+			header.push(n \ 256)
+			header.push(n % 256)
+		} else {
+			header.push(255)
+			header.push(0)
+			header.push(0)
+			header.push(0)
+			header.push(0)
+			header.push((n \ 16777216) % 256)
+			header.push((n \ 65536) % 256)
+			header.push((n \ 256) % 256)
+			header.push(n % 256)
+		}
+		var mask [Int] = [wsNextRand() % 256, wsNextRand() % 256, wsNextRand() % 256, wsNextRand() % 256]
+		for m in mask { header.push(m) }
+		var frame = Buffer.alloc(header.length + n)
+		for i in header.length { frame.bytes[i] = header[i] as!UInt8 }
+		for i in n { frame.bytes[header.length + i] = iXor(bytes.bytes[i] as!Int, mask[i % 4]) as!UInt8 }
+		sendAll(frame)
+	}
+	fun sendClose(): Void {
+		var frame = Buffer.alloc(6)
+		frame.bytes[0] = 136
+		frame.bytes[1] = 128
+		for i in 4 { frame.bytes[2 + i] = wsNextRand() as!UInt8 }
+		sendAll(frame)
+	}
+	fun sendPong(payload: Buffer): Void {
+		var frame = Buffer.alloc(2 + payload.length)
+		frame.bytes[0] = 138
+		frame.bytes[1] = payload.length as!UInt8
+		for i in payload.length { frame.bytes[2 + i] = payload.bytes[i] }
+		sendAll(frame)
+	}
+	fun closeTcp(): Void {
+		if sock != (0 as!Int64) {
+			closeSocketWin(sock)
+			sock = 0 as!Int64
+		}
+	}
+}
+var wsSocketsReady Bool = false
+var wsRand UInt32 = 0x12345678u32
+var liveSockets [WebSocket] = []
+fun wsNextRand(): Int {
+	wsRand = (hexaTickMs() as!UInt32) + wsRand * 1664525u32 + 1013904223u32
+	return (wsRand % 256u32) as!Int
+}
+fun wsFlip16(v: Int): Int { return ((v % 256) * 256) + (v \ 256) }
+fun parseIPv4(text: String): UInt32? {
+	var parts [UInt32] = []
+	var cur = ''
+	for i in text.length {
+		if let c = text.charCodeAt(i) {
+			if c == 46 {
+				if cur.length == 0 { return null }
+				parts.push(parseInt(cur, 10) as!UInt32)
+				cur = ''
+			} else if c >= 48 and c <= 57 {
+				cur = cur + String.fromCharCode(c)
+			} else {
+				return null
+			}
+		}
+	}
+	if cur.length == 0 { return null }
+	parts.push(parseInt(cur, 10) as!UInt32)
+	if parts.length != 4 { return null }
+	for p in parts {
+		if p > 255u32 { return null }
+	}
+	return parts[0] * 16777216u32 + parts[1] * 65536u32 + parts[2] * 256u32 + parts[3]
+}
+// FIPS 180-4, byte-oriented, pure Hexa (frame masking + ws-accept need it).
+fun sha1Bytes(data: [Int]): [Int] {
+	var h0 = 0x67452301u32
+	var h1 = 0xEFCDAB89u32
+	var h2 = 0x98BADCFEu32
+	var h3 = 0x10325476u32
+	var h4 = 0xC3D2E1F0u32
+	var msg [Int] = []
+	for b in data { msg.push(b) }
+	let bitLen = data.length * 8
+	msg.push(128)
+	while msg.length % 64 != 56 { msg.push(0) }
+	for i in 8 { msg.push(0) }
+	var hi = 0u32
+	var lo = bitLen as!UInt32
+	msg[msg.length - 8] = ((hi \ 16777216u32) % 256u32) as!Int
+	msg[msg.length - 7] = ((hi \ 65536u32) % 256u32) as!Int
+	msg[msg.length - 6] = ((hi \ 256u32) % 256u32) as!Int
+	msg[msg.length - 5] = (hi % 256u32) as!Int
+	msg[msg.length - 4] = ((lo \ 16777216u32) % 256u32) as!Int
+	msg[msg.length - 3] = ((lo \ 65536u32) % 256u32) as!Int
+	msg[msg.length - 2] = ((lo \ 256u32) % 256u32) as!Int
+	msg[msg.length - 1] = (lo % 256u32) as!Int
+	var off = 0
+	while off < msg.length {
+		var w [UInt32] = []
+		for i in 16 {
+			w.push((msg[off + i * 4] as!UInt32) * 16777216u32 + (msg[off + i * 4 + 1] as!UInt32) * 65536u32 + (msg[off + i * 4 + 2] as!UInt32) * 256u32 + (msg[off + i * 4 + 3] as!UInt32))
+		}
+		for i in 64 {
+			w.push(wsRotl(uXor32(uXor32(w[i], w[i + 8]), uXor32(w[i + 2], w[i + 13])), 1u32))
+		}
+		var a = h0
+		var b = h1
+		var c = h2
+		var d = h3
+		var e = h4
+		for i in 80 {
+			var f = 0u32
+			var k = 0u32
+			if i < 20 {
+				f = uOr32(b and c, uAndNot(b, d))
+				k = 0x5A827999u32
+			} else if i < 40 {
+				f = uXor32(uXor32(b, c), d)
+				k = 0x6ED9EBA1u32
+			} else if i < 60 {
+				f = uOr32(uOr32(b and c, b and d), c and d)
+				k = 0x8F1BBCDCu32
+			} else {
+				f = uXor32(uXor32(b, c), d)
+				k = 0xCA62C1D6u32
+			}
+			let tmp = wsRotl(a, 5u32) + f + e + k + w[i]
+			e = d
+			d = c
+			c = wsRotl(b, 30u32)
+			b = a
+			a = tmp
+		}
+		h0 = h0 + a
+		h1 = h1 + b
+		h2 = h2 + c
+		h3 = h3 + d
+		h4 = h4 + e
+		off = off + 64
+	}
+	var out [Int] = []
+	for h in [h0, h1, h2, h3, h4] {
+		out.push(((h \ 16777216u32) % 256u32) as!Int)
+		out.push(((h \ 65536u32) % 256u32) as!Int)
+		out.push(((h \ 256u32) % 256u32) as!Int)
+		out.push((h % 256u32) as!Int)
+	}
+	return out
+}
+fun wsRotl(v: UInt32, n: UInt32): UInt32 {
+	if n == 0u32 { return v }
+	// Wrapping add (Hexa fixed-width arithmetic wraps like C++ unsigned).
+	return v * wsPow2(n) + v \ wsPow2(32u32 - n)
+}
+// (x and ~y) without a `~` operator (unverified on ints — see win32.hexa).
+fun uAndNot(x: UInt32, y: UInt32): UInt32 { return x and uNot32(y) }
+fun wsPow2(n: UInt32): UInt32 {
+	var r = 1u32
+	var i = 0u32
+	while i < n {
+		r = r * 2u32
+		i = i + 1u32
+	}
+	return r
+}
+// Pump all live sockets: finish CONNECTING handshakes, deliver frames.
+fun pumpWebSockets(): Void {
+	var i = 0
+	while i < liveSockets.length {
+		let ws = liveSockets[i]
+		if ws.readyState == 3 {
+			liveSockets.splice(i, 1)
+			continue
+		}
+		if ws.readyState == 0 {
+			if wsDoConnect(ws) {
+				if let h = ws.onopen { h() }
+			} else {
+				wsFail(ws)
+			continue
+			}
+		}
+		if ws.readyState == 1 {
+			if not wsDrainFrames(ws) {
+				wsFail(ws)
+				continue
+			}
+		}
+		i++
+	}
+}
+fun wsFail(ws: WebSocket): Void {
+	if ws.readyState == 3 { return }
+	ws.readyState = 3
+	if let s = ws.socket { s.closeTcp() }
+	ws.socket = null
+	if ws.failText != null {
+		if let t = ws.failText {
+			if ws.onerror != null {
+				if let h = ws.onerror { h(Error(t)) }
+			}
+		}
+	}
+	if ws.onclose != null {
+		if let h = ws.onclose { h() }
+	}
+}
+fun wsDoConnect(ws: WebSocket): Bool {
+	let lower = ws.url.toLowerCase()
+	if not lower.startsWith('ws://') {
+		ws.failText = 'only ws:// URLs are supported natively (no wss/TLS yet): ' + ws.url
+		return false
+	}
+	let rest = ws.url.substring(5)
+	var hostPort = rest
+	var path = '/'
+	let slash = rest.indexOf('/')
+	if slash >= 0 {
+		hostPort = rest.substring(0, slash)
+		path = rest.substring(slash)
+	}
+	var host = hostPort
+	var port = 80
+	let colon = hostPort.lastIndexOf(':')
+	if colon >= 0 {
+		host = hostPort.substring(0, colon)
+		port = parseInt(hostPort.substring(colon + 1), 10)
+		if port <= 0 or port > 65535 { port = 80 }
+	}
+	let sock = TcpSocket()
+	if not sock.connectTcp(host, port) {
+		ws.failText = 'connect failed: ' + host + ':' + port.toString()
+		return false
+	}
+	ws.socket = sock
+	// Random 16-byte key (LCG over the tick clock — handshake-grade only).
+	var keyBytes [Int] = []
+	for i in 16 { keyBytes.push(wsNextRand()) }
+	let key = base64Encode(keyBytes)
+	var req = 'GET ' + path + ' HTTP/1.1
+'
+	req = req + 'Host: ' + host + ':' + port.toString() + '
+'
+	req = req + 'Upgrade: websocket
+Connection: Upgrade
+'
+	req = req + 'Sec-WebSocket-Key: ' + key + '
+Sec-WebSocket-Version: 13
+
+'
+	let reqBuf = Buffer.from(req, 'utf8')
+	if not sock.sendAll(reqBuf) {
+		ws.failText = 'handshake send failed'
+		return false
+	}
+	// Blocking header read (handshake is one round trip). Bytes accumulate raw —
+	// the frame that follows the headers may be binary (no UTF-8 round trip).
+	var rawHead [Int] = []
+	var headEnd = -1
+	var guardian = 0
+	while guardian < 64 {
+		let n = sock.recvChunk()
+		if n < 0 {
+			ws.failText = 'handshake closed by peer'
+			return false
+		}
+		if n > 0 {
+			for i in n { rawHead.push(sock.ioBuf.bytes[i] as!Int) }
+			if rawHead.length > 65536 {
+				ws.failText = 'handshake too large'
+				return false
+			}
+			var k = 0
+			if rawHead.length >= 4 { k = rawHead.length - n - 3 }
+			if k < 0 { k = 0 }
+			while k + 3 < rawHead.length {
+				if rawHead[k] == 13 and rawHead[k + 1] == 10 and rawHead[k + 2] == 13 and rawHead[k + 3] == 10 {
+					headEnd = k + 4
+					break
+				}
+				k++
+			}
+			if headEnd >= 0 { break }
+		}
+		guardian++
+	}
+	if headEnd < 0 {
+		ws.failText = 'handshake incomplete'
+		return false
+	}
+	var headBytes [Int] = []
+	for i in headEnd { headBytes.push(rawHead[i]) }
+	let head = utf8DecodeBytes(headBytes)
+	if head.indexOf(' 101 ') < 0 {
+		ws.failText = 'bad handshake response'
+		return false
+	}
+	let accept = 'Sec-WebSocket-Accept: '
+	let ai = head.toLowerCase().indexOf(accept.toLowerCase())
+	if ai < 0 {
+		ws.failText = 'handshake missing accept key'
+		return false
+	}
+	let lineEnd = head.indexOf('
+', ai)
+	var got = head.substring(ai + accept.length, lineEnd).trim()
+	var keyBytes2 [Int] = []
+	for i in key.length {
+		if let c = key.charCodeAt(i) { keyBytes2.push(c) }
+	}
+	let guid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+	for i in guid.length {
+		if let c = guid.charCodeAt(i) { keyBytes2.push(c) }
+	}
+	let want = base64Encode(sha1Bytes(keyBytes2))
+	if got != want {
+		ws.failText = 'handshake accept mismatch'
+		return false
+	}
+	// Carried-over frame bytes (if any) seed the stash verbatim.
+	var tailBytes [Int] = []
+	for i in rawHead.length - headEnd { tailBytes.push(rawHead[headEnd + i]) }
+	ws.stash = Buffer.alloc(tailBytes.length)
+	for i in tailBytes.length { ws.stash.bytes[i] = tailBytes[i] as!UInt8 }
+	ws.stashOff = 0
+	// Nonblocking from here on; the pump drains frames.
+	var nbBox ArrayByValue<UInt32, 1> = [1]
+	ioctlSocketWin(sock.sock, fionbioCtl, nbBox as!ArrayPointer<ULong>)
+	ws.readyState = 1
+	return true
+}
+// Returns false on fatal transport error (caller fails the socket).
+fun wsDrainFrames(ws: WebSocket): Bool {
+	if ws.socket == null { return false }
+	if let s = ws.socket {
+		while true {
+			let n = s.recvChunk()
+			if n < 0 { return wsFinishClose(ws) }
+			if n == 0 { break }
+			// Append fresh bytes past the stash head.
+			let tail = ws.stash.subarray(ws.stashOff, ws.stash.length)
+			let fresh = s.ioBuf.subarray(0, n)
+			ws.stash = Buffer.concat([tail, fresh])
+			ws.stashOff = 0
+			if not wsParseFrames(ws) { return false }
+		}
+		if ws.stashOff > 32768 {
+			ws.stash = ws.stash.subarray(ws.stashOff, ws.stash.length)
+			ws.stashOff = 0
+		}
+	}
+	return true
+}
+// Orderly close frame from the peer: echo, then finish CLOSED.
+fun wsFinishClose(ws: WebSocket): Bool {
+	if let s = ws.socket { s.closeTcp() }
+	ws.socket = null
+	ws.readyState = 3
+	if ws.onclose != null {
+		if let h = ws.onclose { h() }
+	}
+	return false
+}
+fun wsParseFrames(ws: WebSocket): Bool {
+	while true {
+		let avail = ws.stash.length - ws.stashOff
+		if avail < 2 { return true }
+		let b0 = ws.stash.bytes[ws.stashOff] as!Int
+		let b1 = ws.stash.bytes[ws.stashOff + 1] as!Int
+		let fin = b0 >= 128
+		let opcode = b0 % 16
+		let masked = b1 >= 128
+		var len = b1 % 128
+		var headLen = 2
+		if len == 126 {
+			if avail < 4 { return true }
+			len = (ws.stash.bytes[ws.stashOff + 2] as!Int) * 256 + (ws.stash.bytes[ws.stashOff + 3] as!Int)
+			headLen = 4
+		} else if len == 127 {
+			if avail < 10 { return true }
+			// Lengths past 2^31 are rejected (frames that big never occur here).
+			let hi = (ws.stash.bytes[ws.stashOff + 2] as!Int) * 16777216 + (ws.stash.bytes[ws.stashOff + 3] as!Int) * 65536 + (ws.stash.bytes[ws.stashOff + 4] as!Int) * 256 + (ws.stash.bytes[ws.stashOff + 5] as!Int)
+			if hi != 0 { return false }
+			len = (ws.stash.bytes[ws.stashOff + 6] as!Int) * 16777216 + (ws.stash.bytes[ws.stashOff + 7] as!Int) * 65536 + (ws.stash.bytes[ws.stashOff + 8] as!Int) * 256 + (ws.stash.bytes[ws.stashOff + 9] as!Int)
+			headLen = 10
+		}
+		if masked { headLen = headLen + 4 }
+		if avail < headLen + len { return true }
+		var payload = ws.stash.subarray(ws.stashOff, ws.stashOff + headLen + len)
+		if masked {
+			let m0 = ws.stash.bytes[ws.stashOff + headLen - 4] as!Int
+			let m1 = ws.stash.bytes[ws.stashOff + headLen - 3] as!Int
+			let m2 = ws.stash.bytes[ws.stashOff + headLen - 2] as!Int
+			let m3 = ws.stash.bytes[ws.stashOff + headLen - 1] as!Int
+			let masks [Int] = [m0, m1, m2, m3]
+			for i in len { payload.bytes[i] = iXor(payload.bytes[i] as!Int, masks[i % 4]) as!UInt8 }
+		}
+		ws.stashOff = ws.stashOff + headLen + len
+		if opcode == 8 {
+			if ws.readyState == 1 and ws.socket != null {
+				if let s = ws.socket { s.sendClose() }
+			}
+			wsFinishClose(ws)
+			return false
+		} else if opcode == 9 {
+			if let s = ws.socket { s.sendPong(payload) }
+		} else if opcode == 10 {
+			// Pong — keep-alive only.
+		} else if opcode == 0 {
+			if ws.fragOpcode == 1 {
+				var bytes [Int] = []
+				for i in payload.length { bytes.push(payload.bytes[i] as!Int) }
+				ws.fragText = ws.fragText + utf8DecodeBytes(bytes)
+			}
+			if fin {
+				ws.fragOpcode = -1
+				wsDeliverText(ws, ws.fragText)
+				ws.fragText = ''
+			}
+		} else if opcode == 1 {
+			if fin {
+				var bytes [Int] = []
+				for i in payload.length { bytes.push(payload.bytes[i] as!Int) }
+				wsDeliverText(ws, utf8DecodeBytes(bytes))
+			} else {
+				ws.fragOpcode = 1
+				ws.fragText = ''
+				var bytes [Int] = []
+				for i in payload.length { bytes.push(payload.bytes[i] as!Int) }
+				ws.fragText = utf8DecodeBytes(bytes)
+			}
+		} else if opcode == 2 {
+			if ws.onmessage != null {
+				if let h = ws.onmessage { h({ data: payload }) }
+			}
+		}
+		if ws.readyState == 3 { return false }
+	}
+}
+fun wsDeliverText(ws: WebSocket, text: String): Void {
+	if ws.onmessage != null {
+		if let h = ws.onmessage { h({ data: text }) }
+	}
+}
+
+class Performance {
+	new () { }
+	// Monotonic boot-relative ms (GetTickCount64 via the win32 shim)
+	fun now(): Float { return hexaTickMs() }
+}
+
+let performance: Performance = new Performance()
+
+// Object static helpers (stubbed; real enumeration over native objects later)
+class Object {
+	static fun keys(obj: Any): [String] { return [] }
+	static fun values(obj: Any): [Any] { return [] }
+	static fun assign(target: Any,...sources: Any): Any { return target }
+	static fun freeze(obj: Any): Any { return obj }
+	static fun seal(obj: Any): Any { return obj }
+	static fun isSame(value1: Any, value2: Any): Bool { return value1 == value2 }
+	static fun create(proto: Any?, propertiesObject: Any? = null): Any { return null }
+	static fun defineProperty(obj: Any, prop: String, descriptor: Any): Any { return obj }
+	static fun defineProperties(obj: Any, props: Any): Any { return obj }
+	static fun getOwnPropertyNames(obj: Any): [String] { return [] }
+	static fun getPrototypeOf(obj: Any): Any? { return null }
+	static fun setPrototypeOf(obj: Any, proto: Any?): Any { return obj }
+	static fun hasOwn(obj: Any, prop: String): Bool { return false }
+	static fun preventExtensions(obj: Any): Any { return obj }
+	static fun isExtensible(obj: Any): Bool { return false }
+	static fun isFrozen(obj: Any): Bool { return false }
+	static fun isSealed(obj: Any): Bool { return false }
+	static fun getOwnPropertyDescriptor(obj: Any, prop: String): Any? { return null }
+	static fun getOwnPropertyDescriptors(obj: Any): Any { return null }
+}
+
+// Set-like collections — real array-backed generic classes (the typer keeps
+// constructor type args now, see `Promise` above)
+@final
+@asIs
+class Set<T> {
+	// Number of live entries (kept in sync by `add`/`delete`/`clear`)
+	var size: Int = 0
+	private let items: [T] = []
+
+	new () { }
+
+	fun add(value: T): Set<T> {
+		if not items.includes(value) {
+			items.push(value)
+			size = items.length
+		}
+
+		return this
+	}
+
+	fun has(value: T): Bool {
+		return items.includes(value)
+	}
+
+	fun delete(value: T): Bool {
+		let index = items.indexOf(value)
+
+		if index == -1 {
+			return false
+		}
+
+		items.spliceAndInsert(index, 1, [])
+		size = items.length
+		return true
+	}
+
+	fun clear(): Void {
+			items.spliceAndInsert(0, items.length, [])
+		size = 0
+	}
+
+	fun forEach(f: (value: T, key: T, set: Set<T>) => Void): Void {
+		let count = items.length
+		var i = 0
+
+		while i < count {
+			if let value = items.get(i) {
+				f(value, value, this)
+			}
+
+			i++
+		}
+	}
+}
+
+declare class WeakMap<K, V> {
+	new ()
+	fun get(k: K): V?
+	fun set(k: K, v: V): Void
+	fun has(k: K): Bool
+	fun delete(k: K): Bool
+}
+
+declare class WeakSet<T> {
+	new ()
+	fun add(value: T): Void
+	fun has(value: T): Bool
+	fun delete(value: T): Bool
+}
+
+// Errors // // TODO move to a separate `error.hexa` when the loader supports it
+// NOTE: no `super(...)` calls yet — GenCxx cannot emit `SuperConstructor`
+// statements (it warns "Unknown statement kind (GenCxx): SuperConstructor")
+
+// JS-compatible error hierarchy, stubbed for the native target
+class Error {
+	var message: String
+	var name: String
+	var stack: String
+	new (message: String?) {
+		this.message = message ?? ''
+		this.name = 'Error'
+		this.stack = ''
+	}
+}
+
+class EvalError extends Error {
+	new (message: String?) { }
+}
+
+class URIError extends Error {
+	new (message: String?) { }
+}
+
+class TypeError extends Error {
+	new (message: String?) { }
+}
+
+class SyntaxError extends Error {
+	new (message: String?) { }
+}
+
+class ReferenceError extends Error {
+	new (message: String?) { }
+}
+
+class RangeError extends Error {
+	new (message: String?) { }
+}
+
+class AggregateError extends Error {
+	var errors: [Any]
+	new (errors: [Any]?, message: String?) {
+		this.errors = errors ?? []
+	}
+}
+
 // Basic //
 
 // @byValue T
@@ -126,11 +1303,11 @@ class SinglePointer<T> { or call it ValuePointer...meh confusing to ByValue...
 
 /// Constructible with `let bv = @byVale T(arguments)`
 declare class ByValue<T> {
-	@stack // TODO
 	/// Use this reference to access underlining <T> object fields
 	// ^ TODO could replace <T> with type name on hints
 	// also hl them in vshexa
 	// TODO `let ref @refType T` filled with proper T or Pointer<T>/PrimitiveWrapper<T> as "inference"
+	@stack // TODO
 	let ref: T
 	/// Take pointer to a primitive type like `Int`
 	let pointer: ArrayPointer<T>
@@ -297,6 +1474,23 @@ declare class CBool { }
 @nativeBasicType
 declare class Float {
 	fun toString(): String
+}
+
+// First-class `Number` (double-precision, same C/JS shape as `Float`).
+// No app-level alias needed — the typer treats them as mutually assignable.
+@final
+@rename('double')
+@reflect(false)
+@nativeBasicType
+declare class Number {
+	fun toString(): String
+	// Static helpers mirror the js surface (declare-only: link only if called)
+	@rename('isNaN') static fun isNaN(value: Any): Bool
+	static fun isFinite(value: Any): Bool
+	static fun isInteger(value: Any): Bool
+	static fun isSafeInteger(value: Any): Bool
+	static fun parseFloat(string: String): Float
+	static fun parseInt(string: String, radix: Int = 10): Int
 }
 
 @final
@@ -493,6 +1687,7 @@ class Embed<T> { }
 // @rename('memcpy') declare fun memcpy(dst: ConstArrayPointer<UInt8>, src: ConstArrayPointer<UInt8>, size: SizeOfPointer): Void
 // @rename('printInt') declare fun printInt(val: Int): Void
 @rename('malloc') declare fun malloc(size: UInt64): RuntimeAllocated
+@rename('calloc') declare fun calloc(count: UInt64, size: UInt64): RuntimeAllocated
 // TODO rename to HeapAllocated?
 @rename('free') declare fun free(pointer: RuntimeAllocated): Void
 // TODO c/headers/string.hexa @include <string.h> @rename('strlen') declare fun strlen(string: ConstArrayPointer<UInt8>): Int // TODO Ain't ClangChar?
@@ -530,25 +1725,57 @@ declare class CString16 { }
 
 	TODO syntax `markdown` in multiline comments?
 */
+// C math (math.h ships with the native prologue) — thin scalar declares
+@rename('sin') declare fun cSin(v: Float): Float
+@rename('cos') declare fun cCos(v: Float): Float
+@rename('tan') declare fun cTan(v: Float): Float
+@rename('asin') declare fun cAsin(v: Float): Float
+@rename('acos') declare fun cAcos(v: Float): Float
+@rename('atan') declare fun cAtan(v: Float): Float
+@rename('atan2') declare fun cAtan2(y: Float, x: Float): Float
+@rename('exp') declare fun cExp(v: Float): Float
+@rename('log') declare fun cLog(v: Float): Float
+@rename('pow') declare fun cPow(base: Float, exp: Float): Float
+@rename('sqrt') declare fun cSqrt(v: Float): Float
+@rename('floor') declare fun cFloor(v: Float): Float
+@rename('ceil') declare fun cCeil(v: Float): Float
+@rename('fabs') declare fun cFabs(v: Float): Float
+@rename('fmod') declare fun cFmod(a: Float, b: Float): Float
+@rename('rand') declare fun cRand(): Int
+@rename('srand') declare fun cSrand(seed: UInt32): Void
+// CRT-rand seed flag (module state for Math.random) — declared before the
+// class: static method bodies are typed at class registration, ahead of
+// later module-level vars.
+var mathRandSeeded Bool = false
 class Math {
-	static fun abs(v: Float): Float { return 0 }
-	static fun acos(v: Float): Float { return 0 }
-	static fun asin(v: Float): Float { return 0 }
-	static fun atan(v: Float): Float { return 0 }
-	static fun atan2(y: Float, x: Float): Float { return 0 }
-	static fun ceil(v: Float): Int { return 0 }
-	static fun cos(v: Float): Float { return 0 }
-	static fun exp(v: Float): Float { return 0 }
-	static fun floor(v: Float): Int { return 0 }
-	static fun log(v: Float): Float { return 0 }
+	static fun abs(v: Float): Float {
+		if v < 0.0 { return 0.0 - v }
+		return v
+	}
+	static fun acos(v: Float): Float { return cAcos(v) }
+	static fun asin(v: Float): Float { return cAsin(v) }
+	static fun atan(v: Float): Float { return cAtan(v) }
+	static fun atan2(y: Float, x: Float): Float { return cAtan2(y, x) }
+	static fun ceil(v: Float): Int { return cCeil(v) as!Int }
+	static fun cos(v: Float): Float { return cCos(v) }
+	static fun exp(v: Float): Float { return cExp(v) }
+	static fun floor(v: Float): Int { return cFloor(v) as!Int }
+	static fun log(v: Float): Float { return cLog(v) }
 	static fun max(a: Float, b: Float): Float {
 		return a > b ? a : b
 	}
 	static fun min(a: Float, b: Float): Float {
 		return a < b ? a : b
 	}
-	static fun pow(v: Float, exp: Float): Float { return 0 }
-	static fun random(): Float { return 0 }
+	static fun pow(v: Float, exp: Float): Float { return cPow(v, exp) }
+	// rand()/srand() from the CRT, seeded once off the tick clock
+	static fun random(): Float {
+		if not mathRandSeeded {
+			mathRandSeeded = true
+			cSrand(hexaTickMs() as!UInt32)
+		}
+		return (cRand() as!Float) / 32767.0
+	}
 
 	static fun round(value: Float): Int {
 		return (value >= 0) ? ((value) + 0.5) as!Int : ((value) - 0.5) as!Int
@@ -581,11 +1808,403 @@ class Math {
 	}
 
 	static fun tan(v: Float): Float { return 0 }
+// Lenient recursive-descent JSON (single-pass reader; malformed input bails
+// with the value parsed so far instead of throwing — recovery lands later)
+class JsonReader {
+	var s: String
+	var pos: Int
+	new (text: String) {
+		this.s = text
+		this.pos = 0
+	}
+	fun skipWs(): Void {
+		while pos < s.length {
+			if let c = s.charCodeAt(pos) {
+				if c == 32 or c == 9 or c == 10 or c == 13 { pos++ } else { break }
+			} else { break }
+		}
+	}
+	fun parseValue(): Any {
+		skipWs()
+		if let c = s.charCodeAt(pos) {
+			if c == 123 { return parseObject() }
+			if c == 91 { return parseArray() }
+			if c == 34 { return parseString() }
+			if c == 116 { return parseLiteral('true', true) }
+			if c == 102 { return parseLiteral('false', false) }
+			if c == 110 { return parseLiteral('null', null) }
+			return parseNumber()
+		}
+		return null
+	}
+	fun parseObject(): Any {
+		// F10.2: objects parse to plain bags (AnyObject), matching the JS
+		// `JSON.parse` shape (plain objects, not Maps) so `parsed.field`
+		// reads work through the same dynamic path as object literals.
+		let obj Any = anyObjectNew()
+		pos++
+		skipWs()
+		if let c = s.charCodeAt(pos) {
+			if c == 125 {
+				pos++
+				return obj
+			}
+		}
+		while true {
+			skipWs()
+			if let c = s.charCodeAt(pos) {
+				if c != 34 { break }
+			} else { break }
+			let key = parseString()
+			skipWs()
+			if let c = s.charCodeAt(pos) {
+				if c == 58 { pos++ }
+			}
+			anyObjectSet(obj, key, parseValue())
+			skipWs()
+			if let c = s.charCodeAt(pos) {
+				if c == 44 {
+					pos++
+					continue
+				}
+				if c == 125 {
+					pos++
+					break
+				}
+				break
+			} else { break }
+		}
+		return obj
+	}
+	fun parseArray(): Any {
+		let arr [Any] = []
+		pos++
+		skipWs()
+		if let c = s.charCodeAt(pos) {
+			if c == 93 {
+				pos++
+				return arr
+			}
+		}
+		while true {
+			arr.push(parseValue())
+			skipWs()
+			if let c = s.charCodeAt(pos) {
+				if c == 44 {
+					pos++
+					continue
+				}
+				if c == 93 {
+					pos++
+					break
+				}
+				break
+			} else { break }
+		}
+		return arr
+	}
+	fun parseHex4(at: Int): Int {
+		var v = 0
+		for k in 4 {
+			if let c = s.charCodeAt(at + k) {
+				let d = hexValueOf(c)
+				if d < 0 { return 0 - 1 }
+				v = v * 16 + d
+			} else { return 0 - 1 }
+		}
+		return v
+	}
+	fun parseString(): String {
+		pos++
+		var out = ''
+		while pos < s.length {
+			if let c = s.charCodeAt(pos) {
+				if c == 34 {
+					pos++
+					break
+				}
+				if c == 92 {
+					pos++
+					if let e = s.charCodeAt(pos) {
+						if e == 34 {
+							out = out + '"'
+							pos++
+						} else if e == 92 {
+							out = out + '\\'
+							pos++
+						} else if e == 47 {
+							out = out + '/'
+							pos++
+						} else if e == 98 {
+							out = out + String.fromCharCode(8)
+							pos++
+						} else if e == 102 {
+							out = out + String.fromCharCode(12)
+							pos++
+						} else if e == 110 {
+							out = out + String.fromCharCode(10)
+							pos++
+						} else if e == 114 {
+							out = out + String.fromCharCode(13)
+							pos++
+						} else if e == 116 {
+							out = out + String.fromCharCode(9)
+							pos++
+						} else if e == 117 {
+							let h = parseHex4(pos + 1)
+							if h < 0 {
+								out = out + 'u'
+								pos++
+							} else {
+								pos = pos + 5
+								if h >= 55296 and h <= 56319 {
+									if let b1 = s.charCodeAt(pos) {
+										if b1 == 92 {
+											if let b2 = s.charCodeAt(pos + 1) {
+												if b2 == 117 {
+													let lo = parseHex4(pos + 2)
+													if lo >= 56320 and lo <= 57343 {
+														out = out + String.fromCharCode(h) + String.fromCharCode(lo)
+														pos = pos + 6
+													} else { out = out + String.fromCharCode(h) }
+												} else { out = out + String.fromCharCode(h) }
+											} else { out = out + String.fromCharCode(h) }
+										} else { out = out + String.fromCharCode(h) }
+									} else { out = out + String.fromCharCode(h) }
+								} else { out = out + String.fromCharCode(h) }
+							}
+						} else {
+							out = out + String.fromCharCode(e)
+							pos++
+						}
+					} else { break }
+				} else {
+					out = out + String.fromCharCode(c)
+					pos++
+				}
+			} else { break }
+		}
+		return out
+	}
+	fun parseLiteral(word: String, value: Any): Any {
+		if s.substring(pos, pos + word.length) == word { pos = pos + word.length }
+		return value
+	}
+	fun parseNumber(): Any {
+		var neg = false
+		if let c = s.charCodeAt(pos) {
+			if c == 45 {
+				neg = true
+				pos++
+			}
+		}
+		var v = 0.0
+		while pos < s.length {
+			if let c = s.charCodeAt(pos) {
+				if c >= 48 and c <= 57 {
+					v = v * 10.0 + (c - 48)
+					pos++
+				} else { break }
+			} else { break }
+		}
+		if let c = s.charCodeAt(pos) {
+			if c == 46 {
+				pos++
+				var scale = 1.0
+				while pos < s.length {
+					if let d = s.charCodeAt(pos) {
+						if d >= 48 and d <= 57 {
+							v = v * 10.0 + (d - 48)
+							scale = scale * 10.0
+							pos++
+						} else { break }
+					} else { break }
+				}
+				v = v / scale
+			}
+		}
+		if let c = s.charCodeAt(pos) {
+			if c == 69 or c == 101 {
+				pos++
+				var expSign = 1
+				if let q = s.charCodeAt(pos) {
+					if q == 43 { pos++ } else if q == 45 {
+						expSign = 0 - 1
+						pos++
+					}
+				}
+				var expVal = 0
+				var expAny = false
+				while pos < s.length {
+					if let d = s.charCodeAt(pos) {
+						if d >= 48 and d <= 57 {
+							expVal = expVal * 10 + (d - 48)
+							expAny = true
+							pos++
+						} else { break }
+					} else { break }
+				}
+				if expAny {
+					let mag = cPow(10.0, expVal as!Float)
+					if expSign > 0 { v = v * mag } else { v = v / mag }
+				}
+			}
+		}
+		if neg { v = 0.0 - v }
+		return v
+	}
+}
+// JSON string escaping (control chars → short or \u00XX forms)
+fun jsonEscape(s: String): String {
+	var out = '"'
+	for i in s.length {
+		if let c = s.charCodeAt(i) {
+			if c == 34 { out = out + '"' } else if c == 92 { out = out + '\\\\' } else if c == 10 { out = out + '\\n' } else if c == 13 { out = out + '\\r' } else if c == 9 { out = out + '\\	' } else if c == 8 { out = out + '\\b' } else if c == 12 { out = out + '\\f' } else if c < 32 { out = out + '\\u00' + hexDigitUpper(c \ 16) + hexDigitUpper(c % 16) } else { out = out + String.fromCharCode(c) }
+		}
+	}
+	return out + '"'
+}
+// Gap repeated per depth (pretty indent unit)
+fun jsonIndent(gap: String, depth: Int): String {
+	var out = ''
+	for k in depth { out = out + gap }
+	return out
+}
+// F10.2: enumerate an AnyObject bag's keys (insertion order) for JSON.
+fun anyObjectKeys(v: Any): [String] {
+	var out [String] = []
+	var n Int = anyObjectCount(v)
+	for i in n { out.push(anyObjectKeyAt(v, i)) }
+	return out
+}
+fun stringifyInner(value: Any, replacer: (Any, Any) => Any?, gap: String, depth: Int, key: String): String {
+	var v Any = value
+	if replacer != null {
+		if let rep = replacer { v = rep(key, value) }
+	}
+	if v == null { return 'null' }
+	if v is Bool {
+		if let b = v as!Bool { return String.fromBool(b) }
+		return 'null'
+	}
+	if v is Int {
+		if let n = v as!Int { return String.fromInt32(n) }
+		return 'null'
+	}
+	if v is Float {
+		if let f = v as!Float { return String.fromFloat(f) }
+		return 'null'
+	}
+	if v is String {
+		if let st = v as!String { return jsonEscape(st) }
+		return 'null'
+	}
+	// Depth guard against circular graphs (real cycle errors land later)
+	if depth > 100 { return 'null' }
+	if v is Array<Any> {
+		if let arr = v as!Array<Any> {
+			if arr.length == 0 { return '[]' }
+			if gap.length == 0 {
+				var out = '['
+				for i in arr.length {
+					if i > 0 { out = out + ',' }
+					out = out + stringifyInner(arr[i], replacer, gap, depth + 1, String.fromInt32(i))
+				}
+				return out + ']'
+			}
+			let pad = jsonIndent(gap, depth + 1)
+			let close = jsonIndent(gap, depth)
+			var out = '[\n' + pad
+			for i in arr.length {
+				if i > 0 { out = out + ',\n' + pad }
+				out = out + stringifyInner(arr[i], replacer, gap, depth + 1, String.fromInt32(i))
+			}
+			return out + '\n' + close + ']'
+		}
+		return '[]'
+	}
+	if v is Map<String, Any> {
+		if let obj = v as!Map<String, Any> {
+			let keys = obj.keys()
+			if keys.length == 0 { return '\{\}' }
+			if gap.length == 0 {
+				var out = '\{'
+				var first = true
+				for i in keys.length {
+					let k = keys[i]
+					if let prop = obj.get(k) {
+						if not first { out = out + ',' }
+						first = false
+						out = out + jsonEscape(k) + ':' + stringifyInner(prop, replacer, gap, depth + 1, k)
+					}
+				}
+				return out + '\}'
+			}
+			let pad = jsonIndent(gap, depth + 1)
+			let close = jsonIndent(gap, depth)
+			var out = '\{\n' + pad
+			var first = true
+			for i in keys.length {
+				let k = keys[i]
+				if let prop = obj.get(k) {
+					if not first { out = out + ',\n' + pad }
+					first = false
+					out = out + jsonEscape(k) + ': ' + stringifyInner(prop, replacer, gap, depth + 1, k)
+				}
+			}
+			return out + '\n' + close + '\}'
+		}
+		return '\{\}'
+	}
+	// Class instances / externals: placeholder (shape reflection lands in F10)
+	// F10.2: plain-object bags (AnyObject) stringify like JS objects. Null
+	// values read back as missing (same as the Map branch above — matches
+	// the `if let` filter there; explicit-null preservation is queued).
+	if anyIsObject(v) {
+		let keys = anyObjectKeys(v)
+		if keys.length == 0 { return String.fromCharCode(123) + String.fromCharCode(125) }
+		if gap.length == 0 {
+			var out = String.fromCharCode(123)
+			var first = true
+			for i in keys.length {
+				let k = keys[i]
+				if let prop = anyObjectGet(v, k) {
+					if not first { out = out + ',' }
+					first = false
+					out = out + jsonEscape(k) + ':' + stringifyInner(prop, replacer, gap, depth + 1, k)
+				}
+			}
+			return out + String.fromCharCode(125)
+		}
+		let pad = jsonIndent(gap, depth + 1)
+		let close = jsonIndent(gap, depth)
+		var out = String.fromCharCode(123) + String.fromCharCode(10) + pad
+		var first = true
+		for i in keys.length {
+			let k = keys[i]
+			if let prop = anyObjectGet(v, k) {
+				if not first { out = out + ',' + String.fromCharCode(10) + pad }
+				first = false
+				out = out + jsonEscape(k) + ': ' + stringifyInner(prop, replacer, gap, depth + 1, k)
+			}
+		}
+		return out + String.fromCharCode(10) + close + String.fromCharCode(125)
+	}
+	return '\{\}'
 }
 
 class JSON {
 	static fun parse(text: String): Any { return null }
 	static fun stringify(value: Any, replacer: (Any, Any) => Any?, space: String?): String { return '' }
+	static fun parse(text: String): Any {
+		let r = JsonReader(text)
+		return r.parseValue()
+	}
+	static fun stringify(value: Any, replacer: (Any, Any) => Any? = null, space: String? = null): String {
+		var gap = ''
+		if let sp = space { gap = sp }
+		return stringifyInner(value, replacer, gap, 0, '')
+	}
 }
 
 @rename('FILE *')
@@ -599,7 +2218,7 @@ class FILE { }
 @rename('HEXA_TRACE') declare fun trace(text: ConstArrayPointer<ClangWideChar>): Void
 @rename('HEXA_TRACE') declare fun traceLine(text: ConstArrayPointer<ClangWideChar>): Void
 @rename('putchar') declare fun putchar(char: Int): Void
-@rename('ZeroMemory') declare fun zeroMemory(destination: ArrayPointer<UInt8>, bytes: UInt32): Void
+@dllImport('RtlZeroMemory') declare fun zeroMemory(destination: ArrayPointer<UInt8>, bytes: UInt32): Void
 // @rename('wprintf') declare fun wprintf(text: ConstArrayPointer<UInt8>): Void
 
 /*
@@ -647,7 +2266,88 @@ class Console {
 		fflush(stdout)
 	}
 	fun error(data: Any, message: Any?): Void { }
+	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
+	fun error(...message: Any?): Void {
+		var out = ''
+		for m in message { out = out + anyToString(m) + ' ' }
+		logString(out.trim())
+	}
+	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
+	fun warn(...message: Any?): Void {
+		var out = ''
+		for m in message { out = out + anyToString(m) + ' ' }
+		logString(out.trim())
+	}
+	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
+	fun info(...message: Any?): Void {
+		var out = ''
+		for m in message { out = out + anyToString(m) + ' ' }
+		logString(out.trim())
+	}
+	fun dir(value: Any?): Void { logString(stringifyInner(value, null, '', 0, '')) }
+	fun time(label: String? = 'default'): Void {
+		var key = 'default'
+		if let l = label { key = l }
+		// Explicit box: vtable `set_` calls skip expects-conversion (genC gap).
+		consoleTimers.set(key, hexaWallMs() as!Any)
+	}
+	fun timeEnd(label: String? = 'default'): Void {
+		var key = 'default'
+		if let l = label { key = l }
+		let start = consoleTimers.get(key)
+		if start == null {
+			logString('Timer "' + key + '" does not exist')
+			return
+		}
+		if let s = start {
+			// `start` is boxed Any (scalar-V Maps don't compile on native) —
+			// unbox to Float for the arithmetic (js-identical, dynamic there).
+			// `+`-combine (not `.toString()` on the Binop) so the scalar
+			// converts via String_$fromFloat_ (genC gap on Binop receivers).
+			logString(key + ': ' + (hexaWallMs() - (s as!Float)) + 'ms')
+		}
+		consoleTimers.delete(key)
+	}
+	fun table(value: Any?): Void { logString(stringifyInner(value, null, '', 0, '')) }
+	fun count(label: String? = 'default'): Void {
+		var key = 'default'
+		if let l = label { key = l }
+		var n = 1
+		let cur = consoleCounters.get(key)
+		if cur != null {
+			if let c = cur { n = c + 1 }
+		}
+		consoleCounters.set(key, n)
+		logString(key + ': ' + n.toString())
+	}
+	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
+	fun group(...label: Any?): Void {
+		var out = ''
+		for m in label { out = out + anyToString(m) + ' ' }
+		if out.length > 0 { logString(out.trim()) }
+		consoleGroupDepth = consoleGroupDepth + 1
+	}
+	fun groupEnd(): Void {
+		if consoleGroupDepth > 0 { consoleGroupDepth = consoleGroupDepth - 1 }
+	}
+	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
+	fun assert(condition: Bool,...message: Any?): Void {
+		if condition { return }
+		var out = 'Assertion failed'
+		var extra = ''
+		for m in message { extra = extra + anyToString(m) + ' ' }
+		if extra.length > 0 { out = out + ': ' + extra.trim() }
+		logString(out)
+		throw Error(out)
+	}
+	fun clear(): Void { }
 }
+
+// Timestamps box as Any — `Map<String, Float>` would instantiate a scalar-V
+// template that native codegen can't compile (F2 debt); Any is js-identical.
+var consoleTimers Map<String, Any> = Map<String, Any>()
+var consoleCounters Map<String, Int> = Map<String, Int>()
+var consoleGroupDepth Int = 0
 
 let console: Console = new Console()
 
@@ -658,8 +2358,383 @@ class FloatArray extends InternalArray { }
 class ObjectArray<T> extends InternalArray { }
 // TODO declare Array<T> = arrayType(T)
 
+// Date — real proleptic-Gregorian calendar math over the Win32 wall clock.
+// Howard Hinnant's days_from_civil / civil_from_days (overflow-normalizing,
+// so setDate(32)/setHours(25) roll over exactly like Node).
+fun floorDivNum(a: Int, b: Int): Int {
+	return Math.floor((a as!Float) / (b as!Float))
+}
+// Day algebra over Float epoch-ms (`%` on Floats is unverified — floor only).
+fun daysOf(ms: Float): Int { return Math.floor(ms / 86400000.0) }
+fun dayMsOf(ms: Float): Int {
+	let d = Math.floor(ms / 86400000.0)
+	return (ms - (d as!Float) * 86400000.0) as!Int
+}
+fun dateDaysFromCivil(y: Int, m: Int, d: Int): Int {
+	var yy = y + floorDivNum(m - 1, 12)
+	let mm = ((m - 1) % 12 + 12) % 12 + 1
+	if mm <= 2 { yy = yy - 1 }
+	let era = yy >= 0 ? yy \ 400 : floorDivNum(yy - 399, 400)
+	let yoe = yy - era * 400
+	let mp = (mm + 9) % 12
+	let doy = (153 * mp + 2) \ 5 + d - 1
+	let doe = yoe * 365 + yoe \ 4 - yoe \ 100 + doy
+	return era * 146097 + doe - 719468
+}
+class DateParts {
+	var y: Int = 1970
+	var m: Int = 1
+	var d: Int = 1
+	new (y: Int, m: Int, d: Int) {
+		this.y = y
+		this.m = m
+		this.d = d
+	}
+}
+fun datePartsFromDays(z: Int): DateParts {
+	let zz = z + 719468
+	let era = floorDivNum(zz, 146097)
+	let doe = zz - era * 146097
+	let yoe = (doe - doe \ 1460 + doe \ 36524 - doe \ 146096) \ 365
+	var y = yoe + era * 400
+	let doy = doe - (365 * yoe + yoe \ 4 - yoe \ 100)
+	let mp = (5 * doy + 2) \ 5
+	let d = doy - (153 * mp + 2) \ 5 + 1
+	var m = mp + 3
+	if mp >= 10 { m = mp - 9 y = y + 1 }
+	return DateParts(y, m, d)
+}
+fun datePad2(n: Int): String {
+	if n < 0 or n > 99 { return n.toString() }
+	if n < 10 { return '0' + n.toString() }
+	return n.toString()
+}
+fun datePad3(n: Int): String {
+	if n < 0 or n > 999 { return n.toString() }
+	if n < 10 { return '00' + n.toString() }
+	if n < 100 { return '0' + n.toString() }
+	return n.toString()
+}
+fun dateWeekdayName(dow: Int): String {
+	if dow == 0 { return 'Sun' }
+	if dow == 1 { return 'Mon' }
+	if dow == 2 { return 'Tue' }
+	if dow == 3 { return 'Wed' }
+	if dow == 4 { return 'Thu' }
+	if dow == 5 { return 'Fri' }
+	return 'Sat'
+}
+fun dateMonthName(mo: Int): String {
+	if mo == 1 { return 'Jan' }
+	if mo == 2 { return 'Feb' }
+	if mo == 3 { return 'Mar' }
+	if mo == 4 { return 'Apr' }
+	if mo == 5 { return 'May' }
+	if mo == 6 { return 'Jun' }
+	if mo == 7 { return 'Jul' }
+	if mo == 8 { return 'Aug' }
+	if mo == 9 { return 'Sep' }
+	if mo == 10 { return 'Oct' }
+	if mo == 11 { return 'Nov' }
+	return 'Dec'
+}
 class Date {
-	static fun now(): Float { return 0 }
+	var timeMs: Float = 0
+	new (time: Float? = null) {
+		if let t = time {
+			timeMs = t
+		} else {
+			timeMs = hexaWallMs()
+		}
+	}
+	// Unix-epoch ms (FILETIME math in the win32 shim)
+	static fun now(): Float { return hexaWallMs() }
+	static fun parse(dateString: String): Float { return dateParseIso(dateString) }
+	static fun utc(year: Int, monthIndex: Int, day: Int? = 1, hours: Int? = 0, minutes: Int? = 0, seconds: Int? = 0, milliseconds: Int? = 0): Float {
+		return dateMakeMs(year, monthIndex + 1, day ?? 1, hours ?? 0, minutes ?? 0, seconds ?? 0, milliseconds ?? 0, true)
+	}
+	fun getTime(): Float { return timeMs }
+	fun valueOf(): Float { return timeMs }
+	// Bias minutes to add to local wall time to get UTC (see win32.hexa).
+	fun getTimezoneOffset(): Int { return winTimezoneBiasMinutes() }
+	fun localMs(): Float { return timeMs - (getTimezoneOffset() as!Float) * 60000.0 }
+	fun partsLocal(): DateParts { return datePartsFromDays(daysOf(localMs())) }
+	fun partsUtc(): DateParts { return datePartsFromDays(daysOf(timeMs)) }
+	fun clockLocal(): [Int] {
+		let dayMs = dayMsOf(localMs())
+		return [dayMs \ 3600000, (dayMs \ 60000) % 60, (dayMs \ 1000) % 60, dayMs % 1000]
+	}
+	fun clockUtc(): [Int] {
+		let dayMs = dayMsOf(timeMs)
+		return [dayMs \ 3600000, (dayMs \ 60000) % 60, (dayMs \ 1000) % 60, dayMs % 1000]
+	}
+	fun weekdayLocal(): Int {
+		return ((daysOf(localMs()) + 4) % 7 + 7) % 7
+	}
+	fun getFullYear(): Int { return partsLocal().y }
+	fun getMonth(): Int { return partsLocal().m - 1 }
+	fun getDate(): Int { return partsLocal().d }
+	fun getDay(): Int { return weekdayLocal() }
+	fun getHours(): Int { return clockLocal()[0] }
+	fun getMinutes(): Int { return clockLocal()[1] }
+	fun getSeconds(): Int { return clockLocal()[2] }
+	fun getMilliseconds(): Int { return clockLocal()[3] }
+	fun getUTCFullYear(): Int { return partsUtc().y }
+	fun getUTCMonth(): Int { return partsUtc().m - 1 }
+	fun getUTCDate(): Int { return partsUtc().d }
+	fun getUTCDay(): Int {
+		return ((daysOf(timeMs) + 4) % 7 + 7) % 7
+	}
+	fun getUTCHours(): Int { return clockUtc()[0] }
+	fun getUTCMinutes(): Int { return clockUtc()[1] }
+	fun getUTCSeconds(): Int { return clockUtc()[2] }
+	fun getUTCMilliseconds(): Int { return clockUtc()[3] }
+	fun setFullYear(year: Int, month: Int? = 1073741824, day: Int? = 1073741824): Float {
+		var mo = getMonth()
+		var d = getDate()
+		if month != null {
+			if let m = month { mo = m }
+		}
+		if day != null {
+			if let dd = day { d = dd }
+		}
+		let c = clockLocal()
+		timeMs = dateMakeMs(year, mo + 1, d, c[0], c[1], c[2], c[3], false)
+		return timeMs
+	}
+	fun setMonth(month: Int, day: Int? = 1073741824): Float {
+		var d = getDate()
+		if day != null {
+			if let dd = day { d = dd }
+		}
+		let c = clockLocal()
+		timeMs = dateMakeMs(getFullYear(), month + 1, d, c[0], c[1], c[2], c[3], false)
+		return timeMs
+	}
+	fun setDate(day: Int): Float {
+		let c = clockLocal()
+		let p = partsLocal()
+		timeMs = dateMakeMs(p.y, p.m, day, c[0], c[1], c[2], c[3], false)
+		return timeMs
+	}
+	fun setHours(hours: Int, minutes: Int? = 1073741824, seconds: Int? = 1073741824, milliseconds: Int? = 1073741824): Float {
+		return setClock(hours, minutes, seconds, milliseconds, 0)
+	}
+	fun setMinutes(minutes: Int, seconds: Int? = 1073741824, milliseconds: Int? = 1073741824): Float {
+		return setClock(getHours(), minutes, seconds, milliseconds, 1)
+	}
+	fun setSeconds(seconds: Int, milliseconds: Int? = 1073741824): Float {
+		return setClock(getHours(), getMinutes(), seconds, milliseconds, 2)
+	}
+	fun setMilliseconds(milliseconds: Int): Float {
+		return setClock(getHours(), getMinutes(), getSeconds(), milliseconds, 3)
+	}
+	fun setClock(h: Int, mi: Int?, s: Int?, ms: Int?, keep: Int): Float {
+		let c = clockLocal()
+		var hh = h
+		var mm = c[1]
+		var ss = c[2]
+		var mss = c[3]
+		if keep <= 0 {
+			mm = 0
+			ss = 0
+			mss = 0
+		}
+		if mi != null {
+			if let v = mi { mm = v }
+		}
+		if keep <= 1 {
+			if mi == null { mm = 0 }
+			ss = 0
+			mss = 0
+		}
+		if s != null {
+			if let v = s { ss = v }
+		}
+		if keep <= 2 {
+			if s == null { ss = 0 }
+			mss = 0
+		}
+		if ms != null {
+			if let v = ms { mss = v }
+		}
+		if keep <= 3 {
+			if ms == null { mss = 0 }
+		}
+		let p = partsLocal()
+		timeMs = dateMakeMs(p.y, p.m, p.d, hh, mm, ss, mss, false)
+		return timeMs
+	}
+	fun setTime(time: Float): Float {
+		timeMs = time
+		return timeMs
+	}
+	fun toISOString(): String {
+		let p = partsUtc()
+		let c = clockUtc()
+		return p.y.toString() + '-' + datePad2(p.m) + '-' + datePad2(p.d) + 'T' + datePad2(c[0]) + ':' + datePad2(c[1]) + ':' + datePad2(c[2]) + '.' + datePad3(c[3]) + 'Z'
+	}
+	fun toUTCString(): String {
+		let p = partsUtc()
+		let c = clockUtc()
+		return dateWeekdayName(getUTCDay()) + ', ' + datePad2(p.d) + ' ' + dateMonthName(p.m) + ' ' + p.y.toString() + ' ' + datePad2(c[0]) + ':' + datePad2(c[1]) + ':' + datePad2(c[2]) + ' GMT'
+	}
+	fun toDateString(): String {
+		let p = partsLocal()
+		return dateWeekdayName(weekdayLocal()) + ' ' + dateMonthName(p.m) + ' ' + datePad2(p.d) + ' ' + p.y.toString()
+	}
+	fun toTimeString(): String {
+		let c = clockLocal()
+		let off = getTimezoneOffset()
+		let sign = off <= 0 ? '+' : '-'
+		var aoff = off
+		if aoff < 0 { aoff = 0 - aoff }
+		return datePad2(c[0]) + ':' + datePad2(c[1]) + ':' + datePad2(c[2]) + ' GMT' + sign + datePad2(aoff \ 60) + datePad2(aoff % 60)
+	}
+	fun toString(): String { return toDateString() + ' ' + toTimeString() }
+	fun toJSON(): String { return toISOString() }
+	fun toLocaleDateString(locales: Any? = null, options: Any? = null): String { return toDateString() }
+	fun toLocaleString(locales: Any? = null, options: Any? = null): String { return toString() }
+	fun toLocaleTimeString(locales: Any? = null, options: Any? = null): String { return toTimeString() }
+}
+
+fun dateMakeMs(y: Int, m: Int, d: Int, h: Int, mi: Int, s: Int, ms: Int, utc: Bool): Float {
+	// Overflow-normalizing: hours 25 or day 32 roll into the next unit.
+	var total = (dateDaysFromCivil(y, m, d) as!Float) * 86400000.0 + (h as!Float) * 3600000.0 + (mi as!Float) * 60000.0 + (s as!Float) * 1000.0 + (ms as!Float)
+	if not utc { total = total + (winTimezoneBiasMinutes() as!Float) * 60000.0 }
+	return total
+}
+fun dateDigitsOnly(text: String): Bool {
+	if text.length == 0 { return false }
+	for i in text.length {
+		if let c = text.charCodeAt(i) {
+			if c < 48 or c > 57 { return false }
+		}
+	}
+	return true
+}
+// ISO-8601 subset: YYYY-MM-DD['T'|HH:mm[:ss[.sss]][Z|±HH:mm]] (also slashes).
+// 'T'-separated without zone reads as UTC (Node), space-separated as local.
+fun dateParseIso(s: String): Float {
+	var text = s.trim()
+	var datePart = text
+	var timePart: String? = null
+	var tSep = false
+	let ti = text.indexOf('T')
+	if ti >= 0 {
+		datePart = text.substring(0, ti)
+		timePart = text.substring(ti + 1)
+		tSep = true
+	} else {
+		let sp = text.indexOf(' ')
+		if sp >= 0 {
+			datePart = text.substring(0, sp)
+			timePart = text.substring(sp + 1)
+		}
+	}
+	let dp = datePart.replaceAll('/', '-').split('-')
+	if dp.length != 3 { return nan }
+	if not dateDigitsOnly(dp[0]) or not dateDigitsOnly(dp[1]) or not dateDigitsOnly(dp[2]) { return nan }
+	let year = parseInt(dp[0], 10)
+	let month = parseInt(dp[1], 10)
+	let day = parseInt(dp[2], 10)
+	if month < 1 or month > 12 or day < 1 or day > 31 { return nan }
+	var hh = 0
+	var mm = 0
+	var ss = 0
+	var mss = 0
+	var isUtc = tSep
+	if timePart != null {
+		if let tp0 = timePart {
+			var tp = tp0
+			if tp.endsWith('Z') or tp.endsWith('z') {
+				isUtc = true
+				tp = tp.substring(0, tp.length - 1)
+			} else {
+				// Trailing ±HH:mm / ±HHmm / ±HH zone (applies to the wall time).
+				var zi = tp.lastIndexOf('+')
+				let zmi = tp.lastIndexOf('-')
+				if zmi > zi { zi = zmi }
+				if zi > 0 {
+					let zone = tp.substring(zi).replaceAll(':', '')
+					if (zone.length == 3 or zone.length == 5) and dateDigitsOnly(zone.substring(1)) {
+						isUtc = true
+						let zh = parseInt(zone.substring(1, 3), 10)
+						var zm = 0
+						if zone.length == 5 { zm = parseInt(zone.substring(3, 5), 10) }
+						var off = zh * 60 + zm
+						if zone.substring(0, 1) == '-' { off = 0 - off }
+						tp = tp.substring(0, zi)
+						tp = tp.substring(0, zi)
+						// Re-parse the wall time below, then shift by the zone.
+						let wall = dateParseWallTime(tp)
+						if wall == null { return nan }
+						if let w = wall {
+							return dateMakeMs(year, month, day, w.h, w.mi, w.s, w.ms, true) - (off as!Float) * 60000.0
+						}
+						return nan
+					}
+				}
+			}
+			let wall = dateParseWallTime(tp)
+			if wall == null { return nan }
+			if let w = wall {
+				hh = w.h
+				mm = w.mi
+				ss = w.s
+				mss = w.ms
+			} else {
+				return nan
+			}
+		}
+	}
+	return dateMakeMs(year, month, day, hh, mm, ss, mss, isUtc)
+}
+class DateHMS {
+	var h: Int = 0
+	var mi: Int = 0
+	var s: Int = 0
+	var ms: Int = 0
+	new (h: Int, mi: Int, s: Int, ms: Int) {
+		this.h = h
+		this.mi = mi
+		this.s = s
+		this.ms = ms
+	}
+}
+fun dateParseWallTime(tp: String): DateHMS? {
+	let parts = tp.split(':')
+	if parts.length < 2 or parts.length > 3 { return null }
+	if not dateDigitsOnly(parts[0]) or not dateDigitsOnly(parts[1]) { return null }
+	let h = parseInt(parts[0], 10)
+	let mi = parseInt(parts[1], 10)
+	var sec = 0
+	var ms = 0
+	if parts.length == 3 {
+		var spart = parts[2]
+		let dot = spart.indexOf('.')
+		if dot >= 0 {
+			let frac = spart.substring(dot + 1)
+			spart = spart.substring(0, dot)
+			if not dateDigitsOnly(spart) { return null }
+			sec = parseInt(spart, 10)
+			if frac.length > 0 {
+				if not dateDigitsOnly(frac) { return null }
+				var f = frac
+				if f.length > 3 { f = f.substring(0, 3) }
+				ms = parseInt(f, 10)
+				if f.length == 1 { ms = ms * 100 }
+				if f.length == 2 { ms = ms * 10 }
+			}
+		} else {
+			if not dateDigitsOnly(spart) { return null }
+			sec = parseInt(spart, 10)
+		}
+		if h > 23 or mi > 59 or sec > 59 { return null }
+		return DateHMS(h, mi, sec, ms)
+	}
+	if h > 23 or mi > 59 { return null }
+	return DateHMS(h, mi, 0, 0)
 }
 
 declare class Reflect { // TODO non-declare!!!
@@ -680,8 +2755,196 @@ class Buffer /*implements ArrayAccess<T>*/ {
 		result.bytes = malloc(size + 0u64) as!ArrayPointer<UInt8>
 		return result
 	} // TODO handle `as!` in gen/typer
+	// Real encoded byte count (LSP framing counts bytes, not UTF-16 units)
+	static fun bytesLength(string: String, encoding: String? = 'utf8'): Int {
+		var enc = 'utf8'
+		if let e = encoding { enc = e }
+		if enc == 'utf8' or enc == 'utf-8' or enc == 'UTF8' or enc == 'UTF-8' { return utf8EncodeString(string).length }
+		if enc == 'base64' or enc == 'BASE64' { return base64Decode(string).length }
+		return string.length
+	}
+	static fun allocUnsafe(size: Int): Buffer { return alloc(size) }
+	static fun isBuffer(obj: Any): Bool { return obj is Buffer }
+	static fun compare(a: Buffer, b: Buffer): Int {
+		var n = a.length
+		if b.length < n { n = b.length }
+		for i in n {
+			if a.bytes[i] != b.bytes[i] {
+				if (a.bytes[i] as!Int) < (b.bytes[i] as!Int) { return 0 - 1 }
+				return 1
+			}
+		}
+		if a.length < b.length { return 0 - 1 }
+		if a.length > b.length { return 1 }
+		return 0
+	}
 	var length: Int
 	var bytes: ArrayPointer<UInt8>
+	// Byte-pattern or code-point needle (string needles encode as UTF-8)
+	fun indexOf(value: Any, byteOffset: Int? = 0, encoding: String? = 'utf8'): Int {
+		var start = 0
+		if let o = byteOffset { start = o }
+		if start < 0 { start = 0 }
+		if value is Buffer {
+			if let pat = value as!Buffer { return indexOfBuffer(pat, start) }
+			return -1
+		}
+		if value is Int {
+			if let b = value as!Int {
+				var i = start
+				while i < length {
+					if (bytes[i] as!Int) == b { return i }
+					i++
+				}
+			}
+			return -1
+		}
+		if value is String {
+			if let s = value as!String {
+				return indexOfBuffer(Buffer.from(s, encoding), start)
+			}
+		}
+		return -1
+	}
+	fun indexOfBuffer(pat: Buffer, start: Int): Int {
+		var s = start
+		if s < 0 { s = 0 }
+		if pat.length == 0 { return s }
+		var i = s
+		while i + pat.length <= length {
+			var match = true
+			for j in pat.length {
+				if bytes[i + j] != pat.bytes[j] { match = false }
+			}
+			if match { return i }
+			i++
+		}
+		return -1
+	}
+	fun lastIndexOf(value: Any, byteOffset: Int? = 0, encoding: String? = 'utf8'): Int {
+		var start = length - 1
+		if let o = byteOffset { start = o }
+		if start >= length { start = length - 1 }
+		var pat = Buffer.alloc(0)
+		var isPat = false
+		if value is Buffer {
+			if let p = value as!Buffer {
+				pat = p
+				isPat = true
+			}
+		} else if value is String {
+			if let s = value as!String {
+				pat = Buffer.from(s, encoding)
+				isPat = true
+			}
+		}
+		if isPat {
+			if pat.length == 0 { return start }
+			var i = start - pat.length + 1
+			if i > length - pat.length { i = length - pat.length }
+			while i >= 0 {
+				var match = true
+				for j in pat.length {
+					if bytes[i + j] != pat.bytes[j] { match = false }
+				}
+				if match { return i }
+				i--
+			}
+			return -1
+		}
+		if value is Int {
+			if let b = value as!Int {
+				var i = start
+				while i >= 0 {
+					if (bytes[i] as!Int) == b { return i }
+					i--
+				}
+			}
+		}
+		return -1
+	}
+	fun includes(value: Any, byteOffset: Int? = 0, encoding: String? = 'utf8'): Bool { return indexOf(value, byteOffset, encoding) >= 0 }
+	fun equals(other: Buffer): Bool {
+		if length != other.length { return false }
+		return compare(this, other) == 0
+	}
+	// Int byte, single-char String, or Buffer pattern fill
+	fun fill(value: Any, offset: Int? = 0, end: Int? = 1073741824, encoding: String? = 'utf8'): Buffer {
+		var s = 0
+		if let o = offset { s = o }
+		if s < 0 { s = 0 }
+		var e = length
+		if let q = end {
+			e = q
+			if e < 0 { e = 0 }
+		}
+		if s > length { s = length }
+		if e > length { e = length }
+		if e <= s { return this }
+		var pat = Buffer.alloc(1)
+		var patLen = 1
+		if value is Int {
+			if let b = value as!Int { pat.bytes[0] = (b % 256) as!UInt8 }
+		} else if value is String {
+			if let st = value as!String {
+				pat = Buffer.from(st.length > 0 ? st.substring(0, 1) : st, encoding)
+				patLen = pat.length
+				if patLen == 0 {
+					pat = Buffer.alloc(1)
+					pat.bytes[0] = 0
+					patLen = 1
+				}
+			}
+		} else if value is Buffer {
+			if let bp = value as!Buffer {
+				if bp.length > 0 {
+					pat = bp
+					patLen = bp.length
+				} else {
+					pat.bytes[0] = 0
+				}
+			}
+		}
+		var i = s
+		while i < e {
+			bytes[i] = pat.bytes[(i - s) % patLen]
+			i++
+		}
+		return this
+	}
+	// Overlap-safe via a temp copy (Node copy uses memmove semantics)
+	fun copy(to: Buffer, offset: Int): Int {
+		var dst = offset
+		if dst < 0 { dst = 0 }
+		var n = length
+		if dst + n > to.length { n = to.length - dst }
+		if n <= 0 { return 0 }
+		let tmp = subarray(0, n)
+		for i in n { to.bytes[dst + i] = tmp.bytes[i] }
+		return n
+	}
+	fun subarray(start: Int? = 0, end: Int? = 1073741824): Buffer {
+		var s = 0
+		if let o = start { s = o }
+		if s < 0 {
+			s = length + s
+			if s < 0 { s = 0 }
+		}
+		var e = length
+		if let q = end {
+			e = q
+			if e < 0 {
+				e = length + e
+				if e < 0 { e = 0 }
+			}
+		}
+		if s > length { s = length }
+		if e > length { e = length }
+		if e < s { e = s }
+		let out = Buffer.alloc(e - s)
+		for i in (e - s) { out.bytes[i] = bytes[s + i] }
+		return out
+	}
 	private new (/*bufsize: Int*/) { } // {return null} // TODO `new` cannot return value
 	fun readUInt16LE(offset: Int): Int { return 0 }
 	fun writeUInt16LE(value: Int, offset: Int): Int { return 0 }
@@ -756,8 +3019,33 @@ class Fs {
 	static fun openSync(path: String, flags: String): Int { return 0 }
 	static fun renameSync(oldPath: String, newPath: String): Void { }
 }
+@rename('Any_unboxString_') declare fun anyUnboxString(value: Any): String
+
+// F10.2 plain-object bags (AnyObject runtime, emitted by genC post-Types):
+// same-TU definitions precede all uses, so no prototype holder is needed
+// (unlike the host-owned shims above). `declare` emits no prototype and the
+// calls resolve to the generated definitions.
+@rename('Any_objectNew_') declare fun anyObjectNew(): Any
+@rename('Any_objectSet_') declare fun anyObjectSet(obj: Any, key: String, value: Any): Void
+@rename('Any_objectGet_') declare fun anyObjectGet(obj: Any, key: String): Any?
+@rename('Any_isObject_') declare fun anyIsObject(v: Any): Bool
+@rename('Any_objectCount_') declare fun anyObjectCount(obj: Any): Int
+@rename('Any_objectKeyAt_') declare fun anyObjectKeyAt(obj: Any, index: Int): String
 
 // Global
+// C declarations for the host-owned runtime globals (`declare` statements
+// never reach the code generator — see `std/native.hexa` for the same pattern)
+@customHeader('
+	// Host/runtime globals and functions (defined by main-hexa.cpp)
+	extern struct Any_* undefined;
+	extern struct Any_* globalThis_;
+	extern struct ProcessModule_* process_;
+	extern struct String_* __filename_;
+	struct Any_* require_(struct String_* package_);
+')
+fun hostRuntimePrototypes() {
+	// Nothing — the custom header above carries the C prototypes
+}
 @rename('undefined') declare let undefined: Any?
 declare fun encodeURIComponent(s: String): String
 declare fun decodeURIComponent(s: String): String
@@ -767,6 +3055,129 @@ declare fun eval(code: String): Any
 // Special-case, returns `null` instead of `NaN`
 declare fun parseInt(text: String): Int
 declare fun parseFloat(text: String): Float
+// ASCII decimal/hex integer scan (wraps on overflow — checked numerics later)
+fun parseInt(text: String, radix: Int? = null): Int {
+	var r = 10
+	if let q = radix { r = q }
+	// Leading JS whitespace scan
+	var start = 0
+	while start < text.length {
+		if let c = text.charCodeAt(start) {
+			if c == 32 or c == 9 or c == 10 or c == 13 { start++ } else { break }
+		} else { break }
+	}
+	var sign = 1
+	if let c = text.charCodeAt(start) {
+		if c == 43 { start++ } else if c == 45 {
+			sign = 0 - 1
+			start++
+		}
+	}
+	if radix == null {
+		if let c0 = text.charCodeAt(start) {
+			if c0 == 48 {
+				if let c1 = text.charCodeAt(start + 1) {
+					if c1 == 88 or c1 == 120 {
+						r = 16
+						start = start + 2
+					}
+				}
+			}
+		}
+	}
+	if r < 2 or r > 36 { return 0 }
+	var value = 0
+	var any = false
+	var k = start
+	while k < text.length {
+		if let c = text.charCodeAt(k) {
+			var d = 0 - 1
+			if c >= 48 and c <= 57 { d = c - 48 } else if c >= 65 and c <= 90 { d = c - 55 } else if c >= 97 and c <= 122 { d = c - 87 }
+			if d < 0 or d >= r { break }
+			value = value * r + d
+			any = true
+			k++
+		} else { break }
+	}
+	if not any { return 0 }
+	return value * sign
+}
+
+fun parseFloat(text: String): Float {
+	var i = 0
+	while i < text.length {
+		if let c = text.charCodeAt(i) {
+			if c == 32 or c == 9 or c == 10 or c == 13 { i++ } else { break }
+		} else { break }
+	}
+	var sign = 1.0
+	if let c = text.charCodeAt(i) {
+		if c == 43 { i++ } else if c == 45 {
+			sign = 0.0 - 1.0
+			i++
+		}
+	}
+	// Infinity literal (case-insensitive prefix match)
+	if text.substring(i, i + 8).toLowerCase() == 'infinity' { return sign * infinity }
+	var intPart = 0.0
+	var any = false
+	while i < text.length {
+		if let c = text.charCodeAt(i) {
+			if c >= 48 and c <= 57 {
+				intPart = intPart * 10.0 + (c - 48)
+				any = true
+				i++
+			} else { break }
+		} else { break }
+	}
+	var fracPart = 0.0
+	var fracScale = 1.0
+	if let c = text.charCodeAt(i) {
+		if c == 46 {
+			i++
+			while i < text.length {
+				if let d = text.charCodeAt(i) {
+					if d >= 48 and d <= 57 {
+						fracPart = fracPart * 10.0 + (d - 48)
+						fracScale = fracScale * 10.0
+						any = true
+						i++
+					} else { break }
+				} else { break }
+			}
+		}
+	}
+	var value = intPart + fracPart / fracScale
+	if let c = text.charCodeAt(i) {
+		if c == 69 or c == 101 {
+			i++
+			var expSign = 1
+			if let s = text.charCodeAt(i) {
+				if s == 43 { i++ } else if s == 45 {
+					expSign = 0 - 1
+					i++
+				}
+			}
+			var expVal = 0
+			var expAny = false
+			while i < text.length {
+				if let d = text.charCodeAt(i) {
+					if d >= 48 and d <= 57 {
+						expVal = expVal * 10 + (d - 48)
+						expAny = true
+						i++
+					} else { break }
+				} else { break }
+			}
+			if expAny {
+				let mag = cPow(10.0, expVal as!Float)
+				if expSign > 0 { value = value * mag } else { value = value / mag }
+			}
+		}
+	}
+	if not any { return 0.0 }
+	return sign * value
+}
 
 fun btoa(text: String) {
 	return Buffer.from(text, 'binary').toString('base64')
