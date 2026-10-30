@@ -12,11 +12,198 @@ class ArcInserter {
 	var typer: Typer // For types, needsARC uses typer.types if needed
 	var expressionType: [Expression : Type] // Copy from niceProject.expressionType
 	var id Int = 0
+	// C-scalar or inline-layout class names: plain ints/floats/bool, C type
+	// aliases and by-value wrappers carry no `rc_` header — never retain.
+	// (Fast path; the struct-decorator + NiceClass checks below decide.)
+	let arcBareNames = ['Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'Float', 'Float32', 'Number', 'Bool', 'CBool', 'Void', 'SizeOfPointer', 'SignedSizeOfPointer', 'CString8', 'CString16', 'StackAsciiString', 'HeapAsciiString', 'Embed', 'ByValue']
+	// Names of emitted managed classes (built lazily): only these get an
+	// `rc_` header from the C printer, so only these may be retained.
+	let rcClassNames [String : Bool] = [:]
+	var rcNamesBuilt Bool = false
+	// Escape-map key of the top-level function currently processed (global
+	// name or `Class_$method`, same scheme as the census). Guides retain
+	// elision below; null inside init blocks or for unresolvable shapes.
+	var arcFuncKey String? = null
+	// Entry retains kept (paired with their Defer) vs elided.
+	var arcElidedParams Int = 0
+	var arcRetainedParams Int = 0
+	var arcReturnRetains Int = 0
+var arcReturnUnknown Int = 0
+	var arcTransferredInits Int = 0
+	var arcFieldStores Int = 0
+	var arcDotAssignsSeen Int = 0
+	var arcDotImpure Int = 0
+	var arcDotNonARC Int = 0
+var arcIndexAssignsSeen Int = 0
+var arcIndexStores Int = 0
+var arcDiscardedCalls Int = 0
+var arcCallTemps Int = 0
+var arcCallTempsSkipped Int = 0
+var arcBareReturns Int = 0
+var arcThrowRetains Int = 0
+var arcCatchGuards Int = 0
+var arcWrappedBodies Int = 0
+var arcBufferStores Int = 0
+var arcDestroyMarked Int = 0
+var arcImmortalRetains Int = 0
+var arcWeakStores Int = 0
+// TEMP-DIAG (triage only): first дороге weak-Dot misses + the weak table.
+var arcWeakMisses [String] = []
+var arcWeakLogged Int = 0
+	// Hexa-implemented globals (name -> declared return type): calls into
+	// these return +1 by construction (B3 covers every Block return; bare
+	// managed returns tripwire at zero). Built once: skips body-less
+	// (native/declare) entries and anything also declared as external —
+	// presence in this map IS the Hexa-implemented proof, so call sites
+	// need only one lookup.
+	let arcHexaReturns [String : Type] = [:]
 
 	new (niceProject: NiceProject) {
 		this.niceProject = niceProject
 		this.typer = niceProject.typer
 		this.expressionType = niceProject.expressionType // Assume map is accessible
+	}
+
+	/// Escape key for a statement-function (mirrors the census).
+	fun arcKeyFor(prefix: String, name: String): String? {
+		if name == null {
+			return null
+		}
+
+		if prefix == '' {
+			return name
+		}
+
+		return prefix + '_$' + name
+	}
+
+	/// Statement name for keying (top-level functions only).
+	fun stmtFuncName(s: Statement): String? {
+		switch s {
+			case Function(name, _, _, _, _, _, _):
+				return name
+			case _:
+				return null
+		}
+	}
+
+	/// Marks container instances whose elements ARC counts (F11.2 destroy
+	/// side): Array with a managed element type gets an element walk + buffer
+	/// free (kind 1), other Arrays a buffer free only (kind 2 — walking
+	/// scalars would corrupt), every Map an inner-array release (kind 3 — the
+	/// inner arrays are separate heap objects freed by the sweep through their
+	/// own destroys). Templates carry generic stubs (never managed) and never
+	/// mark — only monomorphized instances do.
+	fun markContainerDestroy(nc: NiceClass) {
+		switch nc.classType {
+			case ClassInstance(c, generics):
+				if c.name == 'Array', generics.length > 0 {
+					if let e0 = generics[0] {
+						if this.needsARC(e0) {
+							nc.destroyKind = 1
+						} else {
+							nc.destroyKind = 2
+						}
+						arcDestroyMarked++
+					}
+				}
+				if c.name == 'Map', generics.length > 1 {
+					nc.destroyKind = 3
+					arcDestroyMarked++
+				}
+			case _:
+		}
+	}
+
+	/// Single-statement bodies arrive unwrapped (`unwrapNestingBlocks` flattens
+	/// `Block([s])` to bare `s`): a bare body has no sibling slot for the param
+	/// prologue and a bare `Return` gets no caller-side +1 (`apply2_` shipped
+	/// with neither). Re-shell into a one-member `Block` so the `Block`
+	/// machinery below applies (entry prologue + `Return` arm). The shell is
+	/// new: transfer any `globalLink` entry (same contract as the
+	/// reflect/closure rebuilds — `@dllExport` host callbacks live here);
+	/// inner nodes keep identity so maps survive.
+	fun wrapBodyToBlock(s: Statement): Statement {
+		switch s {
+			case Function(name, body, args, defaults, dataType, variadic, isAsync):
+				if body != null {
+					switch body {
+						case Block(_):
+						case _:
+							let wrapped = Statement.Function(name, Statement.Block([body]), args, defaults, dataType, variadic, isAsync)
+							if let link = niceProject.globalLink.get(s) {
+								niceProject.globalLink.set(wrapped, link)
+							}
+							arcWrappedBodies++
+							return wrapped
+					}
+				}
+			case _:
+		}
+		return s
+	}
+
+	/// Immortal retains (F3.2): `globalVars` + class/enum `staticVars` live
+	/// in `HEXA_MAIN` with no scope exit (no `Defer` — immortal per D2/D6).
+	/// Borrowed inits (`let g = other`) need one `RefInc` so the shared
+	/// object stays alive when the source is reassigned; fresh `+1` inits
+	/// (`new`, literals, Hexa-call results) transfer with no retain.
+	/// Instance field defaults arrive as explicit constructor-body Assigns
+	/// (reflect `lowerFieldDefaults`, genC-only) — ARC owns them via the
+	/// standard Dot-assign arm. No separate handling here.
+	fun collectImmortalRetains(): [Expression] {
+		let out: [Expression] = []
+		for g in niceProject.globalVars { switch g {
+			case Var(name, expr, dataType):
+				if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+					out.push(Expression.Ident(name, dataType))
+				}
+			case Const(name, expr, dataType):
+				if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+					out.push(Expression.Ident(name, dataType))
+				}
+			case _:
+		} }
+		for cls in niceProject.classes {
+			for v in cls.staticVars { switch v {
+				case Var(name, expr, dataType):
+					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+						out.push(Expression.Dot(Expression.Ident(cls.name, this.typer.typeAny), name, dataType))
+					}
+				case Const(name, expr, dataType):
+					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+						out.push(Expression.Dot(Expression.Ident(cls.name, this.typer.typeAny), name, dataType))
+					}
+				case _:
+			} }
+		}
+		for enu in niceProject.enumsSimple {
+			for v in enu.staticVars { switch v {
+				case Var(name, expr, dataType):
+					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+					}
+				case Const(name, expr, dataType):
+					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+					}
+				case _:
+			} }
+		}
+		for enu in niceProject.enumsComplex {
+			for v in enu.staticVars { switch v {
+				case Var(name, expr, dataType):
+					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+					}
+				case Const(name, expr, dataType):
+					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+					}
+				case _:
+			} }
+		}
+		return out
 	}
 
 	fun insertArc() { // Main entry to process all top-level
@@ -32,6 +219,9 @@ class ArcInserter {
 			for staticMethod in cls.staticMethods {
 				this.processStatement(staticMethod)
 			}
+			// Instance field defaults now arrive as explicit constructor-body
+			// Assigns (reflect `lowerFieldDefaults`, genC-only) — ARC owns
+			// them via the standard Dot-assign arm below. No injection here.
 		}
 
 		for enu in niceProject.enumsSimple { // If enums have static methods
@@ -46,9 +236,39 @@ class ArcInserter {
 			}
 		}
 		// Process init if needed, assume init is Block in niceProject.init
+		arcFuncKey = null
 		for init_block in niceProject.init {
 			this.processStatement(init_block)
 		}
+		// Immortal retains land in the init block (runs after all
+		// `HEXA_MAIN` global/static assignments, so every slot exists).
+		// No `Defer` — globals/statics never exit scope (D2/D6).
+		let immortal = this.collectImmortalRetains()
+		if immortal.length > 0 {
+			var placed = false
+			for init_block in niceProject.init { switch init_block {
+				case Block(els):
+					if not placed {
+						els.push(Statement.RefInc(immortal))
+						arcImmortalRetains += immortal.length
+						placed = true
+					}
+				case _:
+			} }
+			if not placed {
+				niceProject.init.push(Statement.Block([Statement.RefInc(immortal)]))
+				arcImmortalRetains += immortal.length
+			}
+		}
+		Fs.writeFileSync('arc-trace.log', 'ARC-ELIDE params=' + arcElidedParams + ' retained=' + arcRetainedParams + ' returnRetains=' + arcReturnRetains + ' returnUnknown=' + arcReturnUnknown + ' transferredInits=' + arcTransferredInits + ' fieldStores=' + arcFieldStores + ' dotAssignsSeen=' + arcDotAssignsSeen + ' dotImpure=' + arcDotImpure + ' dotNonARC=' + arcDotNonARC + ' bareReturns=' + arcBareReturns + ' indexAssignsSeen=' + arcIndexAssignsSeen + ' indexStores=' + arcIndexStores + ' discardedCalls=' + arcDiscardedCalls + ' callTemps=' + arcCallTemps + ' callTempsSkipped=' + arcCallTempsSkipped + ' throwRetains=' + arcThrowRetains + ' catchGuards=' + arcCatchGuards + ' wrappedBodies=' + arcWrappedBodies + ' bufferStores=' + arcBufferStores + ' destroyMarked=' + arcDestroyMarked + ' immortalRetains=' + arcImmortalRetains + ' weakStores=' + arcWeakStores)
+		// TEMP-DIAG: weak-field table + first unresolvable Dot bases.
+		var wtab: [String] = []
+		for nc in niceProject.classes {
+			if nc.weakFields.length > 0 {
+				wtab.push(nc.name + ': ' + nc.weakFields.join(','))
+			}
+		}
+		Fs.writeFileSync('arc-weak.log', 'WEAK-TABLE ' + wtab.join(' | ') + '\nMISSES ' + arcWeakMisses.join(' ; '))
 		return niceProject // Return mutated
 	}
 
@@ -88,6 +308,34 @@ class ArcInserter {
 									args[j] = temp // Replace arg with temp
 								}
 							}
+					case Call(func, args, expects, kind):
+						// Recurse into callee + args (nested closure bodies).
+						this.processExpression(func)
+						for arg in args { this.processExpression(arg) }
+						let pre_stmts = [] // Collect inserts for rvalue args
+					for j in args.length {
+						let arg = args[j]
+
+						// Temp + guard only for provably-+1 rvalues (fresh
+						// literals, Hexa-implemented calls): native/dynamic
+						// rvalues pass through unguarded — a guard would
+						// release what was never retained, while a missing
+						// one merely leaks until per-function conventions land.
+						if not this.isLvalueExpr(arg) and this.isOwnedInit(arg) {
+							let arg_type = this.niceTypeOf(arg) ?? this.getType(arg)
+
+							if arg_type != null and this.needsARC(arg_type) {
+								let temp_name = this.unique('temp_call_arg')
+								let temp = Expression.Ident(temp_name, arg_type)
+								pre_stmts.push(Statement.Const(temp_name, arg, arg_type)) // Materialize temp
+								pre_stmts.push(Statement.DeferRefDec([temp])) // Defer release
+								args[j] = temp // Replace arg with temp
+								arcCallTemps++
+							}
+						} else if not this.isLvalueExpr(arg) {
+							arcCallTempsSkipped++
+						}
+					}
 
 							if pre_stmts.length > 0 { // Insert before call
 								// TODO els.spliceAndInsert(i, 0, ...pre_stmts) // Insert array at i
@@ -110,8 +358,31 @@ class ArcInserter {
 										els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp])) // Dec old
 										i += 3 // Skip inserted
 									}
+								}
 							}
+						} else {
+							// Impure subscript (effectful base/index): same conservative
+							// shape as impure Dot — hoist RHS once, retain the temp,
+							// leak the old slot (never double-evaluate the subscript).
+							if this.isArrayOrMap(base) {
+								let slotT = this.elementTypeOf(base) ?? this.niceTypeOf(right) ?? this.getType(right)
+
+								if slotT != null and (this.needsARC(slotT) or this.isAnyLike(slotT)) {
+									let tempNew = this.unique('temp_new')
+									let nt = Expression.Ident(tempNew, slotT)
+									els.spliceAndInsert(i, 0, Statement.Const(tempNew, right, slotT))
+									els[i + 1] = Statement.Assign(left, nt, null)
+									els.spliceAndInsert(i + 2, 0, Statement.RefInc([nt]))
+									arcIndexStores++
+									i += 2 // Skip Const + guard (Assign needs no revisit)
+								}
+							}
+						}
+					}
 						case Assignop(left, op, right):
+							// Recurse into both sides (nested closure bodies).
+							this.processExpression(left)
+							if right != null { this.processExpression(right) }
 							// Similar to Assign, but for correctness, assume no for ARC or handle eval
 							// For now, insert similar, but op may use left, so eval right first? Complex, assume no Assignop for ARC
 							// To be correct: temp_old = left temp_right = eval Binop(left, op - =, right) assign left = temp_right inc left dec temp_old
@@ -213,6 +484,8 @@ class ArcInserter {
 			case StringIndex(expr, index, _): this.processExpression(expr) this.processExpression(index)
 			case Call(func, args, dataType, kind): this.processExpression(func) for arg in args { this.processExpression(arg) }
 			case If(cond, then, else_): this.processExpression(cond) this.processExpression(then) if else_ != null { this.processExpression(else_) }
+		case Elvis(a, b): this.processExpression(a as!Expression) this.processExpression(b as!Expression)
+		case UnsafeBitCast(inner, _): this.processExpression(inner)
 			case New(_, args, dataType): for arg in args { this.processExpression(arg) }
 			case Function(name, body, args, defaults, dataType): if body != null { this.processStatement(body) }
 			case Arrow(expr, args, defaults, types, rettype, dataType): this.processExpression(expr) // Body is expr
@@ -220,23 +493,714 @@ class ArcInserter {
 			case Array(els, dataType): for el in els { this.processExpression(el) }
 			case Object(_, els, types): for el in els { this.processExpression(el) }
 			case Map(keys, values, _, _, dataType): for k in keys { this.processExpression(k) } for v in values { this.processExpression(v) }
+			case Await(inner): this.processExpression(inner)
+			case Is(expr, _): this.processExpression(expr)
+			case RemoveNullability(expr, _): this.processExpression(expr)
+			case Assignop(target, _, value): this.processExpression(target) this.processExpression(value)
+			case NativeOperator(_, args, _, _, _): for a in args { this.processExpression(a) }
+			case EnumTag(expr): this.processExpression(expr)
+			case Enum(_, _, tag, args): this.processExpression(tag) for a in args { this.processExpression(a) }
+			case EnumParameter(expr, _): this.processExpression(expr)
+			case Spread(inner): this.processExpression(inner)
+			case StringConcatenation(left, right): this.processExpression(left) this.processExpression(right)
 			case _: // TODO
 		}
 	}
 
 	fun isLvalueExpr(e: Expression): Bool { // Helper for lvalue check on IR expr
 		switch e {
-			case Ident(_): return true // Simple var
-			case Dot(_, _): return true // Field access
-			case Index(_, _): return true // Array access
+			case Ident(_, _): return true // Simple var
+			case Dot(_, _, _): return true // Field access
+			case Index(_, _, _): return true // Array access
 			case Parenthesis(inner): return this.isLvalueExpr(inner) // Unwrap
 			case _: return false // Others rvalue
+		}
+	}
+
+	/// Lvalue returns that are unsafe to re-emit inside `RefInc` (a second
+	/// evaluation would run user code): only bare Idents and pure Dot chains
+	/// return directly. `Index` lowers to `get_` calls and impure Dots re-run
+	/// receivers, so those hoist once into a temp instead (same as the
+	/// impure-store arms). `Parenthesis` unwraps like `isLvalueExpr` does.
+	fun needsHoistForReturn(e: Expression): Bool {
+		if e == null {
+			return true
+		}
+
+		switch e {
+			case Ident(_, _):
+				return false
+			case This(_):
+				return false
+			case Dot(base, _, _):
+				return not this.isPureTargetRead(base)
+			case Parenthesis(inner):
+				return this.needsHoistForReturn(inner)
+			case _:
+				return true
+		}
+	}
+
+	/// Pure re-readable targets: ident chains (and `this`) with no calls or
+	/// indexing, so the ARC store sequence may read the target extra times
+	/// without duplicating effects. Index reads lower to `get_` calls and
+	/// stay out (container contracts own element lifetimes).
+	fun isPureTargetRead(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case Ident(_, _):
+				return true
+			case This(_):
+				return true
+			case Dot(base, _, _):
+				return this.isPureTargetRead(base)
+			case Parenthesis(inner):
+				return this.isPureTargetRead(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// Weak-link Dot stores (`@weak` instance fields, e.g. the intern-bucket
+	/// `next` chain): the slot owns nothing by design. ARC stores into it
+	/// plainly — no retain of the new value (or the entry could never reach
+	/// rc==0: every tail-appended interned string kept one unreleased share)
+	/// and no release of the old value (it was never retained for this slot;
+	/// releasing would underflow shares owned elsewhere). Unknown shapes
+	/// (unresolvable base class, missing entries) stay strong — an extra
+	/// retain only leaks while a missing one frees live.
+	fun isWeakDot(e: Expression): Bool {
+		switch e {
+			case Dot(base, name, _):
+				if let cn = this.classNameOf(this.niceTypeOf(base) ?? this.getType(base)) {
+					if let nc = this.findNiceClass(cn) {
+						return nc.weakFields.includes(name)
+					}
+				} else {
+					// TEMP-DIAG: what do unresolvable Dot bases look like?
+					if arcWeakLogged < 20 {
+						arcWeakLogged++
+						arcWeakMisses.push(this.describeWeakBase(base) + ' .' + name)
+					}
+				}
+			case _:
+		}
+		return false
+	}
+
+	/// TEMP-DIAG: one-line shape summary for a Dot base (no types).
+	fun describeWeakBase(b: Expression): String { switch b {
+		case Ident(n, _):
+			return 'Ident(' + n + ')'
+		case This(_):
+			return 'This'
+		case Dot(x, n, _):
+			return 'Dot(' + this.describeWeakBase(x) + '.' + n + ')'
+		case Parenthesis(i):
+			return 'Paren(' + this.describeWeakBase(i) + ')'
+		case _:
+			return 'other'
+	} return 'other' }
+
+	/// Innermost class name behind a value type, unwrapping the same
+	/// nullable/erased layers `needsARC` looks through (if-let temporaries
+	/// routinely keep the nullable shell). Null when unresolvable.
+	fun classNameOf(t: Type?): String? {
+		if t == null {
+			return null
+		}
+		switch t {
+			case ClassInstance(c, _):
+				return c.name
+			case Class(c):
+				return c.name
+			case Nullable(inner):
+				return this.classNameOf(inner)
+			case UnknownNullable(inner):
+				return this.classNameOf(inner)
+			case Unknown(inner):
+				return this.classNameOf(inner.value)
+			case _:
+				return null
+		}
+	}
+
+	/// True for calls that provably return +1: bare calls into
+	/// Hexa-implemented globals (closures included), or method calls that
+	/// resolve to a Hexa-implemented (non-null-body) method. Native/declare,
+	/// dynamic and unresolvable callees keep the retaining path — their
+	/// conventions are unknown, and an extra inc only leaks while a
+	/// missing one frees live.
+	fun isPlusOneCall(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case Ident(name, _):
+				return arcHexaReturns.get(name) != null
+			case Dot(base, name, _):
+				return this.hexaMethodReturns(base, name) != null
+			case Parenthesis(inner):
+				return this.isPlusOneCall(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// Declared return type of a provably-+1 call, or null (retain then).
+	/// Ident consults the Hexa-globals table; Dot resolves through the
+	/// receiver's class like `hexaMethodReturns` does.
+	fun hexaCalleeReturns(callee: Expression): Type? {
+		if callee == null {
+			return null
+		}
+
+		switch callee {
+			case Ident(name, _):
+				return arcHexaReturns.get(name)
+			case Dot(base, name, _):
+				return this.hexaMethodReturns(base, name)
+			case Parenthesis(inner):
+				return this.hexaCalleeReturns(inner)
+			case _:
+				return null
+		}
+	}
+
+	/// Finds a NiceClass by (possibly renamed) name.
+	fun findNiceClass(name: String): NiceClass? {
+		if name == null {
+			return null
+		}
+
+		for c in niceProject.classes {
+			if c.name == name {
+				return c
+			}
+		}
+
+		return null
+	}
+
+	/// Resolves `base.name` through the receiver's class (following
+	/// `extend`) to a Hexa-implemented method's declared return type.
+	/// Null for natives/declares/dynamics/unresolvable shapes.
+	/// Static access lands here the same way (the base carries the class).
+	fun hexaMethodReturns(base: Expression, name: String): Type? {
+		if base == null or name == null {
+			return null
+		}
+
+		let bt = this.niceTypeOf(base) ?? this.getType(base)
+		var clsName String? = null
+
+		switch bt {
+			case ClassInstance(c, _):
+				clsName = c.name
+			case Class(c):
+				clsName = c.name
+			case _:
+				return null
+		}
+
+		var depth = 0
+		var cur String? = clsName
+
+		while cur != null and depth < 64 {
+			depth++
+
+			if cur == null {
+				return null
+			}
+
+			let nc = this.findNiceClass(cur as!String)
+
+			if nc == null {
+				return null
+			}
+
+			if let ncc = nc {
+				for m in ncc.methods { switch m {
+					case Function(mname, body, _, _, ftype, _, _):
+						if mname == name {
+							if body == null {
+								return null
+							}
+
+							switch ftype {
+								case Function(_, returns, _):
+									return returns
+								case _:
+									return null
+							}
+						}
+					case _:
+				} }
+
+				for m in ncc.staticMethods { switch m {
+					case Function(mname, body, _, _, ftype, _, _):
+						if mname == name {
+							if body == null {
+								return null
+							}
+
+							switch ftype {
+								case Function(_, returns, _):
+									return returns
+								case _:
+									return null
+							}
+						}
+					case _:
+				} }
+
+				cur = ncc.extend
+			}
+		}
+
+		return null
+	}
+
+	/// Fresh +1 values need no entry retain — ownership transfers to the
+	/// binding, which only guards the release. `new` sets rc=1 at birth;
+	/// array/object/map literals build through `$new_` the same way
+	/// (untyped `{}` lowers to a null stub, and the guard skips null).
+	/// Hexa-global calls return +1 by construction (B3); native, Dot and
+	/// unknown callees keep the retain (their conventions are unknown).
+	/// An `If` whose BOTH branches are fresh-owned is itself +1 (exactly
+	/// one branch runs and yields its +1 — the ternary allocates nothing).
+	/// Everything else (borrows, awaits, half-fresh ternaries) keeps the
+	/// retain: an extra inc only leaks, a missing one frees live.
+	fun isOwnedInit(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case New(_, _, _):
+				return true
+			case Array(_, _):
+				return true
+			case Object(_, _, _):
+				return true
+			case Map(_, _, _, _, _):
+				return true
+			case Call(callee, _, _, _, _):
+				return this.isPlusOneCall(callee)
+			case Parenthesis(inner):
+				return this.isOwnedInit(inner)
+			// NOTE (reverted 2026-10-29): a Binop-Add transfer arm lived here
+			// (fresh when a String operand is present). It regressed boot:
+			// `String_$combine_+0x130` AV-read `FFFFFFFFFFFFFFFF` from
+			// `bootProbe_` — a `+1` was skipped for a value genC did NOT
+			// route through `combine_` (dynamic `Any`/null/lost-map shapes
+			// take the proxy/raw-`+` path), so the sweep freed live.
+			// Keep the retaining path until genC keys `+` on the same
+			// declared-type predicate (like fat `==`/`!=` already does).
+		// `StringConcatenation` stays: genC unconditionally emits
+		// `combine_` for it, so +1 transfer is exact (no producer
+		// exists today — documents the contract for when one does).
+		case StringConcatenation(_, _):
+				return true
+			case If(_, then, else_, _):
+				// Both-branch-fresh ⇒ the selected branch's +1 is the
+				// value's +1. `isFreshOwned` (not `isOwnedInit`) so an
+				// lvalue branch (borrowed slot read) keeps the retain.
+				if else_ == null {
+					return false
+				}
+				return this.isFreshOwned(then) and this.isFreshOwned(else_ as!Expression)
+			case _:
+				return false
+		}
+	}
+
+	/// Transfer-safe stores: a fresh rvalue +1 (factory, literal, Hexa call
+	/// result) cannot alias the overwritten slot, so the store takes the +1
+	/// with no extra retain. Lvalue-shaped rights stay on the retaining path
+	/// even when reported +1 (a `Dot` field or shadowed global could read back
+	/// the very slot being stored — retaining there only leaks, skipping
+	/// would free live once the sweep lands).
+	fun isFreshOwned(e: Expression): Bool {
+		return this.isOwnedInit(e) and not this.isLvalueExpr(e)
+	}
+
+	/// Pure index shapes: re-evaluation duplicates no effects.
+	/// Calls, awaits, ternaries and anything else stay out (an index
+	/// evaluated twice must not run user code twice).
+	fun isPureIndex(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case Int(_):
+				return true
+			case String(_):
+				return true
+			case Float(_):
+				return true
+			case True | False:
+				return true
+			case Null(_):
+				return true
+			case Ident(_, _):
+				return true
+			case This(_):
+				return true
+			case Dot(base, _, _):
+				return this.isPureTargetRead(base)
+			case Binop(a, _, b):
+				return this.isPureIndex(a) and this.isPureIndex(b)
+			case Parenthesis(inner):
+				return this.isPureIndex(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// Element type behind an ARC-tracked container slot (Array<T> is T,
+	/// Map<K, V> is V). Raw buffers and unknown shapes return null so the
+	/// caller falls back to the rhs type (old behavior, F7.1 owns them).
+	fun elementTypeOf(base: Expression): Type? {
+		if base == null {
+			return null
+		}
+
+		let bt = this.niceTypeOf(base)
+
+		if bt == null {
+			return null
+		}
+
+		switch bt {
+			case ClassInstance(c, generics):
+				if c.name == 'Array', generics.length > 0 {
+					return generics[0]
+				}
+
+				if c.name == 'Map', generics.length > 1 {
+					return generics[1]
+				}
+			case _:
+				return null
+		}
+
+		return null
+	}
+
+	/// True for the two ARC-tracked element containers. Native buffers
+	/// (`ArrayByValue`, raw pointers) and unknown shapes stay out —
+	/// their slots carry no headers and must never be counted.
+	fun isArrayOrMap(base: Expression): Bool {
+		if base == null {
+			return false
+		}
+
+		let bt = this.niceTypeOf(base)
+
+		if bt == null {
+			return false
+		}
+
+		switch bt {
+			case ClassInstance(c, _):
+				return c.name == 'Array' or c.name == 'Map'
+			case _:
+				return false
+		}
+	}
+
+	/// Field names of the class currently processed (from the escape-census
+	/// key `Name_$method`; null at global scope). Scope-aware renames keep
+	/// locals from colliding, so a bare `ArrayPointer` Ident matching a field
+	/// name IS the container's own buffer (growth `newData` and slices stay
+	/// out as locals).
+	fun isOwnField(name: String): Bool {
+		if let k = arcFuncKey {
+			let sep = k.indexOf('_$')
+			if sep != -1 {
+				if let cls = this.findNiceClass(k.slice(0, sep)) {
+					for v in cls.vars { switch v {
+						case Var(fname, _, _):
+							if fname == name {
+								return true
+							}
+						case Const(fname, _, _):
+							if fname == name {
+								return true
+							}
+						case _:
+							continue
+					} }
+				}
+			}
+		}
+		return false
+	}
+
+	/// Raw container-buffer slot type: `ArrayPointer<T>` stores rooted at the
+	/// container itself (`this.data` or a bare own-field Ident) with managed
+	/// `T`. Local buffers (growth copies, slices, FFI boxes) and foreign
+	/// shapes stay out — moves need no ownership change. Returns the element
+	/// type or null.
+	fun containerBufferElement(base: Expression): Type? {
+		if base == null {
+			return null
+		}
+
+		let bt = this.niceTypeOf(base)
+
+		if bt == null {
+			return null
+		}
+
+		switch bt {
+			case ClassInstance(c, generics):
+				if c.name != 'ArrayPointer' or generics.length == 0 {
+					return null
+				}
+
+				switch base {
+					case Ident(name, _):
+						if not this.isOwnField(name) {
+							return null
+						}
+					case Dot(root, _, _):
+						switch root {
+							case This(_):
+							case Ident(name, _):
+								if not this.isOwnField(name) {
+									return null
+								}
+							case _:
+								return null
+						}
+					case _:
+						return null
+				}
+
+				return generics[0]
+			case _:
+				return null
+		}
+	}
+
+	/// Shared retain/release shape for container element stores (Array/Map
+	/// slots and raw container buffers): spill the value once, read the old
+	/// slot, store the temp (single rhs eval), take +1 for fresh rvalues and
+	/// retain for borrows, release the old at scope end. Returns the skip
+	/// count for the statement cursor.
+	fun emitElementStore(els: [Statement], i: Int, left: Expression, right: Expression, slotT: Type): Int {
+		let tempNew = this.unique('temp_new')
+		let tempOld = this.unique('temp_old')
+		let nt = Expression.Ident(tempNew, slotT)
+		let ot = Expression.Ident(tempOld, slotT)
+		els.spliceAndInsert(i, 0, Statement.Const(tempNew, right, slotT)) // Eval value once
+		els.spliceAndInsert(i + 1, 0, Statement.Const(tempOld, left, slotT)) // Read old slot
+		els[i + 2] = Statement.Assign(left, nt, null) // Store the temp (no second rhs eval)
+
+		if this.isFreshOwned(right) {
+			els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([ot])) // Transfer +1, release old only
+			return 3
+		} else {
+			els.spliceAndInsert(i + 3, 0, Statement.RefInc([nt])) // Container owns +1
+			els.spliceAndInsert(i + 4, 0, Statement.DeferRefDec([ot])) // Release old at scope end
+			return 4
+		}
+	}
+
+	/// Nice-carried type (set by the normalizer from the typer, preserved
+	/// across pass rebuilds that drop expressionType map entries — reflect
+	/// and friends rebuild Dot/Call/New/... nodes without transferring the
+	/// map, so the map only survives for identity-kept Idents).
+	/// Returns null when the type was never inferred or the shape carries
+	/// none (literals/immortals need no counting anyway).
+	fun niceTypeOf(e: Expression): Type? {
+		if e == null {
+			return null
+		}
+
+		switch e {
+		case Ident(_, dataType):
+			return dataType
+		case This(me):
+			return me
+		case String(_):
+			// String literals are immortal interned heap objects (NOT
+			// immediates): a `return 'lit'` with a lost map entry must still
+			// take the caller's +1, or the transfer release zeroes the
+			// shared global and the sweep frees it (UAF + mojibake).
+			// Scalar literal shapes need no arm (never counted).
+			return typer.typeString
+			case Dot(_, _, result):
+				return result
+			case Call(_, _, result, _, _):
+				return result
+			case New(_, _, result):
+				return result
+			case Binop(_, _, _, result):
+				return result
+			case Index(_, _, result):
+				return result
+			case StringIndex(_, _, result):
+				return result
+			case If(_, _, _, result):
+				return result
+			case Parenthesis(inner):
+				return this.niceTypeOf(inner)
+			case UnsafeBitCast(_, to):
+				return to
+			case RemoveNullability(_, result):
+				return result
+			case NativeOperator(_, _, _, _, result):
+				return result
+			case Assignop(target, _, _):
+				return this.niceTypeOf(target)
+			case _:
+				return null
+		}
+	}
+
+	/// Probe: counts bare (non-Block-member) returns that the Block-while
+	/// prologue cannot reach (no sibling slot for the +1). Counts any shape
+	/// that would take a retain (lvalue managed, or non-lvalue non-fresh
+	/// managed/Any/fat) — not just lvalues. Decides whether bare-return +1
+	/// needs the parent-rebuild machinery.
+	fun countBareReturn(s: Statement) {
+		if s == null {
+			return
+		}
+
+		switch s {
+			case Return(expr):
+				if expr != null {
+					let retType = this.niceTypeOf(expr) ?? this.getType(expr)
+					if this.needsRefRetain(retType) and (this.isLvalueExpr(expr) or not this.isFreshOwned(expr)) {
+						arcBareReturns++
+					}
+				}
+			case _: // Not a bare return
+		}
+	}
+
+	/// Fat (function-typed) values need their ENV half retained, never the
+	/// code pointer (D1+D3). Mirrors genC's `isFatValueType`: plain `Function`
+	/// plus nullable wrappers. Unknown/dynamic shapes stay out (their boxes
+	/// and pairs are container-contract territory, F7.1).
+	fun needsFatRetain(dataType: Type): Bool {
+		if dataType == null {
+			return false
+		}
+
+		switch dataType {
+			case Function(_, _, _):
+				return true
+			case Nullable(inner):
+				return this.needsFatRetain(inner)
+			case UnknownNullable(inner):
+				return this.needsFatRetain(inner)
+			case Unknown(inner):
+				return this.needsFatRetain(inner.value)
+			case _:
+				return false
+		}
+	}
+
+	/// Retain gate: managed heap objects, fat env halves, or Any-shaped
+	/// slots that may hold managed payloads (counted at runtime via the
+	/// `Any_isCounted_` guard — immediates/Bool singletons/null skip it).
+	/// Leak-only-if-over-conservative (extra shares pin longer); never a
+	/// missing share.
+	fun needsRefRetain(dataType: Type): Bool {
+		return this.needsARC(dataType) or this.needsFatRetain(dataType) or this.isAnyLike(dataType)
+	}
+
+	/// Any-shaped positions (`Any`, its nullables, erased generics) may carry
+	/// managed payloads that the static type cannot see (container elements,
+	/// `Any` fields/params/returns, dynamic values). They must be counted
+	/// through the runtime guard, never skipped and never counted blind.
+	/// `null` (fully erased) stays uncounted: without any static hint the
+	/// guarded form could misread a widened scalar as a pointer — leak-safe,
+	/// and returns already prove `returnUnknown == 0` on real corpora.
+	fun isAnyLike(dataType: Type): Bool {
+		if dataType == null {
+			return false
+		}
+
+		if dataType == this.typer.typeAny {
+			return true
+		}
+
+		switch dataType {
+			case Nullable(inner):
+				return this.isAnyLike(inner)
+			case UnknownNullable(inner):
+				return this.isAnyLike(inner)
+			case Unknown(inner):
+				return this.isAnyLike(inner.value)
+			case _:
+				return false
 		}
 	}
 
 	fun needsARC(dataType: Type): Bool { // As provided
 		switch dataType {
 			case ClassInstance(c, _): return true // TODO c.api == ClassBinaryInterface.Normal // Heap class
+			case ClassInstance(c, _):
+				// Only vtable-managed heap classes carry the `rc_` header that
+				// `hexaRef`/`hexaUnref` count (D6). Everything else must never
+				// be retained: nameless synthetics (incl. `Any`, whose values
+				// may be tagged immediates or singletons), C scalars and
+				// inline layouts (plain values/foreign memory — retaining the
+				// value as a pointer corrupts), and `@struct`/`@union` layouts
+				// (exact C ABI, no header recess by design). The final gate —
+				// membership in the emitted NiceClasses — mirrors the C
+				// printer one-to-one: `declare`/foreign types never reach the
+				// printer, so they can never carry `rc_`.
+				if c.name == null {
+					return false
+				}
+
+				for s in arcBareNames {
+					if c.name == s {
+						return false
+					}
+				}
+
+				if c.external {
+					return false
+				}
+
+				if c.parent != null {
+					if let atts = niceProject.mapDecorators.get(c.parent) {
+						if Decorator.getDecorator(atts, 'struct') != null {
+							return false
+						}
+
+						if Decorator.getDecorator(atts, 'union') != null {
+							return false
+						}
+					}
+				}
+
+				if not rcNamesBuilt {
+					rcNamesBuilt = true
+
+					for nc in niceProject.classes {
+						rcClassNames.set(nc.name, true)
+					}
+				}
+
+				if rcClassNames.get(c.name) == null {
+					return false
+				}
+
+				return true
 			case Nullable(inner): return this.needsARC(inner) // Recurse nullable
 			case UnknownNullable(inner): return this.needsARC(inner) // Recurse nullable
 			case Unknown(inner): return this.needsARC(inner.value) // Recurse nullable
