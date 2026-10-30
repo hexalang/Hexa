@@ -238,9 +238,13 @@ class Path {
 	}
 	static fun join(...path: String): String {
 		var acc = ''
-		for p in path {
-			if p.length == 0 { continue }
-			if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
+		// Index loop (not `for p in path`): direct rest iteration lowers to
+		// an empty loop on native — length/index lower via $nrest/$rest.
+		for i in path.length {
+			if let p = path[i] {
+				if p.length == 0 { continue }
+				if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
+			}
 		}
 		if acc.length == 0 { return '.' }
 		return normalize(acc)
@@ -273,7 +277,7 @@ class Fs {
 		while true {
 			let piece = Buffer.alloc(65536)
 			var gotBox ArrayByValue<DWORD, 1> = [0]
-			let ok = readFileWin(h as!HANDLE, piece.bytes, 65536u32, gotBox as!ArrayPointer<DWORD>, null)
+			let ok = readFileWin(h as!HANDLE, piece.bytes, 65536u32, gotBox as!LPDWORD, null)
 			let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
 			if ok == 0 or got <= 0 { break }
 			piece.length = got
@@ -300,7 +304,7 @@ class Fs {
 			let piece = Buffer.alloc(n)
 			for k in n { piece.bytes[k] = bytes[at + k] as!UInt8 }
 			var doneBox ArrayByValue<DWORD, 1> = [0]
-			let ok = writeFileWin(handle, piece.bytes, n as!UInt32, doneBox as!ArrayPointer<DWORD>, null)
+			let ok = writeFileWin(handle, piece.bytes, n as!UInt32, doneBox as!LPDWORD, null)
 			if ok == 0 { break }
 			at = at + ((doneBox as!ArrayPointer<DWORD>)[0] as!Int)
 		}
@@ -375,10 +379,48 @@ class Fs {
 			deleteFileW(path.utf16())
 		}
 	}
-	static fun lstatSync(path: String): Any { return null }
-	// Positional fd layer lands with the handle-table design (later)
-	static fun readSync(fd: Int, buffer: Buffer, offset: Int, length: Int, position: Int): Int { return 0 }
-	static fun openSync(path: String, flags: String): Int { return 0 }
+	static fun lstatSync(path: String): Any { return statInfoSync(path) as Any }
+	// Full stat (size + mtime need a real handle; dirs report size 0).
+	static fun statInfoSync(path: String): FsStatInfo {
+		let info = FsStatInfo()
+		let attrs = getFileAttributesW(path.utf16())
+		if attrs == invalidFileAttributes { return info }
+		info.exists = true
+		info.isDirectory = (attrs and fileAttributeDirectory) != 0u32
+		info.isFile = not info.isDirectory
+		if info.isFile {
+			let h = hexaCreateFileRead(path.utf16())
+			if not winHandleFailed(h as!HANDLE) {
+				var highBox ArrayByValue<DWORD, 1> = [0]
+				let lo = getFileSizeWin(h as!HANDLE, highBox as!LPDWORD)
+				if lo != invalidFileSize or getLastErrorWin() == 0u32 {
+					info.size = (lo as!Float) + ((highBox as!ArrayPointer<DWORD>)[0] as!Float) * 4294967296.0
+				}
+				var writeBox ArrayByValue<UInt8, 8> = [0]
+				for i in 8 { writeBox[i] = 0 }
+				if getFileTimeWin(h as!HANDLE, null, null, writeBox as!LPFILETIME) != 0 {
+					let ticks = readU64LE(writeBox as!ArrayPointer<UInt8>, 0)
+					if ticks >= 116444736000000000u64 {
+						info.mtimeMs = ((ticks - 116444736000000000u64) as!Float) / 10000.0
+					}
+				}
+				closeHandleWin(h as!HANDLE)
+			}
+		}
+		return info
+	}
+	// Positional fd layer over the handle table below (open keeps it open).
+	static fun readSync(fd: Int, buffer: Buffer, offset: Int, length: Int, position: Int): Int { return fsReadFd(fd, buffer, offset, length, position) }
+	static fun openSync(path: String, flags: String): Int { return fsOpenFd(path, flags) }
+	// Stream factory — encoding travels on the stream (default utf-8).
+	static fun createReadStream(path: String, options: Any? = null): FsReadStream {
+		let stream = FsReadStream(path)
+		try {
+			let enc = (options as Any).encoding
+			if enc != null { stream.encoding = enc as String }
+		} catch e Error { }
+		return stream
+	}
 	// Sync-backed promise surface (settles immediately; .then/await land in F9)
 	static let promises: FsPromisesImpl = FsPromisesImpl()
 }
@@ -398,20 +440,25 @@ class FsDirentInfo {
 class FsPromisesImpl {
 	new () { }
 	fun readFile(path: String, encoding: String): Promise<String> { return Promise.resolve(Fs.readFileTextSync(path, encoding)) }
+	// Settled immediately (sync Win32 write already done) — the old
+	// `Promise<Void>(fun(resolve){})` never settled, so every `await`
+	// suspended forever (leaked coroutine + data; sessionWriteRun never
+	// reached rename, tmp files leaked). Executor runs sync; `resolve(null)`
+	// settles (Any?-typed, Void has no C value). Js-identical (Node settles).
 	fun writeFile(path: String, content: String, encoding: String): Promise<Void> {
 		Fs.writeFileSync(path, content, encoding)
-		return Promise<Void>(fun (resolve) { })
+		return Promise<Void>(fun (resolve) { resolve(null) })
 	}
 	fun rename(oldPath: String, newPath: String): Promise<Void> {
 		Fs.renameSync(oldPath, newPath)
-		return Promise<Void>(fun (resolve) { })
+		return Promise<Void>(fun (resolve) { resolve(null) })
 	}
 	fun readdir(path: String, options: Any? = null): Promise<[FsDirentInfo]> { return Promise.resolve(Fs.readdirTypesSync(path)) }
 	fun mkdir(path: String, options: Any? = null): Promise<Void> {
 		Fs.mkdirSync(path, options)
-		return Promise<Void>(fun (resolve) { })
+		return Promise<Void>(fun (resolve) { resolve(null) })
 	}
-	fun stat(path: String): Promise<Any> { return Promise<Any>(fun (resolve) { }) }
+	fun stat(path: String): Promise<Any> { return Promise.resolve(Fs.statInfoSync(path) as Any) }
 }
 
 // Readable-stream shape for line readers (flows with the fd/event work).
@@ -433,9 +480,22 @@ class FsReadStream {
 	// Attached line reader (set by ReadlineInterface — typed, no closures).
 	var lineReader: ReadlineInterface? = null
 	new (path: String) { this.path = path }
-	fun on(event: String, listener: Any): Void { }
+	fun on(event: String, listener: Any): Void {
+		if event == 'data' {
+			dataListeners.push(listener)
+			ensureStarted()
+		} else if event == 'end' {
+			endListeners.push(listener)
+		} else if event == 'error' {
+			errorListeners.push(listener)
+		}
+	}
+	fun removeAllListeners(event: String = ''): Void {
+		if event == '' or event == 'data' { dataListeners = [] }
+		if event == '' or event == 'end' { endListeners = [] }
+		if event == '' or event == 'error' { errorListeners = [] }
+	}
 	fun destroy(): Void { closed = true }
-	fun removeAllListeners(event: String = ''): Void { }
 	fun close(): Void { closed = true }
 	fun pause(): Void { flowing = false }
 	fun resume(): Void {
@@ -554,17 +614,17 @@ class FsModule {
 		if cb != null { cb(null, entries) }
 		return null
 	}
-	// ── Compile-only stubs (M6 fd/stream work) ──
-	fun statSync(path: String, options: Any? = null): Any { return null }
-	fun rmdirSync(path: String, options: Any? = null): Void { }
-	fun unlinkSync(path: String): Void { }
-	fun realpathSync(path: String, options: Any? = null): String { return path }
-	fun openSync(path: String, flags: String, mode: Int? = null): Int { return 0 }
-	fun closeSync(fd: Int): Void { }
-	fun readSync(fd: Int, buffer: Any, offset: Int, length: Int, position: Int? = null): Int { return 0 }
-	fun writeSync(fd: Int, buffer: Any, offset: Int? = null, length: Int? = null, position: Int? = null): Int { return 0 }
-	fun fstatSync(fd: Int): Any { return null }
-	fun createReadStream(path: String, options: Any? = null): Any { return null }
+	// ── fd table + stat + streams (real Win32; handles stay open across calls) ──
+	fun statSync(path: String, options: Any? = null): Any { return Fs.statInfoSync(path) as Any }
+	fun rmdirSync(path: String, options: Any? = null): Void { removeDirectoryW(path.utf16()) }
+	fun unlinkSync(path: String): Void { deleteFileW(path.utf16()) }
+	fun realpathSync(path: String, options: Any? = null): String { return fsRealpath(path) }
+	fun openSync(path: String, flags: String, mode: Int? = null): Int { return fsOpenFd(path, flags) }
+	fun closeSync(fd: Int): Void { fsCloseFd(fd) }
+	fun readSync(fd: Int, buffer: Any, offset: Int, length: Int, position: Int? = null): Int { return fsReadFd(fd, buffer, offset, length, position) }
+	fun writeSync(fd: Int, buffer: Any, offset: Int? = null, length: Int? = null, position: Int? = null): Int { return fsWriteFd(fd, buffer, offset, length, position) }
+	fun fstatSync(fd: Int): Any { return fsFstatFd(fd) as Any }
+	fun createReadStream(path: String, options: Any? = null): Any { return Fs.createReadStream(path, options) }
 }
 
 // path — mirrors library/nodejs `declare class PathModule`.
@@ -584,23 +644,29 @@ class PathModule {
 	// Rest args materialize by iteration (the shape the static Path.join
 	// already uses — spread-forwarding `Path.join(...path)` is not emitted
 	// for native bodies), so the loop is duplicated verbatim here.
+	// NOTE index loop, not `for p in path`: direct rest iteration lowers to
+	// an empty loop on native — length/index lower via $nrest/$rest.
 	fun join(...path: String): String {
 		var acc = ''
-		for p in path {
-			if p.length == 0 { continue }
-			if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
+		for i in path.length {
+			if let p = path[i] {
+				if p.length == 0 { continue }
+				if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
+			}
 		}
 		if acc.length == 0 { return '.' }
 		return Path.normalize(acc)
 	}
 	// Left-to-right accumulate (an absolute segment resets the accumulator),
 	// then the static resolve. Matches every Perfide shape: resolve(root, rel)
-	// and resolve(absOrRel).
+	// and resolve(absOrRel). Index loop — see join above.
 	fun resolve(...path: String): String {
 		var acc = ''
-		for p in path {
-			if p.length == 0 { continue }
-			if acc.length == 0 or Path.isAbsolute(p) { acc = p } else { acc = acc + '\\' + p }
+		for i in path.length {
+			if let p = path[i] {
+				if p.length == 0 { continue }
+				if acc.length == 0 or Path.isAbsolute(p) { acc = p } else { acc = acc + '\\' + p }
+			}
 		}
 		return Path.resolve(acc)
 	}
