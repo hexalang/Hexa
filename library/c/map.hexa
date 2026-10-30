@@ -20,11 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// `Map` is a real (non-`declare`) generic class backed by two parallel arrays;
+// instantiated per `<K, V>` by the template machinery (`Map_$K_$V_` in the C
+// output). Nullability stays genuine: `get` really returns `V?`.
 @final // TODO optimize into non-virtual calls
 @asIs
 class Map<K, V> {
 	private var hasNull = false
 	private var nullValue = null
+	// Number of live entries (approximate — kept in sync by `set`/`delete`)
+	var size: Int = 0
 	// TODO `@rename('key_')` causes double-renaming
 	// @rename('key')
 	// TODO `private` parsed as a separate expression, consuming all the decorators
@@ -57,6 +62,9 @@ class Map<K, V> {
 
 	fun set(k: K, v: V): Void {
 		if k == null {
+			if not this.hasNull {
+				size = size + 1
+			}
 			this.hasNull = true
 			this.nullValue = v
 			return
@@ -68,12 +76,14 @@ class Map<K, V> {
 		} else {
 			this.key.push(k)
 			this.value[this.key.length - 1] = v
+			size = size + 1
 		}
 	}
 
 	fun delete(k: K): Bool {
 		if k == null {
 			let had = this.hasNull
+			if had { size = size - 1 }
 			this.hasNull = false
 			this.nullValue = null
 			return had
@@ -84,6 +94,7 @@ class Map<K, V> {
 		let index = this.key.indexOf(k)
 		this.value[index] = null
 		this.key[index] = null
+		if index != -1 { size = size - 1 }
 		// TODO remove key to avoid leak & has
 		return index != -1
 	}
@@ -114,7 +125,13 @@ class Map<K, V> {
 		//return this.hasNull? [...this.key.filter(k => k != null), null] : this.key.filter(k => k != null)
 	}
 
+	// Values in key order (JS `Map.values()` counterpart, may contain nulls)
+	fun values(): [V] {
+		return this.value
+	}
+
 	/// Do not use other than in code generator
+	/// Implies that length is known from instance
 	private fun from(count: Int, payloadKeys: ArrayPointer<K>, payloadValues: ArrayPointer<V>) {
 		for i in count {
 			set(payloadKeys[i], payloadValues[i])
