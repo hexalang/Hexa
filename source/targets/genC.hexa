@@ -1962,29 +1962,57 @@ class GenCxx {
 				// case ClassInstance(_, _): return 'virtual'
 				// case Class(_, _): return 'static'
 				// }
-				switch kind {
+				// S3a dual-mode TOP (before kind-switch: Static early-returns
+				// would bypass the fat logic below). `Closure` → fat impl +
+				// global/nullptr env; untagged fat-impl calls (thin-wrapper
+				// inners carry explicit env) print fat with explicit args.
+				if kind == CallKind.Closure {
+					if closureBaseName(e) != null {
+						return printClosureFatCall(e, args, expects)
+					}
+				}
+
+				if closureBaseName(e) != null {
+					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, expectsOrDerived(expects, e))
+				}
+				// S3b: calls through inline-struct fields print thin-member +
+				// explicit env (structs emit single members, no pairs).
+				if isStructDotCall(e) {
+					return printStructDotCall(e, args, expectsOrDerived(expects, e))
+				}
+				// S3b: method Dots typed as non-virtual still dispatch via the
+				// vtable (the typer only marks some sites VirtualMethod).
+				var effKind = effCallKind(e, kind)
+				// S3b F1.6: fat pair-held callees (params/locals/globals, field
+				// Dots) call `ptr_(env_, args...)`. Methods stay on the vtable
+				// path (`VirtualMethod` excluded).
+				if effKind != CallKind.VirtualMethod, isFatCallee(e) {
+					return printFatValueCall(e, args, expectsOrDerived(expects, e))
+				}
+
+				switch effKind {
 					// TODO error on (_,_) if simple enum case CallKind.VirtualMethod(_, _): return '*.virtual'
 					case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
-					// Dynamic receivers (`Any`/erased) have no
-						// vtable — the Dot path prints the reflection
-						// stub call instead (F10). F10.2: route through the
-						// dynamic call slot (bags may hold the method as a
-						// pair; otherwise the legacy proxy no-ops as before).
-						// A raw `Any_dynGet_(...)(args)` call would not even
-						// compile (`Any_*` is not callable, C2064).
-						if isDynamic(valueType(expr)) {
-							return printDynamicCall(e, args, expectsOrDerived(expects, e))
-						}
-
-							// Scalar receivers (`x.toString()` on `Int`) have
-							// no vtable either — same helper as expressions
-							if name == 'toString' {
-								if let helper = scalarToString(printExpression(expr), cShape(expr)) {
-									return helper
+								// Dynamic receivers (`Any`/erased) have no
+								// vtable — the Dot path prints the reflection
+								// stub call instead (F10). F10.2: route through the
+								// dynamic call slot (bags may hold the method as a
+								// pair; otherwise the legacy proxy no-ops as before).
+								// A raw `Any_dynGet_(...)(args)` call would not even
+								// compile (`Any_*` is not callable, C2064).
+								if isDynamic(valueType(expr)) {
+									return printDynamicCall(e, args, expectsOrDerived(expects, e))
 								}
-							}
+
+								// Scalar receivers (`x.toString()` on `Int`) have
+								// no vtable either — same helper as expressions
+								if name == 'toString' {
+									if let helper = scalarToString(printExpression(expr), cShape(expr)) {
+										return helper
+									}
+								}
 
 								let temp = tempId++
 
@@ -2004,10 +2032,10 @@ class GenCxx {
 
 								if isStruct {
 									// TODO add `, expects` to other `printCallArgumentsVirtual` calls
-									return omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)
+									return omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expectsOrDerived(expects, e))
 								}
 
-								return '_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expects)
+								return '_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expectsOrDerived(expects, e))
 								// return
 								// '\{\n' + tabs +
 								// '\t' + stringifyType(getType(expr)) + ' _$\(temp) = ' + printExpression(expr) + ';\n' + tabs +
@@ -2019,9 +2047,52 @@ class GenCxx {
 						// case _: return '*.???' + kind
 				}
 				// '/*Statement.Call*/' + Type.stringify(type)
-				return printExpression(e) + printCallArguments(args, expects)
+				// S3a dual-mode: `CallKind.Closure` → fat impl + global/nullptr env
+				// (direct calls); untagged direct calls to a fat impl (thin-
+				// wrapper inners carry an explicit env) print fat with explicit
+				// args and NO auto-env. Stored values print as thin wrappers
+				// via `printExpression Ident` and never reach here as callees.
+				if kind == CallKind.Closure {
+					if closureBaseName(e) != null {
+						return printClosureFatCall(e, args, expects)
+					}
+				}
+
+				if closureBaseName(e) != null {
+					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, expectsOrDerived(expects, e))
+				}
+				// NOTE an `Any_*`-shaped callee is a raw pointer — `ptr(args)`
+				// is not valid C++ even with `Any_::operator()`, so it wraps
+				// in the call proxy (declared types decide, see helper)
+				if isDynamicCallee(e) {
+					return printDynamicCall(e, args, expectsOrDerived(expects, e))
+				}
+
+				return '/*DYNRAW*/' + printExpression(e) + printCallArguments(args, expectsOrDerived(expects, e))
 
 			case Try(expr, t, v, catches):
+				// C++ mode: native `try`/`catch` with typed handlers — unmatched
+				// exception types propagate automatically, no rethrow chain needed
+				if cpp {
+					pushTab()
+					var rc = 'try \{\n' + tabs
+					rc += printStatement(expr)
+					popTab()
+
+					for i in catches.length {
+						// Typed handler: matches `throw`ed values of the declared type
+						rc += '\n' + tabs + '\} catch (' + stringifyType(t[i]) + ' ' + v[i] + '_) \{ '
+						pushTab()
+						let _insideCatch = insideCatch
+						insideCatch = true
+						rc += printStatement(catches[i])
+						insideCatch = _insideCatch
+						popTab()
+					}
+
+					return rc + '\n' + tabs + '\}'
+				}
+
 				pushTab()
 				var r = '_try \{\n' + tabs
 				// TODO transfer &$try as function argument
@@ -2110,6 +2181,8 @@ class GenCxx {
 
 			case For(name, over, by, reverse):
 				return 'for (FIXME TODO struct Any_* ' + name + '_; ' + printExpression(over) + ';) ' + printStatement(by)
+				// `for-in` must be lowered to `while` by the normalizer
+				throw 'For statement reached codegen — normalizer must lower it first'
 
 			case Increment(e):
 				return printExpression(e) + '++'
@@ -2206,6 +2279,37 @@ class GenCxx {
 				// TODO do it in normalizer
 				// TODO support normal switch when possible
 				// + option to always emulate switches for specific target
+			case PlainSwitch(expr, cases, statements):
+				// Real C `switch` for integral conditions, with grouped labels:
+				// `case 1: case 2: { … } break;`
+				if isIntegralSwitch(getType(expr)) {
+					let sv = printExpression(expr)
+					let svt = stringifyType(getType(expr))
+					var ri = '\{ \(svt) switch_ = ' + sv + ';'
+					ri += '\n' + tabs + 'switch (switch_) \{'
+
+					for i in cases.length {
+						pushTab()
+						ri += '\n' + tabs
+
+						if cases[i].length == 0 {
+							ri += 'default:'
+						} else {
+							for cc in cases[i] {
+								ri += ' case ' + printExpression(cc) + ':'
+							}
+						}
+
+						ri += ' ' + printBlock(statements[i]) + ' break;'
+						popTab()
+					}
+
+					ri += '\n' + tabs + '\}'
+					return ri + '\n' + tabs + '\}'
+				}
+
+				// String/pointer/enum-object scrutinees cannot be C `switch`
+				// labels — compare with a grouped if-else chain instead
 				let value = printExpression(expr)
 				let valueType = stringifyType(getType(expr))
 				var r = '\{ \(valueType) switch_ = ' + value + ';'
@@ -2423,9 +2527,103 @@ class GenCxx {
 
 	fun printCallArguments(args: [Expression], expects: [Type]? = null) {
 		if let exp = expects {
-			return '(' + [for i in args.length
-				printTypeConverter(printExpression(args[i]), getType(args[i]), exp[i])
-			].join(', ') + ')'
+			// Hexa rest `...x: T` (no @nativeVariadic) is `(count, ptr)` — stack array.
+			if let restElem = hexaRestElement(exp) {
+				return printHexaRestCall(args, exp, restElem, null)
+			}
+			// NOTE `Void`-typed arguments are dropped together with their
+			// parameters (see `printFunctionArguments`)
+			let results: [String] = []
+
+			for i in args.length {
+				if i < exp.length, stringifyType(exp[i]) == 'void' {
+					continue
+				}
+
+				// S3b F1.6: one Nice function-typed arg → TWO C slots, BUT only
+				// when the callee actually takes a fat value here. `Any`-typed
+				// sources unbox via bridge + sentinel (M1 compiles) — e.g.
+				// `Any`-boxed callbacks flow to fat params.
+				// (or otherwise non-fat) params keep the S2 single thin wrapper
+				// (global fallback) — e.g. `Any`-boxed callbacks in JS-shim
+				// helpers like `canvasDefineProperty_`.
+				if i < exp.length, isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
+					// S3b: cast the ptr half when the value's signature differs
+					// from the expected one (restores the pre-S3b mismatched
+					// fn-ptr cast, e.g. 1-arg executor vs 2-arg Promise slot).
+					let ptrC = fatPtrAs(args[i], exp[i])
+					let envC = fatEnvStr(args[i])
+					results.push(ptrC)
+					results.push(envC)
+					continue
+				}
+
+				if i < exp.length, isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
+					// S3b: cast the ptr half when the value's signature differs
+					// from the expected one (restores the pre-S3b mismatched
+					// fn-ptr cast, e.g. 1-arg executor vs 2-arg Promise slot).
+					let ptrC = fatPtrAs(args[i], exp[i])
+					let envC = fatEnvStr(args[i])
+					results.push(ptrC)
+					results.push(envC)
+					continue
+				}
+
+				if i >= exp.length, isFatArg(args[i]) {
+					let ptrC = fatPtrStr(args[i])
+					let envC = fatEnvStr(args[i])
+					results.push(ptrC)
+					results.push(envC)
+					continue
+				}
+
+				// Struct-typed literal: real construction (see printObjectAs).
+				if i < exp.length, let s = printObjectAs(exp[i], args[i]) {
+					results.push(s)
+					continue
+				}
+
+				// F10.3: fat value into an `Any`-shaped slot boxes a pair
+				// (impl + env survive; the dynamic call slot unpacks it).
+				// Previously only the ptr half survived. Leaf shapes only
+				// (composites have no addressable pair — see isBoxableFat).
+				if i < exp.length, isBoxableFat(args[i]), stringifyType(exp[i]) == 'Any_*' {
+					results.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(args[i]) + '), ' + fatEnvStr(args[i]) + ')')
+					continue
+				}
+
+				let printedArg = printTypeConverter(printExpression(args[i]), valueType(args[i]), exp[i])
+				results.push(printedArg)
+			}
+
+			// Omitted OPTIONAL trailing arguments (`flags: String?` with no
+			// explicit default) — Hexa call sites may pass fewer arguments,
+			// C call sites must match the declared arity, so pad typed nulls.
+			// S3b: omitted fat params pad a null pair (nullptr + sentinel).
+			for i in exp.length {
+				if i < args.length {
+					continue
+				}
+
+				if stringifyType(exp[i]) == 'void' {
+					continue
+				}
+
+				if isFatValueType(exp[i]) {
+					results.push('nullptr')
+					results.push('hexaSentinelEnv_')
+					continue
+				}
+
+				results.push(padValue(exp[i]))
+			}
+
+			return '(' + results.join(', ') + ') '
+		}
+
+		return '(' + [for a in args printExpression(a)].join(', ') + ') '
+	}
+
 	/// Statement calls carry `expects` from the normalizer — an EMPTY list
 	/// (callee type unknown at typing time) must fall back to the callee's
 	/// function type or arguments never convert and optional ones never pad
@@ -2699,21 +2897,22 @@ class GenCxx {
 	/// S3b: source function type behind a fat value (for call-site casts).
 	/// `null` when there is no meaningful source (Null → nullptr needs none).
 	fun fatValueType(e: Expression): Type? { switch e {
-		case Ident(name, _):
-			if closureBaseName(e) != null {
-				return valueType(e)
-			}
-			if isFatValueType(valueType(e)) {
-				return valueType(e)
-			}
-			return globalFuncType(name)
-		case Dot(_, _, _):
-			return getType(e)
-		case Null(_):
-			return null
-		case _:
-			return null
-	} }
+			case Ident(name, _):
+				if closureBaseName(e) != null {
+					return valueType(e)
+				}
+
+				if isFatValueType(valueType(e)) {
+					return valueType(e)
+				}
+				return globalFuncType(name)
+			case Dot(_, _, _):
+				return getType(e)
+			case Null(_):
+				return null
+			case _:
+				return null
+		} }
 
 	/// F10.3: a bare function designator (`closure$N_` impl, plain global)
 	/// is never a boxed pair — pair-unbox/dispatch sites must use the legacy
@@ -2737,22 +2936,58 @@ class GenCxx {
 	/// boxing them would emit null pairs (worse than the legacy drop).
 	/// Dynamic-based `Dot`s are excluded (the base may be a stub).
 	fun isBoxableFat(e: Expression): Bool { switch e {
-		case Ident(_, _):
-			return isFatValueType(valueType(e))
-		case Parenthesis(inner):
-			return isBoxableFat(inner)
-		case Dot(base, _, _):
-			if isDynamic(valueType(base)) {
+			case Ident(_, _):
+				return isFatValueType(valueType(e))
+			case Parenthesis(inner):
+				return isBoxableFat(inner)
+			case Dot(base, _, _):
+				if isDynamic(valueType(base)) {
+					return false
+				}
+				return isFatValueType(valueType(e))
+			case _:
 				return false
-			}
-			return isFatValueType(valueType(e))
-		case _:
-			return false
-	} }
+		} }
 
+	/// S3b: pair-ptr with a call-site cast when the value's typedef differs
+	/// from the expected one (restores the pre-S3b mismatched-fn-ptr cast,
+	/// e.g. generic executors vs `Promise_$new_` params). No-op on match.
+	/// `Any`-shaped sources holding boxed fat pairs unbox exactly (impl from
+	/// the pair; F10.3); other dynamics bridge through `size_t` with sentinel
+	/// env (M1: compiles). Pure receivers evaluate inline (3 harmless pure
+	/// reads); effectful ones hoist to a metaBlock temp (single eval).
+	fun fatPtrAs(e: Expression, toT: Type): String {
+		let p = fatPtrStr(e)
+
+		// S3b: dynamic (`Any`) to fat-typedef needs an explicit bridge —
+		// bare `Any_*` never converts to a fn-ptr typedef (`C2440`).
+		// Bare function designators are never pairs (no `Any_*` conversion).
+		if isDynamic(valueType(e)), not isBareFunctionDesignator(e) {
+			switch e {
+				case Null(_):
+					return p
+				case _:
+					if not isPureIsReceiver(e) {
+						let t = tempId++
+						metaBlock.push('Any_* _$fpu' + t + ' = (Any_*)(' + p + ')')
+						let q = '_$fpu' + t
+						return '(Any_isFatPair_(' + q + ') ? (' + stringifyType(toT) + ')(((FatPair_*)(' + q + '))->impl_) : (' + stringifyType(toT) + ')(size_t)(' + q + '))'
+					}
+					return '(Any_isFatPair_(' + p + ') ? (' + stringifyType(toT) + ')(((FatPair_*)(' + p + '))->impl_) : (' + stringifyType(toT) + ')(size_t)(' + p + '))'
+			}
 		}
 
-		return '(' + [for a in args printExpression(a)].join(', ') + ')'
+		if let f = fatValueType(e) {
+			if stringifyType(f) == stringifyType(toT) {
+				return p
+			}
+
+			return '(' + stringifyType(toT) + ')(' + p + ')'
+		}
+
+		return p
+	}
+
 	/// S3b: on-demand thin wrapper for a PLAIN global function flowing to a
 	/// fat position (`foo` → `foo_$thin_(void* env, args...)` ignoring env +
 	/// sentinel env). One wrapper per function (F1-Q(a)); emitted into
@@ -2980,18 +3215,18 @@ class GenCxx {
 		} }
 
 	fun isFatCallee(e: Expression): Bool { switch e {
-		case Ident(name, _):
-			if closureBaseName(e) != null {
+			case Ident(name, _):
+				if closureBaseName(e) != null {
+					return false
+				}
+				return isFatValueType(valueType(e))
+			case Dot(base, name, _):
+				return isFatFieldDot(base, name, getType(e))
+			case Parenthesis(inner):
+				return isFatCallee(inner)
+			case _:
 				return false
-			}
-			return isFatValueType(valueType(e))
-		case Dot(base, name, _):
-			return isFatFieldDot(base, name, getType(e))
-		case Parenthesis(inner):
-			return isFatCallee(inner)
-		case _:
-			return false
-	} }
+		} }
 
 	/// S3b: pair call `ptr_(env_, args...)` reusing `printCallArguments` for
 	/// the original args (markers/void-drop/pad/conversions intact) and
@@ -3112,17 +3347,17 @@ class GenCxx {
 				case _:
 			}
 			// Fat (function-typed) param = TWO C slots (ptr + env, static ABI).
-		// Dynamic callers pass the pair as two consecutive argv entries.
-		// Thunks are dead code until F10.3 wires them — must compile, not
-		// run (same precedent as the Hexa-rest arm below).
-		if isFatValueType(fargs[k].dataType) {
-			let ptrT = stringifyType(fargs[k].dataType)
-			unboxed.push('(' + ptrT + ')(size_t)(((argc_ > ' + ai + ') ? argv_[' + ai + '] : nullptr))')
-			unboxed.push('((argc_ > ' + (ai + 1) + ') ? (void*)(size_t)(argv_[' + (ai + 1) + ']) : nullptr)')
-			ai += 2
-			continue
-		}
-		let ti = stringifyType(fargs[k].dataType)
+			// Dynamic callers pass the pair as two consecutive argv entries.
+			// Thunks are dead code until F10.3 wires them — must compile, not
+			// run (same precedent as the Hexa-rest arm below).
+			if isFatValueType(fargs[k].dataType) {
+				let ptrT = stringifyType(fargs[k].dataType)
+				unboxed.push('(' + ptrT + ')(size_t)(((argc_ > ' + ai + ') ? argv_[' + ai + '] : nullptr))')
+				unboxed.push('((argc_ > ' + (ai + 1) + ') ? (void*)(size_t)(argv_[' + (ai + 1) + ']) : nullptr)')
+				ai += 2
+				continue
+			}
+			let ti = stringifyType(fargs[k].dataType)
 
 			if ti == 'void' {
 				continue
@@ -3185,8 +3420,8 @@ class GenCxx {
 		var r = '// F10.3 fat-pair boxing (replaces env-dropping `Any` casts)\n'
 		r += 'struct FatPair__ \{ uint8_t _x_; \};\n'
 		r += 'const struct FatPair__ FatPair__$ = \{0\};\n'
-		r += 'struct FatPair_ \{ const struct FatPair__* _; void (*impl_)(); void* env_; \};\n'
-		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env) \{ FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->impl_ = impl; p->env_ = env; return (Any_*)(p); \}\n'
+		r += 'struct FatPair_ \{ const struct FatPair__* _; int32_t rc_; void (*impl_)(); void* env_; \};\n'
+		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env) \{ FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
 		r += 'uint8_t Any_isFatPair_(Any_* p) \{ if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (uint8_t)0; return (uint8_t)(((const void**)(p))[0] == (const void*)(&FatPair__$)) ? 1 : 0; \}\n'
 		r += 'struct FatPairCallEntry_ \{ void (*impl_)(); Any_* (*call_)(void*, Any_**, int32_t); \};\n'
 
@@ -3229,9 +3464,9 @@ class GenCxx {
 		r += 'struct AnyInt_ \{ const struct AnyInt__* _; int32_t rc_; int64_t v_; \};\n'
 		r += 'struct AnyFloat__ \{ uint8_t _x_; \};\n'
 		r += 'const struct AnyFloat__ AnyFloat__$ = \{0\};\n'
-		r += 'struct AnyFloat_ \{ const struct AnyFloat__* _; double v_; \};\n'
-		r += 'Any_* Any_boxInt_(int64_t v) \{ AnyInt_* b = (AnyInt_*)(HEXA_NEW(sizeof(AnyInt_))); b->_ = &AnyInt__$; b->v_ = v; return (Any_*)(b); \}\n'
-		r += 'Any_* Any_boxFloat_(double v) \{ AnyFloat_* b = (AnyFloat_*)(HEXA_NEW(sizeof(AnyFloat_))); b->_ = &AnyFloat__$; b->v_ = v; return (Any_*)(b); \}\n'
+		r += 'struct AnyFloat_ \{ const struct AnyFloat__* _; int32_t rc_; double v_; \};\n'
+		r += 'Any_* Any_boxInt_(int64_t v) \{ if (v != (int64_t)0 && v >= (int64_t)-65535 && v <= (int64_t)65535) return (Any_*)(v); AnyInt_* b = (AnyInt_*)(HEXA_NEW(sizeof(AnyInt_))); b->_ = &AnyInt__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
+		r += 'Any_* Any_boxFloat_(double v) \{ double iv_ = (double)(int64_t)v; if (v != 0.0 && iv_ == v && iv_ >= (double)-65535.0 && iv_ <= (double)65535.0) return (Any_*)((int64_t)v); AnyFloat_* b = (AnyFloat_*)(HEXA_NEW(sizeof(AnyFloat_))); b->_ = &AnyFloat__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
 		r += 'int32_t Any_unboxInt_(Any_* p) \{ if (p == nullptr) return (int32_t)0; if (p == (Any_*)(&_true)) return (int32_t)1; if (p == (Any_*)(&_false)) return (int32_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int32_t)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (int32_t)(((AnyInt_*)(p))->v_); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int32_t)(((AnyFloat_*)(p))->v_); return (int32_t)0; \}\n'
 		r += 'int64_t Any_unboxInt64_(Any_* p) \{ if (p == nullptr) return (int64_t)0; if (p == (Any_*)(&_true)) return (int64_t)1; if (p == (Any_*)(&_false)) return (int64_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return ((AnyInt_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int64_t)(((AnyFloat_*)(p))->v_); return (int64_t)0; \}\n'
 		r += 'double Any_unboxFloat_(Any_* p) \{ if (p == nullptr) return (double)0.0; if (p == (Any_*)(&_true)) return (double)1.0; if (p == (Any_*)(&_false)) return (double)0.0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (double)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return ((AnyFloat_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (double)(((AnyInt_*)(p))->v_); return (double)0.0; \}\n'
@@ -3489,9 +3724,80 @@ class GenCxx {
 		}
 
 		if let exp = expects {
-			return '(' + me + ', ' + [for i in args.length
-				printTypeConverter(printExpression(args[i]), getType(args[i]), exp[i])
-			].join(', ') + ')'
+			// Hexa rest `...x: T` (no @nativeVariadic) is `(count, ptr)`.
+			if let restElem = hexaRestElement(exp) {
+				return printHexaRestCall(args, exp, restElem, me)
+			}
+			// NOTE `Void`-typed arguments are dropped together with their
+			// parameters (see `printFunctionArguments`)
+			let results: [String] = []
+
+			for i in args.length {
+				if i < exp.length, stringifyType(exp[i]) == 'void' {
+					continue
+				}
+
+				// S3b F1.6: one Nice function-typed arg → TWO C slots, BUT only
+				// when the callee actually takes a fat value here (`Any` sources
+				// unbox via bridge + sentinel, M1 compiles).
+				if i < exp.length, isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
+					// S3b: cast the ptr half on signature mismatch (see above).
+					let ptrC = fatPtrAs(args[i], exp[i])
+					let envC = fatEnvStr(args[i])
+					results.push(ptrC)
+					results.push(envC)
+					continue
+				}
+
+				if i >= exp.length, isFatArg(args[i]) {
+					let ptrC = fatPtrStr(args[i])
+					let envC = fatEnvStr(args[i])
+					results.push(ptrC)
+					results.push(envC)
+					continue
+				}
+
+				// Struct-typed literal: real construction (see printObjectAs).
+				if i < exp.length, let s = printObjectAs(exp[i], args[i]) {
+					results.push(s)
+					continue
+				}
+
+				// F10.3: fat value into an `Any`-shaped slot boxes a pair
+				// (impl + env survive; the dynamic call slot unpacks it).
+				// Previously only the ptr half survived. Leaf shapes only
+				// (composites have no addressable pair — see isBoxableFat).
+				if i < exp.length, isBoxableFat(args[i]), stringifyType(exp[i]) == 'Any_*' {
+					results.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(args[i]) + '), ' + fatEnvStr(args[i]) + ')')
+					continue
+				}
+
+				let printedArg = printTypeConverter(printExpression(args[i]), valueType(args[i]), exp[i])
+				results.push(printedArg)
+			}
+
+			// Omitted OPTIONAL trailing arguments — pad typed nulls so the C
+			// call matches the declared arity (see `printCallArguments`).
+			// S3b: omitted fat params pad a null pair.
+			for i in exp.length {
+				if i < args.length {
+					continue
+				}
+
+				if stringifyType(exp[i]) == 'void' {
+					continue
+				}
+
+				if isFatValueType(exp[i]) {
+					results.push('nullptr')
+					results.push('hexaSentinelEnv_')
+					continue
+				}
+
+				results.push(padValue(exp[i]))
+			}
+
+			return '(' + me + ', ' + results.join(', ') + ') '
 		}
 
 		return '(' + me + ', ' + [for a in args printExpression(a)].join(', ') + ')'
@@ -3509,6 +3815,8 @@ class GenCxx {
 				return stringifyType(returns)
 			case _:
 				return 'void'
+		} }
+
 	/// F9 linkage: async funs are C++ (coroutines; `co_await`/`co_return`
 	/// require C++ linkage — `extern "C"` coroutines are ill-formed), rest
 	/// stay C (direct host links without pragma aliasing — pragma only covers
@@ -3562,9 +3870,6 @@ class GenCxx {
 				return stringifyType(promiseOf(project.typer.typeVoid))
 		} }
 
-	fun printToAnyConverter(string: String, fromType: Type): String {
-		if fromType == project.typer.typeAny {
-			return '/*Any*/' + string
 	/// F9: one inner `extern "C++"` block after Types (structs complete for
 	/// `sizeof`, before async funs needing traits). Per collected `Promise_X_`:
 	/// global `operator co_await`, `HexaPromiseType_X` (vtable init, settled
@@ -3655,20 +3960,85 @@ class GenCxx {
 		return '((' + toName + ')(Any_unboxInt64_(' + string + ')))'
 	}
 
+	fun printToAnyConverter(string: String, fromType: Type): String {
+		if fromType == project.typer.typeAny {
+			// F7: bridge through `size_t` (not a raw pointer cast) — the Nice
+			// type may say `Any` while the C value is a scalar (widened-field
+			// debt, e.g. `layout.statusBarHeight_`); raw `(Any*)(int32)` is
+			// C4312, the round-trip is lossless for real pointers and
+			// js-identical (genJs erases types).
+			return '(struct Any_ *) (size_t) ( /*Any*/ ' + string + ') '
 		}
 
 		if fromType == project.typer.typeBool {
 			return 'Any_fromBool(' + string + ')'
 		}
 
+		// D7: real `Any` payloads (were null stubs). Widening conversions are
+		// value-preserving; `UInt64` reinterprets (narrow spot, documented).
 		if fromType == project.typer.typeInt {
-			return 'Any_fromInt(' + string + ')'
+			return 'Any_boxInt_(' + string + ')'
+		}
+
+		if fromType == project.typer.typeInt8 or fromType == project.typer.typeInt16 or fromType == project.typer.typeInt32 {
+			return 'Any_boxInt_(' + string + ')'
+		}
+
+		if fromType == project.typer.typeInt64 {
+			return 'Any_boxInt_(' + string + ')'
+		}
+
+		if fromType == project.typer.typeUInt8 or fromType == project.typer.typeUInt16 or fromType == project.typer.typeUInt32 {
+			return 'Any_boxInt_(' + string + ')'
+		}
+
+		if fromType == project.typer.typeUInt64 {
+			return 'Any_boxInt_((int64_t)(' + string + '))'
+		}
+
+		if fromType == project.typer.typeFloat {
+			return 'Any_boxFloat_(' + string + ')'
+		}
+
+		if fromType == project.typer.typeFloat32 {
+			return 'Any_boxFloat_((double)(' + string + '))'
+		}
+
+		if fromType == project.typer.typeNumber {
+			return 'Any_boxFloat_(' + string + ')'
 		}
 
 		if string == 'nullptr' {
 			return string // Workaround for cases when type of `null` cannot be inferred
 		}
-		return '(struct Any_*)(' + string + ')'
+
+		let fromName = stringifyType(fromType)
+
+		// `Any`-shaped sources evaluate to WHATEVER the substituted C value
+		// is (pointer or scalar) — bridge through `size_t` which accepts both
+		if fromName == 'Any_*' {
+			return '(struct Any_ *) (size_t) (' + string + ')'
+		}
+
+		// Object pointers and function pointers cast straight through
+		if fromName.endsWith('*') or fromName.startsWith('_$') {
+			return '(struct Any_ *) (' + string + ')'
+		}
+
+		// Remaining C ints box through int64 (any width fits; uint64
+		// reinterprets — narrow spot, documented). No int-like value may
+		// cross as a raw `size_t` placeholder: unboxers read small ints as
+		// values, so placeholders must be real boxes.
+		if fromName == 'int8_t' or fromName == 'int16_t' or fromName == 'int32_t' or fromName == 'int64_t' or fromName == 'uint8_t' or fromName == 'uint16_t' or fromName == 'uint32_t' or fromName == 'uint64_t' {
+			return 'Any_boxInt_((int64_t)(' + string + '))'
+		}
+
+		if fromName == 'float' or fromName == 'double' {
+			return 'Any_boxFloat_((double)(' + string + '))'
+		}
+
+		// Truly exotic scalars keep the legacy bridge (same as before).
+		return '(struct Any_ *) (size_t) (' + string + ')'
 	}
 
 	fun printValueToNullableConverter(string: String, fromValue: Type, to: Type): String {
@@ -3768,6 +4138,9 @@ class GenCxx {
 
 		if fromValue == project.typer.typeAny, to == project.typer.typeFloat {
 			return '(' + string + ')->_toFloat()'
+		}
+
+		if fromValue == project.typer.typeAny, to == project.typer.typeNumber {
 		}
 		// ^ TODO ((==null)?0.0:_to) cause 1+null+2=3
 
@@ -3943,6 +4316,9 @@ class GenCxx {
 								if toNull == project.typer.typeFloat {
 									// TODO isn't it `Null$Float64`?
 									return '(Null$Float)\{' + string + ', 1\}'
+								}
+
+								if toNull == project.typer.typeNumber {
 								}
 
 								if toNull == project.typer.typeFloat32 {
@@ -4225,6 +4601,8 @@ class GenCxx {
 
 				if variadic == VariadicKind.NativeVariadic {
 					results.pop() // Last argument is unused
+					// Raw C `...` (printf/FFI) — named rest slot dropped, extras raw.
+					// Hexa rest never reaches here (fixed count+ptr above).
 					results.push('...')
 				}
 
@@ -4494,10 +4872,10 @@ class GenCxx {
 
 						// name = name.replace('_*_', '_*')
 
-					// F9: record every `Promise_X` instantiation for the
-					// post-Types `operator co_await` + `promise_type` block
-					// (struct forwards flushed separately in `stringify`,
-					// since `stringifyType` cannot see local `forward`).
+						// F9: record every `Promise_X` instantiation for the
+						// post-Types `operator co_await` + `promise_type` block
+						// (struct forwards flushed separately in `stringify`,
+						// since `stringifyType` cannot see local `forward`).
 					if name == 'Promise' or name.startsWith('Promise_$') or name.startsWith('Promise_$_') {
 						var structName = name + '_'
 
@@ -4698,7 +5076,18 @@ class GenCxx {
 			case Array(_, result): return result
 			case Map(keys, values, keyType, valueType, mapType): return mapType
 			case Unop(op, postfix, e): return getType(e) // TODO `-N` should convert `UInt` to `Int` in typer
-			case If(econd, eif, eelse): return getType(eif)
+			case Unop(op, postfix, e): {
+					// `!x`/`not x` is always `Bool` (the operand type would
+					// append a bogus outer `->_toBool()` on dynamic values)
+					if not postfix, op == Token.KNot or op == Token.Exclamation {
+						return project.typer.typeBool
+					}
+
+					return getType(e) // TODO `-N` should convert `UInt` to `Int` in typer
+				}
+				// If result lives in the node (D8) — Normalizer fills it from typer.
+			case If(_, _, _, result):
+				return result
 			case Enum(dataType, tagName, tag, args):
 				// TODO
 				return project.typer.typeAny
@@ -4944,11 +5333,11 @@ class GenCxx {
 		// Scalar targets have no heap vtable (scalars box to null `Any`).
 		switch t {
 			case ClassInstance(c, _):
-				if ['Bool','Bool8','Bool32','Int','Int8','Int16','Int32','Int64','UInt8','UInt16','UInt32','UInt64','BigInt','Float','Float32','Number','SizeOfPointer','SignedSizeOfPointer','ClangChar'].includes(c.name) {
+				if ['Bool', 'Bool8', 'Bool32', 'Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'BigInt', 'Float', 'Float32', 'Number', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'].includes(c.name) {
 					return null
 				}
 			case Class(c):
-				if ['Bool','Bool8','Bool32','Int','Int8','Int16','Int32','Int64','UInt8','UInt16','UInt32','UInt64','BigInt','Float','Float32','Number','SizeOfPointer','SignedSizeOfPointer','ClangChar'].includes(c.name) {
+				if ['Bool', 'Bool8', 'Bool32', 'Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'BigInt', 'Float', 'Float32', 'Number', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'].includes(c.name) {
 					return null
 				}
 			case _:
@@ -5270,10 +5659,11 @@ class GenCxx {
 		let sname = className + '_'
 		let tid = tempId++
 		let tmp = '_$iface' + tid
-					metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
-					// ARC birth count (interface literals are heap-managed like classes).
-					metaBlock.push(tmp + '->rc_ = 1')
-					metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
+		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
+		// ARC birth count (interface literals are heap-managed like classes).
+		metaBlock.push(tmp + '->rc_ = 1')
+		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
+
 		for i in names.length {
 			for k in onames.length {
 				if onames[k] == names[i] {
@@ -5370,11 +5760,12 @@ class GenCxx {
 						return forcedCast(ofType, 'Array_$Any_$new_(0)')
 					}
 					var parts: [String] = []
-				for a in el {
-					if isBoxableFat(a) {
-						parts.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')')
-					} else {
-						parts.push(printTypeConverter(printExpression(a), valueType(a), project.typer.typeAny))
+
+					for a in el {
+						if isBoxableFat(a) {
+							parts.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')')
+						} else {
+							parts.push(printTypeConverter(printExpression(a), valueType(a), project.typer.typeAny))
 						}
 					}
 					return forcedCast(ofType, 'Array_$Any_$from_(Array_$Any_$new_(' + el.length + '), hexaItems<Any_*>(' + parts.join(', ') + '))')
@@ -5626,10 +6017,10 @@ class GenCxx {
 				if isFatCallee(e) {
 					return printExpression(expr) + '->' + name + '$f_/*UNPAIRED-FATDOT*/'
 				}
-		// S3b: method values read the vtable slot (never a pair half).
-		if isMethodDot(expr, name) {
-			return printExpression(expr) + '->_->' + name + '_'
-		}
+				// S3b: method values read the vtable slot (never a pair half).
+				if isMethodDot(expr, name) {
+					return printExpression(expr) + '->_->' + name + '_'
+				}
 
 				if name == 'toZeroOrOne' {
 					let dataType = getType(expr)
@@ -5726,25 +6117,25 @@ class GenCxx {
 					case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
-							// Dynamic receivers (`Any`/erased) have no
-							// vtable — the Dot path prints the reflection
-							// stub call instead (F10). F10.2: route through the
-							// dynamic call slot (bags may hold the method as a
-							// pair; otherwise the legacy proxy no-ops as before).
-							// A raw `Any_dynGet_(...)(args)` call would not even
-							// compile (`Any_*` is not callable, C2064).
-							if isDynamic(valueType(expr)) {
-								return printDynamicCall(e, args, exprCallExpects(callExpectsField, e))
-							}
-
-							// Scalar receivers (`(n ?? 0).toString()` on `Int`)
-							// have no vtable — `int->_->toString_` is invalid C
-							// (C2227/C2660). Emit the conversion helper instead
-							if name == 'toString' {
-								if let helper = scalarToString(printExpression(expr), cShape(expr)) {
-									return helper
+								// Dynamic receivers (`Any`/erased) have no
+								// vtable — the Dot path prints the reflection
+								// stub call instead (F10). F10.2: route through the
+								// dynamic call slot (bags may hold the method as a
+								// pair; otherwise the legacy proxy no-ops as before).
+								// A raw `Any_dynGet_(...)(args)` call would not even
+								// compile (`Any_*` is not callable, C2064).
+								if isDynamic(valueType(expr)) {
+									return printDynamicCall(e, args, exprCallExpects(callExpectsField, e))
 								}
-							}
+
+								// Scalar receivers (`(n ?? 0).toString()` on `Int`)
+								// have no vtable — `int->_->toString_` is invalid C
+								// (C2227/C2660). Emit the conversion helper instead
+								if name == 'toString' {
+									if let helper = scalarToString(printExpression(expr), cShape(expr)) {
+										return helper
+									}
+								}
 
 								let temp = tempId++
 								let temp1 = tempId++
@@ -6049,18 +6440,20 @@ class GenCxx {
 				var r = ''
 
 				try {
-						// F10.3: ternary with a fat branch boxes the pair per
-						// side (statement-style if/else into a hoisted temp —
-						// a riding ternary would drop one side's env, and the
-						// two sides may be different impls). The temp is
-						// `Any_*`; outer contexts convert as usual (fat
-						// outers unbox pairs exactly). Fat-RESULT ternaries
-						// stay S3c (need pair temps).
-						var anyFatBranch = isBoxableFat(eif)
-						if not anyFatBranch {
-							anyFatBranch = isBoxableFat(eelse)
-						}
-						if anyFatBranch {
+					// F10.3: ternary with a fat branch boxes the pair per
+					// side (statement-style if/else into a hoisted temp —
+					// a riding ternary would drop one side's env, and the
+					// two sides may be different impls). The temp is
+					// `Any_*`; outer contexts convert as usual (fat
+					// outers unbox pairs exactly). Fat-RESULT ternaries
+					// stay S3c (need pair temps).
+					var anyFatBranch = isBoxableFat(eif)
+
+					if not anyFatBranch {
+						anyFatBranch = isBoxableFat(eelse)
+					}
+
+					if anyFatBranch {
 						let t = tempId++
 						let tmp = '_$ftn' + t
 						metaBlock.push('Any_* ' + tmp + ' = nullptr')
