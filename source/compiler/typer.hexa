@@ -2292,6 +2292,23 @@ class Typer {
 		}
 	}
 
+	// True for Hexa rest `...x: T` (any native flag).
+	fun isRest(t: Type?): Bool { switch t {
+			case Rest(_, _): return true
+			case _: return false
+		} }
+
+		// `@nativeVariadic` on the function node means raw C `...` (printf/FFI).
+		// Otherwise Hexa ABI `(count, arrayptr*)`.
+	fun isNativeVariadic(fnNode: Node?): Bool {
+		if fnNode == null { return false }
+
+		if let atts = project.mapDecorators.get(fnNode) {
+			if DataHelper.getDecorator(atts, 'nativeVariadic') != null { return true }
+		}
+		return false
+	}
+
 	// Used only for function arguments
 	fun varTypes(vars: [Node], variadic: Bool = false): [FunctionArgument] {
 		let varTypes: [FunctionArgument] = []
@@ -3110,6 +3127,184 @@ class Typer {
 		}
 	}
 
+	/// Maps generic stubs (`<T at 0>`) found in `ofType` onto the actual type
+	/// arguments of a class instantiation (e.g. the `Map<K, V>` signature of
+	/// `get` checked against `Map<String, Int>` resolves to `String -> Int?`).
+	/// Returns `ofType` unchanged when no substitution applies
+	fun genericFixup(ofType: Type, generic: [Type]?): Type { switch ofType {
+			// `: T`
+			case Generic(genericParamIndex, genericParam):
+				if let generic = generic {
+					// TODO due enable null checks so this never happens AND ARGS COUNT
+					if genericParamIndex < generic.length {
+						return generic[genericParamIndex]
+					}
+
+					// Out-of-range stub (e.g. a `fun name<U>` mini-template
+					// generic seen through class generics): keep it for the
+					// call-site inference
+					return ofType
+				}
+
+				return typeAny
+				// `: [T]`
+			case ClassInstance(classType, generics):
+				if let general = generics {
+					return classType.instantiateGeneric([for item in general genericFixup(item, generic)])
+				}
+
+				return ofType
+				// `: T?`
+			case Nullable(nullableType):
+				return asNullable(genericFixup(nullableType, generic))
+			case Function(args, returns, variadic):
+				var returns = returns
+				var changed = false
+				let fixedReturns = genericFixup(returns, generic)
+				changed = fixedReturns != returns
+				returns = fixedReturns
+
+				var reArgs: [FunctionArgument] = []
+
+				for arg in args {
+					let fixedArg = genericFixup(arg.dataType, generic)
+					changed = changed or (fixedArg != arg.dataType)
+					let reArg = new FunctionArgument(fixedArg)
+					reArg.optional = arg.optional
+					reArg.name = arg.name
+					reArgs.push(reArg)
+				}
+
+				if changed {
+					return Type.Function(reArgs, returns, variadic)
+				}
+			case Rest(element, native):
+				let fixed = genericFixup(element, generic)
+
+				if fixed != element {
+					return Type.Rest(fixed, native)
+				}
+			case _:
+				// TODO handle more types
+		}
+
+		return ofType
+	}
+
+	/// Method-generic fixup for call-site `bound` (mini-templates): maps
+	/// `Generic(1000000+i)` to `bound[i]`; class stubs (<1000000) are left
+	/// alone (already substituted via `Dot` receiver fixup).
+	fun methodGenericFixup(ofType: Type, bound: [Type]?): Type { switch ofType {
+			case Generic(idx, _):
+				if let bound = bound {
+					if idx >= 1000000 {
+						let slot = idx - 1000000
+
+						if slot < bound.length {
+							return bound[slot]
+						}
+						return ofType
+					}
+					return ofType
+				}
+				return typeAny
+			case ClassInstance(classType, generics):
+				if let generics = generics {
+					return classType.instantiateGeneric([for item in generics methodGenericFixup(item, bound)])
+				}
+				return ofType
+			case Nullable(t):
+				return asNullable(methodGenericFixup(t, bound))
+			case Function(args, returns, variadic):
+				var returns = methodGenericFixup(returns, bound)
+				var reArgs: [FunctionArgument] = []
+
+				for arg in args {
+					let fixedArg = methodGenericFixup(arg.dataType, bound)
+					let reArg = new FunctionArgument(fixedArg)
+					reArg.optional = arg.optional
+					reArg.name = arg.name
+					reArgs.push(reArg)
+				}
+				return Type.Function(reArgs, returns, variadic)
+			case Rest(element, native):
+				return Type.Rest(methodGenericFixup(element, bound), native)
+			case _:
+		}
+		return ofType
+	}
+
+	/// Walks a declared parameter type against the actual argument type and
+	/// records bindings for `fun name<T>` generic stubs (mini-templates) —
+	/// e.g. `resolve(v: T)` called with `String` binds `T = String`
+	fun inferGenericBindings(declared: Type?, actual: Type?, bound: [Type]): Void {
+		if declared == null or actual == null {
+			return
+		}
+
+		// Un-inferred placeholders carry no binding
+		switch actual {
+			case Unknown(_):
+				return
+				case UnknownNullable(_):
+				return
+				case _:
+		}
+
+		switch declared {
+			case Generic(genericParamIndex, genericParam):
+				// METHOD-BASE: method generics live at 1000000+; bind to bound[i] via offset
+				var slot = genericParamIndex
+
+				if slot >= 1000000 { slot = slot - 1000000 }
+
+				if slot < bound.length {
+					// First concrete binding wins
+					switch bound[slot] {
+						case Generic(_):
+							bound[slot] = actual
+						case _:
+					}
+
+					if bound[slot] == typeAny {
+						bound[slot] = actual
+					}
+				}
+			case ClassInstance(classType, generics):
+				if let generics = generics {
+					switch actual {
+						case ClassInstance(_, actualGenerics):
+							if let actualGenerics = actualGenerics, actualGenerics.length == generics.length {
+								for i in generics.length {
+									inferGenericBindings(generics[i], actualGenerics[i], bound)
+								}
+							}
+						case _:
+					}
+				}
+			case Nullable(of):
+				switch actual {
+					case Nullable(actualOf): inferGenericBindings(of, actualOf, bound)
+					case _:
+				}
+			case Function(args, returns, variadic):
+				switch actual {
+					case Function(actualArgs, actualReturns, _):
+						if actualArgs.length == args.length {
+							for i in args.length {
+								inferGenericBindings(args[i].dataType, actualArgs[i].dataType, bound)
+							}
+						}
+
+						inferGenericBindings(returns, actualReturns, bound)
+					case _:
+				}
+			case Rest(element, native):
+				inferGenericBindings(element, actual, bound)
+			case _:
+		}
+	}
+
 	// Expressions return values
 	fun fillExpression(node Node, asValue Bool = true) {
 		if not asValue {
@@ -3147,6 +3342,27 @@ class Typer {
 					fail('Parent overwritten from \(parents.get(node)) to \(subj) for node \(node)' + never, node)
 				}
 				parents.set(node, subj)
+
+				// @require('mod') auto-require: mark the module binding used
+				// (normalizer omits the const when never referenced).
+				if let decs = project.mapDecorators.get(subj) {
+					if let req = DataHelper.getDecorator(decs, 'require') {
+						if req.values.length > 0 {
+							switch req.values[0] {
+								case String(_):
+									project.usedRequires.push(name)
+								case _: throw '@require takes string as argument'
+							}
+						}
+					}
+
+					// @lazy (native module singletons): mark the let used — the
+					// normalizer omits the whole `let x X = X()` when never
+					// referenced (skips the startup instantiation + the class).
+					if DataHelper.getDecorator(decs, 'lazy') != null {
+						project.usedLazy.push(name)
+					}
+				}
 
 				if let identType = types.get(subj) {
 					types.set(node, identType)
