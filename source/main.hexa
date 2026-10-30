@@ -794,6 +794,29 @@ class Main {
 					console.log(quote(hint.toString()))
 				}
 
+				// Reflect pre-lowering for dynamics runs after normalization and
+				// BEFORE closure lifting — local desugaring over original nesting
+				// (Arrow bodies included) so later passes see plainer IR. Only
+				// generators that opt in pay for it (`GenCxx.reflectEnabled`).
+				if generator.reflectEnabled == true {
+					new ReflectLowerer(normal).lower()
+				}
+
+				// Closure capture-lifting (F1 lite) runs after normalization and
+				// first so the ARC pass sees the final lifted functions and
+				// never mistypes a capture for a free variable
+				if generator.closuresEnabled == true {
+					new ClosureLifter(normal).lift()
+				}
+
+				// ARC ref-count inserts run after closure lowering, before
+				// codegen — only generators that understand them ask for it
+				// (`GenCxx.arcEnabled`)
+				if generator.arcEnabled == true {
+					new ArcInserter(normal).insertArc()
+				}
+
+				// TODO `options` mey be nullable!! not present in json [String]? in perform
 				let options = input.targets[targetIndex].options
 				let outs = generator.perform(normal, target, options)
 
