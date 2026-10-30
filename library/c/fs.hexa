@@ -1,6 +1,6 @@
 // The MIT License
 //
-// Copyright (C) 2022-2025 Oleh Petrenko
+// Copyright (C) 2026 Oleh Petrenko
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -414,17 +414,96 @@ class FsPromisesImpl {
 	fun stat(path: String): Promise<Any> { return Promise<Any>(fun (resolve) { }) }
 }
 
-// Readable-stream shape for line readers (flows with the fd/event work)
+// Readable-stream shape for line readers (flows with the fd/event work).
+// Real implementation: the file is read synchronously at first 'data'
+// subscription, then delivered in 64 KiB slices through queueMicrotask so
+// listeners attached right after createReadStream still catch every chunk.
 class FsReadStream {
 	var path: String
+	var encoding: String = 'utf-8'
 	var closed: Bool = false
 	var bytesRead: Int = 0
+	var flowing: Bool = true
+	var started: Bool = false
+	var content: Buffer? = null
+	var pos: Int = 0
+	var dataListeners [Any] = []
+	var endListeners [Any] = []
+	var errorListeners [Any] = []
+	// Attached line reader (set by ReadlineInterface — typed, no closures).
+	var lineReader: ReadlineInterface? = null
 	new (path: String) { this.path = path }
 	fun on(event: String, listener: Any): Void { }
 	fun destroy(): Void { closed = true }
-	fun pause(): Void { }
-	fun resume(): Void { }
 	fun removeAllListeners(event: String = ''): Void { }
+	fun close(): Void { closed = true }
+	fun pause(): Void { flowing = false }
+	fun resume(): Void {
+		if closed { return }
+		flowing = true
+		queueMicrotask(fun () Void { pumpStreams() })
+	}
+	fun ensureStarted(): Void {
+		if started { return }
+		started = true
+		try {
+			content = Fs.readFileSync(path)
+		} catch e Error {
+			content = null
+		}
+		liveStreams.push(this)
+		// Capture-less kick (per-site closure envs are shared pre-S3c, so the
+		// pump loop reads per-stream state off instance fields, never env).
+		queueMicrotask(fun () Void { pumpStreams() })
+	}
+	fun pumpOneSlice(): Bool {
+		if closed or not flowing { return closed }
+		if content == null {
+			for l in errorListeners { l(Error('read failed: ' + path)) }
+			for l in endListeners { l() }
+			return true
+		}
+		if let buf = content {
+			if pos >= buf.length {
+				for l in endListeners { l() }
+				return true
+			}
+			var n = buf.length - pos
+			if n > 65536 { n = 65536 }
+			let slice = buf.subarray(pos, pos + n)
+			pos = pos + n
+			bytesRead = pos
+			for l in dataListeners { l(slice) }
+			if lineReader != null {
+				if let rl = lineReader { rl.feedText(slice.toString(encoding, 0, slice.length)) }
+			}
+			return false
+		}
+		return true
+	}
+}
+// One slice per live stream per pump (fair); streams deregister on EOF/close.
+var liveStreams [FsReadStream] = []
+fun pumpStreams(): Void {
+	var i = 0
+	while i < liveStreams.length {
+		let stream = liveStreams[i]
+		if stream.closed {
+			liveStreams.splice(i, 1)
+			continue
+		}
+		if stream.pumpOneSlice() {
+			liveStreams.splice(i, 1)
+			continue
+		}
+		i++
+	}
+	for s in liveStreams {
+		if not s.closed {
+			queueMicrotask(fun () Void { pumpStreams() })
+			return
+		}
+	}
 }
 
 // ─── Node-idiomatic module singletons (native half of the js declare-lets) ──
@@ -531,3 +610,197 @@ class PathModule {
 // the normalizer; used ones instantiate once at startup).
 @lazy let fs FsModule = FsModule()
 @lazy let path PathModule = PathModule()
+
+// ─── Stat info + fd table + realpath (real Win32) ───────────────────────────
+// lstatSync/statSync/fstatSync box one of these (Any payload, F10 reads land
+// with reflection; isFile()/isDirectory() work through dynamic dispatch).
+// Stat record: plain data fields (Node exposes isFile()/isDirectory() as
+// methods — natively they read as fields until F10 dynamic dispatch lands).
+class FsStatInfo {
+	var exists: Bool = false
+	var size: Float = 0
+	var isFile: Bool = false
+	var isDirectory: Bool = false
+	var mtimeMs: Float = 0
+	new () { }
+}
+
+// Open-handle table: fd is the slot index, null in a slot means free. Own
+// Hexa array of real HANDLEs (scalar-V containers don't compile on native —
+// F2 debt; the public UInt64 façade below is unchanged, js-untouched).
+var fdTable [HANDLE] = []
+fun fsFdHandle(fd: Int): UInt64 {
+	if fd < 0 or fd >= fdTable.length { return 0u64 }
+	if let h = fdTable[fd] { return h as!UInt64 }
+	return 0u64
+}
+fun fsAllocFd(handle: HANDLE): Int {
+	for i in fdTable.length {
+		if fdTable[i] == null {
+			fdTable[i] = handle
+			return i
+		}
+	}
+	fdTable.push(handle)
+	return fdTable.length - 1
+}
+fun fsFreeFd(fd: Int): UInt64 {
+	let h = fsFdHandle(fd)
+	if h != 0u64 { fdTable[fd] = null }
+	return h
+}
+// Flag strings mirror Node ('r', 'r+', 'w', 'w+', 'a', 'a+'; 'x' variants
+// behave like their non-x twin — exclusive create fails EEXIST via createNew).
+// Missing files return -1 instead of throwing (native throw aborts pre-F5).
+fun fsOpenFd(path: String, flags: String): Int {
+	var access = genericRead
+	var disposition = openExisting
+	if flags == 'r' {
+		access = genericRead
+		disposition = openExisting
+	} else if flags == 'r+' {
+		access = genericReadWrite
+		disposition = openExisting
+	} else if flags == 'w' {
+		access = genericWrite
+		disposition = createAlways
+	} else if flags == 'w+' {
+		access = genericReadWrite
+		disposition = createAlways
+	} else if flags == 'a' {
+		access = fileAppendData
+		disposition = openAlways
+	} else if flags == 'a+' {
+		access = genericRead + fileAppendData
+		disposition = openAlways
+	} else if flags == 'wx' or flags == 'xw' {
+		access = genericWrite
+		disposition = createNew
+	} else {
+		access = genericRead
+		disposition = openExisting
+	}
+	let h = createFileWin(path.utf16(), access, fileShareRead + fileShareWrite, null, disposition, fileAttributeNormal, null)
+	if winHandleFailed(h) { return -1 }
+	return fsAllocFd(h)
+}
+fun fsCloseFd(fd: Int): Void {
+	let h = fsFreeFd(fd)
+	if h != 0u64 { closeHandleWin(h as!HANDLE) }
+}
+fun fsSeekFd(handle: HANDLE, position: Int): Bool {
+	return setFilePointerExWin(handle, position as!Int64, null, fileBeginMoveMethod) != 0
+}
+fun fsReadFd(fd: Int, buffer: Any, offset: Int, length: Int, position: Int?): Int {
+	let h64 = fsFdHandle(fd)
+	if h64 == 0u64 { return 0 }
+	let handle = h64 as!HANDLE
+	if buffer is Buffer {
+		if let buf = buffer as!Buffer {
+			if position != null {
+				if let p = position {
+					// Save pointer, seek, read, restore (positional I/O is offset-neutral).
+				var curBox ArrayByValue<UInt8, 8> = [0]
+				for c in 8 { curBox[c] = 0 }
+				setFilePointerExWin(handle, 0 as!Int64, curBox as!ArrayPointer<UInt8>, fileCurrentMoveMethod)
+				let saved = readU64LE(curBox as!ArrayPointer<UInt8>, 0)
+				fsSeekFd(handle, p)
+				let n = fsReadFd(fd, buf, offset, length, null)
+				setFilePointerExWin(handle, saved as!Int64, null, fileBeginMoveMethod)
+				return n
+				}
+			}
+		var gotBox ArrayByValue<DWORD, 1> = [0]
+		var off = offset
+		if off < 0 { off = 0 }
+		var n = length
+		if n > buf.length - off { n = buf.length - off }
+		if n <= 0 { return 0 }
+		var tmp = Buffer.alloc(n)
+		let ok = readFileWin(handle, tmp.bytes, n as!UInt32, gotBox as!LPDWORD, null)
+		if ok == 0 { return 0 }
+		let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
+		for k in got { buf.bytes[off + k] = tmp.bytes[k] }
+		return got
+		}
+	}
+	return 0
+}
+fun fsWriteFd(fd: Int, buffer: Any, offset: Int?, length: Int?, position: Int?): Int {
+	let h64 = fsFdHandle(fd)
+	if h64 == 0u64 { return 0 }
+	let handle = h64 as!HANDLE
+	var bytes ArrayPointer<UInt8> = Buffer.alloc(0).bytes
+	var total = 0
+	if buffer is Buffer {
+		if let buf = buffer as!Buffer {
+			bytes = buf.bytes
+			total = buf.length
+		}
+	} else if buffer is String {
+		if let s = buffer as!String {
+			let b = Buffer.from(s, 'utf8')
+			bytes = b.bytes
+			total = b.length
+		}
+	} else {
+		return 0
+	}
+	var start = 0
+	if let o = offset { start = o }
+	var n = total - start
+	if length != null {
+		if let l = length {
+			if l < n { n = l }
+		}
+	}
+	if start < 0 { start = 0 }
+	if n <= 0 or start >= total { return 0 }
+	var restoreTo: UInt64? = null
+	if position != null {
+		if let p = position {
+			// Save pointer, seek, write, restore (positional I/O is offset-neutral).
+			var curBox ArrayByValue<UInt8, 8> = [0]
+			for c in 8 { curBox[c] = 0 }
+			setFilePointerExWin(handle, 0 as!Int64, curBox as!ArrayPointer<UInt8>, fileCurrentMoveMethod)
+			restoreTo = readU64LE(curBox as!ArrayPointer<UInt8>, 0)
+			fsSeekFd(handle, p)
+		}
+	}
+	var doneBox ArrayByValue<DWORD, 1> = [0]
+	var chunk = Buffer.alloc(n)
+	for k in n { chunk.bytes[k] = bytes[start + k] }
+	let ok = writeFileWin(handle, chunk.bytes, n as!UInt32, doneBox as!LPDWORD, null)
+	let written = (doneBox as!ArrayPointer<DWORD>)[0] as!Int
+	if let r = restoreTo { setFilePointerExWin(handle, r as!Int64, null, fileBeginMoveMethod) }
+	if ok == 0 { return 0 }
+	return written
+}
+fun fsFstatFd(fd: Int): FsStatInfo {
+	let info = FsStatInfo()
+	let h64 = fsFdHandle(fd)
+	if h64 == 0u64 { return info }
+	let handle = h64 as!HANDLE
+	info.exists = true
+	info.isFile = true
+	var highBox ArrayByValue<DWORD, 1> = [0]
+	let lo = getFileSizeWin(handle, highBox as!LPDWORD)
+	if lo != invalidFileSize or getLastErrorWin() == 0u32 {
+		info.size = (lo as!Float) + ((highBox as!ArrayPointer<DWORD>)[0] as!Float) * 4294967296.0
+	}
+	var writeBox ArrayByValue<UInt8, 8> = [0]
+	for i in 8 { writeBox[i] = 0 }
+	if getFileTimeWin(handle, null, null, writeBox as!LPFILETIME) != 0 {
+		let ticks = readU64LE(writeBox as!ArrayPointer<UInt8>, 0)
+		if ticks >= 116444736000000000u64 {
+			info.mtimeMs = ((ticks - 116444736000000000u64) as!Float) / 10000.0
+		}
+	}
+	return info
+}
+// Canonical absolute path (GetFullPathW is absent from this TU's lean
+// windows.h, and Path.resolve covers our uses: absolute stays absolute,
+// relative resolves against the native cwd with full normalization).
+fun fsRealpath(path: String): String {
+	return Path.resolve(path)
+}
