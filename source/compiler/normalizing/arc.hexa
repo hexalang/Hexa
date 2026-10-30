@@ -549,10 +549,11 @@ class ArcInserter {
 							this.processExpression(left)
 
 							if right != null { this.processExpression(right) }
-							// Similar to Assign, but for correctness, assume no for ARC or handle eval
-							// For now, insert similar, but op may use left, so eval right first? Complex, assume no Assignop for ARC
-							// To be correct: temp_old = left temp_right = eval Binop(left, op - =, right) assign left = temp_right inc left dec temp_old
-							// But if op is +=, Binop(left, +, right)
+							// Lower `left op= right` to `temp_old = left;
+							// temp_right = Binop(left, op-without-`=`, right);
+							// left = temp_right` plus retain/release below.
+							// `op` never carries `=` (e.g. `+=` -> `+` via
+							// `opWithoutAssign`), so the Binop models the value.
 							let left_type = this.niceTypeOf(left) ?? this.getType(left)
 
 							switch left {
@@ -588,19 +589,25 @@ class ArcInserter {
 									}
 							}
 						case Return(expr):
-							// +1 transfer (B3): the caller consumes exactly one share.
-							// Fresh rvalues (+1 by construction: `new`, literals via
-							// interning, Hexa-call results) and plain lvalues (retained
-							// below, released by the owner's own guard) transfer directly.
-							// Anything else — `If`/`Elvis` ternaries, string/immortal
-							// literals (`return 'NaN'` is NOT +1, it is immortal!), dynamic
-							// and native shapes, or effectful reads — hoists once into a
-							// temp that takes the +1, so the value evaluates exactly once
-							// and the caller share is real. Without the temp retain the
-							// caller's transfer release would zero an immortal or a
-							// borrowed branch, and the sweep (F11) would free it while
-							// owners still point at it. Leak-only-if-over-conservative
-							// (a fresh-but-unrecognized native value keeps one share).
+							// +1 transfer: the caller consumes exactly one share.
+							// Provably-+1 rvalues (`isFreshOwned`: `new`,
+							// `Array/Object/Map` literals, `StringConcatenation`,
+							// both-fresh `If`, Hexa-call results) transfer
+							// directly with no insert. Plain `Ident`/`This` and
+							// pure `Dot` chains take one `RefInc` below
+							// (released by the owner's own guard).
+							// Anything else — half-fresh `If`/`Elvis` ternaries,
+							// immortal `String` literals
+							// (`return 'NaN'` is NOT +1, it is immortal!), dynamic
+							// and native shapes, or effectful reads (`Index`,
+							// impure `Dot`) — hoists once into a temp that takes
+							// the +1, so the value evaluates exactly once and
+							// the caller share is real. Without the temp retain
+							// the caller's transfer release would zero an
+							// immortal or a borrowed branch, and the sweep would
+							// free it while owners still point at it.
+							// Leak-only-if-over-conservative (a
+							// fresh-but-unrecognized native value keeps one share).
 							if expr != null {
 								var retType = this.niceTypeOf(expr) ?? this.getType(expr)
 
@@ -770,13 +777,9 @@ class ArcInserter {
 								els.unshift(Statement.RefInc(param_objs)) // Mutate existing els
 								// No need to re-assign s.body, as els mutated
 							case _:
-								// let body_els = [body] // For non-Block, create wrapper array
-								// body_els.unshift(Statement.DeferRefDec(param_objs))
-								// body_els.unshift(Statement.RefInc(param_objs))
-								// s.body = Statement.Block(body_els) // Only re-assign if was non-Block
-								// TODO wrap non-block bodies (arrow `=> expr`) so the param
-								// ref-count prologue fits — skipped for now: `$ref/$unref`
-								// are stubs, so dropping these inserts is a no-op
+								// Unreachable for `Statement.Function` (wrapped above);
+								// kept as a guard — dropping the prologue here would
+								// leak the elided retain without any guard.
 						}
 					}
 				}
