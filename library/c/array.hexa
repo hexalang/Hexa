@@ -97,8 +97,13 @@ class Array<T> {
 		return result
 	}
 
-	// fun pop(): T? {}
-	fun pop(): T? { return null }
+	fun pop(): T? {
+		if length == 0 { return null }
+		length = length - 1
+		let out = data[length]
+		data[length] = null
+		return out
+	}
 
 	fun push(x: T): Int {
 		set(length, x)
@@ -107,10 +112,235 @@ class Array<T> {
 
 	fun slice(pos: Int, end: Int?): [T] {return[]}
 	fun reverse(): Void { }
-	// fun shift(): T? {}
-	fun shift(): T? { return null }
 	fun sort(f: (T, T) => Int): Void { }
 	fun splice(pos: Int, len: Int): [T] { return[] }
+	// FIFO shift (log caps, scrollback, pending-root queue) — element loop
+	fun shift(): T? {
+		if length == 0 { return null }
+		let first: T? = data[0]
+		if length > 1 {
+			for i in (length - 1) { data[i] = data[i + 1] }
+		}
+		length = length - 1
+		data[length] = null
+		return first
+	}
+
+	// Prepend (single slot; batch prepend = repeated unshift, fine for now)
+	fun unshift(x: T): Void {
+		set(length, x)
+		if length > 1 {
+			var i = length - 1
+			while i > 0 {
+				data[i] = data[i - 1]
+				i--
+			}
+		}
+		data[0] = x
+	}
+	// JS slice: negatives from the end, clamped, copies
+	fun slice(pos: Int = 0, end: Int = 1073741824): [T] {
+		var start = pos
+		if start < 0 {
+			start = length + start
+			if start < 0 { start = 0 }
+		}
+		var stop = end
+		if stop < 0 {
+			stop = length + stop
+			if stop < 0 { stop = 0 }
+		}
+		if start > length { start = length }
+		if stop > length { stop = length }
+		let out = new Array<T>(0)
+		var i = start
+		while i < stop {
+			out.push(data[i])
+			i++
+		}
+		return out
+	}
+	fun sort(f: (T, T) => Int): Void {
+		var i = 1
+		while i < length {
+			let key = data[i]
+			var j = i - 1
+			while j >= 0 {
+				if f(data[j], key) > 0 {
+					data[j + 1] = data[j]
+					j--
+				} else { break }
+			}
+			data[j + 1] = key
+			i++
+		}
+	}
+	fun splice(pos: Int, len: Int): [T] {
+		var start = pos
+		if start < 0 { start = length + start }
+		if start < 0 { start = 0 }
+		if start > length { start = length }
+		var count = len
+		if count < 0 { count = 0 }
+		if start + count > length { count = length - start }
+		let removed = slice(start, start + count)
+		spliceAndInsert(start, count, [])
+		return removed
+	}
+	fun spliceAndInsert(pos: Int, len: Int, ins: [T]): Void {
+		var start = pos
+		if start < 0 { start = length + start }
+		if start < 0 { start = 0 }
+		if start > length { start = length }
+		var count = len
+		if count < 0 { count = 0 }
+		if start + count > length { count = length - start }
+		let tail [T] = slice(start + count)
+		var d = start
+		while d < start + count {
+			data[d] = null
+			d++
+		}
+		length = start
+		for k in ins.length { push(ins[k]) }
+		var k = 0
+		while k < tail.length {
+			push(tail[k])
+			k++
+		}
+	}
+	fun reduce(f: (accumulator: T, currentValue: T) => T, initialValue: T = null): T { return initialValue }
+	// `clone()` maps to JS `slice()` on the js target (kept separate here)
+	fun clone(): [T] { return slice(0) }
+	fun concat(a: [T]): [T] {
+		let out = slice(0)
+		for k in a.length { out.push(a[k]) }
+		return out
+	}
+	fun reverse(): Void {
+		var i = 0
+		var j = length - 1
+		while i < j {
+			let t = data[i]
+			data[i] = data[j]
+			data[j] = t
+			i++
+			j--
+		}
+	}
+	fun fill(value: T, start: Int = 0, end: Int = 1073741824): [T] {
+		var s = start
+		if s < 0 {
+			s = length + s
+			if s < 0 { s = 0 }
+		}
+		var e = end
+		if e < 0 {
+			e = length + e
+			if e < 0 { e = 0 }
+		}
+		if s > length { s = length }
+		if e > length { e = length }
+		var i = s
+		while i < e {
+			data[i] = value
+			i++
+		}
+		return this
+	}
+	// Overlap-safe via a temp slice (spec: negative → from end, clamped)
+	fun copyWithin(target: Int, start: Int = 0, end: Int = 1073741824): [T] {
+		var t = target
+		if t < 0 {
+			t = length + t
+			if t < 0 { t = 0 }
+		}
+		var s = start
+		if s < 0 {
+			s = length + s
+			if s < 0 { s = 0 }
+		}
+		var e = end
+		if e < 0 {
+			e = length + e
+			if e < 0 { e = 0 }
+		}
+		let tmp = slice(s, e)
+		var k = 0
+		while k < tmp.length and t + k < length {
+			data[t + k] = tmp[k]
+			k++
+		}
+		return this
+	}
+	fun at(index: Int): T? {
+		var i = index
+		if i < 0 { i = length + i }
+		return get(i)
+	}
+	fun lastIndexOf(x: T, fromIndex: Int = 1073741824): Int {
+		var start = length - 1
+		if fromIndex < start { start = fromIndex }
+		if start < 0 { return -1 }
+		var i = start
+		while i >= 0 {
+			if get(i) == x { return i }
+			i--
+		}
+		return -1
+	}
+	// every/some/find family over (element, index)
+	fun every(f: (element: T, index: Int) => Bool): Bool {
+		for i in length {
+			if not f(data[i], i) { return false }
+		}
+		return true
+	}
+	fun some(f: (element: T, index: Int) => Bool): Bool {
+		for i in length {
+			if f(data[i], i) { return true }
+		}
+		return false
+	}
+	fun find(f: (element: T, index: Int) => Bool): T? {
+		for i in length {
+			if f(data[i], i) { return data[i] }
+		}
+		return null
+	}
+	fun findIndex(f: (element: T, index: Int) => Bool): Int {
+		for i in length {
+			if f(data[i], i) { return i }
+		}
+		return -1
+	}
+	fun findLast(f: (element: T, index: Int) => Bool): T? {
+		var i = length - 1
+		while i >= 0 {
+			if f(data[i], i) { return data[i] }
+			i--
+		}
+		return null
+	}
+	fun findLastIndex(f: (element: T, index: Int) => Bool): Int {
+		var i = length - 1
+		while i >= 0 {
+			if f(data[i], i) { return i }
+			i--
+		}
+		return -1
+	}
+	// forEach passes (element, index), matching the JS contract
+	fun forEach(f: (value: T, index: Int) => Void): Void {
+		for i in length { f(data[i], i) }
+	}
+	fun map<U>(f: (element: T) => U): [U] {
+		let out = new Array<U>(0)
+		for i in length { out.push(f(data[i])) }
+		return out
+	}
+	fun toLocaleString(locales: Any? = null, options: Any? = null): String { return join(',') }
+	static fun isArray(value: Any): Bool { return value is Array<Any> }
 
 	fun toString() String {
 		return join(',')
