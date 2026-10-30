@@ -188,6 +188,11 @@ enum CallKind : Int {
 	Function = 11 // TODO rename to Callable
 	VirtualMethod = 12
 	// TODO KnownVirtualMethod = 13
+	/// Capturing call (F1.2): the callee is a lifted closure (`closure$N`)
+	/// and the call must pass the env first (fat-call shape). Shares the
+	/// thin-call printing today (genC treats it like `Function`) — the env
+	/// half threads through once the ClosureLifter goes fat per D1
+	Closure = 13
 }
 
 enum VariadicKind : Int {
@@ -237,6 +242,11 @@ class NiceProject {
 	let globalLink [Statement : NiceLink] = [:]
 	let globalVars [Statement] = []
 	let globalFuncs [Statement] = [] // TODO rename to `globalFunctions`
+	// Auto-require consts: var name → module name (`declare let fs` +
+	// `@require("fs")` ⇒ `const fs = require("fs")`). Only referenced
+	// bindings are recorded here (normalizer filters via usedRequires),
+	// so unused modules emit nothing.
+	let globalRequires [String : String] = [:]
 	let init [Statement] = []
 	var package Package
 	var typer Typer
@@ -246,6 +256,21 @@ class NiceProject {
 	let native [Expression : Bool] = [:]
 	var mapDecorators [Node : [Decorator]] = [:]
 	var memory = Memory.Modern64
+	/// S3b: env globals whose creation fills were dropped (field/global/var
+	/// initializers have no owning statement list). Pair/direct uses of these
+	/// closures fall back to the GLOBAL slot (S2-identical) instead of the
+	/// per-instance local twin (which was never emitted).
+	var droppedClosureEnvs [String : Bool] = [:]
+	/// Body-less `declare fun` signatures (no Nice `globalFuncs` entry to read
+	/// expects from). Filled at normalize time from typer types keyed by the
+	/// renamed Nice name; read by genC `callExpects` Ident fallback so
+	/// `Any_$toString_(String)` etc. convert (D8-style, small).
+	var declareTypes [String : Type] = [:]
+	// Escape census (report-only, no promotion yet): function key
+	// (global name or `Class_$method`) -> per-arg escaping flags.
+	// Filled by ReflectLowerer after lowering; backends ignore it for now.
+	// Single-level + call-graph fixpoint, over-approximate by design.
+	let funcArgEscape [String : [Bool]] = [:]
 
 	new () { }
 }
@@ -256,6 +281,11 @@ enum ClassBinaryInterface : Int {
 	// TODO `Reuse = Normal++` or `Normal + 1`
 	// TODO `Reuse` // Implies `Normal + 1`
 	StructureNoVirtual = 20
+	/// Closure helper env (F1.3/F10.3, S4): synthesized `Env$N` classes.
+	/// genC auto-generates the `call(Any**, argc)` dynamic-call thunk slot
+	/// for these (plain `Normal` helpers get none). Structural vtables need
+	/// nothing new — the kind is exactly "genC, make the Any-callable thunk".
+	Closure = 30
 }
 
 class NiceClass {
@@ -290,6 +320,15 @@ class NiceClass {
 	var implementParams [String]
 	var rename Int
 	var constructor
+	// `@destructor` instance method (renamed Nice name) — called by the ARC
+	// sweep before freeing the object. Null when the class declares none.
+	var destructor String?
+	// Synthesized container destroy (F11.2, ARC-marked): 0 none, 1 Array
+	// element walk + buffer free, 2 Array buffer free only (unmanaged
+	// elements), 3 Map inner-array release. The sweep calls the destroy via
+	// the destroy table before freeing the struct (additive dead code until
+	// the sweep lands, like the S4 thunks).
+	var destroyKind Int = 0
 	// TODO native kind: class, union, struct
 
 	var staticMethods [Statement] = []
@@ -298,6 +337,11 @@ class NiceClass {
 	var methods [Statement] = []
 	var vars [Statement] = []
 	var varBits [Int?] = []
+	// `@weak` instance fields (renamed Nice names): weak links — ARC stores
+	// into them without retaining and releases nothing on overwrite (the
+	// intern-table `next` links: buckets must not own, destroy unlinks).
+	// Reads are unaffected (locals still take transient shares).
+	var weakFields [String] = []
 	// TODO let renames [String] = []
 	let property [String] = [] // `var/let { get ?set }`
 
