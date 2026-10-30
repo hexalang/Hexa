@@ -1781,8 +1781,6 @@ class Math {
 		return (value >= 0) ? ((value) + 0.5) as!Int : ((value) - 0.5) as!Int
 	}
 
-	static fun sin(v: Float): Float { return 0 }
-
 	static fun sqrt(value: Float): Float {
 		let number: Float32 = value as!Float32 // TODO `Float` version
 		let threeHalfs: Float32 = 1.55555f32
@@ -1805,9 +1803,14 @@ class Math {
 		y = y * (threeHalfs - (x2 * y * y)) // 3rd iteration
 
 		return 1.0f32 / y
+	static fun sin(v: Float): Float { return cSin(v) }
+	static fun tan(v: Float): Float { return cTan(v) }
+	static fun trunc(v: Float): Int {
+		if v < 0.0 { return cCeil(v) as!Int }
+		return cFloor(v) as!Int
 	}
+}
 
-	static fun tan(v: Float): Float { return 0 }
 // Lenient recursive-descent JSON (single-pass reader; malformed input bails
 // with the value parsed so far instead of throwing — recovery lands later)
 class JsonReader {
@@ -2257,7 +2260,9 @@ class Console {
 	}
 
 	fun logString(str: String): Void {
-		wprintf("%s\r\n".utf16(), str.bytes)
+		// NOTE %ls (wide), not %hs: Hexa strings are UTF-16 LE (.bytes);
+		// %hs would stop at the first NUL byte (one garbage char per line).
+		wprintf("%ls\r\n".utf16(), str.bytes)
 		// TODO test in POSIX example var buffer: ArrayByValue<UInt8, 6> = [
 		// '%'.charCodeAt(0), 'l'.charCodeAt(0), 's'.charCodeAt(0), 13, 10, 0
 		// ]
@@ -2998,26 +3003,16 @@ class ParsedPath {
 	var name: String
 }
 
-class Path {
-	static let sep: String
-	static fun dirname(path: String): String { return 'null' }
-	static fun resolve(path: String): String { return 'null' }
-	static fun relative(from: String, to: String): String { return 'null' }
-	static fun parse(path: String): ParsedPath { return null as!ParsedPath }
-	static fun join(...path: String): String { return 'null' }
-	static fun isAbsolute(path: String): Bool { return false }
-}
 
-class Fs {
-	static fun writeFileSync(path: String, data: String): Void { }
-	static fun readdirSync(path: String): [String] { return [null] }
-	static fun readFileSync(path: String): Buffer { return null as!Buffer }
-	static fun lstatSync(path: String): Any { return null }
-	static fun existsSync(path: String): Bool { return false }
-	static fun mkdirSync(path: String): Void { }
-	static fun readSync(fd: Int, buffer: Buffer, offset: Int, length: Int, position: Int): Int { return 0 }
-	static fun openSync(path: String, flags: String): Int { return 0 }
-	static fun renameSync(oldPath: String, newPath: String): Void { }
+// `Any` → `String` conversion (D7 unboxing: real strings pass through,
+// scalars format, everything else keeps the interned `'null'` placeholder —
+// js-identical for non-strings, like `Any_unboxString_`). Replaces the old
+// host-stub declare (which returned `'null'` for every value, silently
+// breaking `Array.join` and therefore every `path.join` on native).
+fun anyToString(value: Any?): String {
+	if value == null { return 'null' }
+	if let v = value { return anyUnboxString(v) }
+	return 'null'
 }
 @rename('Any_unboxString_') declare fun anyUnboxString(value: Any): String
 
@@ -3050,6 +3045,366 @@ fun hostRuntimePrototypes() {
 declare fun encodeURIComponent(s: String): String
 declare fun decodeURIComponent(s: String): String
 declare fun typeof(v: Any): String
+// Browser-shaped globals — the native bridge assigns the real host object to
+// `window` at module load (see installNativeBridge in perfide/native_bridge)
+var window: Any = null
+var document: Any = null
+// `nan`/`infinity` map to the real C math macros (math.h) instead of missing globals
+@rename('NAN') declare let nan: Float
+@rename('INFINITY') declare let infinity: Float
+declare let globalThis: Any
+// NOTE the helpers below have bodies on purpose: body-less `declare fun` emits
+// no prototype in the C output and there is no host implementation for these —
+// Phase 2 fills the real semantics
+// Percent-codec helpers (shared by encode/decodeURI*, Buffer, TextDecoder)
+fun hexDigitUpper(n: Int): String {
+	let digits = '0123456789ABCDEF'
+	if let c = digits.charCodeAt(n) { return String.fromCharCode(c) }
+	return '0'
+}
+fun hexValueOf(code: Int): Int {
+	if code >= 48 and code <= 57 { return code - 48 }
+	if code >= 65 and code <= 70 { return code - 55 }
+	if code >= 97 and code <= 102 { return code - 87 }
+	return 0 - 1
+}
+// encodeURIComponent keep-set (unreserved marks)
+fun uriUnreserved(code: Int): Bool {
+	if code >= 65 and code <= 90 { return true }
+	if code >= 97 and code <= 122 { return true }
+	if code >= 48 and code <= 57 { return true }
+	return code == 45 or code == 95 or code == 46 or code == 33 or code == 126 or code == 42 or code == 39 or code == 40 or code == 41
+}
+// encodeURI extra keep-set (reserved + '#')
+fun uriReserved(code: Int): Bool {
+	if code == 59 or code == 44 or code == 47 or code == 63 or code == 58 { return true }
+	if code == 64 or code == 38 or code == 61 or code == 43 or code == 36 { return true }
+	return code == 35
+}
+// One code point (astral-ready) → %XX run (single intern, no prefixes)
+fun uriEncodeCodePoint(code: Int): String {
+	var units [Int] = []
+	var bytes [Int] = []
+	if code < 128 { bytes.push(code) } else if code < 2048 {
+		bytes.push(192 + code \ 64)
+		bytes.push(128 + code % 64)
+	} else if code < 65536 {
+		bytes.push(224 + code \ 4096)
+		bytes.push(128 + (code \ 64) % 64)
+		bytes.push(128 + code % 64)
+	} else {
+		bytes.push(240 + code \ 262144)
+		bytes.push(128 + (code \ 4096) % 64)
+		bytes.push(128 + (code \ 64) % 64)
+		bytes.push(128 + code % 64)
+	}
+	for b in bytes {
+		units.push(37)
+		let hi = b \ 16
+		let lo = b % 16
+		if hi < 10 { units.push(48 + hi) } else { units.push(55 + hi) }
+		if lo < 10 { units.push(48 + lo) } else { units.push(55 + lo) }
+	}
+	return stringFromCodeUnits(units)
+}
+// Full-string UTF-8 encoder ( Astral pairs → 4 bytes; lone halves → 3-byte form )
+fun utf8EncodeString(s: String): [Int] {
+	var out [Int] = []
+	var i = 0
+	while i < s.length {
+		if let c = s.charCodeAt(i) {
+			var code = c
+			var width = 1
+			if c >= 55296 and c <= 56319 {
+				if let lo = s.charCodeAt(i + 1) {
+					if lo >= 56320 and lo <= 57343 {
+						code = 65536 + (c - 55296) * 1024 + (lo - 56320)
+						width = 2
+					}
+				}
+			}
+			if code < 128 { out.push(code) } else if code < 2048 {
+				out.push(192 + code \ 64)
+				out.push(128 + code % 64)
+			} else if code < 65536 {
+				out.push(224 + code \ 4096)
+				out.push(128 + (code \ 64) % 64)
+				out.push(128 + code % 64)
+			} else {
+				out.push(240 + code \ 262144)
+				out.push(128 + (code \ 4096) % 64)
+				out.push(128 + (code \ 64) % 64)
+				out.push(128 + code % 64)
+			}
+			i = i + width
+		} else { i++ }
+	}
+	return out
+}
+// Single-intern build from UTF-16 code units (avoids O(n^2) `+`
+// prefixes: one malloc + one fromUTF16z instead of one interned
+// String per prefix).
+fun stringFromCodeUnits(units: [Int]): String {
+	var n = units.length
+	if n <= 0 { return '' }
+	let buf = malloc((n * 2 + 2) as!UInt64) as!ArrayPointer<UInt16>
+	for k in n {
+		buf[k] = units[k] as!UInt16
+	}
+	buf[n] = 0
+	let s = String.fromUTF16z(buf as!ConstArrayPointer<UInt16>)
+	free(buf as!RuntimeAllocated)
+	return s
+}
+// Lenient UTF-8 decoder (bad runs → U+FFFD, never throws)
+fun utf8DecodeBytes(bytes: [Int]): String {
+	var units [Int] = []
+	var i = 0
+	while i < bytes.length {
+		let b0 = bytes[i]
+		if b0 < 128 {
+			units.push(b0)
+			i++
+		} else if b0 >= 194 and b0 < 224 and i + 1 < bytes.length {
+			let b1 = bytes[i + 1]
+			if b1 >= 128 and b1 < 192 {
+				units.push((b0 - 192) * 64 + (b1 - 128))
+				i = i + 2
+			} else {
+				units.push(65533)
+				i++
+			}
+		} else if b0 >= 224 and b0 < 240 and i + 2 < bytes.length {
+			let b1 = bytes[i + 1]
+			let b2 = bytes[i + 2]
+			if b1 >= 128 and b1 < 192 and b2 >= 128 and b2 < 192 {
+				units.push((b0 - 224) * 4096 + (b1 - 128) * 64 + (b2 - 128))
+				i = i + 3
+			} else {
+				units.push(65533)
+				i++
+			}
+		} else if b0 >= 240 and b0 < 245 and i + 3 < bytes.length {
+			let b1 = bytes[i + 1]
+			let b2 = bytes[i + 2]
+			let b3 = bytes[i + 3]
+			if b1 >= 128 and b1 < 192 and b2 >= 128 and b2 < 192 and b3 >= 128 and b3 < 192 {
+				let cp = (b0 - 240) * 262144 + (b1 - 128) * 4096 + (b2 - 128) * 64 + (b3 - 128)
+				units.push(55296 + (cp - 65536) \ 1024)
+				units.push(56320 + (cp - 65536) % 1024)
+				i = i + 4
+			} else {
+				units.push(65533)
+				i++
+			}
+		} else {
+			units.push(65533)
+			i++
+		}
+	}
+	return stringFromCodeUnits(units)
+}
+// Shared encode core (keepReserved selects encodeURI vs encodeURIComponent)
+// Buffer build (no `+` prefixes): raw units pass through, other code
+// points emit their UTF-8 bytes as `%XX` runs directly.
+fun uriEncodeInner(s: String, keepReserved: Bool): String {
+	var units [Int] = []
+	var i = 0
+	while i < s.length {
+		if let c = s.charCodeAt(i) {
+			if uriUnreserved(c) or (keepReserved and (uriReserved(c))) {
+				units.push(c)
+				i++
+			} else {
+				var code = c
+				var width = 1
+				if c >= 55296 and c <= 56319 {
+					if let lo = s.charCodeAt(i + 1) {
+						if lo >= 56320 and lo <= 57343 {
+							code = 65536 + (c - 55296) * 1024 + (lo - 56320)
+							width = 2
+						}
+					}
+				}
+				var bytes [Int] = []
+				if code < 128 { bytes.push(code) } else if code < 2048 {
+					bytes.push(192 + code \ 64)
+					bytes.push(128 + code % 64)
+				} else if code < 65536 {
+					bytes.push(224 + code \ 4096)
+					bytes.push(128 + (code \ 64) % 64)
+					bytes.push(128 + code % 64)
+				} else {
+					bytes.push(240 + code \ 262144)
+					bytes.push(128 + (code \ 4096) % 64)
+					bytes.push(128 + (code \ 64) % 64)
+					bytes.push(128 + code % 64)
+				}
+				for b in bytes {
+					units.push(37)
+					let hi = b \ 16
+					let lo = b % 16
+					if hi < 10 { units.push(48 + hi) } else { units.push(55 + hi) }
+					if lo < 10 { units.push(48 + lo) } else { units.push(55 + lo) }
+				}
+				i = i + width
+			}
+		} else { i++ }
+	}
+	return stringFromCodeUnits(units)
+}
+fun encodeURIComponent(s: String): String { return uriEncodeInner(s, false) }
+fun encodeURI(s: String): String { return uriEncodeInner(s, true) }
+// Shared decode core (malformed runs stay literal; decodeURI preserves reserved)
+// Buffer build: decoded runs append their units, raw runs copy source
+// units directly (no `+` prefixes, no per-triple substring).
+fun uriDecodeInner(s: String, keepReserved: Bool): String {
+	var units [Int] = []
+	var i = 0
+	while i < s.length {
+		if let c = s.charCodeAt(i) {
+			if c != 37 {
+				units.push(c)
+				i++
+			} else {
+				var bytes [Int] = []
+				var j = i
+				var valid = true
+				while j < s.length {
+					if let p = s.charCodeAt(j) {
+						if p != 37 { break }
+						if j + 2 >= s.length {
+							valid = false
+							break
+						}
+						if let h1 = s.charCodeAt(j + 1) {
+							if let h2 = s.charCodeAt(j + 2) {
+								let v1 = hexValueOf(h1)
+								let v2 = hexValueOf(h2)
+								if v1 < 0 or v2 < 0 {
+									valid = false
+									break
+								}
+								bytes.push(v1 * 16 + v2)
+								j = j + 3
+							} else {
+								valid = false
+								break
+							}
+						} else {
+							valid = false
+							break
+						}
+					} else { break }
+				}
+				if bytes.length == 0 or not valid {
+					units.push(37)
+					i++
+				} else {
+					let decoded = utf8DecodeBytes(bytes)
+					var useRaw = false
+					if keepReserved and decoded.length == 1 {
+						if let rc = decoded.charCodeAt(0) {
+							if uriReserved(rc) { useRaw = true }
+						}
+					}
+					if useRaw {
+						var k = i
+						while k < j {
+							if let rc = s.charCodeAt(k) { units.push(rc) }
+							k++
+						}
+					} else {
+						for k in decoded.length {
+							if let dc = decoded.charCodeAt(k) { units.push(dc) }
+						}
+					}
+					i = j
+				}
+			}
+		} else { i++ }
+	}
+	return stringFromCodeUnits(units)
+}
+fun decodeURIComponent(s: String): String { return uriDecodeInner(s, false) }
+fun decodeURI(s: String): String { return uriDecodeInner(s, true) }
+// Base64 codec (lenient decode: skips whitespace, stops at padding)
+// Buffer build: index the alphabet by code unit (no split array, no `+`).
+fun base64Encode(bytes: [Int]): String {
+	let alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+	var units [Int] = []
+	var i = 0
+	while i < bytes.length {
+		let b0 = bytes[i]
+		let b1 = i + 1 < bytes.length ? bytes[i + 1] : 0
+		let b2 = i + 2 < bytes.length ? bytes[i + 2] : 0
+		let rem = bytes.length - i
+		if let c0 = alpha.charCodeAt(b0 \ 4) { units.push(c0) }
+		if let c1 = alpha.charCodeAt((b0 % 4) * 16 + b1 \ 16) { units.push(c1) }
+		if rem > 2 {
+			if let c2 = alpha.charCodeAt((b1 % 16) * 4 + b2 \ 64) { units.push(c2) }
+			if let c3 = alpha.charCodeAt(b2 % 64) { units.push(c3) }
+		} else if rem == 2 {
+			if let c2 = alpha.charCodeAt((b1 % 16) * 4) { units.push(c2) }
+			units.push(61)
+		} else {
+			units.push(61)
+			units.push(61)
+		}
+		i = i + 3
+	}
+	return stringFromCodeUnits(units)
+}
+fun base64Decode(s: String): [Int] {
+	let alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+	var vals [Int] = []
+	for i in s.length {
+		if let c = s.charCodeAt(i) {
+			if c == 32 or c == 9 or c == 10 or c == 13 { continue }
+			if c == 61 { break }
+			let v = alpha.indexOf(String.fromCharCode(c))
+			if v >= 0 { vals.push(v) }
+		}
+	}
+	var out [Int] = []
+	var i = 0
+	while i < vals.length {
+		let v0 = vals[i]
+		let v1 = i + 1 < vals.length ? vals[i + 1] : 0
+		let v2 = i + 2 < vals.length ? vals[i + 2] : 0
+		let v3 = i + 3 < vals.length ? vals[i + 3] : 0
+		out.push(v0 * 4 + v1 \ 16)
+		if i + 2 < vals.length { out.push((v1 % 16) * 16 + v2 \ 4) }
+		if i + 3 < vals.length { out.push((v2 % 4) * 64 + v3) }
+		i = i + 4
+	}
+	return out
+}
+
+fun isFinite(value: Any): Bool {
+	if value is Float {
+		if let f = value as!Float {
+			return f == f and f != infinity and f != 0.0 - infinity
+		}
+		return false
+	}
+	if value is Int { return true }
+	return false
+}
+
+fun typeof(v: Any): String {
+	// Phase 2: real reflection per F10 — feature checks fall back to 'undefined'
+	return 'undefined'
+}
+	@infix('===') declare fun strictEqual(a: Any, b: Any): Bool
+	@infix('!==') declare fun strictNotEqual(a: Any, b: Any): Bool
+	@infix('instanceof') declare fun instanceof(a: Any, b: Any): Bool
+	// NOTE a body on purpose: `declare fun` emits no prototype and the C
+	// output must still see a `delete_` definition at the call sites.
+	// Full delete needs the F10 accessor tables (ownKeys + slot removal).
+	fun delete(field: Any?): Bool {
+		return false
+	}
 declare fun __js__(code: String): Any
 declare fun eval(code: String): Any
 // Special-case, returns `null` instead of `NaN`
