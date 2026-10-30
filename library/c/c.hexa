@@ -1644,6 +1644,7 @@ class ConstArrayPointer<T> {
 	fun pointerOf(): Pointer<T>
 }
 */
+
 /*
 declare
 class StructByValue<T> {
@@ -1804,6 +1805,7 @@ class Math {
 
 		return 1.0f32 / y
 	static fun sin(v: Float): Float { return cSin(v) }
+	static fun sqrt(value: Float): Float { return cSqrt(value) }
 	static fun tan(v: Float): Float { return cTan(v) }
 	static fun trunc(v: Float): Int {
 		if v < 0.0 { return cCeil(v) as!Int }
@@ -2217,7 +2219,9 @@ class FILE { }
 @rename('stdout') declare let stdout: FILE
 @rename('fflush') declare fun fflush(port: FILE): Void
 @rename('printf') declare fun printf(text: ConstArrayPointer<ClangChar>): Void
-@rename('wprintf') declare fun wprintf(text: ConstArrayPointer<ClangWideChar>,...data: Any): Void
+@rename('wprintf')
+@nativeVariadic
+declare fun wprintf(text: ConstArrayPointer<ClangWideChar>,...data: Any): Void
 @rename('HEXA_TRACE') declare fun trace(text: ConstArrayPointer<ClangWideChar>): Void
 @rename('HEXA_TRACE') declare fun traceLine(text: ConstArrayPointer<ClangWideChar>): Void
 @rename('putchar') declare fun putchar(char: Int): Void
@@ -2951,56 +2955,137 @@ class Buffer /*implements ArrayAccess<T>*/ {
 		return out
 	}
 	private new (/*bufsize: Int*/) { } // {return null} // TODO `new` cannot return value
-	fun readUInt16LE(offset: Int): Int { return 0 }
-	fun writeUInt16LE(value: Int, offset: Int): Int { return 0 }
-	fun readUInt32LE(offset: Int): Int { return 0 }
-	fun readUInt8(offset: Int): UInt8 { return 0 }
-	fun readInt8(offset: Int): Int8 { return 0 }
 	fun slice(offset: Int): Buffer // {} // TODO class is abstract due to fields fun not have a body
 	fun toString(encoding: String): String { return 'null' } // : String, start: Int?, end: Int?): String {}
-	static fun fromBytes(data: ArrayPointer<UInt8>, length: Int): Buffer { return null as!Buffer }
 	static fun from /*<T>*/(string: String, encoding: String?): Buffer { return null as!Buffer }
-	static fun concat(buffers: [Buffer]): Buffer { return null as!Buffer }
-}
-
-class ProcessStd {
-	fun write(text: String): Void { }
-	fun once(name: String, callback: () => Void): Void { }
-	let fd: Any
-}
-
-class Process {
-	static let stdin: ProcessStd
-	static let stdout: ProcessStd
-	static let stderr: ProcessStd
-	static let argv: [String]
-	static fun exit(errorCode: Int): Void { }
-	static let versions: { node: String }
-	fun cwd(): String { return 'null' }
-	let env: Any
-}
-
-class ProcessModule {
-	let stdin: ProcessStd
-	let stdout: ProcessStd
-	let stderr: ProcessStd
-	let argv: [String]
-	fun exit(errorCode: Int): Void { }
-	fun cwd(): String { return 'null' }
 	let versions: { node: String } // todo not require value = for lets in declare
 	let env: Any // todo not require value = for lets in declare
-	let platform: String
-	fun memoryUsage(): { rss: Int, heapTotal: Int, heapUsed: Int }
-}
-
-declare let process: ProcessModule
-
-class ParsedPath {
-	var root: String
-	var dir: String
-	var base: String
-	var ext: String
-	var name: String
+	fun readUInt16LE(offset: Int): Int {
+		if offset < 0 or offset + 1 >= length { return 0 }
+		return (bytes[offset] as!Int) + (bytes[offset + 1] as!Int) * 256
+	}
+	fun writeUInt16LE(value: Int, offset: Int): Int {
+		if offset < 0 or offset + 1 >= length { return 0 }
+		bytes[offset] = (value % 256) as!UInt8
+		bytes[offset + 1] = (value \ 256) as!UInt8
+		return 2
+	}
+	fun readUInt32LE(offset: Int): Int {
+		if offset < 0 or offset + 3 >= length { return 0 }
+		return (bytes[offset] as!Int) + (bytes[offset + 1] as!Int) * 256 + (bytes[offset + 2] as!Int) * 65536 + (bytes[offset + 3] as!Int) * 16777216
+	}
+	fun readUInt8(offset: Int): UInt8 {
+		if offset < 0 or offset >= length { return 0 }
+		return bytes[offset]
+	}
+	fun readInt8(offset: Int): Int8 {
+		if offset < 0 or offset >= length { return 0 as!Int8 }
+		let v = bytes[offset] as!Int
+		if v >= 128 { return (v - 256) as!Int8 }
+		return v as!Int8
+	}
+	fun slice(offset: Int = 0): Buffer { return subarray(offset, length) }
+	fun toString(encoding: String = 'utf8', start: Int = 0, end: Int = 1073741824): String {
+		var s = start
+		var e = end
+		if s < 0 {
+			s = length + s
+			if s < 0 { s = 0 }
+		}
+		if e < 0 {
+			e = length + e
+			if e < 0 { e = 0 }
+		}
+		if s > length { s = length }
+		if e > length { e = length }
+		if e < s { e = s }
+		let enc = encoding.toLowerCase()
+		if enc == 'utf8' or enc == 'utf-8' {
+			var arr [Int] = []
+			for i in (e - s) { arr.push(bytes[s + i] as!Int) }
+			return utf8DecodeBytes(arr)
+		}
+		if enc == 'base64' {
+			var arr [Int] = []
+			for i in (e - s) { arr.push(bytes[s + i] as!Int) }
+			return base64Encode(arr)
+		}
+		if enc == 'hex' {
+			var out = ''
+			for i in (e - s) {
+				let b = bytes[s + i] as!Int
+				out = out + hexDigitUpper(b \ 16).toLowerCase() + hexDigitUpper(b % 16).toLowerCase()
+			}
+			return out
+		}
+		if enc == 'utf16le' or enc == 'ucs2' or enc == 'utf-16le' {
+			var out = ''
+			var i = s
+			while i + 1 < e {
+				out = out + String.fromCharCode((bytes[i] as!Int) + (bytes[i + 1] as!Int) * 256)
+				i = i + 2
+			}
+			return out
+		}
+		if enc == 'binary' or enc == 'latin1' {
+			var out = ''
+			for i in (e - s) { out = out + String.fromCharCode(bytes[s + i] as!Int) }
+			return out
+		}
+		// ascii + unknown: 7-bit mask
+		var out = ''
+		for i in (e - s) { out = out + String.fromCharCode((bytes[s + i] as!Int) % 128) }
+		return out
+	}
+	static fun fromBytes(data: ArrayPointer<UInt8>, length: Int): Buffer {
+		let out = Buffer.alloc(length)
+		if length > 0 { memcpy(out.bytes, data as!ConstArrayPointer<UInt8>, length) }
+		return out
+	}
+	static fun from /*<T>*/(string: String, encoding: String? = 'utf8'): Buffer {
+		var enc = 'utf8'
+		if let e = encoding { enc = e.toLowerCase() }
+		if enc == 'base64' {
+			let arr = base64Decode(string)
+			let out = Buffer.alloc(arr.length)
+			for i in arr.length { out.bytes[i] = arr[i] as!UInt8 }
+			return out
+		}
+		if enc == 'binary' or enc == 'latin1' {
+			let out = Buffer.alloc(string.length)
+			for i in string.length {
+				if let c = string.charCodeAt(i) { out.bytes[i] = (c % 256) as!UInt8 }
+			}
+			return out
+		}
+		if enc == 'hex' {
+			let n = string.length \ 2
+			let out = Buffer.alloc(n)
+			for i in n {
+				if let h1 = string.charCodeAt(i * 2) {
+					if let h2 = string.charCodeAt(i * 2 + 1) { out.bytes[i] = (hexValueOf(h1) * 16 + hexValueOf(h2)) as!UInt8 }
+				}
+			}
+			return out
+		}
+		// utf8/utf-8/ascii default
+		let arr = utf8EncodeString(string)
+		let out = Buffer.alloc(arr.length)
+		for i in arr.length { out.bytes[i] = arr[i] as!UInt8 }
+		return out
+	}
+	static fun concat(buffers: [Buffer]): Buffer {
+		var total = 0
+		for i in buffers.length { total = total + buffers[i].length }
+		let out = Buffer.alloc(total)
+		var at = 0
+		for i in buffers.length {
+			let b = buffers[i]
+			for j in b.length { out.bytes[at + j] = b.bytes[j] }
+			at = at + b.length
+		}
+		return out
+	}
 }
 
 
