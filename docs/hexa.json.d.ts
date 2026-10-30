@@ -2,6 +2,7 @@
  * TypeScript definitions for Hexa project configuration (hexa.json)
  */
 
+// TODO better name
 export interface HexaConfig {
 	/** Schema URL for validation */
 	$schema?: string;
