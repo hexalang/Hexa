@@ -207,17 +207,38 @@ var arcWeakLogged Int = 0
 	}
 
 	fun insertArc() { // Main entry to process all top-level
-		for func in niceProject.globalFuncs { // Process global functions
-			this.processStatement(func) // Mutate in place
+		// Hexa-implemented globals (their calls return +1): used to
+		// transfer call results instead of over-retaining them.
+		for func in niceProject.globalFuncs { switch func {
+			case Function(name, body, _, _, ftype, _, _):
+				if name != null and body != null and niceProject.declareTypes.get(name) == null {
+					switch ftype {
+						case Function(_, returns, _):
+							arcHexaReturns.set(name, returns)
+						case _:
+					}
+				}
+			case _:
+		} }
+
+		for i in niceProject.globalFuncs.length { // Process global functions
+			niceProject.globalFuncs[i] = this.wrapBodyToBlock(niceProject.globalFuncs[i])
+			arcFuncKey = arcKeyFor('', stmtFuncName(niceProject.globalFuncs[i]) ?? '')
+			this.processStatement(niceProject.globalFuncs[i]) // Mutate in place
 		}
 
 		for cls in niceProject.classes { // Process class methods
-			for method in cls.methods {
-				this.processStatement(method)
+			this.markContainerDestroy(cls)
+			for i in cls.methods.length {
+				cls.methods[i] = this.wrapBodyToBlock(cls.methods[i])
+				arcFuncKey = arcKeyFor(cls.name, stmtFuncName(cls.methods[i]) ?? '')
+				this.processStatement(cls.methods[i])
 			}
 
-			for staticMethod in cls.staticMethods {
-				this.processStatement(staticMethod)
+			for i in cls.staticMethods.length {
+				cls.staticMethods[i] = this.wrapBodyToBlock(cls.staticMethods[i])
+				arcFuncKey = arcKeyFor(cls.name, stmtFuncName(cls.staticMethods[i]) ?? '')
+				this.processStatement(cls.staticMethods[i])
 			}
 			// Instance field defaults now arrive as explicit constructor-body
 			// Assigns (reflect `lowerFieldDefaults`, genC-only) — ARC owns
@@ -225,14 +246,18 @@ var arcWeakLogged Int = 0
 		}
 
 		for enu in niceProject.enumsSimple { // If enums have static methods
-			for method in enu.staticMethods {
-				this.processStatement(method)
+			for i in enu.staticMethods.length {
+				enu.staticMethods[i] = this.wrapBodyToBlock(enu.staticMethods[i])
+				arcFuncKey = arcKeyFor(enu.name, stmtFuncName(enu.staticMethods[i]) ?? '')
+				this.processStatement(enu.staticMethods[i])
 			}
 		}
 
 		for enu in niceProject.enumsComplex { // Similar for complex enums
-			for method in enu.staticMethods {
-				this.processStatement(method)
+			for i in enu.staticMethods.length {
+				enu.staticMethods[i] = this.wrapBodyToBlock(enu.staticMethods[i])
+				arcFuncKey = arcKeyFor(enu.name, stmtFuncName(enu.staticMethods[i]) ?? '')
+				this.processStatement(enu.staticMethods[i])
 			}
 		}
 		// Process init if needed, assume init is Block in niceProject.init
