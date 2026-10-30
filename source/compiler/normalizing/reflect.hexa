@@ -288,17 +288,19 @@ class ReflectLowerer {
 
 		// Prepend `bind` to a loop body (`Block` or single statement).
 	fun prependToBody(body: Statement, bind: Statement): Statement { switch body {
-		case Block(els):
-			let out: [Statement] = [bind]
-			for s in els { out.push(s) }
-			return Statement.Block(out)
-		case Statements(els):
-			let out: [Statement] = [bind]
-			for s in els { out.push(s) }
-			return Statement.Statements(out)
-		case _:
-			return Statement.Block([bind, body])
-	} }
+			case Block(els):
+				let out: [Statement] = [bind]
+
+				for s in els { out.push(s) }
+				return Statement.Block(out)
+			case Statements(els):
+				let out: [Statement] = [bind]
+
+				for s in els { out.push(s) }
+				return Statement.Statements(out)
+			case _:
+				return Statement.Block([bind, body])
+		} }
 
 	/// Rewrites initializers of var and const lists in place
 	fun processVarList(list: [Statement]) {
@@ -368,42 +370,45 @@ class ReflectLowerer {
 	/// `Block`/body-less). Fresh single-element list literal (never `[A]`
 	/// `+` `[B]` — that is string coercion under the js runtime).
 	fun shellOne(s: Statement): Statement { switch s {
-		case Function(name, body, args, defaults, dataType, variadic, isAsync):
-			if body != null { switch body {
-				case Block(_):
-				case _:
-					let nel: [Statement] = []
-					nel.push(body)
-					let wrapped = Statement.Function(name, Statement.Block(nel), args, defaults, dataType, variadic, isAsync)
-					if let link = niceProject.globalLink.get(s) {
-						niceProject.globalLink.set(wrapped, link)
-					}
-					return wrapped
-			} }
-		case _:
-	} return s }
+			case Function(name, body, args, defaults, dataType, variadic, isAsync):
+				if body != null { switch body {
+						case Block(_):
+						case _:
+							let nel: [Statement] = []
+							nel.push(body)
+							let wrapped = Statement.Function(name, Statement.Block(nel), args, defaults, dataType, variadic, isAsync)
+
+							if let link = niceProject.globalLink.get(s) {
+								niceProject.globalLink.set(wrapped, link)
+							}
+							return wrapped
+					} }
+			case _:
+		} return s }
 	fun lowerFieldDefaults() {
 		for cls in niceProject.classes {
 			var ctorIdx Int? = null
 			for i in cls.methods.length { switch cls.methods[i] {
-				case Function(fname, _, _, _, _, _, _):
-					if fname == 'new' or fname == null { ctorIdx = i }
-				case _:
-			} }
+					case Function(fname, _, _, _, _, _, _):
+						if fname == 'new' or fname == null { ctorIdx = i }
+					case _:
+				} }
+
 			if let ci = ctorIdx {
 				let assigns: [Statement] = []
 
 				for v in cls.vars { switch v {
-					case Var(name, expr, dataType):
-					if expr != null {
-						assigns.push(Statement.Assign(Expression.Dot(Expression.This(cls.classType), name, dataType), expr, null))
-					}
-					case Const(name, expr, dataType):
-					if expr != null {
-						assigns.push(Statement.Assign(Expression.Dot(Expression.This(cls.classType), name, dataType), expr, null))
-					}
-					case _:
-				} }
+						case Var(name, expr, dataType):
+							if expr != null {
+								assigns.push(Statement.Assign(Expression.Dot(Expression.This(cls.classType), name, dataType), expr, null))
+							}
+						case Const(name, expr, dataType):
+							if expr != null {
+								assigns.push(Statement.Assign(Expression.Dot(Expression.This(cls.classType), name, dataType), expr, null))
+							}
+						case _:
+					} }
+
 				if assigns.length > 0 {
 					switch cls.methods[ci] {
 						case Function(fname, fbody, fargs, fdefaults, ftype, fvariadic, fisAsync):
@@ -434,16 +439,16 @@ class ReflectLowerer {
 								cls.methods[ci] = rebuilt
 
 								for vi in cls.vars.length { switch cls.vars[vi] {
-									case Var(vname, vexpr, vtype):
-										if vexpr != null {
-											cls.vars[vi] = Statement.Var(vname, null, vtype)
-										}
-									case Const(vname, vexpr, vtype):
-										if vexpr != null {
-											cls.vars[vi] = Statement.Const(vname, null, vtype)
-										}
-									case _:
-								} }
+										case Var(vname, vexpr, vtype):
+											if vexpr != null {
+												cls.vars[vi] = Statement.Var(vname, null, vtype)
+											}
+										case Const(vname, vexpr, vtype):
+											if vexpr != null {
+												cls.vars[vi] = Statement.Const(vname, null, vtype)
+											}
+										case _:
+									} }
 							}
 						case _:
 					}
@@ -454,31 +459,32 @@ class ReflectLowerer {
 
 	/// Rewrites the body of a top-level function or method statement
 	fun rewriteFnStmt(s: Statement): Statement { switch s {
-		case Function(name, body, args, defaults, funcType, variadic, isAsync):
-			// Hexa rest detection: last arg is `Rest(element, native:false)`.
-			var savedName String? = restName
-			var savedElem Type? = restElem
-			if let ft = funcType { switch ft {
-				case Function(fargs, _, _):
-					if fargs.length > 0, args.length > 0 {
-						switch fargs[fargs.length - 1].dataType {
-							case Rest(element, native):
-								if not native {
-									restName = args[args.length - 1]
-									restElem = element
-								}
-						}
-					}
-			} }
-			let newDefaults = rewriteExprList(defaults)
-			let newBody = rewriteStmt(body)
-			let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
-			restName = savedName
-			restElem = savedElem
+			case Function(name, body, args, defaults, funcType, variadic, isAsync):
+				// Hexa rest detection: last arg is `Rest(element, native:false)`.
+				var savedName String? = restName
+				var savedElem Type? = restElem
 
-			if let link = niceProject.globalLink.get(s) {
-				niceProject.globalLink.set(result, link)
-			}
+				if let ft = funcType { switch ft {
+						case Function(fargs, _, _):
+							if fargs.length > 0, args.length > 0 {
+								switch fargs[fargs.length - 1].dataType {
+									case Rest(element, native):
+										if not native {
+											restName = args[args.length - 1]
+											restElem = element
+										}
+								}
+							}
+					} }
+				let newDefaults = rewriteExprList(defaults)
+				let newBody = rewriteStmt(body)
+				let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
+				restName = savedName
+				restElem = savedElem
+
+				if let link = niceProject.globalLink.get(s) {
+					niceProject.globalLink.set(result, link)
+				}
 
 				return result
 			case _:
@@ -497,192 +503,198 @@ class ReflectLowerer {
 	}
 
 	/// Rewrites statements, recursing everywhere Assignop can hide
-	fun rewriteStmt(s: Statement): Statement { switch s {
-		case Statements(els):
-			return Statement.Statements(processStatementList(els))
-		case Block(els):
-			return Statement.Block(processStatementList(els))
-		case Call(e, args, expects, kind):
-			if isAnyExpr(e) {
-				anyCalls++
-			}
-
-			return Statement.Call(rewriteExpr(e), rewriteExprList(args), expects, kind)
-		case Var(name, expr, dataType):
-			return Statement.Var(name, rewriteExpr(expr), dataType)
-		case Const(name, expr, dataType):
-			return Statement.Const(name, rewriteExpr(expr), dataType)
-		case Function(name, body, args, defaults, funcType, variadic, isAsync):
-			return Statement.Var(name, rewriteFnValue(body, args, defaults, funcType, variadic, isAsync, name), funcType)
-		case Return(e):
-			return Statement.Return(rewriteExpr(e))
-		case If(econd, eif, eelse):
-			return Statement.If(rewriteExpr(econd), rewriteStmt(eif), rewriteStmt(eelse))
-		case Try(expr, t, v, catches, temp):
-			let newCatches: [Statement] = []
-
-			for c in catches {
-				newCatches.push(rewriteStmt(c))
-			}
-
-			return Statement.Try(rewriteStmt(expr), t, v, newCatches, temp)
-		case Throw(value):
-			return Statement.Throw(rewriteExpr(value))
-		case Assign(name, value, to):
-			return Statement.Assign(rewriteExpr(name), rewriteExpr(value), to)
-		case Assignop(name, op, value):
-			stmtAssignop++
-
-			if let r = lowerStmtAssignop(name, op, value) {
-				loweredAssignop++
-				traceLog('LOWERED-ASSIGNOP stmt')
-				return r
-			}
-
-			return Statement.Assignop(rewriteExpr(name), op, rewriteExpr(value))
-		case For(name, over, by, reverse):
-			// Hexa rest `for p in rest` lowers directly to `while` (normalizer already
-			// ran, so a new `For` would never be lowered and genC would throw).
-			if let rn = restName, let elem = restElem {
-				switch unwrapParen(over) {
-					case Ident(oname, _):
-					if oname == rn {
-						let loopId = restLoopId++
-							let itName = '$it' + (loopId)
-							let finishName = '$at' + (loopId)
-							let intT = niceProject.typer.typeInt
-							let boolT = niceProject.typer.typeBool
-							let countIdent = Expression.Ident('$nrest', intT)
-							let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
-							// Rewrite body once (nested rest uses inner rest after save/restore).
-							let loweredBy = rewriteStmt(by)
-							let bodyBlock Statement = switch loweredBy {
-								case Block(els): Statement.Block(els)
-								case Statements(els): Statement.Block(els)
-								case _: Statement.Block([loweredBy])
-							}
-							let bodyEls [Statement] = switch bodyBlock {
-								case Block(els): els
-								case _: [bodyBlock]
-							}
-												if reverse {
-							// NOTE list built with push: `[a] + [b]` on arrays
-							// coerces to string under the js runtime (silent
-							// empty loop bodies) — never use + for IR lists.
-							let innerRev: [Statement] = [
-								Statement.Decrement(Expression.Ident(itName, intT)),
-								Statement.Var(name, Expression.Index(ptrIdent, Expression.Ident(itName, intT), elem), elem)
-							]
-							for s in bodyEls { innerRev.push(s) }
-							let out: [Statement] = [
-								Statement.Var(itName, countIdent, intT),
-								Statement.While(
-									Expression.Binop(Expression.Ident(itName, intT), Token.Greater, Expression.Int(0), boolT),
-									Statement.Block(innerRev),
-									true
-								)
-							]
-							return Statement.Block(out)
-						}
-						// NOTE list built with push (see above) — `[a] + [b]`
-						// is string coercion under the js runtime.
-						let inner: [Statement] = [Statement.Var(name, Expression.Index(ptrIdent, Expression.Ident(itName, intT), elem), elem)]
-						inner.push(Statement.Increment(Expression.Ident(itName, intT)))
-						for s in bodyEls { inner.push(s) }
-						let out: [Statement] = [
-							Statement.Var(itName, Expression.Int(0), intT),
-							Statement.Var(finishName, countIdent, intT),
-							Statement.While(
-								Expression.Binop(Expression.Ident(itName, intT), Token.Less, Expression.Ident(finishName, intT), boolT),
-								Statement.Block(inner),
-								true
-							)
-						]
-						return Statement.Block(out)
-						}
+	fun rewriteStmt(s: Statement): Statement {
+		switch s {
+			case Statements(els):
+				return Statement.Statements(processStatementList(els))
+			case Block(els):
+				return Statement.Block(processStatementList(els))
+			case Call(e, args, expects, kind):
+				if isAnyExpr(e) {
+					anyCalls++
 				}
-			}
-			return Statement.For(name, rewriteExpr(over), rewriteStmt(by), reverse)
-		case While(econd, e, pre):
-			return Statement.While(rewriteExpr(econd), rewriteExpr(e), pre)
-		case Increment(e):
-			return Statement.Increment(rewriteExpr(e))
-		case Decrement(e):
-			return Statement.Decrement(rewriteExpr(e))
-		case PatternSwitch(expr, cases, statements, guards, binds):
-			let newCases: [[Expression]] = []
 
-			for case_ in cases {
-				newCases.push(rewriteExprList(case_))
-			}
+				return Statement.Call(rewriteExpr(e), rewriteExprList(args), expects, kind)
+			case Var(name, expr, dataType):
+				return Statement.Var(name, rewriteExpr(expr), dataType)
+			case Const(name, expr, dataType):
+				return Statement.Const(name, rewriteExpr(expr), dataType)
+			case Function(name, body, args, defaults, funcType, variadic, isAsync):
+				return Statement.Var(name, rewriteFnValue(body, args, defaults, funcType, variadic, isAsync, name), funcType)
+			case Return(e):
+				return Statement.Return(rewriteExpr(e))
+			case If(econd, eif, eelse):
+				return Statement.If(rewriteExpr(econd), rewriteStmt(eif), rewriteStmt(eelse))
+			case Try(expr, t, v, catches, temp):
+				let newCatches: [Statement] = []
 
-			let newStatements: [Statement] = []
+				for c in catches {
+					newCatches.push(rewriteStmt(c))
+				}
 
-			for st in statements {
-				newStatements.push(rewriteStmt(st))
-			}
+				return Statement.Try(rewriteStmt(expr), t, v, newCatches, temp)
+			case Throw(value):
+				return Statement.Throw(rewriteExpr(value))
+			case Assign(name, value, to):
+				return Statement.Assign(rewriteExpr(name), rewriteExpr(value), to)
+			case Assignop(name, op, value):
+				stmtAssignop++
 
-			let newGuards: [Expression] = []
+				let ntName = rewriteExpr(name)
+				let nvName = rewriteExpr(value)
 
-			for g in guards {
-				newGuards.push(rewriteExpr(g))
-			}
+				if let r = lowerStmtAssignop(ntName, op, nvName) {
+					loweredAssignop++
+					return r
+				}
 
-			let newBinds: [[Statement]] = []
+				return Statement.Assignop(ntName, op, nvName)
+			case For(name, over, by, reverse):
+				// Hexa rest `for p in rest` lowers directly to `while` (normalizer already
+				// ran, so a new `For` would never be lowered and genC would throw).
+				if let rn = restName, let elem = restElem {
+					switch unwrapParen(over) {
+						case Ident(oname, _):
+							if oname == rn {
+								let loopId = restLoopId++
+								let itName = '$it' + (loopId)
+								let finishName = '$at' + (loopId)
+								let intT = niceProject.typer.typeInt
+								let boolT = niceProject.typer.typeBool
+								let countIdent = Expression.Ident('$nrest', intT)
+								let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
+								// Rewrite body once (nested rest uses inner rest after save/restore).
+								let loweredBy = rewriteStmt(by)
+								let bodyBlock Statement = switch loweredBy {
+									case Block(els): Statement.Block(els)
+									case Statements(els): Statement.Block(els)
+									case _: Statement.Block([loweredBy])
+								}
+								let bodyEls [Statement] = switch bodyBlock {
+									case Block(els): els
+									case _: [bodyBlock]
+								}
 
-			for b in binds {
-				newBinds.push(processStatementList(b))
-			}
+								if reverse {
+									// NOTE list built with push: `[a] + [b]` on arrays
+									// coerces to string under the js runtime (silent
+									// empty loop bodies) — never use + for IR lists.
+									let innerRev: [Statement] = [
+										Statement.Decrement(Expression.Ident(itName, intT)),
+										Statement.Var(name, Expression.Index(ptrIdent, Expression.Ident(itName, intT), elem), elem)
+									]
 
-			return Statement.PatternSwitch(rewriteExpr(expr), newCases, newStatements, newGuards, newBinds)
-		case PlainSwitch(expr, cases, statements):
-			let newCases: [[Expression]] = []
+									for s in bodyEls { innerRev.push(s) }
+									let out: [Statement] = [
+										Statement.Var(itName, countIdent, intT),
+										Statement.While(
+											Expression.Binop(Expression.Ident(itName, intT), Token.Greater, Expression.Int(0), boolT),
+											Statement.Block(innerRev),
+											true
+										)
+									]
+									return Statement.Block(out)
+								}
+								// NOTE list built with push (see above) — `[a] + [b]`
+								// is string coercion under the js runtime.
+								let inner: [Statement] = [Statement.Var(name, Expression.Index(ptrIdent, Expression.Ident(itName, intT), elem), elem)]
+								inner.push(Statement.Increment(Expression.Ident(itName, intT)))
 
-			for case_ in cases {
-				newCases.push(rewriteExprList(case_))
-			}
+								for s in bodyEls { inner.push(s) }
+								let out: [Statement] = [
+									Statement.Var(itName, Expression.Int(0), intT),
+									Statement.Var(finishName, countIdent, intT),
+									Statement.While(
+										Expression.Binop(Expression.Ident(itName, intT), Token.Less, Expression.Ident(finishName, intT), boolT),
+										Statement.Block(inner),
+										true
+									)
+								]
+								return Statement.Block(out)
+							}
+					}
+				}
+				return Statement.For(name, rewriteExpr(over), rewriteStmt(by), reverse)
+			case While(econd, e, pre):
+				return Statement.While(rewriteExpr(econd), rewriteStmt(e), pre)
+			case Increment(e):
+				return Statement.Increment(rewriteExpr(e))
+			case Decrement(e):
+				return Statement.Decrement(rewriteExpr(e))
+			case PatternSwitch(expr, cases, statements, guards, binds):
+				let newCases: [[Expression]] = []
 
-			let newStatements: [Statement] = []
+				for case_ in cases {
+					newCases.push(rewriteExprList(case_))
+				}
 
-			for st in statements {
-				newStatements.push(rewriteStmt(st))
-			}
+				let newStatements: [Statement] = []
 
-			return Statement.PlainSwitch(rewriteExpr(expr), newCases, newStatements)
-		case SuperConstructor(args):
-			return Statement.SuperConstructor(rewriteExprList(args))
-		case RefInc(name):
-			return Statement.RefInc(rewriteExprList(name))
-		case DeferRefDec(name):
-			return Statement.DeferRefDec(rewriteExprList(name))
-		case Continue | Break:
-			return s
-		case _:
-			if s != null, kindOfStmt(s) != 'UnknownStmt' {
-				traceLog('REFLECT-MISS stmt ' + kindOfStmt(s))
-			}
+				for st in statements {
+					newStatements.push(rewriteStmt(st))
+				}
 
-			return s
-	} }
+				let newGuards: [Expression] = []
 
-/// Nested named function value, body rewritten in place, no lifting here.
-/// Lifting stays owned by ClosureLifter which runs after this pass.
+				for g in guards {
+					newGuards.push(rewriteExpr(g))
+				}
+
+				let newBinds: [[Statement]] = []
+
+				for b in binds {
+					newBinds.push(processStatementList(b))
+				}
+
+				return Statement.PatternSwitch(rewriteExpr(expr), newCases, newStatements, newGuards, newBinds)
+			case PlainSwitch(expr, cases, statements):
+				let newCases: [[Expression]] = []
+
+				for case_ in cases {
+					newCases.push(rewriteExprList(case_))
+				}
+
+				let newStatements: [Statement] = []
+
+				for st in statements {
+					newStatements.push(rewriteStmt(st))
+				}
+
+				return Statement.PlainSwitch(rewriteExpr(expr), newCases, newStatements)
+			case SuperConstructor(args):
+				return Statement.SuperConstructor(rewriteExprList(args))
+			case RefInc(name):
+				return Statement.RefInc(rewriteExprList(name))
+			case DeferRefDec(name):
+				return Statement.DeferRefDec(rewriteExprList(name))
+			case Continue | Break:
+				return s
+			case _:
+				if s != null, kindOfStmt(s) != 'UnknownStmt' {
+					traceLog('REFLECT-MISS stmt ' + kindOfStmt(s))
+				}
+
+				return s
+		} }
+
+	/// Nested named function value, body rewritten in place, no lifting here.
+	/// Lifting stays owned by ClosureLifter which runs after this pass.
 	fun rewriteFnValue(body: Statement, args: [String], defaults: [Expression], funcType: Type, variadic: VariadicKind, isAsync: Bool, selfName: String? = null): Expression {
 		var savedName String? = restName
 		var savedElem Type? = restElem
 
 		if let ft = funcType { switch ft {
-			case Function(fargs, _, _):
-				if fargs.length > 0, args.length > 0 {
-					switch fargs[fargs.length - 1].dataType {
-						case Rest(element, native):
-							if not native {
-								restName = args[args.length - 1]
-								restElem = element
-							}
+				case Function(fargs, _, _):
+					if fargs.length > 0, args.length > 0 {
+						switch fargs[fargs.length - 1].dataType {
+							case Rest(element, native):
+								if not native {
+									restName = args[args.length - 1]
+									restElem = element
+								}
+						}
 					}
-				}
-		} }
+			} }
 		let fn = Expression.Function(selfName, rewriteStmt(body), args, rewriteExprList(defaults), funcType, isAsync)
 		restName = savedName
 		restElem = savedElem
@@ -829,118 +841,193 @@ class ReflectLowerer {
 
 	/// Rewrites expressions, counting dynamic shapes for the census
 	fun rewriteExpr(e: Expression): Expression { switch e {
-		case Ident(_, _):
-			return e
-		case Dot(expr, name, result):
-			// Hexa rest `.length` is `$nrest` (count).
-			if let rn = restName {
-				switch unwrapParen(expr) {
-					case Ident(oname, _):
-						if oname == rn, name == 'length' {
-							return Expression.Ident('$nrest', niceProject.typer.typeInt)
-						}
+			case Ident(_, _):
+				return e
+			case Dot(expr, name, result):
+				// Hexa rest `.length` is `$nrest` (count).
+				if let rn = restName {
+					switch unwrapParen(expr) {
+						case Ident(oname, _):
+							if oname == rn, name == 'length' {
+								return Expression.Ident('$nrest', niceProject.typer.typeInt)
+							}
+					}
 				}
-			}
-			if isAnyExpr(expr) {
-				anyDots++
-			}
 
-			return Expression.Dot(rewriteExpr(expr), name, result)
-		case Index(expr, index, result):
-			// Hexa rest `rest[i]` is bounds-checked nullable: `i < $nrest ? $rest[i] : null`.
-			if let rn = restName, let elem = restElem {
-				switch unwrapParen(expr) {
-					case Ident(oname, _):
-						if oname == rn {
-							let newIdx = rewriteExpr(index)
-							let countIdent = Expression.Ident('$nrest', niceProject.typer.typeInt)
-							let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
-							let cond = Expression.Binop(newIdx, Token.Less, countIdent, niceProject.typer.typeBool)
-							let direct = Expression.Index(ptrIdent, newIdx, elem)
-							let nullExpr = Expression.Null(Type.Nullable(elem))
-							return Expression.If(cond, direct, nullExpr, Type.Nullable(elem))
-						}
+				if isAnyExpr(expr) {
+					anyDots++
 				}
-			}
-			return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
-		case StringIndex(expr, index, result):
-			return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
-		case Call(callee, args, result, kind, expects):
-			if isAnyExpr(callee) {
-				anyCalls++
-			}
 
-			return Expression.Call(rewriteExpr(callee), rewriteExprList(args), result, kind, expects)
-		case New(callee, args, result):
-			return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
-		case Binop(a, op, b, result):
-			if isAnyExpr(a) or isAnyExpr(b) {
-				anyBinops++
-			}
+				return Expression.Dot(rewriteExpr(expr), name, result)
+			case Index(expr, index, result):
+				// Hexa rest `rest[i]` is bounds-checked nullable: `i < $nrest ? $rest[i] : null`.
+				if let rn = restName, let elem = restElem {
+					switch unwrapParen(expr) {
+						case Ident(oname, _):
+							if oname == rn {
+								let newIdx = rewriteExpr(index)
+								let countIdent = Expression.Ident('$nrest', niceProject.typer.typeInt)
+								let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
+								let cond = Expression.Binop(newIdx, Token.Less, countIdent, niceProject.typer.typeBool)
+								let direct = Expression.Index(ptrIdent, newIdx, elem)
+								let nullExpr = Expression.Null(Type.Nullable(elem))
+								return Expression.If(cond, direct, nullExpr, Type.Nullable(elem))
+							}
+					}
+				}
+				return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
+			case StringIndex(expr, index, result):
+				// `s[i]` — genC's struct-pointer form (`&s[i]`, an address into
+				// the String object, not the char) is garbage that AVs in concat
+				// — lower to the `stringAt` static (charAt semantics, OOB → '').
+				// Static call: uppercase base skips every fat/vtable path and
+				// prints `String_$stringAt_(s, i)` with raw args (no conversion).
+				let s2 = rewriteExpr(expr)
+				let i2 = rewriteExpr(index)
+				var stringClass Type = niceProject.typer.typeString
 
-			return Expression.Binop(rewriteExpr(a), op, rewriteExpr(b), result)
-		case Unop(op, postfix, inner):
-			return Expression.Unop(op, postfix, rewriteExpr(inner))
-		case Parenthesis(inner):
-			return Expression.Parenthesis(rewriteExpr(inner))
-		case Array(values, arrayType):
-			return Expression.Array(rewriteExprList(values), arrayType)
-		case Object(names, el, types):
-			return Expression.Object(names, rewriteExprList(el), types)
-		case Map(keys, values, keyType, valueType, mapType):
-			return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
-		case If(econd, eif, eelse, result):
-			return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse), result)
-		case Elvis(a, b):
-			return Expression.Elvis(rewriteExpr(a as!Expression), rewriteExpr(b as!Expression))
-		case This(_):
-			return e
-		case Await(inner):
-			return Expression.Await(rewriteExpr(inner))
-		case UnsafeBitCast(inner, to):
-			return Expression.UnsafeBitCast(rewriteExpr(inner), to)
-		case Is(inner, of):
-			return Expression.Is(rewriteExpr(inner), of)
-		case RemoveNullability(inner, result):
-			return Expression.RemoveNullability(rewriteExpr(inner), result)
-		case Assignop(name, op, value):
-			exprAssignop++
+				for c in niceProject.classes {
+					if c.name == 'String' { stringClass = c.classType }
+				}
+				let callee = Expression.Dot(Expression.Ident('String', stringClass), 'stringAt', result)
+				return Expression.Call(callee, [s2, i2], result, CallKind.Static, [])
+			case Call(callee, args, result, kind, expects):
+				if isAnyExpr(callee) {
+					anyCalls++
+				}
 
-			if let r = lowerExprAssignop(name, op, value) {
-				loweredAssignop++
-				traceLog('LOWERED-ASSIGNOP expr')
-				return r
-			}
+				return Expression.Call(rewriteExpr(callee), rewriteExprList(args), result, kind, expects)
+			case New(callee, args, result):
+				return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
+			case Binop(a, op, b, result):
+				if isAnyExpr(a) or isAnyExpr(b) {
+					anyBinops++
+				}
 
-			return Expression.Assignop(rewriteExpr(name), op, rewriteExpr(value))
-		case EnumTag(inner):
-			return Expression.EnumTag(rewriteExpr(inner))
-		case Enum(enumType, tagName, tag, args):
-			return Expression.Enum(enumType, tagName, rewriteExpr(tag), rewriteExprList(args))
-		case EnumParameter(inner, index):
-			return Expression.EnumParameter(rewriteExpr(inner), index)
-		case Spread(inner):
-			return Expression.Spread(rewriteExpr(inner))
-		case StringConcatenation(leftString, rightString):
-			return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
-		case NativeOperator(kind, args, name, params, result):
-			return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
-		case String(_): return e
-		case Int(_): return e
-		case Float(_): return e
-		case Null(_): return e
-		case Underscore: return e
-		case True: return e
-		case False: return e
-		case MetaInt(_, _, _): return e
-		case Function(name, body, args, defaults, funcType, isAsync):
-			return Expression.Function(name, rewriteStmt(body), args, rewriteExprList(defaults), funcType, isAsync)
-		case Arrow(expr, args, defaults, types, returns, funcType, isAsync):
-			return Expression.Arrow(rewriteExpr(expr), args, rewriteExprList(defaults), types, returns, funcType, isAsync)
-		case _:
-			if e != null, kindOfExpr(e) != 'UnknownExpr' {
-				traceLog('REFLECT-MISS expr ' + kindOfExpr(e))
-			}
+				return Expression.Binop(rewriteExpr(a), op, rewriteExpr(b), result)
+			case Unop(op, postfix, inner):
+				return Expression.Unop(op, postfix, rewriteExpr(inner))
+			case Parenthesis(inner):
+				return Expression.Parenthesis(rewriteExpr(inner))
+			case Array(values, arrayType):
+				return Expression.Array(rewriteExprList(values), arrayType)
+			case Object(names, el, types):
+				return Expression.Object(names, rewriteExprList(el), types)
+			case Map(keys, values, keyType, valueType, mapType):
+				return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
+			case If(econd, eif, eelse, result):
+				return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse), result)
+			case Elvis(a, b):
+				return lowerElvis(e, a as!Expression, b as!Expression)
+			case This(_):
+				return e
+			case Await(inner):
+				return Expression.Await(rewriteExpr(inner))
+			case UnsafeBitCast(inner, to):
+				// `rest as Array<T>` needs an allocating copy — not yet lowered (no boot callers).
+				if let rn = restName {
+					switch unwrapParen(inner) {
+						case Ident(oname, _):
+							if oname == rn {
+								switch to {
+									case ClassInstance(kind, _):
+										if kind.name == 'Array' {
+											throw 'Rest `as Array` copy is not lowered yet (rest `...` -> use for/in, length, index)'
+										}
+								}
+							}
+					}
+				}
+				return Expression.UnsafeBitCast(rewriteExpr(inner), to)
+			case Is(inner, of):
+				return Expression.Is(rewriteExpr(inner), of)
+			case RemoveNullability(inner, result):
+				return Expression.RemoveNullability(rewriteExpr(inner), result)
+			case Assignop(name, op, value):
+				exprAssignop++
+
+				let ntName = rewriteExpr(name)
+				let nvName = rewriteExpr(value)
+
+				if let r = lowerExprAssignop(ntName, op, nvName) {
+					loweredAssignop++
+					return r
+				}
+
+				return Expression.Assignop(ntName, op, nvName)
+			case EnumTag(inner):
+				return Expression.EnumTag(rewriteExpr(inner))
+			case Enum(enumType, tagName, tag, args):
+				return Expression.Enum(enumType, tagName, rewriteExpr(tag), rewriteExprList(args))
+			case EnumParameter(inner, index):
+				return Expression.EnumParameter(rewriteExpr(inner), index)
+			case Spread(inner):
+				return Expression.Spread(rewriteExpr(inner))
+			case StringConcatenation(leftString, rightString):
+				return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
+			case NativeOperator(kind, args, name, params, result):
+				return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
+			case String(_): return e
+			case Int(_): return e
+			case Float(_): return e
+			case Null(_): return e
+			case Underscore: return e
+			case True: return e
+			case False: return e
+			case MetaInt(_, _, _): return e
+			case Function(name, body, args, defaults, funcType, isAsync):
+				// Anonymous `fun` values (`cmds.executeCommand = fun (c, ...a)`)
+				// carry the same Hexa-rest ABI as named fns — set the rest
+				// context around the body or `args.length`/`args[i]` never lower
+				// to `$nrest`/`$rest` (M1 `args_` undeclared).
+				var savedFnName String? = restName
+				var savedFnElem Type? = restElem
+
+				if let ft = funcType { switch ft {
+						case Function(fargs, _, _):
+							if fargs.length > 0, args.length > 0 {
+								switch fargs[fargs.length - 1].dataType {
+									case Rest(element, native):
+										if not native {
+											restName = args[args.length - 1]
+											restElem = element
+										}
+									case _:
+								}
+							}
+					} }
+				let newFnBody = rewriteStmt(body)
+				let newFnDefaults = rewriteExprList(defaults)
+				restName = savedFnName
+				restElem = savedFnElem
+				return Expression.Function(name, newFnBody, args, newFnDefaults, funcType, isAsync)
+			case Arrow(expr, args, defaults, types, returns, funcType, isAsync):
+				// Same rest context for `=>` arrows (see above).
+				var savedArName String? = restName
+				var savedArElem Type? = restElem
+
+				if let ft = funcType { switch ft {
+						case Function(fargs, _, _):
+							if fargs.length > 0, args.length > 0 {
+								switch fargs[fargs.length - 1].dataType {
+									case Rest(element, native):
+										if not native {
+											restName = args[args.length - 1]
+											restElem = element
+										}
+									case _:
+								}
+							}
+					} }
+				let newArBody = rewriteExpr(expr)
+				let newArDefaults = rewriteExprList(defaults)
+				restName = savedArName
+				restElem = savedArElem
+				return Expression.Arrow(newArBody, args, newArDefaults, types, returns, funcType, isAsync)
+			case _:
+				if e != null, kindOfExpr(e) != 'UnknownExpr' {
+					traceLog('REFLECT-MISS expr ' + kindOfExpr(e))
+				}
 
 				return e
 		} }
@@ -964,79 +1051,79 @@ class ReflectLowerer {
 	/// Nested function values stay inline as capture contexts, not entries.
 	fun collectEscapeFuncs() {
 		for f in niceProject.globalFuncs { switch f {
-			case Function(name, body, args, _, _, _, _):
-				if body != null {
-					if let k = escapeFuncKey('', name) {
-						escapeIndex.set(k, escapeKeys.length)
-						escapeKeys.push(k)
-						escapeGlobalFuncs++
-						escapeArgsList.push(args)
-						escapeBodies.push(body)
+				case Function(name, body, args, _, _, _, _):
+					if body != null {
+						if let k = escapeFuncKey('', name) {
+							escapeIndex.set(k, escapeKeys.length)
+							escapeKeys.push(k)
+							escapeGlobalFuncs++
+							escapeArgsList.push(args)
+							escapeBodies.push(body)
+						}
 					}
-				}
-			case _:
-		} }
+				case _:
+			} }
 
 		for c in niceProject.classes {
 			for m in c.methods { switch m {
-				case Function(name, body, args, _, _, _, _):
-					if body != null {
-						if let k = escapeFuncKey(c.name, name) {
-							escapeIndex.set(k, escapeKeys.length)
-							escapeKeys.push(k)
-							escapeMethodFuncs++
-							escapeArgsList.push(args)
-							escapeBodies.push(body)
+					case Function(name, body, args, _, _, _, _):
+						if body != null {
+							if let k = escapeFuncKey(c.name, name) {
+								escapeIndex.set(k, escapeKeys.length)
+								escapeKeys.push(k)
+								escapeMethodFuncs++
+								escapeArgsList.push(args)
+								escapeBodies.push(body)
+							}
 						}
-					}
-				case _:
-			} }
+					case _:
+				} }
 
 			for m in c.staticMethods { switch m {
-				case Function(name, body, args, _, _, _, _):
-					if body != null {
-						if let k = escapeFuncKey(c.name, name) {
-							escapeIndex.set(k, escapeKeys.length)
-							escapeKeys.push(k)
-							escapeMethodFuncs++
-							escapeArgsList.push(args)
-							escapeBodies.push(body)
+					case Function(name, body, args, _, _, _, _):
+						if body != null {
+							if let k = escapeFuncKey(c.name, name) {
+								escapeIndex.set(k, escapeKeys.length)
+								escapeKeys.push(k)
+								escapeMethodFuncs++
+								escapeArgsList.push(args)
+								escapeBodies.push(body)
+							}
 						}
-					}
-				case _:
-			} }
+					case _:
+				} }
 		}
 
 		for e in niceProject.enumsSimple {
 			for m in e.staticMethods { switch m {
-				case Function(name, body, args, _, _, _, _):
-					if body != null {
-						if let k = escapeFuncKey(e.name, name) {
-							escapeIndex.set(k, escapeKeys.length)
-							escapeKeys.push(k)
-							escapeMethodFuncs++
-							escapeArgsList.push(args)
-							escapeBodies.push(body)
+					case Function(name, body, args, _, _, _, _):
+						if body != null {
+							if let k = escapeFuncKey(e.name, name) {
+								escapeIndex.set(k, escapeKeys.length)
+								escapeKeys.push(k)
+								escapeMethodFuncs++
+								escapeArgsList.push(args)
+								escapeBodies.push(body)
+							}
 						}
-					}
-				case _:
-			} }
+					case _:
+				} }
 		}
 
 		for e in niceProject.enumsComplex {
 			for m in e.staticMethods { switch m {
-				case Function(name, body, args, _, _, _, _):
-					if body != null {
-						if let k = escapeFuncKey(e.name, name) {
-							escapeIndex.set(k, escapeKeys.length)
-							escapeKeys.push(k)
-							escapeMethodFuncs++
-							escapeArgsList.push(args)
-							escapeBodies.push(body)
+					case Function(name, body, args, _, _, _, _):
+						if body != null {
+							if let k = escapeFuncKey(e.name, name) {
+								escapeIndex.set(k, escapeKeys.length)
+								escapeKeys.push(k)
+								escapeMethodFuncs++
+								escapeArgsList.push(args)
+								escapeBodies.push(body)
+							}
 						}
-					}
-				case _:
-			} }
+					case _:
+				} }
 		}
 	}
 
