@@ -133,12 +133,12 @@ fun win32HostPrototypes() {
 @dllImport('DeleteFileW') declare fun deleteFileW(path: ConstArrayPointer<ClangWideChar>): Int32
 @dllImport('MoveFileW') declare fun moveFileW(from: ConstArrayPointer<ClangWideChar>, to: ConstArrayPointer<ClangWideChar>): Int32
 // Current directory / module path / command line
-@rename('GetCurrentDirectoryW') declare fun getCurrentDirectoryW(length: UInt32, buffer: ArrayPointer<ClangWideChar>): UInt32
-@rename('SetCurrentDirectoryW') declare fun setCurrentDirectoryW(path: ConstArrayPointer<ClangWideChar>): Int32
-@rename('GetModuleFileNameW') declare fun getModuleFileNameW(module: HMODULE, buffer: ArrayPointer<ClangWideChar>, length: UInt32): UInt32
-@rename('GetCommandLineW') declare fun getCommandLineW(): ConstArrayPointer<ClangWideChar>
-@rename('CommandLineToArgvW') declare fun commandLineToArgvW(commandLine: ConstArrayPointer<ClangWideChar>, argcOut: ArrayPointer<Int32>): ArrayPointer<ConstArrayPointer<ClangWideChar>>
-@rename('LocalFree') declare fun localFreeWin(memory: HLOCAL): HLOCAL
+@dllImport('GetCurrentDirectoryW') declare fun getCurrentDirectoryW(length: UInt32, buffer: ArrayPointer<ClangWideChar>): UInt32
+@dllImport('SetCurrentDirectoryW') declare fun setCurrentDirectoryW(path: ConstArrayPointer<ClangWideChar>): Int32
+@dllImport('GetModuleFileNameW') declare fun getModuleFileNameW(module: HMODULE, buffer: ArrayPointer<ClangWideChar>, length: UInt32): UInt32
+@dllImport('GetCommandLineW') declare fun getCommandLineW(): ConstArrayPointer<ClangWideChar>
+@dllImport('CommandLineToArgvW') declare fun commandLineToArgvW(commandLine: ConstArrayPointer<ClangWideChar>, argcOut: ArrayPointer<Int32>): ArrayPointer<ConstArrayPointer<ClangWideChar>>
+@dllImport('LocalFree') declare fun localFreeWin(memory: HLOCAL): HLOCAL
 // Process / identity
 @dllImport('GetCurrentProcessId') declare fun getCurrentProcessId(): UInt32
 @dllImport('ExitProcess') declare fun exitProcessWin(code: UInt32): Void
@@ -223,8 +223,11 @@ fun iXor(a: Int, b: Int): Int {
 // STARTUPINFOW / PROCESS_INFORMATION cross as POINTER-shaped declare structs
 // (`@struct` without `@byValue` → Hexa value IS the C pointer): allocate with
 // malloc, zero with zeroMemory, set fields, pass straight to CreateProcessW.
+// Own Hexa structs (FFI pivot: no SDK struct reliance — field layout mirrors
+// the SDK's, names keep the `_` suffix so they never collide when SDK headers
+// are present; the DLL entry resolves via @dllImport on CreateProcessW below).
 @struct
-@rename('STARTUPINFOW') declare class StartupInfoW {
+class StartupInfoW {
 	var cb: UInt32
 	var lpReserved: ArrayPointer<ClangWideChar>
 	var lpDesktop: ArrayPointer<ClangWideChar>
@@ -271,6 +274,7 @@ let swHide Int32 = 0
 // winsock2 must come AFTER windows.h here only because the generated TU sets
 // WIN32_LEAN_AND_MEAN (which drops winsock.h) — the documented safe order.
 // ws2_32/winhttp link via pragma so build_msvc_hexa.bat stays untouched.
+// ─── FFI link block: no SDK headers in the generated TU ─────────────────────
 @customHeader('
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
@@ -280,7 +284,7 @@ let swHide Int32 = 0
 	#pragma comment(lib, "psapi.lib")
 ')
 fun win32NetPrototypes() {
-	// Nothing — the custom header above carries the includes + link pragmas
+	// Nothing — the custom header above carries the link pragmas
 }
 @rename('HINTERNET') declare class HINTERNET { }
 let winhttpAccessDefaultProxy UInt32 = 0u32
@@ -323,7 +327,7 @@ let socketError Int32 = -1
 let wsaWouldBlock Int32 = 10035
 
 // ─── Timezone bias (minutes to add to local time to get UTC) ─────────────────
-@rename('GetTimeZoneInformation') declare fun getTimeZoneInformationWin(info: LPTIME_ZONE_INFORMATION): UInt32
+@dllImport('GetTimeZoneInformation') declare fun getTimeZoneInformationWin(info: LPTIME_ZONE_INFORMATION): UInt32
 fun winTimezoneBiasMinutes(): Int {
 	var blob ArrayByValue<UInt8, 172> = [0]
 	for i in 172 { blob[i] = 0 }
