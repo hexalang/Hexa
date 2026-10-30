@@ -26,9 +26,16 @@
 @final // TODO optimize into non-virtual calls
 @friend(true) // Allows to access `private var` of `String` instances within any static/etc methods of String
 // TODO @asIs // Allows to simply use this name in code generator
+
+// F10.2b intern table: 64k buckets (BSS-resident via ArrayByValue,
+// zero-init = all empty, no init loop). Bucket index is the low 16 bits
+// of the content hash (see fromUTF16). Replaces the single linked-list
+// root (O(n) walk per intern); lookup walks one bucket only, new strings
+// link at the walked tail.
+var stringBuckets ArrayByValue<String?, 65536> = []
 class String {
 	// TODO `let length: Int` ?
-	//var length: SizeOfPointer = 0 as! SizeOfPointer or `SizeOfPointer(n)` and `SizeOfPointer.zero`
+	// var length: SizeOfPointer = 0 as! SizeOfPointer or `SizeOfPointer(n)` and `SizeOfPointer.zero`
 	var length: Int = 0
 
 	/// Approximately 2 gigabytes + `\0`, also fits into 31-bit (signed 32-bit) as a value
@@ -43,7 +50,7 @@ class String {
 	@keep private var bytesLength: Int = 0
 	@keep private var bytesHash: Int = 0
 	// TODO if bytes allocated next to String, it could be as `char bytes[]` in C thus not wasting space for separate field which is good for small strings (also less mallocs)
-	@keep private var bytes: ConstArrayPointer<UInt16> = null as! ConstArrayPointer<UInt16>
+	@keep private var bytes: ConstArrayPointer<UInt16> = null as!ConstArrayPointer<UInt16>
 	// TODO fun getBytesPointer(): Int {return 0}
 
 	// TODO #region Operators
@@ -80,7 +87,7 @@ class String {
 	// ^ fix tofitaDebugLog calls in Tofita
 	@to(ConstArrayPointer<ClangWideChar>)
 	fun utf16(): ConstArrayPointer<ClangWideChar> {
-		return bytes as! ConstArrayPointer<ClangWideChar>
+		return bytes as!ConstArrayPointer<ClangWideChar>
 	}
 	// TODO `.ref` getter?
 
@@ -213,7 +220,7 @@ class String {
 		let size: Int = countUTF8z(string)
 		// TODO test type check that constructor is private
 		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
-		let bytes = malloc(size * 2u64 + 2u64) as! ArrayPointer<UInt16>
+		let bytes = malloc(size * 2u64 + 2u64) as!ArrayPointer<UInt16>
 		// TODO alloc on stack if size is not that large (64k?)
 
 		// TODO proper UTF convert
@@ -225,8 +232,8 @@ class String {
 		bytes[size + 1] = 0
 		// TODO transfer size
 		// TODO no as!
-		let result = fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
-		free(bytes as! RuntimeAllocated)
+		let result = fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
+		free(bytes as!RuntimeAllocated)
 		return result
 	}
 
@@ -281,10 +288,11 @@ class String {
 				}
 
 				// TODO arc++? Cause `@weak`
-				//console.log('deduplicated: ', now)
+				// console.log('deduplicated: ', now)
 				// TODO NONVCALLconsole.logString('deduplicated: ')
 				// TODO NONVCALLconsole.logString(now)
-				//trace(now.bytes as! ConstArrayPointer<ClangWideChar>)
+				// trace(now.bytes as! ConstArrayPointer<ClangWideChar>)
+				// tofitaDebugLog('fromUTF16 deduplicated: %S'.utf16(), now.bytes as! UInt64)
 				return now
 			} else {
 				break
@@ -293,18 +301,21 @@ class String {
 
 		// TODO test type check that constructor is private
 		// Produce new string
+		var message ArrayByValue<ClangWideChar, 23> = "fromUTF16 new String()"
+		// tofitaDebugLog(message.ref, 0, 0) TODO unused `message` must be omitted by normalizer
+
 		let result = new String()
 		// TODO use hexa allocator instead of malloc
 		// TODO allocate as `malloc(sizeof String + bytes)` to avoid pointer indirection
 		// TODO allocate 8-byte aligned for 8-byte comparison steps
-		let bytesStorage = malloc(bytesSize as! UInt64) as! ConstArrayPointer<UInt16>
+		let bytesStorage = malloc(bytesSize as!UInt64) as!ConstArrayPointer<UInt16>
 
 		result.bytes = bytesStorage
 		let bytes: ArrayPointer<UInt16> = result.bytes as! ArrayPointer<UInt16>
 		if chars > 0 {
 			// TODO respect `offset` !!!
 			// TODO copy 4/8 bytes at a time manually
-			memcpy(bytes as! ArrayPointer<UInt8>, string as! ConstArrayPointer<UInt8>, chars * 2)
+			memcpy(bytes as!ArrayPointer<UInt8>, string as!ConstArrayPointer<UInt8>, chars * 2)
 		}
 		bytes[chars] = 0
 		result.length = chars
@@ -332,12 +343,12 @@ class String {
 
 		let left: ArrayPointer<UInt16> = bytes as! ArrayPointer<UInt16>
 		if this.length > 0 {
-			memcpy(left as! ArrayPointer<UInt8>, this.bytes as! ConstArrayPointer<UInt8>, this.length * 2)
+			memcpy(left as!ArrayPointer<UInt8>, this.bytes as!ConstArrayPointer<UInt8>, this.length * 2)
 		}
 
-		let right: ArrayPointer<UInt16> = ((bytes as! UInt64) + this.length * 2) as! ArrayPointer<UInt16>
+		let right: ArrayPointer<UInt16> = ((bytes as!UInt64) + this.length * 2) as!ArrayPointer<UInt16>
 		if with.length > 0 {
-			memcpy(right as! ArrayPointer<UInt8>, with.bytes as! ConstArrayPointer<UInt8>, with.length * 2)
+			memcpy(right as!ArrayPointer<UInt8>, with.bytes as!ConstArrayPointer<UInt8>, with.length * 2)
 		}
 
 		// TODO unit test this carefully
@@ -402,8 +413,8 @@ class String {
 			pos++
 		}
 
-		let bytes = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
-		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+		let bytes = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
+		return fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
 	}
 
 	static fun fromInt64(value: Int64): String {
@@ -438,8 +449,8 @@ class String {
 			pos++
 		}
 
-		let bytes = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
-		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+		let bytes = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
+		return fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
 	}
 
 	static fun fromUInt64(value: UInt64): String {
@@ -477,9 +488,10 @@ class String {
 			pos++
 		}
 
-		let bytes = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
+		let bytes = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
+		// tofitaDebugLog('fromUInt64 "%S"'.utf16(), bytes.address as! UInt64)
 		// TODO use with known size
-		return fromUTF16z(bytes as! ConstArrayPointer<UInt16>)
+		return fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
 	}
 
 	static fun fromUInt64n(value: UInt64): String {
@@ -512,7 +524,7 @@ class String {
 		bytes[21] = 0
 
 		// Point to the start of the string
-		let bytesPtr = (bytes.address + pos * 2) as! ConstArrayPointer<UInt16>
+		let bytesPtr = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
 		return fromUTF16z(bytesPtr)
 	}
 
@@ -592,5 +604,39 @@ class String {
 		}
 
 		return 'null'
+	}
+
+		// ARC destructor (called by the sweep before freeing): unlinks this entry
+	// from the intern bucket and frees the copied bytes. Unlinks by buffer
+	// identity (every String owns its bytes buffer exclusively), never by
+	// content: a content match on a different object must not unlink a live
+	// interned twin while this entry leaks. Unmapped entries simply free
+	// their own bytes and leave buckets untouched (leak-safe).
+	@destructor fun destroy() {
+		var bucket = bytesHash % 65536
+		if bucket < 0 {
+			bucket = bucket + 65536
+		}
+		let selfAddr = bytes as!UInt64
+		var prev: String? = null
+		var cursor: String? = stringBuckets[bucket]
+		while true {
+			if let now = cursor {
+				if now.bytes as!UInt64 == selfAddr {
+					if let p = prev {
+						p.next = now.next
+					} else {
+						stringBuckets[bucket] = now.next
+					}
+					free(bytes as!RuntimeAllocated)
+					return
+				}
+				prev = now
+				cursor = now.next
+			} else {
+				free(bytes as!RuntimeAllocated)
+				return
+			}
+		}
 	}
 }
