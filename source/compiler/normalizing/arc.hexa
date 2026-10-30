@@ -6,7 +6,9 @@
 /// Ref-counting (ARC) implementation: inserts `RefInc` now + `DeferRefDec`
 /// scope guards (genC emits them as C++ RAII guards whose destructor runs
 /// `rc--` at block exit on every path, incl. unwinding).
-/// ArcInserter runs after Normalizer, before ClosureLifter/Reflect.
+/// ArcInserter runs after Reflect + ClosureLifter (see `source/main.hexa`
+/// order), so it sees lowered field-default Assigns, lifted `closure$N`
+/// globals and the escape census — never pre-lift captures or free vars.
 @final
 class ArcInserter {
 	var niceProject: NiceProject // The IR to mutate
@@ -59,7 +61,9 @@ class ArcInserter {
 	// `globalFuncs` with a body and no `declareTypes` entry (skips
 	// body-less native/declare entries) — presence in this map IS the
 	// Hexa-implemented proof, so call sites need only one lookup.
-	// NOTE: closures/lambdas are NOT in this map (only top-level globals).
+	// NOTE: this runs after ClosureLifter, so lifted `closure$N` globals
+	// ARE in this map — sound, since their Block returns take +1 by the
+	// same rule (fat-call wrappers forward the same value).
 	let arcHexaReturns [String : Type] = [:]
 
 	new (niceProject: NiceProject) {
@@ -567,13 +571,12 @@ class ArcInserter {
 										els.spliceAndInsert(i, 0, Statement.Const(temp_old_name, left, left_type)) // Save old
 										els.spliceAndInsert(i + 1, 0, Statement.Const(temp_right_name, binop, left_type)) // Eval new
 										els.spliceAndInsert(i + 2, 0, Statement.Assign(left, temp_right, null)) // Assign
-										// Fresh `left + right` transfers only when
-										// `isFreshOwned` proves +1 today
-										// (`StringConcatenation`, both-fresh `If`);
-										// plain `Binop-Add` stays retaining until genC
-										// keys `+` on the same declared-type predicate
-										// (see `isOwnedInit` NOTE). Borrowed results
-										// keep the retain.
+										// Fresh `left + right` transfers when
+										// `isFreshOwned` proves +1 (`StringConcatenation`,
+										// both-fresh `If`, narrow string-`+` with a
+										// provably-`String_*` side — see `isOwnedInit`).
+										// All other shapes (Ident/Dot operands, non-`+`
+										// Binops) stay retaining: leak-only-if-wrong.
 										// NOTE: keep the cursor math in sync with the net
 										// insert count (transfer +4/-1, retain +5/-1).
 										if this.isFreshOwned(binop) {
@@ -1177,11 +1180,13 @@ class ArcInserter {
 	/// Provably-+1 calls (`isPlusOneCall`: Hexa-global and resolved
 	/// Hexa-method calls) return +1 by construction; native, unresolved
 	/// `Dot`, dynamic and unknown callees keep the retain (their conventions
-	/// are unknown). An `If` whose BOTH branches are fresh-owned is itself
-	/// +1 (exactly one branch runs and yields its +1 — the ternary
-	/// allocates nothing). Everything else (borrows, awaits, half-fresh
-	/// ternaries) keeps the retain: an extra inc only leaks, a missing one
-	/// frees live.
+	/// are unknown). Narrow string-`+` (`Binop-Add` with a provably-`String_*`
+	/// side — see `isProvableStringShape`) is +1 via `String_$combine_`.
+	/// An `If` whose BOTH branches are fresh-owned is itself +1 (exactly one
+	/// branch runs and yields its +1 — the ternary allocates nothing).
+	/// Everything else (borrows, awaits, half-fresh ternaries, Ident/Dot
+	/// string operands) keeps the retain: an extra inc only leaks, a missing
+	/// one frees live.
 	fun isOwnedInit(e: Expression): Bool {
 		if e == null {
 			return false
@@ -1200,19 +1205,27 @@ class ArcInserter {
 				return this.isPlusOneCall(callee)
 			case Parenthesis(inner):
 				return this.isOwnedInit(inner)
-				// NOTE (reverted 2026-10-29): a Binop-Add transfer arm lived here
-				// (fresh when a String operand is present). It regressed boot:
-				// `String_$combine_+0x130` AV-read `FFFFFFFFFFFFFFFF` from
-				// `bootProbe_` — a `+1` was skipped for a value genC did NOT
-				// route through `combine_` (dynamic `Any`/null/lost-map shapes
+				// NOTE (history): a BROAD Binop-Add transfer arm lived here
+				// AV-read freed memory — a `+1` was skipped for a value genC
+				// did NOT route through `combine_` (dynamic `Any`/null shapes
 				// take the proxy/raw-`+` path), so the sweep freed live.
-				// Keep the retaining path until genC keys `+` on the same
-				// declared-type predicate (like fat `==`/`!=` already does).
-				// `StringConcatenation` stays: genC unconditionally emits
-				// `combine_` for it, so +1 transfer is exact (no producer
+				// The NARROW arm below replaces it: transfer only when an
+				// operand's C value is PROVABLY `String_*` (literals, fresh
+				// `StringConcatenation`, provably-+1 `String` calls) — the
+				// same predicate genC's `+` printer keys on, minus the
+				// scope-declared shapes ARC cannot see (Ident/Dot/Index stay
+				// retaining). `StringConcatenation` stays: genC unconditionally
+				// emits `combine_` for it, so +1 transfer is exact (no producer
 				// exists today — documents the contract for when one does).
 			case StringConcatenation(_, _):
 				return true
+			case Binop(a, op, b, _):
+				if op == Token.Add {
+					if this.isProvableStringShape(a) or this.isProvableStringShape(b) {
+						return true
+					}
+				}
+				return false
 			case If(_, then, else_, _):
 				// Both-branch-fresh ⇒ the selected branch's +1 is the
 				// value's +1. `isFreshOwned` (not `isOwnedInit`) so an
@@ -1221,6 +1234,61 @@ class ArcInserter {
 					return false
 				}
 				return this.isFreshOwned(then) and this.isFreshOwned(else_ as!Expression)
+			case _:
+				return false
+		}
+	}
+
+	/// Shapes whose emitted C value is provably `String_*` — the Binop-Add
+	/// transfer predicate (see `isOwnedInit`). genC routes `a + b` through
+	/// `String_$combine_` (+1) IFF `cShape` of a side is `String_*`; ARC has
+	/// no scope-declared types, so it trusts only shapes whose C value is
+	/// fixed by construction: literals (interned globals), fresh
+	/// `StringConcatenation` (unconditional `combine_`), and provably-+1
+	/// calls whose declared return is `String` (a fresh allocation whose C
+	/// shape IS its return type — no declared/use split for fresh values).
+	fun isProvableStringShape(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case String(_):
+				return true
+			case StringConcatenation(_, _):
+				return true
+			case Parenthesis(inner):
+				return this.isProvableStringShape(inner)
+			case Call(callee, _, _, _, _):
+				if this.isPlusOneCall(callee) {
+					if let rt = this.hexaCalleeReturns(callee) {
+						if this.isStringType(rt) {
+							return true
+						}
+					}
+				}
+				return false
+			case _:
+				return false
+		}
+	}
+
+	/// True for the `String` class (both `Class` and `ClassInstance` shapes,
+	/// through `Nullable` — `stringifyType` unwraps those to `String_*`, so
+	/// genC routes them through `combine_` too). `Unknown` shells stay out:
+	/// uninferred, hence unprovable.
+	fun isStringType(t: Type): Bool {
+		if t == null {
+			return false
+		}
+
+		switch t {
+			case ClassInstance(c, _):
+				return c.name == 'String'
+			case Class(c):
+				return c.name == 'String'
+			case Nullable(inner):
+				return this.isStringType(inner)
 			case _:
 				return false
 		}
