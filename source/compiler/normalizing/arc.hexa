@@ -358,43 +358,27 @@ class ArcInserter {
 							let pre_stmts = [] // Collect inserts for rvalue args
 							for j in args.length {
 								let arg = args[j]
-								let arg_type = this.getType(arg) // From expressionType.get(arg)
-								if not this.isLvalueExpr(arg) and this.needsARC(arg_type) { // Rvalue ARC arg needs temp + dec (no inc)
-									let temp_name = this.unique('temp_call_arg')
-									let temp = Expression.Ident(temp_name, arg_type)
-									pre_stmts.push(Statement.Const(temp_name, arg, arg_type)) // Materialize temp
-									pre_stmts.push(Statement.DeferRefDec([temp])) // Defer release
-									args[j] = temp // Replace arg with temp
+
+								// Temp + guard only for provably-+1 rvalues (fresh
+								// literals, Hexa-implemented calls): native/dynamic
+								// rvalues pass through unguarded — a guard would
+								// release what was never retained, while a missing
+								// one merely leaks until per-function conventions land.
+								if not this.isLvalueExpr(arg) and this.isOwnedInit(arg) {
+									let arg_type = this.niceTypeOf(arg) ?? this.getType(arg)
+
+									if arg_type != null and this.needsARC(arg_type) {
+										let temp_name = this.unique('temp_call_arg')
+										let temp = Expression.Ident(temp_name, arg_type)
+										pre_stmts.push(Statement.Const(temp_name, arg, arg_type)) // Materialize temp
+										pre_stmts.push(Statement.DeferRefDec([temp])) // Defer release
+										args[j] = temp // Replace arg with temp
+										arcCallTemps++
+									}
+								} else if not this.isLvalueExpr(arg) {
+									arcCallTempsSkipped++
 								}
 							}
-					case Call(func, args, expects, kind):
-						// Recurse into callee + args (nested closure bodies).
-						this.processExpression(func)
-						for arg in args { this.processExpression(arg) }
-						let pre_stmts = [] // Collect inserts for rvalue args
-					for j in args.length {
-						let arg = args[j]
-
-						// Temp + guard only for provably-+1 rvalues (fresh
-						// literals, Hexa-implemented calls): native/dynamic
-						// rvalues pass through unguarded — a guard would
-						// release what was never retained, while a missing
-						// one merely leaks until per-function conventions land.
-						if not this.isLvalueExpr(arg) and this.isOwnedInit(arg) {
-							let arg_type = this.niceTypeOf(arg) ?? this.getType(arg)
-
-							if arg_type != null and this.needsARC(arg_type) {
-								let temp_name = this.unique('temp_call_arg')
-								let temp = Expression.Ident(temp_name, arg_type)
-								pre_stmts.push(Statement.Const(temp_name, arg, arg_type)) // Materialize temp
-								pre_stmts.push(Statement.DeferRefDec([temp])) // Defer release
-								args[j] = temp // Replace arg with temp
-								arcCallTemps++
-							}
-						} else if not this.isLvalueExpr(arg) {
-							arcCallTempsSkipped++
-						}
-					}
 
 							if pre_stmts.length > 0 { // Insert before call
 								// TODO els.spliceAndInsert(i, 0, ...pre_stmts) // Insert array at i
@@ -550,25 +534,6 @@ class ArcInserter {
 										}
 									}
 							}
-						} else {
-							// Impure subscript (effectful base/index): same conservative
-							// shape as impure Dot — hoist RHS once, retain the temp,
-							// leak the old slot (never double-evaluate the subscript).
-							if this.isArrayOrMap(base) {
-								let slotT = this.elementTypeOf(base) ?? this.niceTypeOf(right) ?? this.getType(right)
-
-								if slotT != null and (this.needsARC(slotT) or this.isAnyLike(slotT)) {
-									let tempNew = this.unique('temp_new')
-									let nt = Expression.Ident(tempNew, slotT)
-									els.spliceAndInsert(i, 0, Statement.Const(tempNew, right, slotT))
-									els[i + 1] = Statement.Assign(left, nt, null)
-									els.spliceAndInsert(i + 2, 0, Statement.RefInc([nt]))
-									arcIndexStores++
-									i += 2 // Skip Const + guard (Assign needs no revisit)
-								}
-							}
-						}
-					}
 						case Assignop(left, op, right):
 							// Recurse into both sides (nested closure bodies).
 							this.processExpression(left)
