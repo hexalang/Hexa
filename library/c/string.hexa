@@ -648,6 +648,26 @@ class String {
 	fun concat(with: String): String {
 		let length = with.length + this.length
 
+		// Hot path (labels, paths, render text): stack scratch, zero malloc /
+		// free traffic. fromUTF16z copies into interned storage before
+		// return, so the stack buffer never escapes.
+		if length <= 255 {
+			var scratch: ArrayByValue<UInt16, 256> = [0]
+			let buf = scratch.address as!ArrayPointer<UInt16>
+
+			if this.length > 0 {
+				memcpy(buf as!ArrayPointer<UInt8>, this.bytes as!ConstArrayPointer<UInt8>, this.length * 2)
+			}
+
+			let right: ArrayPointer<UInt16> = ((buf as!UInt64) + this.length * 2) as!ArrayPointer<UInt16>
+			if with.length > 0 {
+				memcpy(right as!ArrayPointer<UInt8>, with.bytes as!ConstArrayPointer<UInt8>, with.length * 2)
+			}
+
+			buf[length] = 0
+			return fromUTF16z(buf as!ConstArrayPointer<UInt16>)
+		}
+
 		let bytes = malloc(length * 2u64 + 2u64) as!ArrayPointer<UInt16>
 
 		let left: ArrayPointer<UInt16> = bytes as!ArrayPointer<UInt16>
