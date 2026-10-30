@@ -659,6 +659,10 @@ class Typer {
 					typeFloat = classType.instantiate()
 					typeNullFloat = asNullable(typeFloat)
 
+				case 'Number':
+					typeNumber = classType.instantiate()
+					typeNullNumber = asNullable(typeNumber)
+
 				case 'Float32':
 					typeFloat32 = classType.instantiate()
 					typeNullFloat32 = asNullable(typeFloat32)
@@ -668,6 +672,10 @@ class Typer {
 					// TODO protect the same way whole `switch`
 					if knownParams == null {
 						typeArray = classType
+					}
+				case 'Promise':
+					if knownParams == null {
+						typePromise = classType
 					}
 				case 'Map':
 					if knownParams == null {
@@ -1461,6 +1469,8 @@ class Typer {
 	private var typeUInt8: Type? = null
 	private var typeFloat: Type? = null
 	private var typeNullFloat: Type? = null
+	private var typeNumber: Type? = null
+	private var typeNullNumber: Type? = null
 	private var typeFloat32: Type? = null
 	private var typeNullFloat32: Type? = null
 
@@ -1498,6 +1508,18 @@ class Typer {
 
 		if to == typeFloat, fromValue == typeInt {
 			return typeFloat
+		}
+
+		if to == typeNumber, fromValue == typeInt {
+			return typeNumber
+		}
+
+		if to == typeFloat, fromValue == typeNumber {
+			return typeFloat
+		}
+
+		if to == typeNumber, fromValue == typeFloat {
+			return typeNumber
 		}
 
 		// Nullability
@@ -1571,6 +1593,7 @@ class Typer {
 
 			// Float is 64-bit signed
 			// `UInt64` & `Int64` are too large or too precise
+			// `Number` shares the double shape, so it widens the same way
 			if to == typeFloat, [
 				typeUInt32,
 				typeUInt16,
@@ -2232,6 +2255,7 @@ class Typer {
 
 			typeInt,
 			typeFloat,
+			typeNumber,
 
 			typeFloat32,
 			typeBigInt,
@@ -2749,6 +2773,8 @@ class Typer {
 				let overType: Type = types.get(over)
 
 				switch overType {
+					case Rest(element, _):
+						types.set(node, element)
 					case ClassInstance(classType, generic):
 						// Extract Array<T>
 						if generic != null, generic.length == 1 {
@@ -2797,7 +2823,7 @@ class Typer {
 				switch by {
 					case Block(_):
 					case _: {
-							fail('Loop body must be a `{` block `}`', by)
+							fail('Loop body must be a `\{` block `\}`', by)
 						}
 				}
 				fill(by)
@@ -3057,7 +3083,7 @@ class Typer {
 				switch e {
 					case Block(_):
 					case _:
-						fail('`while` statements must be wrapped with a `{` block `}`', e)
+						fail('`while` statements must be wrapped with a `\{` block `\}`', e)
 				}
 				fill(e)
 				allowBreakAndContinue = _allowBreakAndContinue
@@ -3201,6 +3227,8 @@ class Typer {
 						let overType: Type = types.get(over)
 
 						switch overType {
+							case Rest(element, _):
+								types.set(el[0], element)
 							case ClassInstance(classType, generic):
 								// Extract Array<T>
 								// TODO check classType == typeArray
@@ -3335,6 +3363,14 @@ class Typer {
 				}
 
 				if let etype = types.get(e) as!Type? { switch etype {
+						case Rest(element, native):
+							// `for/in` and `[i]` go through typer directly.
+							if n == 'length' {
+								types.set(node, typeInt)
+								parents.set(node, e)
+								return
+							}
+							fail('Rest `...` has no field `.\(n)` (only `.length`)', node)
 						case ClassInstance(classType, generic): // Non-static fields
 							classType.useless = false
 							if etype == typeAny {
