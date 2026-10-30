@@ -105,10 +105,19 @@
 #endif
 int HEXA_MAIN(int, char **);
 
+#ifdef __cplusplus
+	#define HEXA_C extern "C"
+	#define HEXA_CPP extern "C++"
+#else
+	#define HEXA_C
+	#define HEXA_CPP
+#endif
+
 #ifndef HEXA_NEW
 	#ifndef HEXA_NO_PLATFORM_INCLUDES
 		#ifdef _WIN32
 			// TODO cache GetProcessHeap !
+			// TODO should be part of hexa runtime
 			#define HEXA_NEW(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
 			#define HEXA_UNREACHABLE_PRESENT 1
 			static void HEXA_UNREACHABLE(uint32_t where);
@@ -131,11 +140,65 @@ int HEXA_MAIN(int, char **);
 	#endif
 #endif
 
+// OOM diagnosis: HEXA_NEW call-site tracking (watchdog dumps top 10).
+// BSS array indexed by __LINE__ (hexa-native.cpp < 400k lines) — no heap, so
+// the tracker can't OOM itself or hide the leak it's measuring (a std hash
+// table would allocate). Totals are allocated; frees are no-ops on native
+// Phase-1, so totals == live. Dumped by HexaDumpAllocTop() on watchdog.
+#ifdef _WIN32
+#ifndef HEXA_NO_PLATFORM_INCLUDES
+#ifndef HEXA_ALLOC_TRACK_MAX_LINE
+#define HEXA_ALLOC_TRACK_MAX_LINE 400000
+#endif
+static size_t hexaAllocCount_[HEXA_ALLOC_TRACK_MAX_LINE];
+static size_t hexaAllocBytes_[HEXA_ALLOC_TRACK_MAX_LINE];
+HEXA_C void* HexaTrackAlloc(size_t z, int line) {
+	if (line >= 0 && line < HEXA_ALLOC_TRACK_MAX_LINE) {
+		hexaAllocCount_[line]++;
+		hexaAllocBytes_[line] += z;
+	}
+	return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z);
+}
+HEXA_C void HexaDumpAllocTop(const char* path) {
+	FILE* f = fopen(path, "w");
+	if (!f) return;
+	fprintf(f, "%s%c", "# Hexa native alloc top (HEXA_NEW __LINE__ in hexa-native.cpp; totals allocated, no frees on Phase-1 so totals == live)", 10);
+	fprintf(f, "%s%c", "# rank line count bytes avg", 10);
+	size_t totalCount = 0, totalBytes = 0;
+	for (int i = 0; i < HEXA_ALLOC_TRACK_MAX_LINE; i++) { totalCount += hexaAllocCount_[i]; totalBytes += hexaAllocBytes_[i]; }
+	fprintf(f, "%s%llu%s%llu%c", "# total count=", (unsigned long long)totalCount, " bytes=", (unsigned long long)totalBytes, 10);
+	int reported[10]; for (int k = 0; k < 10; k++) reported[k] = -1;
+	for (int rank = 0; rank < 10; rank++) {
+		size_t bestBytes = 0; int bestLine = -1;
+		for (int i = 0; i < HEXA_ALLOC_TRACK_MAX_LINE; i++) {
+			int dup = 0; for (int k = 0; k < rank; k++) if (reported[k] == i) { dup = 1; break; }
+			if (dup) continue;
+			if (hexaAllocBytes_[i] > bestBytes) { bestBytes = hexaAllocBytes_[i]; bestLine = i; }
+		}
+		if (bestLine < 0 || bestBytes == 0) break;
+		reported[rank] = bestLine;
+		size_t c = hexaAllocCount_[bestLine];
+		size_t b = hexaAllocBytes_[bestLine];
+		size_t avg = c ? b / c : 0;
+		fprintf(f, "%d %d %llu %llu %llu%c", rank + 1, bestLine, (unsigned long long)c, (unsigned long long)b, (unsigned long long)avg, 10);
+	}
+	fclose(f);
+}
+#undef HEXA_NEW
+#define HEXA_NEW(z) HexaTrackAlloc(z, __LINE__)
+#endif
+#endif
+//#define Array_$Null$int32_t$_ Array_$int32_t$_
+//#define Array_$int32_t$_ Array_$int32_t_
+//#define Array_$int32_t$_$new_ Array_$int32_t_$new_
+//#define Map_$int32_t$$int32_t_$new_ Map_$int32_t$int32_t_$new_
+
 // TODO malloc must be at #ifdef _WIN32 or NOT USED AT ALL, but use HEXA_NEW in code gen
 #ifdef _WIN32
 	//#define malloc(z) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z)
 #endif
-#define HEXA_TRACE(z) wprintf(L"Trace: %s\n    at %s:%d\n", z, __func__, __LINE__)
+//#define (z) wprintf(L"trace: <%s>\n", z)
+#define HEXA_TRACE(z) wprintf(L"Trace: %s\n    at %hs:%d\n", z, __func__, __LINE__)
 
 #ifndef HEXA_FREE
 	#ifdef _WIN32
@@ -144,6 +207,126 @@ int HEXA_MAIN(int, char **);
 		#define HEXA_FREE(p, z) free(p)
 	#endif
 #endif
+
+#ifdef __cplusplus
+// C++ has no C99 compound literals `(T[]){...}` (C4576) — the generator emits
+// `hexaItems<T>(...)` for array/map literals instead. NOTE the buffer leaks
+// for now: lifetimes land with the F11 allocator
+template <typename T, typename... A>
+static inline T* hexaItems(A... a) {
+	if constexpr (sizeof...(A) == 0) {
+		return (T*)(HEXA_NEW(sizeof(T)));
+	} else {
+		T* buffer = (T*)(HEXA_NEW(sizeof(T) * sizeof...(A)));
+		T items[] = {(T)a...};
+		for (size_t i = 0; i < sizeof...(A); i++) buffer[i] = items[i];
+		return buffer;
+	}
+}
+
+// F9 true suspension (Phase-1 was pass-through `.value` reads, no suspend).
+// Async funs are C++ coroutines returning `Promise<T>*`; `await p` is
+// `co_await p` (suspends only when `p` is pending, resumes via the frame
+// pump). JS ordering: `initial_suspend=suspend_never` runs sync until the
+// first suspending `co_await` (like JS runs sync until the first suspending
+// await); `final_suspend=suspend_never` destroys the frame at `co_return`
+// (fire-and-forget safe, no leak; the returned `Promise*` heap object leaks
+// like every other Phase-1 heap object until F11).
+// ARC/F11 note: no ARC guards yet (ArcInserter disconnected), no sweep
+// (HEXA_NEW is malloc/HeapAlloc) — nothing can free a suspended frame's
+// env, so suspension is use-after-free safe by construction (leaks only).
+#include <coroutine>
+#include <vector>
+// Common prefix of every generated `Promise<T>` struct (vtable first, then
+// `state/value/reason` — verified uniform incl. `Promise<void>` whose value
+// is still `Any?*`). `operator co_await` (emitted per Promise by genC)
+// reinterprets to this; no layout change to Hexa structs.
+struct HexaPromiseBase {
+	const void* _;
+	int32_t state_;
+	struct Any_* value_;
+	struct Any_* reason_;
+};
+struct HexaAwaiter {
+	void* promise_;
+	bool await_ready() noexcept {
+		if (promise_ == nullptr) return true;
+		return ((HexaPromiseBase*)promise_)->state_ != 0;
+	}
+	void await_suspend(std::coroutine_handle<> h) noexcept;
+	struct Any_* await_resume() noexcept {
+		if (promise_ == nullptr) return nullptr;
+		return ((HexaPromiseBase*)promise_)->value_;
+	}
+};
+// Pending `co_await`s: `{promise, handle}` pairs suspended on pending
+// promises. Drained by `hexaPumpResumes()` (called from Hexa `timerPump()`
+// each frame — the F9 resume driver, zero host edits). Resuming happens
+// synchronously on the pump thread (frame-granular, like the `.then` 0ms
+// re-arm it replaces); each resume returns to the pump (no deep recursion:
+// a resume either suspends again or completes via `final_suspend=never`).
+struct HexaPendingAwait { void* promise_; std::coroutine_handle<> handle_; };
+inline std::vector<HexaPendingAwait>& hexaPendingAwaits() {
+	static std::vector<HexaPendingAwait> v;
+	return v;
+}
+inline void HexaAwaiter_await_suspend_impl(void* promise_, std::coroutine_handle<> h) noexcept {
+	hexaPendingAwaits().push_back(HexaPendingAwait{promise_, h});
+}
+inline void HexaAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
+	HexaAwaiter_await_suspend_impl(promise_, h);
+}
+// Pump: resume every waiter whose promise settled since suspension.
+// Swap-remove iteration (order not guaranteed — matches JS microtask
+// *eventual* delivery, not exact order; in-tree callers don't depend on
+// cross-promise resume order, only on single-promise settle-before-resume).
+// `extern "C"` so Hexa `timerPump()` can call it via plain `@rename`
+// (unmangled, like the `hexa*` host shims); body is C++ (coroutine_handle).
+extern "C" inline void hexaPumpResumes() noexcept {
+	auto& v = hexaPendingAwaits();
+	size_t i = 0;
+	while (i < v.size()) {
+		void* p = v[i].promise_;
+		int32_t settled = 0;
+		if (p != nullptr) settled = ((HexaPromiseBase*)p)->state_ != 0;
+		else settled = 1;
+		if (settled) {
+			auto h = v[i].handle_;
+			v[i] = v.back();
+			v.pop_back();
+			if (h) h.resume();
+		} else {
+			i++;
+		}
+	}
+}
+// F9 per-Promise coroutine wiring (invoked by genC `printCoroutines()` as
+// `HEXA_PROMISE_CORO(Promise_X_)` inside one inner `extern "C++"` block after
+// Types). Single-line macro (no `\` continuations) so `edit_file` never
+// double-escapes backslashes; braces are fine in `.c`. `S` is the mangled
+// struct (`Promise_$String_`); vtable `S##_$` = `Promise_X__$` (struct `_` +
+// `_$`); `HEXA_NEW` zeroes (pending state). `unhandled_exception` exits 3
+// (matches crash net; F5 `throw` across coroutines is later work).
+// Single `return_value(Any_*)` only (no `return_void` — C3782 forbids both;
+// void `co_return;` is emitted as `co_return (Any_*)nullptr` by genC).
+// `operator co_await(S&)` takes a class-type reference (C2803 rejects `S*`
+// pointer params); genC emits `co_await (*p)` (deref).
+#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } std::suspend_never final_suspend() noexcept { return {}; } void unhandled_exception() noexcept { ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
+#endif
+/*
+#ifdef __cplusplus
+	serialPrintln(L"<Tofita> __cplusplus");
+#else
+	serialPrintln(L"<Tofita> !__cplusplus");
+#endif
+#if defined(__clang__)
+	serialPrintln(L"<Tofita> __clang__");
+#elif defined(__GNUC__) || defined(__GNUG__)
+	serialPrintln(L"<Tofita> __GNUC__");
+#elif defined(_MSC_VER)
+	serialPrintln(L"<Tofita> _MSC_VER");
+#endif
+*/
 
 // Deallocation of all resources
 #ifndef HEXA_END
@@ -155,7 +338,8 @@ int HEXA_MAIN(int, char **);
 #define HEXA_LINK(name) asm(name)
 #ifndef __GNUC__
     #ifndef __clang__
-		// Not supported by MSVC
+		// Not supported by MSVC — undef first to avoid C4005 redefinition
+		#undef HEXA_LINK
 		#define HEXA_LINK(name)
 	#endif
 #endif
@@ -169,6 +353,10 @@ int HEXA_MAIN(int, char **);
 // Forward
 struct Any_ {};
 typedef struct Any_ Any_;
+inline Any_* AnyValue_::operator->() const {
+	static Any_ stub;
+	return (value_ != nullptr)? value_ : &stub;
+}
 //#define Any_ void*
 //struct String_** Strings_ = nullptr;
 //#define Any_ Any_
@@ -210,7 +398,7 @@ struct IUnknown_ {
 //	virtual uint32_t __stdcall__ Release_() { return 0; };
 };
 
-// Types
+// Types DEL
 //String_* String__object_Object_ = nullptr;
 //struct _Any_ : IUnknown_ {
 //	uint32_t rc_ = 0;
@@ -303,6 +491,7 @@ struct IUnknown_ {
 //	virtual uint32_t __stdcall__ AddRef_() {/*nothing*/};
 //	virtual uint32_t __stdcall__ Release_() {/*never deallocated*/};
 //};
+//struct Any_ _dummy;
 // Note global instance is defined here, but
 // should be created in main function
 
@@ -323,7 +512,7 @@ struct Any_* Any_fromBool(const uint8_t this_) {
 struct Object_ {};
 
 #if 0
-	extern "C++" {
+	extern "C++" { DEL
 	template <typename T>
 	// Only for basic types! DO *NOT* USE AS POINTER!!!
 //	try!global var+stack save\restore!+goto/defer early ret
@@ -360,7 +549,7 @@ struct Object_ {};
 	};};
 #endif
 
-//template <typename T>
+//template <typename T> DEL
 //struct Null {
 //	T value_;
 //	bool has_ : 1;
@@ -445,6 +634,9 @@ struct Object_ {};
 #define int8_t$null (int16_t)0xFFF
 
 #define Bool_ uint8_t
+//#define Array_$int32_t_ Array_$Int_
+//#define Array_$int32_t_$new_ Array_$Int_$new_
+//#define Array_$int32_t_$from_ Array_$Int_$from_
 
 // The first bit is a sign bit, so nullable is `second bit equals 1`
 //#define int32_t$null (int64_t)0b1100000000000000000000000000000000000000000000000000000000000000LL
@@ -542,6 +734,9 @@ typedef struct Null$Int64 Null$Int64;
 //	String_* sb_ = (b_ == $null)? String__null_ : b_->toString_();
 //	return String__null_;
 //};
+//struct Array_* Array_from(void* stub, ...) {
+//	return (struct Array_*)0;
+//};
 // name, value, name, value
 struct Object_* Object_from(void* stub, ...) {
 	return (struct Object_*)0;
@@ -602,6 +797,11 @@ struct Map_* Map_from(void* stub, ...) {
 //#define Bool$Null_null 2
 struct Any_* Any_fromInt(const int32_t this_) {
 	// Cache special cases like 0 1 -1
+	return (struct Any_*)0;
+}
+
+// `Float` as `Any` boxing (Phase 1: no-op placeholder per D2/F2)
+struct Any_* Any_fromFloat(const double this_) {
 	return (struct Any_*)0;
 }
 //#define String_op String_* operator + (String_ *right) { return $null; }
