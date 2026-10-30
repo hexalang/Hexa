@@ -594,6 +594,26 @@ enum Node {
 				// TODO for <T> no need to copy those? just pass as is?
 			case Continue: return cloneData(p, node, Node.Continue)
 			case Spread(value): return cloneData(p, node, Node.Spread(cloneData(p, value, clone(p, value))))
+			case Super: return cloneData(p, node, Node.Super)
+			case Throw(e): return cloneData(p, node, Node.Throw(cloneData(p, e, clone(p, e))))
+			case InlineStatements(el): return cloneData(p, node, Node.InlineStatements(el.map(arg => cloneData(p, arg, clone(p, arg)))))
+			case Try(expr, types, values, catches):
+				return cloneData(p, node, Node.Try(
+					cloneData(p, expr, clone(p, expr)),
+					types,
+					values.map(fun (v [Node]) [Node] { return v.map(arg => cloneData(p, arg, clone(p, arg))) }),
+					catches.map(arg => cloneData(p, arg, clone(p, arg)))
+				))
+			case Is(expr, aType): return cloneData(p, node, Node.Is(cloneData(p, expr, clone(p, expr)), NodeType.clone(aType)))
+			case Elvis(nullable, alternative): return cloneData(p, node, Node.Elvis(cloneData(p, nullable, clone(p, nullable)), cloneData(p, alternative, clone(p, alternative))))
+			case EnumConstructor: return cloneData(p, node, Node.EnumConstructor)
+			case EnumPattern: return cloneData(p, node, Node.EnumPattern)
+			case Interval: return cloneData(p, node, Node.Interval)
+			case Map(keys, values):
+				return cloneData(p, node, Node.Map(
+					keys.map(arg => cloneData(p, arg, clone(p, arg))),
+					values.map(arg => cloneData(p, arg, clone(p, arg)))
+				))
 			case null:
 				return null
 			case _:
@@ -614,6 +634,16 @@ enum Node {
 		let project = project as! Any // TODO
 		// TODO decorators also should deep-copy until their content is simple string lexeme or no args
 		project.mapDecorators.set(to, project.mapDecorators.get(from))
+		// NOTE per-node flags must ride along or generic instance clones lose
+		// them: `mapFuncParams` (fun name<T> mini-templates), `mapStatic`
+		// (static fields/methods become instance ones!) and friends
+		project.mapFuncParams.set(to, project.mapFuncParams.get(from))
+		project.mapStatic.set(to, project.mapStatic.get(from))
+		project.mapPrivate.set(to, project.mapPrivate.get(from))
+		project.mapAsync.set(to, project.mapAsync.get(from))
+		project.mapAsyncMode.set(to, project.mapAsyncMode.get(from))
+		project.mapReadonly.set(to, project.mapReadonly.get(from))
+		project.leadingComments.set(to, project.leadingComments.get(from))
 		// TODO other maps
 		project.data.set(to, project.data.get(from))
 		return to
