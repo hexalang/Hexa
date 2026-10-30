@@ -25,8 +25,15 @@
 @final
 class ReflectLowerer {
 	var niceProject: NiceProject // The IR to mutate
-	/// TEMPORARY INSTRUMENTATION, mirrors ClosureLifter trace discipline.
-	/// Kept until the first real Any lowering lands, then reviewed.
+	// Hexa rest lowering (lead ABI): `...x: T` (no @nativeVariadic) is `(count, ptr)`.
+	// Active rest while rewriting a function body — `for/in`, `.length`, `[i]` lower
+	// to `$nrest` / `$rest` (genC emits those params from the Rest type).
+	var restName String? = null
+	var restElem Type? = null
+	var restLoopId Int = 0
+	/// Lean trace: census + SKIP/LOWERED/KEPT + REFLECT-MISS + summary.
+	/// Verbose walk (ENTER-FN/VISIT/BLOCK-LEN) removed Oct 2026 after the
+	/// While walker gap was fixed — triage no longer needs it.
 	let trace: [String] = []
 	var anyDots Int = 0
 	var anyCalls Int = 0
@@ -34,6 +41,34 @@ class ReflectLowerer {
 	var stmtAssignop Int = 0
 	var exprAssignop Int = 0
 	var loweredAssignop Int = 0
+	// Escape census (report-only, no promotion yet): per-function arg escape
+	// flags keyed by global name or `Class_$method`. Over-approximate by
+	// design: any store/return/capture escapes, call args resolve through
+	// the fixpoint, unknown callees escape. Published to IR for later use.
+	let escapeKeys: [String] = []
+	let escapeArgsList: [[String]] = []
+	let escapeBodies: [Statement] = []
+	let escapeDirect: [[Bool]] = []
+	let escapeFinal: [[Bool]] = []
+	let escapeIndex [String : Int] = [:]
+	// Call-graph edges for the fixpoint: caller fn, caller arg, callee key, callee arg.
+	let edgeCaller: [Int] = []
+	let edgeCallerArg: [Int] = []
+	let edgeCallee: [String] = []
+	let edgeCalleeArg: [Int] = []
+	var escapeChanged Bool = false
+	// Inline `New`-as-call-arg sites for the post-fixpoint candidate check.
+	let inlineCaller: [Int] = []
+	let inlineArg: [Int] = []
+	let inlineCallee: [String] = []
+	var inlineCand Int = 0
+	// `New` stack-candidate census: locals bound to `New` whose uses never escape.
+	var stackNewsTotal Int = 0
+	var stackNewsCand Int = 0
+	var stackLogged Int = 0
+	// Entry-kind split for the census (globals vs methods incl. enum statics).
+	var escapeGlobalFuncs Int = 0
+	var escapeMethodFuncs Int = 0
 
 	new (niceProject: NiceProject) {
 		this.niceProject = niceProject
@@ -46,6 +81,18 @@ class ReflectLowerer {
 
 	/// Main entry, same coverage shape as ClosureLifter lift
 	fun lower() {
+		// Shell first: single-statement bodies arrive unwrapped
+		// (`unwrapNestingBlocks` flattens `Block([s])` to bare `s`). ARC needs
+		// a sibling slot for param prologues and bare-`Return` +1s, and the
+		// escape census assumes list bodies — so shell every bare body here,
+		// once, right after normalize (ARC keeps its own wrap as an identity
+		// safety net; its `wrappedBodies` census should read zero now).
+		shellBareBodies()
+		// Field-default lowering second: moves `c.vars` defaults into explicit
+		// constructor bodies (see fun docs) so every later rewrite/escape/ARC
+		// step sees them as ordinary Assigns. genC-only; js never runs this pass.
+		lowerFieldDefaults()
+
 		for i in niceProject.globalFuncs.length {
 			niceProject.globalFuncs[i] = rewriteFnStmt(niceProject.globalFuncs[i])
 		}
@@ -90,6 +137,10 @@ class ReflectLowerer {
 			}
 		}
 
+		// Escape census runs on the lowered IR so the report matches what a
+		// later backend promotion would see. Report-only: never mutates
+		// statements, only fills `funcArgEscape` + trace lines.
+		computeEscapeReport()
 		traceLog('REFLECT anyDots=' + anyDots + ' anyCalls=' + anyCalls + ' anyBinops=' + anyBinops + ' stmtAssignop=' + stmtAssignop + ' exprAssignop=' + exprAssignop + ' loweredAssignop=' + loweredAssignop)
 		Fs.writeFileSync('reflect-trace.log', trace.join('\n'))
 	}
@@ -133,6 +184,22 @@ class ReflectLowerer {
 				return isPureTarget(base)
 			case _:
 				return false
+		}
+	}
+
+/// Target-shape helper for skip triage, flat switch.
+	fun describeTarget(e: Expression): String {
+		switch e {
+			case Ident(name, _):
+				return 'Ident-' + name
+			case Dot(base, name, _):
+				return 'Dot-' + name + '-over-' + kindOfExpr(base)
+			case Index(_, _, _):
+				return 'Index'
+			case Parenthesis(inner):
+				return 'Paren-over-' + describeTarget(inner)
+			case _:
+				return kindOfExpr(e)
 		}
 	}
 
@@ -227,6 +294,26 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 		}
 	}
 
+	// Unwrap `(rest)` to `rest` for rest-use detection.
+	fun unwrapParen(e: Expression): Expression { switch e {
+		case Parenthesis(inner): return unwrapParen(inner)
+		case _: return e
+	} }
+
+	// Prepend `bind` to a loop body (`Block` or single statement).
+	fun prependToBody(body: Statement, bind: Statement): Statement { switch body {
+		case Block(els):
+			let out: [Statement] = [bind]
+			for s in els { out.push(s) }
+			return Statement.Block(out)
+		case Statements(els):
+			let out: [Statement] = [bind]
+			for s in els { out.push(s) }
+			return Statement.Statements(out)
+		case _:
+			return Statement.Block([bind, body])
+	} }
+
 	/// Rewrites initializers of var and const lists in place
 	fun processVarList(list: [Statement]) {
 		for i in list.length {
@@ -251,12 +338,147 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 			return s
 	} }
 
+	/// Field-default lowering (F3.2/D8, genC-only): instance `c.vars`
+	/// defaults become explicit `this.field = default` Assigns at the top of
+	/// the explicit constructor body, and the list default is cleared (genC
+	/// `$this_` emits field stores from the class list with no owning
+	/// statement list, so ARC, escape and closure passes never see them).
+	/// Consequences, all intended: ARC owns them via its standard Dot-assign
+	/// arm (save/inc/dec with old-release, fresh transfer — cheaper than
+	/// retain-only); the escape census sees the stores; closures inside
+	/// defaults lift with a real statement list (no DROPPED-FILL — list
+	/// inits have nowhere to hoist fills). Only with an explicit `new`
+	/// (unconstructible classes keep list inits, which never execute).
+	/// Static/global inits stay immortal (ARC side). Runs FIRST in `lower()`,
+	/// before any rewriting, so the moved Assigns go through the normal
+	/// rewrite pipeline exactly once (no double lowering).
+	/// Body shelling (D8 companion): single-statement function bodies arrive
+	/// unwrapped (`unwrapNestingBlocks` flattens `Block([s])` to bare `s`) —
+	/// shell every bare body into a one-member `Block` first (with
+	/// `globalLink` transfer, same contract as every other rebuild), so the
+	/// field Assigns below always prepend into an existing `Block` and ARC's
+	/// own re-shell stays an identity no-op (`wrappedBodies` reads zero).
+	fun shellBareBodies() {
+		for i in niceProject.globalFuncs.length {
+			niceProject.globalFuncs[i] = shellOne(niceProject.globalFuncs[i])
+		}
+		for c in niceProject.classes {
+			for i in c.methods.length { c.methods[i] = shellOne(c.methods[i]) }
+			for i in c.staticMethods.length { c.staticMethods[i] = shellOne(c.staticMethods[i]) }
+		}
+		for e in niceProject.enumsSimple {
+			for i in e.staticMethods.length { e.staticMethods[i] = shellOne(e.staticMethods[i]) }
+		}
+		for e in niceProject.enumsComplex {
+			for i in e.staticMethods.length { e.staticMethods[i] = shellOne(e.staticMethods[i]) }
+		}
+	}
+
+	/// Shells one bare function body into `Block([body])` (identity for
+	/// `Block`/body-less). Fresh single-element list literal (never `[A]`
+	/// `+` `[B]` — that is string coercion under the js runtime).
+	fun shellOne(s: Statement): Statement { switch s {
+		case Function(name, body, args, defaults, dataType, variadic, isAsync):
+			if body != null { switch body {
+				case Block(_):
+				case _:
+					let nel: [Statement] = []
+					nel.push(body)
+					let wrapped = Statement.Function(name, Statement.Block(nel), args, defaults, dataType, variadic, isAsync)
+					if let link = niceProject.globalLink.get(s) {
+						niceProject.globalLink.set(wrapped, link)
+					}
+					return wrapped
+			} }
+		case _:
+	} return s }
+	fun lowerFieldDefaults() {
+		for cls in niceProject.classes {
+			var ctorIdx Int? = null
+			for i in cls.methods.length { switch cls.methods[i] {
+				case Function(fname, _, _, _, _, _, _):
+					if fname == 'new' or fname == null { ctorIdx = i }
+				case _:
+			} }
+			if let ci = ctorIdx {
+				let assigns: [Statement] = []
+				for v in cls.vars { switch v {
+					case Var(name, expr, dataType):
+					if expr != null {
+						assigns.push(Statement.Assign(Expression.Dot(Expression.This(cls.classType), name, dataType), expr, null))
+					}
+					case Const(name, expr, dataType):
+					if expr != null {
+						assigns.push(Statement.Assign(Expression.Dot(Expression.This(cls.classType), name, dataType), expr, null))
+					}
+					case _:
+				} }
+				if assigns.length > 0 {
+					switch cls.methods[ci] {
+						case Function(fname, fbody, fargs, fdefaults, ftype, fvariadic, fisAsync):
+							var nb Statement? = null
+							switch fbody {
+								case Block(els):
+									var k = assigns.length
+									while k > 0 {
+										k = k - 1
+										els.unshift(assigns[k])
+									}
+									nb = Statement.Block(els)
+								case _:
+									let nel: [Statement] = []
+									for a in assigns { nel.push(a) }
+									nel.push(fbody)
+									nb = Statement.Block(nel)
+							}
+							if let nbv = nb {
+								let rebuilt = Statement.Function(fname, nbv, fargs, fdefaults, ftype, fvariadic, fisAsync)
+								if let link = niceProject.globalLink.get(cls.methods[ci]) {
+									niceProject.globalLink.set(rebuilt, link)
+								}
+								cls.methods[ci] = rebuilt
+								for vi in cls.vars.length { switch cls.vars[vi] {
+									case Var(vname, vexpr, vtype):
+										if vexpr != null {
+											cls.vars[vi] = Statement.Var(vname, null, vtype)
+										}
+									case Const(vname, vexpr, vtype):
+										if vexpr != null {
+											cls.vars[vi] = Statement.Const(vname, null, vtype)
+										}
+									case _:
+								} }
+							}
+						case _:
+					}
+				}
+			}
+		}
+	}
+
 	/// Rewrites the body of a top-level function or method statement
 	fun rewriteFnStmt(s: Statement): Statement { switch s {
 		case Function(name, body, args, defaults, funcType, variadic, isAsync):
+			// Hexa rest detection: last arg is `Rest(element, native:false)`.
+			var savedName String? = restName
+			var savedElem Type? = restElem
+			if let ft = funcType { switch ft {
+				case Function(fargs, _, _):
+					if fargs.length > 0, args.length > 0 {
+						switch fargs[fargs.length - 1].dataType {
+							case Rest(element, native):
+								if not native {
+									restName = args[args.length - 1]
+									restElem = element
+								}
+						}
+					}
+			} }
 			let newDefaults = rewriteExprList(defaults)
 			let newBody = rewriteStmt(body)
 			let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
+			restName = savedName
+			restElem = savedElem
 
 			if let link = niceProject.globalLink.get(s) {
 				niceProject.globalLink.set(result, link)
@@ -323,6 +545,67 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 
 			return Statement.Assignop(rewriteExpr(name), op, rewriteExpr(value))
 		case For(name, over, by, reverse):
+			// Hexa rest `for p in rest` lowers directly to `while` (normalizer already
+			// ran, so a new `For` would never be lowered and genC would throw).
+			if let rn = restName, let elem = restElem {
+				switch unwrapParen(over) {
+					case Ident(oname, _):
+					if oname == rn {
+						let loopId = restLoopId++
+							let itName = '$it' + (loopId)
+							let finishName = '$at' + (loopId)
+							let intT = niceProject.typer.typeInt
+							let boolT = niceProject.typer.typeBool
+							let countIdent = Expression.Ident('$nrest', intT)
+							let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
+							// Rewrite body once (nested rest uses inner rest after save/restore).
+							let loweredBy = rewriteStmt(by)
+							let bodyBlock Statement = switch loweredBy {
+								case Block(els): Statement.Block(els)
+								case Statements(els): Statement.Block(els)
+								case _: Statement.Block([loweredBy])
+							}
+							let bodyEls [Statement] = switch bodyBlock {
+								case Block(els): els
+								case _: [bodyBlock]
+							}
+												if reverse {
+							// NOTE list built with push: `[a] + [b]` on arrays
+							// coerces to string under the js runtime (silent
+							// empty loop bodies) — never use + for IR lists.
+							let innerRev: [Statement] = [
+								Statement.Decrement(Expression.Ident(itName, intT)),
+								Statement.Var(name, Expression.Index(ptrIdent, Expression.Ident(itName, intT), elem), elem)
+							]
+							for s in bodyEls { innerRev.push(s) }
+							let out: [Statement] = [
+								Statement.Var(itName, countIdent, intT),
+								Statement.While(
+									Expression.Binop(Expression.Ident(itName, intT), Token.Greater, Expression.Int(0), boolT),
+									Statement.Block(innerRev),
+									true
+								)
+							]
+							return Statement.Block(out)
+						}
+						// NOTE list built with push (see above) — `[a] + [b]`
+						// is string coercion under the js runtime.
+						let inner: [Statement] = [Statement.Var(name, Expression.Index(ptrIdent, Expression.Ident(itName, intT), elem), elem)]
+						inner.push(Statement.Increment(Expression.Ident(itName, intT)))
+						for s in bodyEls { inner.push(s) }
+						let out: [Statement] = [
+							Statement.Var(itName, Expression.Int(0), intT),
+							Statement.Var(finishName, countIdent, intT),
+							Statement.While(
+								Expression.Binop(Expression.Ident(itName, intT), Token.Less, Expression.Ident(finishName, intT), boolT),
+								Statement.Block(inner),
+								true
+							)
+						]
+						return Statement.Block(out)
+						}
+				}
+			}
 			return Statement.For(name, rewriteExpr(over), rewriteStmt(by), reverse)
 		case While(econd, e, pre):
 			return Statement.While(rewriteExpr(econd), rewriteExpr(e), pre)
@@ -386,11 +669,81 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 			return s
 	} }
 
-	/// Nested named function value, body rewritten in place, no lifting here.
-	/// Lifting stays owned by ClosureLifter which runs after this pass.
+/// Nested named function value, body rewritten in place, no lifting here.
+/// Lifting stays owned by ClosureLifter which runs after this pass.
 	fun rewriteFnValue(body: Statement, args: [String], defaults: [Expression], funcType: Type, variadic: VariadicKind, isAsync: Bool, selfName: String? = null): Expression {
+		var savedName String? = restName
+		var savedElem Type? = restElem
+		if let ft = funcType { switch ft {
+			case Function(fargs, _, _):
+				if fargs.length > 0, args.length > 0 {
+					switch fargs[fargs.length - 1].dataType {
+						case Rest(element, native):
+							if not native {
+								restName = args[args.length - 1]
+								restElem = element
+							}
+					}
+				}
+		} }
 		let fn = Expression.Function(selfName, rewriteStmt(body), args, rewriteExprList(defaults), funcType, isAsync)
+		restName = savedName
+		restElem = savedElem
 		return fn
+	}
+
+	/// Simple `??` lhs — duplicating it is side-effect-free (pure read).
+	/// Ident/const/literals only; Dot/Call/Index may run getters or have
+	/// side effects, so they stay as Elvis for genC's single-eval temp.
+	fun isSimpleElvisLhs(e: Expression): Bool { switch e {
+		case Ident(_, _): return true
+		case This(_): return true
+		case String(_): return true
+		case Int(_): return true
+		case MetaInt(_, _, _): return true
+		case Float(_): return true
+		case True: return true
+		case False: return true
+		case Null(_): return true
+		case Underscore: return true
+		case Parenthesis(inner): return isSimpleElvisLhs(inner)
+		case _: return false
+	} }
+
+	/// `a ?? b` — simple lhs lowers to `a != null ? a : b` (reuses the
+	/// tested Binop `!= null` + If conversion printers, no closure/IIFE).
+	/// Complex lhs stays Elvis for genC's metaBlock-temp fallback (single
+	/// eval, no env alloc). Fat function values stay Elvis too (pairs can't
+	/// ride a ternary — same best-effort as before, no regression).
+	fun lowerElvis(orig: Expression, a: Expression, b: Expression): Expression {
+		let na = rewriteExpr(a)
+		let nb = rewriteExpr(b)
+		if not isSimpleElvisLhs(na) {
+			return Expression.Elvis(na as!Node, nb as!Node)
+		}
+		var resT Type? = niceProject.expressionType.get(orig)
+		if resT == null {
+			resT = niceProject.expressionType.get(b)
+		}
+		var lhsT Type? = niceProject.expressionType.get(a)
+		if lhsT == null { switch na {
+			case Ident(_, dt): lhsT = dt
+			case _: lhsT = resT
+		} }
+		if let rt = resT, let lt = lhsT {
+			if isFatFunctionType(lt), isFatFunctionType(rt) {
+				return Expression.Elvis(na as!Node, nb as!Node)
+			}
+			let boolT = niceProject.typer.typeBool
+			let cond = Expression.Binop(na, Token.Unequal, Expression.Null(lt), boolT)
+			// Both branches convert toward the result (reuses the tested
+			// converter arms, incl. Nullable unwrap + Any boxing) so the
+			// ternary is well-formed without relying on If's own rescue
+			let thenB = Expression.UnsafeBitCast(na, rt)
+			let elseB = Expression.UnsafeBitCast(nb, rt)
+			return Expression.If(cond, thenB, elseB, rt)
+		}
+		return Expression.Elvis(na as!Node, nb as!Node)
 	}
 
 	/// TEMPORARY INSTRUMENTATION, exact case tags mirroring ClosureLifter
@@ -478,21 +831,45 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 		case Ident(_, _):
 			return e
 		case Dot(expr, name, result):
+			// Hexa rest `.length` is `$nrest` (count).
+			if let rn = restName {
+				switch unwrapParen(expr) {
+					case Ident(oname, _):
+						if oname == rn, name == 'length' {
+							return Expression.Ident('$nrest', niceProject.typer.typeInt)
+						}
+				}
+			}
 			if isAnyExpr(expr) {
 				anyDots++
 			}
 
 			return Expression.Dot(rewriteExpr(expr), name, result)
 		case Index(expr, index, result):
+			// Hexa rest `rest[i]` is bounds-checked nullable: `i < $nrest ? $rest[i] : null`.
+			if let rn = restName, let elem = restElem {
+				switch unwrapParen(expr) {
+					case Ident(oname, _):
+						if oname == rn {
+							let newIdx = rewriteExpr(index)
+							let countIdent = Expression.Ident('$nrest', niceProject.typer.typeInt)
+							let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
+							let cond = Expression.Binop(newIdx, Token.Less, countIdent, niceProject.typer.typeBool)
+							let direct = Expression.Index(ptrIdent, newIdx, elem)
+							let nullExpr = Expression.Null(Type.Nullable(elem))
+							return Expression.If(cond, direct, nullExpr, Type.Nullable(elem))
+						}
+				}
+			}
 			return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
 		case StringIndex(expr, index, result):
 			return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
-		case Call(callee, args, result, kind):
+		case Call(callee, args, result, kind, expects):
 			if isAnyExpr(callee) {
 				anyCalls++
 			}
 
-			return Expression.Call(rewriteExpr(callee), rewriteExprList(args), result, kind)
+			return Expression.Call(rewriteExpr(callee), rewriteExprList(args), result, kind, expects)
 		case New(callee, args, result):
 			return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
 		case Binop(a, op, b, result):
@@ -511,8 +888,8 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 			return Expression.Object(names, rewriteExprList(el), types)
 		case Map(keys, values, keyType, valueType, mapType):
 			return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
-		case If(econd, eif, eelse):
-			return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse))
+		case If(econd, eif, eelse, result):
+			return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse), result)
 		case Elvis(a, b):
 			return Expression.Elvis(rewriteExpr(a as!Expression), rewriteExpr(b as!Expression))
 		case This(_):
@@ -566,4 +943,1209 @@ fun lowerExprAssignop(t: Expression, op: Token, v: Expression): Expression? {
 
 			return e
 	} }
+
+	/// Escape key for a statement-function: plain name for globals,
+	/// `Class_$method` for methods (same scheme as genC voidFuncs).
+	/// Nice names are unique post-normalizer, so no scope juggling here.
+	fun escapeFuncKey(prefix: String, name: String): String? {
+		if name == null {
+			return null
+		}
+
+		if prefix == '' {
+			return name
+		}
+
+		return prefix + '_$' + name
+	}
+
+	/// Collects every statement-function (globals, methods, enum statics).
+	/// Nested function values stay inline as capture contexts, not entries.
+	fun collectEscapeFuncs() {
+		for f in niceProject.globalFuncs { switch f {
+			case Function(name, body, args, _, _, _, _):
+				if body != null {
+					if let k = escapeFuncKey('', name) {
+						escapeIndex.set(k, escapeKeys.length)
+						escapeKeys.push(k)
+						escapeGlobalFuncs++
+						escapeArgsList.push(args)
+						escapeBodies.push(body)
+					}
+				}
+			case _:
+		} }
+
+		for c in niceProject.classes {
+			for m in c.methods { switch m {
+				case Function(name, body, args, _, _, _, _):
+					if body != null {
+						if let k = escapeFuncKey(c.name, name) {
+							escapeIndex.set(k, escapeKeys.length)
+							escapeKeys.push(k)
+							escapeMethodFuncs++
+							escapeArgsList.push(args)
+							escapeBodies.push(body)
+						}
+					}
+				case _:
+			} }
+
+			for m in c.staticMethods { switch m {
+				case Function(name, body, args, _, _, _, _):
+					if body != null {
+						if let k = escapeFuncKey(c.name, name) {
+							escapeIndex.set(k, escapeKeys.length)
+							escapeKeys.push(k)
+							escapeMethodFuncs++
+							escapeArgsList.push(args)
+							escapeBodies.push(body)
+						}
+					}
+				case _:
+			} }
+		}
+
+		for e in niceProject.enumsSimple {
+			for m in e.staticMethods { switch m {
+				case Function(name, body, args, _, _, _, _):
+					if body != null {
+						if let k = escapeFuncKey(e.name, name) {
+							escapeIndex.set(k, escapeKeys.length)
+							escapeKeys.push(k)
+							escapeMethodFuncs++
+							escapeArgsList.push(args)
+							escapeBodies.push(body)
+						}
+					}
+				case _:
+			} }
+		}
+
+		for e in niceProject.enumsComplex {
+			for m in e.staticMethods { switch m {
+				case Function(name, body, args, _, _, _, _):
+					if body != null {
+						if let k = escapeFuncKey(e.name, name) {
+							escapeIndex.set(k, escapeKeys.length)
+							escapeKeys.push(k)
+							escapeMethodFuncs++
+							escapeArgsList.push(args)
+							escapeBodies.push(body)
+						}
+					}
+				case _:
+			} }
+		}
+	}
+
+	/// True when `name` occurs anywhere inside `e` (any use, pure or not).
+	fun exprHasIdent(e: Expression, name: String): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case String(_):
+				return false
+			case Int(_):
+				return false
+			case MetaInt(_, _, _):
+				return false
+			case Float(_):
+				return false
+			case True | False | Underscore:
+				return false
+			case Null(_):
+				return false
+			case This(_):
+				return false
+			case Ident(n, _):
+				return n == name
+			case CapturedVar(n, _):
+				return n == name
+			case Parenthesis(inner):
+				return exprHasIdent(inner, name)
+			case Dot(base, _, _):
+				return exprHasIdent(base, name)
+			case Index(base, idx, _):
+				return exprHasIdent(base, name) or exprHasIdent(idx, name)
+			case StringIndex(base, idx, _):
+				return exprHasIdent(base, name) or exprHasIdent(idx, name)
+			case Call(callee, args, _, _, _):
+				if exprHasIdent(callee, name) {
+					return true
+				}
+
+				for a in args {
+					if exprHasIdent(a, name) {
+						return true
+					}
+				}
+
+				return false
+			case New(callee, args, _):
+				if exprHasIdent(callee, name) {
+					return true
+				}
+
+				for a in args {
+					if exprHasIdent(a, name) {
+						return true
+					}
+				}
+
+				return false
+			case Binop(a, _, b, _):
+				return exprHasIdent(a, name) or exprHasIdent(b, name)
+			case StringConcatenation(l, r):
+				return exprHasIdent(l, name) or exprHasIdent(r, name)
+			case Unop(_, _, inner):
+				return exprHasIdent(inner, name)
+			case Await(inner):
+				return exprHasIdent(inner, name)
+			case Spread(inner):
+				return exprHasIdent(inner, name)
+			case UnsafeBitCast(inner, _):
+				return exprHasIdent(inner, name)
+			case Is(inner, _):
+				return exprHasIdent(inner, name)
+			case RemoveNullability(inner, _):
+				return exprHasIdent(inner, name)
+			case EnumTag(inner):
+				return exprHasIdent(inner, name)
+			case EnumParameter(inner, _):
+				return exprHasIdent(inner, name)
+			case Enum(_, _, tag, args):
+				if exprHasIdent(tag, name) {
+					return true
+				}
+
+				for a in args {
+					if exprHasIdent(a, name) {
+						return true
+					}
+				}
+
+				return false
+			case Assignop(target, _, value):
+				return exprHasIdent(target, name) or exprHasIdent(value, name)
+			case Array(values, _):
+				for v in values {
+					if exprHasIdent(v, name) {
+						return true
+					}
+				}
+
+				return false
+			case Object(_, els, _):
+				for v in els {
+					if exprHasIdent(v, name) {
+						return true
+					}
+				}
+
+				return false
+			case Map(keys, values, _, _, _):
+				for k in keys {
+					if exprHasIdent(k, name) {
+						return true
+					}
+				}
+
+				for v in values {
+					if exprHasIdent(v, name) {
+						return true
+					}
+				}
+
+				return false
+			case NativeOperator(_, args, _, _, _):
+				for a in args {
+					if exprHasIdent(a, name) {
+						return true
+					}
+				}
+
+				return false
+			case If(cond, eif, eelse, _):
+				return exprHasIdent(cond, name) or exprHasIdent(eif, name) or exprHasIdent(eelse, name)
+			case Elvis(_, _):
+				return true
+			case Function(_, body, _, _, _, _):
+				return stmtHasIdent(body, name)
+			case Arrow(ebody, _, _, _, _, _, _):
+				return exprHasIdent(ebody, name)
+			case _:
+				return true
+		}
+	}
+
+	/// True when `name` occurs anywhere inside `s` (any use, pure or not).
+	fun stmtHasIdent(s: Statement, name: String): Bool {
+		if s == null {
+			return false
+		}
+
+		switch s {
+			case Block(els):
+				for e in els {
+					if stmtHasIdent(e, name) {
+						return true
+					}
+				}
+
+				return false
+			case Statements(els):
+				for e in els {
+					if stmtHasIdent(e, name) {
+						return true
+					}
+				}
+
+				return false
+			case Return(e):
+				return exprHasIdent(e, name)
+			case Throw(v):
+				return exprHasIdent(v, name)
+			case Assign(t, v, _):
+				return exprHasIdent(t, name) or exprHasIdent(v, name)
+			case Assignop(t, _, v):
+				return exprHasIdent(t, name) or exprHasIdent(v, name)
+			case Var(_, init, _):
+				return exprHasIdent(init, name)
+			case Const(_, init, _):
+				return exprHasIdent(init, name)
+			case Call(callee, args, _, _):
+				if exprHasIdent(callee, name) {
+					return true
+				}
+
+				for a in args {
+					if exprHasIdent(a, name) {
+						return true
+					}
+				}
+
+				return false
+			case Function(_, body, _, _, _, _, _):
+				return stmtHasIdent(body, name)
+			case If(cond, a, b):
+				return exprHasIdent(cond, name) or stmtHasIdent(a, name) or stmtHasIdent(b, name)
+			case Try(expr, _, _, catches, _):
+				if stmtHasIdent(expr, name) {
+					return true
+				}
+
+				for c in catches {
+					if stmtHasIdent(c, name) {
+						return true
+					}
+				}
+
+				return false
+			case While(cond, body, _):
+				return exprHasIdent(cond, name) or stmtHasIdent(body, name)
+			case For(_, over, by, _):
+				return exprHasIdent(over, name) or stmtHasIdent(by, name)
+			case Increment(e):
+				return exprHasIdent(e, name)
+			case Decrement(e):
+				return exprHasIdent(e, name)
+			case PlainSwitch(e, cases, stmts):
+				if exprHasIdent(e, name) {
+					return true
+				}
+
+				for c in cases {
+					for x in c {
+						if exprHasIdent(x, name) {
+							return true
+						}
+					}
+				}
+
+				for st in stmts {
+					if stmtHasIdent(st, name) {
+						return true
+					}
+				}
+
+				return false
+			case PatternSwitch(e, cases, stmts, guards, binds):
+				if exprHasIdent(e, name) {
+					return true
+				}
+
+				for c in cases {
+					for x in c {
+						if exprHasIdent(x, name) {
+							return true
+						}
+					}
+				}
+
+				for st in stmts {
+					if stmtHasIdent(st, name) {
+						return true
+					}
+				}
+
+				for g in guards {
+					if exprHasIdent(g, name) {
+						return true
+					}
+				}
+
+				for b in binds {
+					for st in b {
+						if stmtHasIdent(st, name) {
+							return true
+						}
+					}
+				}
+
+				return false
+			case SuperConstructor(args):
+				for a in args {
+					if exprHasIdent(a, name) {
+						return true
+					}
+				}
+
+				return false
+			case RefInc(list):
+				for x in list {
+					if exprHasIdent(x, name) {
+						return true
+					}
+				}
+
+				return false
+			case DeferRefDec(list):
+				for x in list {
+					if exprHasIdent(x, name) {
+						return true
+					}
+				}
+
+				return false
+			case Continue | Break:
+				return false
+			case _:
+				return true
+		}
+	}
+
+	/// Marks every caller arg contained in `e` as escaping.
+	fun markContainedIn(e: Expression, args: [String], row: [Bool]) {
+		if e == null {
+			return
+		}
+
+		for k in args.length {
+			if not row[k], exprHasIdent(e, args[k]) {
+				row[k] = true
+			}
+		}
+	}
+
+	/// Unwraps parens to a bare callee name, if any (methods/dynamics stay null).
+	fun calleeKey(callee: Expression): String? {
+		if callee == null {
+			return null
+		}
+
+		switch callee {
+			case Ident(n, _):
+				return n
+			case Parenthesis(inner):
+				return calleeKey(inner)
+			case _:
+				return null
+		}
+	}
+
+	/// Shared Call handling for the escape scan: callee use escapes, call
+	/// args become graph edges to resolved callees (immediate escape for
+	/// unknown/dynamic callees), inline `New` args are recorded for later.
+	fun scanCallArgs(callee: Expression, cargs: [Expression], args: [String], row: [Bool], callerIdx: Int) {
+		markContainedIn(callee, args, row)
+		if let ck = calleeKey(callee) {
+			// Resolved callee: record a flow edge per contained caller arg.
+			// Arity/escape resolution happens in the fixpoint, when every
+			// row exists (callee rows for later functions are not pushed
+			// yet during this scan, so no `escapeFinal` reads here).
+			if escapeIndex.get(ck) != null {
+				for j in cargs.length {
+					for k in args.length {
+						if not row[k], exprHasIdent(cargs[j], args[k]) {
+							edgeCaller.push(callerIdx)
+							edgeCallerArg.push(k)
+							edgeCallee.push(ck)
+							edgeCalleeArg.push(j)
+						}
+					}
+
+					switch unwrapParen(cargs[j]) {
+						case New(_, _, _):
+							inlineCaller.push(callerIdx)
+							inlineArg.push(j)
+							inlineCallee.push(ck)
+						case _:
+					}
+				}
+			} else {
+				for a in cargs {
+					markContainedIn(a, args, row)
+				}
+			}
+		} else {
+			for a in cargs {
+				markContainedIn(a, args, row)
+			}
+		}
+	}
+
+	/// Single-level escape scan over a statement: stores/returns/captures
+	/// mark, call args flow to edges. Bare Ident call args are flow, not
+	/// stores (nested escaping constructs inside args still mark).
+	fun scanStmt(s: Statement, args: [String], row: [Bool], callerIdx: Int) {
+		if s == null {
+			return
+		}
+
+		switch s {
+			case Block(els):
+				for e in els {
+					scanStmt(e, args, row, callerIdx)
+				}
+			case Statements(els):
+				for e in els {
+					scanStmt(e, args, row, callerIdx)
+				}
+			case Return(e):
+				scanExpr(e, args, row, callerIdx, false)
+			case Throw(v):
+				scanExpr(v, args, row, callerIdx, false)
+			case Assign(t, v, _):
+				scanExpr(t, args, row, callerIdx, false)
+				scanExpr(v, args, row, callerIdx, false)
+			case Assignop(t, _, v):
+				scanExpr(t, args, row, callerIdx, false)
+				scanExpr(v, args, row, callerIdx, false)
+			case Var(_, init, _):
+				scanExpr(init, args, row, callerIdx, false)
+			case Const(_, init, _):
+				scanExpr(init, args, row, callerIdx, false)
+			case Call(callee, cargs, _, _):
+				scanCallArgs(callee, cargs, args, row, callerIdx)
+
+				for a in cargs {
+					scanExpr(a, args, row, callerIdx, true)
+				}
+			case Function(_, body, _, _, _, _, _):
+				scanStmt(body, args, row, callerIdx)
+			case If(cond, a, b):
+				scanExpr(cond, args, row, callerIdx, false)
+				scanStmt(a, args, row, callerIdx)
+				scanStmt(b, args, row, callerIdx)
+			case Try(expr, _, _, catches, _):
+				scanStmt(expr, args, row, callerIdx)
+
+				for c in catches {
+					scanStmt(c, args, row, callerIdx)
+				}
+			case While(cond, body, _):
+				scanExpr(cond, args, row, callerIdx, false)
+				scanStmt(body, args, row, callerIdx)
+			case For(_, over, by, _):
+				scanExpr(over, args, row, callerIdx, false)
+				scanStmt(by, args, row, callerIdx)
+			case Increment(e):
+				scanExpr(e, args, row, callerIdx, false)
+			case Decrement(e):
+				scanExpr(e, args, row, callerIdx, false)
+			case PlainSwitch(e, cases, stmts):
+				scanExpr(e, args, row, callerIdx, false)
+
+				for c in cases {
+					for x in c {
+						scanExpr(x, args, row, callerIdx, false)
+					}
+				}
+
+				for st in stmts {
+					scanStmt(st, args, row, callerIdx)
+				}
+			case PatternSwitch(e, cases, stmts, guards, binds):
+				scanExpr(e, args, row, callerIdx, false)
+
+				for c in cases {
+					for x in c {
+						scanExpr(x, args, row, callerIdx, false)
+					}
+				}
+
+				for st in stmts {
+					scanStmt(st, args, row, callerIdx)
+				}
+
+				for g in guards {
+					scanExpr(g, args, row, callerIdx, false)
+				}
+
+				for b in binds {
+					for st in b {
+						scanStmt(st, args, row, callerIdx)
+					}
+				}
+			case SuperConstructor(cargs):
+				for a in cargs {
+					scanExpr(a, args, row, callerIdx, false)
+				}
+			case RefInc(list):
+				for x in list {
+					scanExpr(x, args, row, callerIdx, false)
+				}
+			case DeferRefDec(list):
+				for x in list {
+					scanExpr(x, args, row, callerIdx, false)
+				}
+			case Continue | Break:
+			case _:
+				traceLog('REFLECT-ESCAPE-MISS stmt ' + kindOfStmt(s))
+		}
+	}
+
+	/// Single-level escape scan over an expression. A bare Ident directly in
+	/// call-arg position is flow (edges), every other Ident is a store/read
+	/// that escapes under the single-level rule.
+	fun scanExpr(e: Expression, args: [String], row: [Bool], callerIdx: Int, isCallArg: Bool) {
+		if e == null {
+			return
+		}
+
+		if isCallArg { switch e {
+			case Ident(_, _):
+				return
+			case Parenthesis(inner):
+				scanExpr(inner, args, row, callerIdx, true)
+				return
+			case _:
+		} }
+
+		switch e {
+			case Ident(n, _):
+				for k in args.length {
+					if not row[k], n == args[k] {
+						row[k] = true
+					}
+				}
+			case CapturedVar(n, _):
+				for k in args.length {
+					if not row[k], n == args[k] {
+						row[k] = true
+					}
+				}
+			case Parenthesis(inner):
+				scanExpr(inner, args, row, callerIdx, false)
+			case Dot(base, _, _):
+				scanExpr(base, args, row, callerIdx, false)
+			case Index(base, idx, _):
+				scanExpr(base, args, row, callerIdx, false)
+				scanExpr(idx, args, row, callerIdx, false)
+			case StringIndex(base, idx, _):
+				scanExpr(base, args, row, callerIdx, false)
+				scanExpr(idx, args, row, callerIdx, false)
+			case Call(callee, cargs, _, _, _):
+				scanCallArgs(callee, cargs, args, row, callerIdx)
+
+				for a in cargs {
+					scanExpr(a, args, row, callerIdx, true)
+				}
+			case New(callee, nargs, _):
+				scanExpr(callee, args, row, callerIdx, false)
+
+				for a in nargs {
+					scanExpr(a, args, row, callerIdx, false)
+				}
+			case Binop(a, _, b, _):
+				scanExpr(a, args, row, callerIdx, false)
+				scanExpr(b, args, row, callerIdx, false)
+			case StringConcatenation(l, r):
+				scanExpr(l, args, row, callerIdx, false)
+				scanExpr(r, args, row, callerIdx, false)
+			case Unop(_, _, inner):
+				scanExpr(inner, args, row, callerIdx, false)
+			case Await(inner):
+				scanExpr(inner, args, row, callerIdx, false)
+			case Spread(inner):
+				scanExpr(inner, args, row, callerIdx, false)
+			case UnsafeBitCast(inner, _):
+				scanExpr(inner, args, row, callerIdx, false)
+			case Is(inner, _):
+				scanExpr(inner, args, row, callerIdx, false)
+			case RemoveNullability(inner, _):
+				scanExpr(inner, args, row, callerIdx, false)
+			case EnumTag(inner):
+				scanExpr(inner, args, row, callerIdx, false)
+			case EnumParameter(inner, _):
+				scanExpr(inner, args, row, callerIdx, false)
+			case Enum(_, _, tag, nargs):
+				scanExpr(tag, args, row, callerIdx, false)
+
+				for a in nargs {
+					scanExpr(a, args, row, callerIdx, false)
+				}
+			case Assignop(target, _, value):
+				scanExpr(target, args, row, callerIdx, false)
+				scanExpr(value, args, row, callerIdx, false)
+			case Array(values, _):
+				for v in values {
+					scanExpr(v, args, row, callerIdx, false)
+				}
+			case Object(_, els, _):
+				for v in els {
+					scanExpr(v, args, row, callerIdx, false)
+				}
+			case Map(keys, values, _, _, _):
+				for k in keys {
+					scanExpr(k, args, row, callerIdx, false)
+				}
+
+				for v in values {
+					scanExpr(v, args, row, callerIdx, false)
+				}
+			case NativeOperator(_, nargs, _, _, _):
+				for a in nargs {
+					scanExpr(a, args, row, callerIdx, false)
+				}
+			case If(cond, eif, eelse, _):
+				scanExpr(cond, args, row, callerIdx, false)
+				scanExpr(eif, args, row, callerIdx, false)
+				scanExpr(eelse, args, row, callerIdx, false)
+			case Elvis(_, _):
+				markContainedIn(e, args, row)
+			case Function(_, body, _, defaults, _, _):
+				scanStmt(body, args, row, callerIdx)
+
+				for d in defaults {
+					scanExpr(d, args, row, callerIdx, false)
+				}
+			case Arrow(ebody, _, defaults, _, _, _, _):
+				scanExpr(ebody, args, row, callerIdx, false)
+
+				for d in defaults {
+					scanExpr(d, args, row, callerIdx, false)
+				}
+			case String(_) | Int(_) | MetaInt(_, _, _) | Float(_) | True | False | Null(_) | This(_) | Underscore:
+			case _:
+				markContainedIn(e, args, row)
+				traceLog('REFLECT-ESCAPE-MISS expr ' + kindOfExpr(e))
+		}
+	}
+
+	/// Fixpoint over recorded call edges: a caller arg escapes when it flows
+	/// into a callee param that escapes. Monotone (false -> true only).
+	/// Arity mismatches (call passes more args than the callee declares)
+	/// escape the extra args — the value goes nowhere declared.
+	fun propagateEscape() {
+		var iter = 0
+		escapeChanged = true
+
+		while escapeChanged and iter < 50 {
+			escapeChanged = false
+			iter++
+
+			for t in edgeCaller.length {
+				let ci = edgeCaller[t]
+				let ca = edgeCallerArg[t]
+
+				if let gi = escapeIndex.get(edgeCallee[t]) {
+					let grow = escapeFinal[gi]
+					let cj = edgeCalleeArg[t]
+
+					if cj < grow.length, ca < escapeFinal[ci].length {
+						if grow[cj] {
+							let crow = escapeFinal[ci]
+
+							if not crow[ca] {
+								crow[ca] = true
+								escapeChanged = true
+							}
+						}
+					} else {
+						if ca < escapeFinal[ci].length {
+							let crow = escapeFinal[ci]
+
+							if not crow[ca] {
+								crow[ca] = true
+								escapeChanged = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/// True when a direct call arg at `pos` is safe: resolved callee whose
+	/// param is finally non-escaping. Anything else kills the candidate.
+	fun callArgOk(callee: Expression, pos: Int): Bool {
+		if let ck = calleeKey(callee) {
+			if let gi = escapeIndex.get(ck) {
+				let grow = escapeFinal[gi]
+
+				if pos < grow.length {
+					return not grow[pos]
+				}
+			}
+		}
+
+		return false
+	}
+
+	/// Shared Call check for the strict local rule: callee use kills, every
+	/// arg holding `n` must sit in a safe param slot with clean nesting.
+	fun callUsesOk(callee: Expression, args: [Expression], n: String): Bool {
+		if exprHasIdent(callee, n) {
+			return false
+		}
+
+		for j in args.length {
+			if exprHasIdent(args[j], n) {
+				if not callArgOk(callee, j) {
+					return false
+				}
+
+				if not exprNestedCallsOk(args[j], n) {
+					return false
+				}
+			}
+		}
+
+		return true
+	}
+
+	/// Nested calls inside an already-accepted call arg must accept too;
+	/// any other `n` occurrence in a non-arg position kills the candidate.
+	fun exprNestedCallsOk(e: Expression, n: String): Bool {
+		if e == null {
+			return true
+		}
+
+		switch e {
+			case Ident(m, _):
+				return true
+			case CapturedVar(m, _):
+				return true
+			case Parenthesis(inner):
+				return exprNestedCallsOk(inner, n)
+			case Call(callee, args, _, _, _):
+				return callUsesOk(callee, args, n)
+			case Function(_, body, _, _, _, _):
+				return not stmtHasIdent(body, n)
+			case Arrow(ebody, _, _, _, _, _, _):
+				return not exprHasIdent(ebody, n)
+			case _:
+				return not exprHasIdent(e, n)
+		}
+	}
+
+	/// Strict local rule: every `n` occurrence must be a direct call arg in
+	/// a safe slot. Pure reads (`n != null`, `n.field`) also kill in v1 —
+	/// documented over-strictness, later refinement.
+	fun exprUsesOk(e: Expression, n: String): Bool {
+		if e == null {
+			return true
+		}
+
+		switch e {
+			case Ident(m, _):
+				return m != n
+			case CapturedVar(m, _):
+				return m != n
+			case Call(callee, args, _, _, _):
+				return callUsesOk(callee, args, n)
+			case Function(_, body, _, _, _, _):
+				return not stmtHasIdent(body, n)
+			case Arrow(ebody, _, _, _, _, _, _):
+				return not exprHasIdent(ebody, n)
+			case _:
+				return not exprHasIdent(e, n)
+		}
+	}
+
+	/// Strict local rule over statements (see `exprUsesOk`).
+	fun stmtUsesOk(s: Statement, n: String): Bool {
+		if s == null {
+			return true
+		}
+
+		switch s {
+			case Block(els):
+				for e in els {
+					if not stmtUsesOk(e, n) {
+						return false
+					}
+				}
+
+				return true
+			case Statements(els):
+				for e in els {
+					if not stmtUsesOk(e, n) {
+						return false
+					}
+				}
+
+				return true
+			case Call(callee, args, _, _):
+				return callUsesOk(callee, args, n)
+			case Function(_, body, _, _, _, _, _):
+				return not stmtHasIdent(body, n)
+			case If(cond, a, b):
+				return exprUsesOk(cond, n) and stmtUsesOk(a, n) and stmtUsesOk(b, n)
+			case Try(expr, _, _, catches, _):
+				if not stmtUsesOk(expr, n) {
+					return false
+				}
+
+				for c in catches {
+					if not stmtUsesOk(c, n) {
+						return false
+					}
+				}
+
+				return true
+			case While(cond, body, _):
+				return exprUsesOk(cond, n) and stmtUsesOk(body, n)
+			case For(_, over, by, _):
+				return exprUsesOk(over, n) and stmtUsesOk(by, n)
+			case PlainSwitch(e, cases, stmts):
+				if not exprUsesOk(e, n) {
+					return false
+				}
+
+				for c in cases {
+					for x in c {
+						if not exprUsesOk(x, n) {
+							return false
+						}
+					}
+				}
+
+				for st in stmts {
+					if not stmtUsesOk(st, n) {
+						return false
+					}
+				}
+
+				return true
+			case PatternSwitch(e, cases, stmts, guards, binds):
+				if not exprUsesOk(e, n) {
+					return false
+				}
+
+				for c in cases {
+					for x in c {
+						if not exprUsesOk(x, n) {
+							return false
+						}
+					}
+				}
+
+				for st in stmts {
+					if not stmtUsesOk(st, n) {
+						return false
+					}
+				}
+
+				for g in guards {
+					if not exprUsesOk(g, n) {
+						return false
+					}
+				}
+
+				for b in binds {
+					for st in b {
+						if not stmtUsesOk(st, n) {
+							return false
+						}
+					}
+				}
+
+				return true
+			case Continue | Break:
+				return true
+			case _:
+				return not stmtHasIdent(s, n)
+		}
+	}
+
+	/// True for a `New` initializer (through parens).
+	fun isNewInit(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch unwrapParen(e) {
+			case New(_, _, _):
+				return true
+			case _:
+				return false
+		}
+	}
+
+	/// Collects locals bound to `New` (Var/Const), descending into nested
+	/// function bodies where further locals may hide.
+	fun collectNewVarsInStmt(s: Statement, out: [String]) {
+		if s == null {
+			return
+		}
+
+		switch s {
+			case Block(els):
+				for e in els {
+					collectNewVarsInStmt(e, out)
+				}
+			case Statements(els):
+				for e in els {
+					collectNewVarsInStmt(e, out)
+				}
+			case Var(n, init, _):
+				if isNewInit(init) {
+					out.push(n)
+				}
+
+				collectNewVarsInExpr(init, out)
+			case Const(n, init, _):
+				if isNewInit(init) {
+					out.push(n)
+				}
+
+				collectNewVarsInExpr(init, out)
+			case Call(callee, args, _, _):
+				collectNewVarsInExpr(callee, out)
+
+				for a in args {
+					collectNewVarsInExpr(a, out)
+				}
+			case Function(_, body, _, _, _, _, _):
+				collectNewVarsInStmt(body, out)
+			case If(_, a, b):
+				collectNewVarsInStmt(a, out)
+				collectNewVarsInStmt(b, out)
+			case Try(expr, _, _, catches, _):
+				collectNewVarsInStmt(expr, out)
+
+				for c in catches {
+					collectNewVarsInStmt(c, out)
+				}
+			case While(_, body, _):
+				collectNewVarsInStmt(body, out)
+			case For(_, _, by, _):
+				collectNewVarsInStmt(by, out)
+			case PlainSwitch(_, _, stmts):
+				for st in stmts {
+					collectNewVarsInStmt(st, out)
+				}
+			case PatternSwitch(_, _, stmts, _, binds):
+				for st in stmts {
+					collectNewVarsInStmt(st, out)
+				}
+
+				for b in binds {
+					for st in b {
+						collectNewVarsInStmt(st, out)
+					}
+				}
+			case _:
+		}
+	}
+
+	/// Expression half of the `New`-local collector (only function values
+	/// can hide statements; every other shape just recurses for nesting).
+	fun collectNewVarsInExpr(e: Expression, out: [String]) {
+		if e == null {
+			return
+		}
+
+		switch e {
+			case Call(callee, args, _, _, _):
+				collectNewVarsInExpr(callee, out)
+
+				for a in args {
+					collectNewVarsInExpr(a, out)
+				}
+			case New(callee, args, _):
+				collectNewVarsInExpr(callee, out)
+
+				for a in args {
+					collectNewVarsInExpr(a, out)
+				}
+			case Binop(a, _, b, _):
+				collectNewVarsInExpr(a, out)
+				collectNewVarsInExpr(b, out)
+			case Dot(base, _, _):
+				collectNewVarsInExpr(base, out)
+			case Index(base, idx, _):
+				collectNewVarsInExpr(base, out)
+				collectNewVarsInExpr(idx, out)
+			case Parenthesis(inner):
+				collectNewVarsInExpr(inner, out)
+			case Array(values, _):
+				for v in values {
+					collectNewVarsInExpr(v, out)
+				}
+			case Object(_, els, _):
+				for v in els {
+					collectNewVarsInExpr(v, out)
+				}
+			case Map(keys, values, _, _, _):
+				for k in keys {
+					collectNewVarsInExpr(k, out)
+				}
+
+				for v in values {
+					collectNewVarsInExpr(v, out)
+				}
+			case If(a, b, c, _):
+				collectNewVarsInExpr(a, out)
+				collectNewVarsInExpr(b, out)
+				collectNewVarsInExpr(c, out)
+			case Function(_, body, _, defaults, _, _):
+				collectNewVarsInStmt(body, out)
+
+				for d in defaults {
+					collectNewVarsInExpr(d, out)
+				}
+			case Arrow(ebody, _, defaults, _, _, _, _):
+				collectNewVarsInExpr(ebody, out)
+
+				for d in defaults {
+					collectNewVarsInExpr(d, out)
+				}
+			case _:
+		}
+	}
+
+	/// Counts `New` sites and strict-rule stack candidates per function.
+	fun scanStmtForNews(body: Statement, fkey: String) {
+		var found: [String] = []
+		collectNewVarsInStmt(body, found)
+
+		for n in found {
+			stackNewsTotal++
+
+			if stmtUsesOk(body, n) {
+				stackNewsCand++
+
+				if stackLogged < 30 {
+					stackLogged++
+					traceLog('REFLECT-STACK-LOCAL ' + fkey + ' .' + n)
+				}
+			}
+		}
+	}
+
+	/// Driver: collect functions, single-level scan, fixpoint, publish the
+	/// escape map to IR, then count stack promotion candidates (no backend
+	/// changes — candidacy is reported, never applied).
+	fun computeEscapeReport() {
+		collectEscapeFuncs()
+
+		for i in escapeKeys.length {
+			let fargs = escapeArgsList[i]
+			var direct: [Bool] = []
+
+			for a in fargs {
+				direct.push(false)
+			}
+
+			escapeDirect.push(direct)
+			var working: [Bool] = []
+
+			for a in fargs {
+				working.push(false)
+			}
+
+			escapeFinal.push(working)
+			scanStmt(escapeBodies[i], fargs, working, i)
+
+			for k in working.length {
+				direct[k] = working[k]
+			}
+		}
+
+		propagateEscape()
+
+		for i in escapeKeys.length {
+			niceProject.funcArgEscape.set(escapeKeys[i], escapeFinal[i])
+		}
+
+		var totalArgs = 0
+		var escArgs = 0
+
+		for i in escapeFinal.length {
+			let r = escapeFinal[i]
+
+			for k in r.length {
+				totalArgs++
+
+				if r[k] {
+					escArgs++
+				}
+			}
+		}
+
+		traceLog('REFLECT-ESCAPE funcs=' + escapeKeys.length + ' args=' + totalArgs + ' escaping=' + escArgs + ' edges=' + edgeCaller.length)
+
+		// Order census: a single sequential pass (callee-before-caller only)
+		// would miss `forward` edges (callee defined after the caller) and
+		// `self` edges (recursion) — the fixpoint above is what makes the
+		// map sound. `globals` vs `methods` splits the entry kinds.
+		var backEdges = 0
+		var fwdEdges = 0
+		var selfEdges = 0
+
+		for t in edgeCaller.length {
+			if let gi = escapeIndex.get(edgeCallee[t]) {
+				if gi == edgeCaller[t] {
+					selfEdges++
+				} else if gi < edgeCaller[t] {
+					backEdges++
+				} else {
+					fwdEdges++
+				}
+			}
+		}
+
+		traceLog('REFLECT-ESCAPE-ORDER backward=' + backEdges + ' forward=' + fwdEdges + ' self=' + selfEdges)
+		traceLog('REFLECT-ESCAPE-KIND globals=' + escapeGlobalFuncs + ' methods=' + escapeMethodFuncs)
+
+		for t in inlineCaller.length {
+			let ci = inlineCaller[t]
+
+			if let gi = escapeIndex.get(inlineCallee[t]) {
+				let grow = escapeFinal[gi]
+				let pos = inlineArg[t]
+
+				if pos < grow.length, not grow[pos] {
+					inlineCand++
+
+					if stackLogged < 30 {
+						stackLogged++
+						traceLog('REFLECT-STACK-INLINE ' + escapeKeys[ci] + ' -> ' + inlineCallee[t] + ':' + pos)
+					}
+				}
+			}
+		}
+
+		for i in escapeKeys.length {
+			scanStmtForNews(escapeBodies[i], escapeKeys[i])
+		}
+
+		traceLog('REFLECT-STACK news=' + stackNewsTotal + ' inlineCandidates=' + inlineCand + ' localCandidates=' + stackNewsCand)
+	}
 }
