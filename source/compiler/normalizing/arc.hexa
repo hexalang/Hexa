@@ -122,10 +122,10 @@ class ArcInserter {
 		}
 	}
 
-	/// Single-statement bodies arrive unwrapped (`unwrapNestingBlocks` flattens
-	/// `Block([s])` to bare `s`): a bare body has no sibling slot for the param
-	/// prologue and a bare `Return` gets no caller-side +1 (`apply2_` shipped
-	/// with neither). Re-shell into a one-member `Block` so the `Block`
+	/// Single-statement bodies arrive unwrapped (normalizer
+	/// `unwrapNestingBlocks` flattens `Block([s])` to bare `s`): a bare body
+	/// has no sibling slot for the param prologue and a bare `Return` gets
+	/// no caller-side +1. Re-shell into a one-member `Block` so the `Block`
 	/// machinery below applies (entry prologue + `Return` arm). The shell is
 	/// new: transfer any `globalLink` entry (same contract as the
 	/// reflect/closure rebuilds — `@dllExport` host callbacks live here);
@@ -566,10 +566,13 @@ class ArcInserter {
 										els.spliceAndInsert(i, 0, Statement.Const(temp_old_name, left, left_type)) // Save old
 										els.spliceAndInsert(i + 1, 0, Statement.Const(temp_right_name, binop, left_type)) // Eval new
 										els.spliceAndInsert(i + 2, 0, Statement.Assign(left, temp_right, null)) // Assign
-										// Fresh `left + right` (+1 by construction, e.g. String
-										// `+=` once the Binop-Add arm is re-landed with a
-										// genC-mirroring predicate) transfers: release
-										// the old only. Borrowed results keep the retain.
+										// Fresh `left + right` transfers only when
+										// `isFreshOwned` proves +1 today
+										// (`StringConcatenation`, both-fresh `If`);
+										// plain `Binop-Add` stays retaining until genC
+										// keys `+` on the same declared-type predicate
+										// (see `isOwnedInit` NOTE). Borrowed results
+										// keep the retain.
 										// NOTE: keep the cursor math in sync with the net
 										// insert count (transfer +4/-1, retain +5/-1).
 										if this.isFreshOwned(binop) {
@@ -849,7 +852,9 @@ class ArcInserter {
 
 					this.processStatement(cb)
 				}
-				// Add cases for other statements like Return(expr): processExpression(expr), etc.
+				// Bare `Return`/`Throw` outside any `Block` (e.g. `if c return x`):
+				// only recurse for nested closures — the +1 is handled by the
+				// `Block` arm above, and `countBareReturn` tracks the gap.
 			case Return(expr): if expr != null { this.processExpression(expr) }
 				// TODO function result should be handled somehow specially?
 			case Throw(expr): this.processExpression(expr)
@@ -911,10 +916,11 @@ class ArcInserter {
 	}
 
 	/// Lvalue returns that are unsafe to re-emit inside `RefInc` (a second
-	/// evaluation would run user code): only bare Idents and pure Dot chains
-	/// return directly. `Index` lowers to `get_` calls and impure Dots re-run
-	/// receivers, so those hoist once into a temp instead (same as the
-	/// impure-store arms). `Parenthesis` unwraps like `isLvalueExpr` does.
+	/// evaluation would run user code): only bare `Ident`/`This` and pure
+	/// `Dot` chains return directly. `Index` lowers to `get_` calls and
+	/// impure Dots re-run receivers, so those hoist once into a temp instead
+	/// (same as the impure-store arms). `Parenthesis` unwraps like
+	/// `isLvalueExpr` does.
 	fun needsHoistForReturn(e: Expression): Bool {
 		if e == null {
 			return true
@@ -1082,8 +1088,10 @@ class ArcInserter {
 
 	/// Resolves `base.name` through the receiver's class (following
 	/// `extend`) to a Hexa-implemented method's declared return type.
-	/// Null for natives/declares/dynamics/unresolvable shapes.
-	/// Static access lands here the same way (the base carries the class).
+	/// Null for natives/declares/dynamics/unresolvable shapes (also for
+	/// nullable/erased receivers — no unwrap here, so they stay on the
+	/// retaining path, leak-safe). Static access lands here the same way
+	/// (the base carries the class).
 	fun hexaMethodReturns(base: Expression, name: String): Type? {
 		if base == null or name == null {
 			return null
@@ -1163,12 +1171,14 @@ class ArcInserter {
 	/// binding, which only guards the release. `new` sets rc=1 at birth;
 	/// `Array/Object/Map` literals build through `$new_` the same way
 	/// (untyped `{}` lowers to a null stub, and the guard skips null).
-	/// Hexa-global calls return +1 by construction (B3); native, Dot and
-	/// unknown callees keep the retain (their conventions are unknown).
-	/// An `If` whose BOTH branches are fresh-owned is itself +1 (exactly
-	/// one branch runs and yields its +1 — the ternary allocates nothing).
-	/// Everything else (borrows, awaits, half-fresh ternaries) keeps the
-	/// retain: an extra inc only leaks, a missing one frees live.
+	/// Provably-+1 calls (`isPlusOneCall`: Hexa-global and resolved
+	/// Hexa-method calls) return +1 by construction; native, unresolved
+	/// `Dot`, dynamic and unknown callees keep the retain (their conventions
+	/// are unknown). An `If` whose BOTH branches are fresh-owned is itself
+	/// +1 (exactly one branch runs and yields its +1 — the ternary
+	/// allocates nothing). Everything else (borrows, awaits, half-fresh
+	/// ternaries) keeps the retain: an extra inc only leaks, a missing one
+	/// frees live.
 	fun isOwnedInit(e: Expression): Bool {
 		if e == null {
 			return false
@@ -1213,11 +1223,12 @@ class ArcInserter {
 		}
 	}
 
-	/// Transfer-safe stores: a fresh rvalue +1 (factory, literal, Hexa call
-	/// result) cannot alias the overwritten slot, so the store takes the +1
-	/// with no extra retain. Lvalue-shaped rights stay on the retaining path
-	/// even when reported +1 (a `Dot` field or shadowed global could read back
-	/// the very slot being stored — retaining there only leaks, skipping
+	/// Transfer-safe stores: a fresh rvalue +1 (factory, literal,
+	/// `StringConcatenation`, Hexa-call result — see `isOwnedInit`) cannot
+	/// alias the overwritten slot, so the store takes the +1 with no extra
+	/// retain. The `not isLvalueExpr` guard is defensive: no `isOwnedInit`
+	/// arm returns true for lvalue shapes today, so an lvalue right side
+	/// always takes the retaining path (retaining there only leaks, skipping
 	/// would free live once the sweep lands).
 	fun isFreshOwned(e: Expression): Bool {
 		return this.isOwnedInit(e) and not this.isLvalueExpr(e)
@@ -1486,9 +1497,11 @@ class ArcInserter {
 	}
 
 	/// Fat (function-typed) values need their ENV half retained, never the
-	/// code pointer (D1+D3). Mirrors genC's `isFatValueType`: plain `Function`
-	/// plus nullable wrappers. Unknown/dynamic shapes stay out (their boxes
-	/// and pairs are container-contract territory, F7.1).
+	/// code pointer. Same shape as genC's `isFatValueType` (plain `Function`
+	/// plus `Nullable`), extended here through `Unknown`/`UnknownNullable`
+	/// erasure (leak-safe superset: extra shares only pin longer).
+	/// Unknown/dynamic boxes and pairs stay out (container-contract
+	/// territory).
 	fun needsFatRetain(dataType: Type): Bool {
 		if dataType == null {
 			return false
