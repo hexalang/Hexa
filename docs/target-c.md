@@ -340,7 +340,7 @@ Dead code after `return` (legacy `_x` emitter) is archaeology — delete per F8.
 - Object model: flat per-class vtable `Foo__` + instance `Foo_` (vtable ptr first) + `Foo__$`
   value; `@struct/@union/@packed/@bits` from decorators; synthesized `toString` fallback.
 - `printFunctionArguments` (`thisArgument`, `(void)`, `...`), `printFunctionBody` (`return 0` guard),
-  `NiceLink` (`HEXA_LINK`, `dllimport/dllexport`, `convention`, `aligned`, `customHeader`).
+  `NiceLink` (`HEXA_LINK` + MSVC alternatename pragma, `dllimport/dllexport`, `convention`, `aligned`, `customHeader`).
 - `HEXA_MAIN`: string bootstrap (`String_$root_`, `String_N = ...fromUTF16z_...`), static/global
   inits (`(int32_t)0` skipped), `init[0]`, `fflush`, `return 0`.
 - Statements: `metaBlock` temp-spilling, `Try` single-catch stub, `Assign(Dot/Index)` dynamic
@@ -411,10 +411,16 @@ thread env, `@noCapture` emits raw pointer; no capture is silently dropped (type
 - Q: copies: does assigning a fat value `RefInc` the env (D3) — i.e. is the env the only ARC target?
 - [ ] F1.1 Freeze two-var ABI (no struct): params double up; returns take extra `void**` out-param for code ptr and return env ref; fields double up (`name$f_`, `name$e_`).
 - [ ] F1.2 Extend `Nice` IR with captures + `CallKind.Closure` for capturing calls (`source/data/nice.hexa`).
+  - DONE Oct 2026 (Phase 1 subset): `CallKind.Closure = 13` added; the ClosureLifter tags every lifted-closure call (incl. IIFE-wrapped callees) — census `closureKind == calls` on Perfide. genC treats it as thin (shared path) until F1.5.
+  - DONE Oct 2026 (reserved): `Expression.CapturedVar(name, dataType)` added but NOTHING produces it; the lifter's post-pass verifier asserts zero occurrences. One-step lowering (F1.3) resolves captures straight to field `Dot`s, so no producer is planned — remove the case if still unused past S2.
 - [ ] F1.3 Compute captures + lower closures to helper objects in a pre-ARC pass (late `Normalizer` phase or separate pass — see Q), typer-enforce `@noCapture`-only-accepts-`@noCapture` (`source/compiler/normalizer.hexa` / new `source/compiler/normalizing/` pass).
+  - DECIDED Oct 2026: one-step lowering — the pass synthesizes `Env$N` NiceClasses, prepends `$env` as the lifted function's first arg (funcType updated), rewrites capture uses straight to field `Dot`s, emits creation as ordinary `New`+field-`Assign` nodes. Staged S2 (thin values, struct-global env, zero semantic change) then S3 (fattening); `verifyLifted` zero-FAIL is the gate.
 - [ ] F1.4 Emit env-first signatures + per-closure structs + factories (`source/targets/genC.hexa`).
+  - DECIDED Oct 2026: type-driven fattening — function-typed bindings expand to two C vars (`f$ptr`, `f$env`) from the type alone (no IR pairing node); thin wrappers + sentinel env generated on demand where thin globals flow into fat positions (one wrapper per function); out-param returns. Lifted functions take `void* env` first and cast to their `Env$N*` inside (keeps every function-typed value uniformly shaped).
 - [ ] F1.5 Rewrite `CallKind.Function` sites to fat-call; generate thin wrappers for non-capturing fn → capturing ref; pair with sentinel env.
+  - DECIDED Oct 2026: direct calls to module-level globals by NAME stay thin (zero-overhead); calls through function-typed values (incl. `CallKind.Closure`) are fat. genC distinguishes via callee identity + type — no pass-side value threading. S3a landed: direct `Closure` calls fat with global/nullptr env (`printClosureFatCall`, reuses `printCallArguments`); thin wrappers (`closure$N$thin`) preserve stored/indirect single-var values; indirect fat pairs + plain-global wrappers/sentinel are S3b (F1.6).
 - [ ] F1.6 Thread pairs through fields/arrays/globals/params/returns (double slots, not structs).
+  - Perfide census (Oct 2026, `closures-trace.log`): calls=524, STORED=924, methodValues=646 — nearly two-thirds of closure values flow through non-call positions, so this item (not just call sites) is where fat pays off.
 - [ ] F1.7 Tests: nested closures, returned closures, method-as-value, `@noCapture` FFI.
 
 **Acceptance.** Captures survive return; fat calls thread env; returns use out-param; no silent capture drop.
@@ -746,6 +752,7 @@ with location; multi-catch order respected.
 - Possible future `@optimized interface{}` decorator for Go-like static shape (opt-in).
 - [ ] F10.1 Define `Any` metadata/vtable surface needed by `genC` dynamic paths (`let_/$set/get_/set_`).
 - [ ] F10.2 Scope `JSON.parse` return ownership under ARC (who retains the tree?).
+- [ ] F10.3 Closure dynamic-call thunk (DECIDED Oct 2026; replaces the C++ `AnyValue_` template proxy before any LLVM/pure-C backend): per-closure thunk with fixed C ABI `Any_* (*call)(void* env, Any** argv, int32_t argc)` — unboxes args with D7 coercions, invokes the real native function, boxes the result. ARC contract: args borrowed (caller-side temp+`DeferRefDec` guards already cover this), return +1, env borrowed; arity: missing args read as null-`Any`, extras ignored (D7). Call sites use stack arrays (`Any_* argv[] = {...}`), no heap. Trigger: `ClassBinaryInterface.Closure` on the helper class (added S4a; helpers are `Closure`). Thunks (`closure$N$call_`) emitted S4b as additive dead code (`Any_**` ABI fixed); dynamic calls still via the `AnyValue_` proxy until wired.
 - Q: does reflection reuse fat-pair/sentinel machinery, or need its own type tags?
 - A: **recommend the accessor-table design above** — the accessor IS the type knowledge (no
   per-object type tags), reusing D2 sentinels for `Any` null/Bool boxes; fat-pairs appear only if
@@ -772,6 +779,50 @@ with location; multi-catch order respected.
   (that scan is the "sometimes" sweep).
 - [ ] F11.1 Define allocator interface + refcount header layout (where does `rc` live?).
 - [ ] F11.2 Route `HEXA_NEW`, closure/env allocs, `String`/`Array`/`Map`/interned `BigInt` through it.
+- LANDED Dec 2026 (sweep v1, side-table): `hexaSweep()` emitted post-Types (after
+  `AnyObject_`), driven from Hexa `timerPump()` (first pump + every 600th, next to the
+  census). Swap-remove over a `hexaLiveList_` side table (no intrusive link — the host
+  mirrors Hexa layouts, so no header change); `HEXA_FREE` + `HexaDestroyLookup_` destroy
+  per object (+ `AnyObject_` entry-buffer free inline + `Any` unref loop for bag
+  entries + `FatPair` env unref). `HEXA_SWEEP_MODE` env selects subsets for triage
+  (default 1 = retire `String` without freeing — see narrowing below; 0 = full).
+  Victim census (`sweep-victim %s` + `String` head bytes + inbucket/ishead flags) +
+  `hexaTagName_` table ride along for F11 debugging. Verified: Perfide native 0 MSVC
+  errors, 10s smoke exits 0, 60s smoke reaches the pre-existing chatter F10 crash
+  (no menubar UAF).
+- NARROWED Dec 2026 (F11 strings): the sweep retires `String` instances from the live
+  set WITHOUT destroying/freeing them (object stays mapped, bucket stays linked) —
+  i.e. interned strings are immortal per D2, enforced operationally until the real
+  per-allocation allocator can count shared string ownership. Why: with full string
+  frees the menubar crashes reading a freed-then-reused interned literal
+  (`combine` ← `bootProbe` reads `-1`/garbage ~22s in); without string frees the same
+  build reaches the pre-existing chatter crash instead. Sweep victims included global
+  literals at rc==0 (`inbucket=1`, no duplicates found), so at least one shared-string
+  share is uncounted; candidates narrowed by elimination (returns/throws hoisted with
+  zero `returnUnknown`, Any positions counted via `Any_isCounted_`, impure stores
+  hardened, elision exonerated, bare returns zero, destroys verified) — the remaining
+  suspects are all in F7/F10 territory (untyped `Any` flows, event-callback
+  `Any`-boundaries, `as` narrowing, native-call conventions, container removes).
+  Cost: interned strings leak (never reclaimed); acceptable for Phase 3, tracked here.
+- LANDED Jan 2027 (sweep pressure + observability, mode 0 default): every 8192nd
+  managed birth sweeps (alloc-path trigger in `hexaRegisterLive_`, genC-emitted
+  prototype + counter; the sweep's own `sweeping_` guard makes nested triggers
+  safe); default flipped to `HEXA_SWEEP_MODE=0` (full incl. strings — previously
+  the menubar-UAF narrowing above; now stable: ARC owns every shared share per
+  the F3 lands, buckets unlink on destroy, zero crashes across full boot + 10s
+  smoke); every sweep line carries `rssMB`/`committedMB` (kernel32 `K32`
+  import, no psapi) + live-string census (`strLive`/`strBytes`, plus `strMax`/
+  `strBig` for shape); `hexaSweepCensus` counts live strings/bytes too; the
+  host watchdog prints `rss`/`committedMB` at exit (main-hexa.cpp only).
+  Verified: 0 MSVC errors, smoke exits 0, sweep frees every cycle
+  (`freed` 41–273 per boot sweep), committed holds ~1.5GB — and the census
+  shows why it is not the swept heap: 67k live strings hold 1.48GB
+  (`strLive=67429 strBytes=1480790484`, max 56KB, no ≥1MB outliers). The NARROWED
+  default above is superseded but kept as `HEXA_SWEEP_MODE=1` for bisect.
+- LANDED Nov 2026 (destroy path): `@destructor` methods (`normalizer` validates: instance-only,
+  zero-arg, non-struct, non-duplicate) are registered per class in a genC-emitted
+  `hexaDestroyTable_` (vtable tag → destroy fn → `sizeof`), with `HexaDestroyLookup(tag)`
+  for the future sweep. `String.destroy` unlinks the intern bucket + frees bytes.
 - [ ] F11.3 Runtime linkage model: inline the Hexa runtime into plain `.exe` (static-CRT-like,
   default), share one runtime across `.dll`s, future: dedicated runtime `.dll` export.
   Files: `library/cxx/hexa.c`, `library/c/hexa.c`, the F11 allocator.
@@ -818,6 +869,8 @@ with location; multi-catch order respected.
 - [ ] `usedByValueDepth`: keep relying on normalizer sort (sufficient?) — assert, don't re-sort.
 - [ ] `NiceLink`/`HEXA_LINK`/`extraUnderscore`/32-bit `__stdcall` scope (internal vs FFI-only),
   `customHeader`+`dllexport` errors, `@restrict/@volatile`, header-gen mode.
+  - LANDED Oct 2026: genC emits the MSVC alternatename pragma for `@dllImport`+`@linkName`
+    (FFI pivot); `HEXA_LINK` stays GNU-only.
 - [ ] String escaper beyond `' " \n \r \\` (`\0 \t`, surrogates, `String_199` throw); `wchar_t` width.
 - [ ] Delete dead `_x` emitter + dead second `Switch` + pipe-operator comment block; silence `template/duplicate` logs; resolve `%...%` stubs and
   `ConstCharPointer` debug throws.
@@ -848,5 +901,244 @@ with location; multi-catch order respected.
 - `docs/target-llvm.md` — future consumer of the same fully-lowered Nice IR (D8).
 - `library/cxx/hexa.c` + `library/c/hexa.c` + `library/c/*.hexa` — F2 sentinels, F4 guard type,
   F5 handlers live here.
+
+## Phase 1 port deviations (Perfide `--target native`)
+
+- Closure capture-lifting lives in `source/compiler/normalizing/closures.hexa` (`ClosureLifter`,
+  post-normalize pass like `ArcInserter`, genC unaware) — Phase 1 env is a **global per closure
+  site** (two live closures at one site share it); D1 per-instance envs (heap helper objects +
+  fat values) replace the globals inside that pass later.
+- `fun name<T>` mini-templates: function generics are `Generic(index)` stubs with call-site
+  inference + `genericFixup` substitution (`typer.hexa`); single erased C copy per function
+  (`Generic` stringifies to `Any_*`), no per-instantiation clones yet.
+- `@customHeader`/`@emitHeader` are the host-binding mechanism for same-TU host shims
+  (`@rename` + plain C definitions in the host TU); `declare` statements never reach
+  generators, so prototype holders must be real (body-carrying) functions.
+- DLL imports use `@dllImport('RealName')` (+ `@linkName` when the Hexa name differs):
+  genC emits a `__declspec(dllimport)` prototype and, on MSVC, a
+  `#pragma comment(linker, "/alternatename:__imp_<Hexa>=__imp_<Real>")` line
+  (GNU keeps `HEXA_LINK("Real")`, which is empty on MSVC). No `.def` file, no
+  build-script change; import libs still resolve the real symbols. Verified: 60+
+  Win32 imports link with zero LNK errors.
+- Field-accessed SDK structs are own Hexa `@struct` classes (not `@declare`d SDK names):
+  same field order/types, `_`-suffixed names (no collisions when SDK headers are present),
+  emitted by genC with no vtable. The generated TU includes no SDK headers at all.
+- `library/cxx/hexa.c` prologue carries the only Windows ABI surface the generated TU
+  needs: pointer-sized handle typedefs (`HANDLE`/`HMODULE`/`HLOCAL`/`LP*` = `void*`,
+  `LPDWORD` = `unsigned long*`, `u_long`) + C-linkage runtime imports (`GetProcessHeap`,
+  `HeapAlloc`, `HeapFree`, `GetStdHandle`, `WriteFile`, `FlushFileBuffers`, `ExitProcess`).
+- Host and Hexa compile as separate TUs and link: every Hexa-side global has C linkage
+  (dumpbin-verified); the host side declares/defines its cross-TU symbols `extern "C"`
+  and mirrors the Hexa runtime structs it touches (`String_` layout, `Bool_`,
+  `String_$fromUTF16z_`). Entry alias passes as `/DHEXA_MAIN=<alias>` on the Hexa TU
+  compile line.
+- Scalar-V generic containers don't compile on native (`Map<String,Float>`,
+  `Array<UInt64>` templates store null/`Null$*` into scalar slots) — F2 debt; Phase 1
+  rule is Hexa-first avoidance (e.g. `Map<String,Any>`, `[HANDLE]` + null free-slots).
+- `Void` parameters are dropped from function-type typedefs, signatures and call arguments
+  (`(value: Void) => Void` must not emit `void value_`).
+- `async fun`/`await` lower to C++ coroutines (F9 landed): typer wraps async Function
+  returns in `Promise<T>` (`instantiateGeneric`, idempotent — explicit `Promise` annotations
+  pass through; `return` still unifies against `T`); genC emits `Promise<T>*` with explicit
+  `HEXA_CPP` linkage (`HEXA_C` for sync), `return` → `co_return` (boxed to `Any_*`),
+  `await p` → `co_await (*p)` (deref — `operator co_await` takes `S&`, C2803) with scalar
+  unboxing, settled fast path via `await_ready`, frame-pump resume (`hexaPumpResumes`,
+  called from Hexa `timerPump`, zero host edits). One `return_value(Any_*)` only (C3782);
+  `void` bare return is `co_return (Any_*)nullptr`. `await` inside `catch` falls back to
+  the settled `.value` read (C++ forbids `co_await` in handlers, C2304). `promiseOf` unwraps
+  `Nullable` (`Promise<Any?>`→`Promise<Any>`) and passes through already-`Promise`
+  (no `Null$` bodies, no double-wrap); `printObjectAs` unwraps `Promise` for struct
+  literals. Class-`staticMethods` (non-template) carry linkage + async wrapping like every
+  other Function site (it was the only one missing them).
+- `Any` reflection surface is stubs (`let_`/`$set`/`_toFloat`/… members on `struct Any_`,
+  `Any_$toString_` helper) — F10 replaces them.
 - `docs/native.md` (Function Pointers and Closures; Null Handling) — update the C sketches to the
   chosen two-var/two-field + sentinel forms once F1/F2 decide.
+- Pass order is `Normalizer → ClosureLifter → ArcInserter` (matches D1); `ArcInserter`'s param
+  prologue takes names from the statement's renamed `args`, not the function type's raw ones.
+- Instance members (fields/methods) keep STABLE names — scope-`unique` renames apply to statics
+  only (`renameClassFields` `setMemberName`); otherwise declarations and accesses desync.
+- Omitted optional trailing arguments are padded with typed nulls at C call sites (`padValue`);
+  js call sites keep their short form. Mismatched fn-ptr values cast to the expected typedef.
+- Bare-generic/erased types stringify to `Any_*`; `Any`-shaped values flow through an
+  `AnyValue_` call/get proxy (`let_`/`$set`/`operator()`, `_to*` conversions) — F10 stubs.
+- Inline structural types (`interface { … }`, `Type.Struct`) mint real C structs (`Struct_N_`)
+  per distinct shape (precursor of the F10 accessor tables).
+- D-interfaces (TypeScript-like): `interface` is compile-time only, erased at
+  runtime. A structural annotation satisfied by a concrete class keeps the
+  concrete C shape (no `Array<Struct>*` reinterpret — `Struct.name` would read
+  the vtable, `Struct.fn` a `String*` as code). Current status: structs still
+  emit (object-literal construction needs them); `Array<Concrete>` assigned to
+  `Array<Iface>` emits an unsound `(Array<Struct>*)(Array<Concrete>*)` cast via
+  `printTypeConverter` fallback (DEP execute in `Array sort`). Phase-1 rule is
+  Hexa-first avoidance (inferred/concrete element types, e.g. `let entries =
+  await readdir` gives `[FsDirentInfo]` native / `[Any]` js). Full erasure
+  (typer narrowing `let x:Iface=concrete` to concrete + element-wise
+  adaptation or rejection for fn boundaries) is queued; `Any` sources stay
+  dynamic (F10) and never erase.
+- Container indexing lowers to `get_`/`set_` calls for classes with a `get` method (Array, Map);
+  raw `expr[i]` remains for pointer-shaped storage (`ArrayPointer` and friends).
+- Assignments/returns/declarations force an explicit C cast around converted values
+  (`forcedCast`) — substituted generic values vs erased types stringify equally.
+- Closure values stay thin in Phase 1: bare `closure$N` idents; captures live in
+  global-per-site env vars (`closureEnv$N$name`) filled at the creation site (two live
+  closures at one site share it; `var` captures copy, mutations diverge — no cell
+  indirection yet). Fat values (D1) land inside the ClosureLifter pass later.
+- `CallKind.Closure` exists and the lifter tags every lifted-closure call with it
+  (incl. IIFE-wrapped callees); genC treats it as thin (shared call path) until F1.5.
+- `Expression.CapturedVar` exists but is never produced (reserved F1.2 placeholder —
+  the post-pass verifier asserts zero occurrences); one-step lowering resolves captures
+  straight to field `Dot`s, so no producer is planned.
+- `ClassBinaryInterface.Closure` is the approved (not yet added) helper-env kind driving
+  genC `call(Any**, argc)` thunk generation (F10.3); helpers stay plain `Normal` until S4.
+- Dynamic calls go through the C++ template `AnyValue_` call/get proxy (Phase-1 scaffolding,
+  MSVC-only); the plain-C `call` slot (F10.3) replaces it before any LLVM/pure-C backend.
+- The C++ target emits C-shaped code only (no C++ lambdas/`std::function`/exceptions in
+  lowered output); C++ exists solely for ARC unwinding (D5). Closure lowering is
+  target-gated and never runs for closure-native targets (it would corrupt their native
+  closures).
+- JS-only `===`/`!==` map to C `==`/`!=` in `NativeOperator` Infix; `instanceof` is an
+  F10 stub.
+- `Any`-shaped `+ - * /` with pointer involvement routes through the `AnyValue_` proxy
+  with unconditional `(size_t)` bridging (compiles for any actual C shape, incl. fields
+  widened to `Any` after the C shape froze); pure-scalar Binops stay raw. `!x` on `Any`
+  prints `!(x)`; `getType(Unop !)` is `Bool`.
+- Statement/expression calls wrap `Any_*`-shaped callees per DECLARED type
+  (`isDynamicCallee` — use-node types lie about untyped callback params like `onUpdate`).
+- S3a dual-mode (M1-safe fattening step): lifted closures are FAT (`void* $env` first param, body reads `envT$N`-cast fields) for direct `CallKind.Closure` calls (genC `printClosureFatCall` with global/`nullptr` env, reusing `printCallArguments`); THIN wrappers (`closure$N$thin`, old signature, call fat with global/`nullptr`) preserve stored/indirect single-var values (genC `Ident` maps stored `closure$N` → thin; wrapper-inner `Static` calls print fat explicitly, never double-env). Top-of-`Call` interception covers the `Static` early-return bypass; `envT$N` (letter-leading) avoids static-Dot misclassification of leading-`$` bases. Census skips `$thin` wrappers so `closureKind == calls` holds.
+- S4: `ClassBinaryInterface.Closure = 30` added; helpers are `Closure` (genC only special-cases `StructureNoVirtual`, so M1-neutral). Thunks `closure$N$call_(void* env_, Any_** argv_, int32_t argc_)` emitted per fat impl (unbox via D7 stubs/size-t bridges, box via `Any_from*`/size-t, `nullptr`/0 defaults for missing) as additive dead code; dynamic calls stay on the `AnyValue_` proxy until wired.
+- S3b nested-fat typedef doubling: `stringifyType` `Function` doubles `isFatValueType` params (mirror `printFunctionArguments`) — `typedef _$978 (void*, _$388, void*)` not `(void*, _$388)`; dedup key uses doubled list; also fixed `setTimeout_`/`setImmediate_` arity.
+- S3b `Any` → fat-typedef M1 bridge: `fatPtrAs(e,toT)` emits `(toT)(size_t)(any)` for dynamic sources (+ sentinel env); `Var`/`Assign`/field/global inits use `fatPtrAs`; fat-param call args accept `isDynamic` sources; `printTypeConverter` dynamic→fat uses same bridge (F10 pair-boxing makes it exact).
+- M1 void pre-scan: `voidFuncs` map (globals+methods, declared C-void returns) + `valueType(Call/Await)` reports `Void` so the existing `Void→T` comma-sequence bridge fires in every value context; `printExpression Await` emits `(call,(T)0)` instead of `((T)(voidCall))` (C2440).
+- M1 global-init `metaBlock` flush: global `Var`/`Const` inits emit spilled temps (e.g. VirtualMethod receiver) before the assignment — otherwise `_$N` is used undeclared (C2065).
+- M1 declare-static stubs: body-less `static fun` emits `HEXA_UNREACHABLE+(T)0` like instance stubs (brace-safe via `fromCharCode`; `Reflect C4716`).
+- M1 string escaper: `\{`/`\}` → `{`/`}` in C output (C4129); regex `[{}]` Hexa-first to avoid brace escapes.
+- M1 warnings: `HEXA_LINK #undef` before MSVC redefinition (C4005); `wprintf %hs` + `HEXA_TRACE %hs` for narrow args (C4477).
+- M1 reflect `While` fix: body uses `rewriteStmt` (not `rewriteExpr`) — all `for` bodies were invisible; lean trace (summary census only, zero `REFLECT-MISS`).
+- M1 Hexa-first call-site fixes (no broad genC `Dot` expects): ternary split (`String?`), `as Any` boxing (`String→Any`), `Float 1.0` (`Any→double`).
+- `source/targets.hexa` define fix: the old `defines.x = defines.x ?? false` defaults pre-seeded BOTH keys, so the later `?? true` could never fire — `#if js`/`#if native` evaluated false on EVERY build; now the inactive target defaults to false and the ACTIVE target is set by a null-check (`if defines.x == null { defines.x = true }`), so pre-existing and new gates (native_bridge hooks, `spliceAndInsert` array/variadic sites) work as written.
+- `types.hexa instantiateGeneric` param normalization (fixes the `RangeError: Maximum call stack size exceeded` bootstrap): `Unknown`/`UnknownNullable`/`Nullable` params normalize before caching (stable cache keys + `fillable=false` skips the on-demand `delayedInstance` fill for uninferrable params); **`Generic` stubs are NOT normalized** — `new` inside `class Map<K,V>` instantiates `Map<K,V>` with its own stubs and nulling them bakes `Map<null,null>` into the constructor return (kills every later `genericFixup`).
+- Typer member access (V1): `case Dot`/`ClassInstance` sets the node type via `genericFixup(extractedType, receiverGenerics)` + `parents.set` — previously the instance-field arm computed the type and never stored it (root of the `could not infer type` cascade).
+- Typer lenient slots: `evaluateArguments` maps a `null` expected slot to `Any` (kills `?? arg` carry-over poisoning), `booleanable`/`comparable`/`mapKey` checks null-guard, and Binop promotes `Int/Float` pairs to `Float` (scoped to Int pairs so `Float + String` still concatenates); an exact-`typeAny` operand makes the whole Binop `Any`.
+- `Node.clone` completeness: added arms for `Is/Elvis/Throw/Try/Super/Map/EnumExtract/Interval/EnumPattern/InlineStatements` — a missed arm returned the node SHARED with the template and typing the instance re-parented it (the `Parent overwritten … should never happen` fatal).
+- `Normalizer fillSignature` null param → `Unknown` (was `throw`ing the whole build).
+- genC `printTypeConverter`: erased-`Any` expectations (`to == null` slots and `Nullable(typeAny)` — both stringify to `Any_*`, `stringifyType(case null) = 'Any_*'`) now box through `printToAnyConverter`; previously they fell through to a RAW pass-through → `error C2664` (concrete `String_*`/`int32_t`/`Struct_*` into `Any_*` params, 403 call args — MSVC error count 100+ → 31).
+- Open MSVC tail (queue): (B) `TimerEntry_$new_` forward-decl drops a param vs its 6-slot definition (C2660/C2198); (C)/(D) DONE Nov 2026 — Phase-3 step 1 proved via `Tests/test.hexa` repro (`reproAnyIndex*` untyped-index shapes, `reproDoubleAny`/`reproAnyDouble` mixed arithmetic): index slots already unbox through `UnsafeBitCast → Int`, mixed `double op Any` already bridges through the `AnyValue_` proxy — the Oct-30 failure modes were fixed by the M1 proxy work + index wrapping + converter coverage, no new code. Warnings-only remainder (C4312/C4311) stays F7/F2 territory; (A) DONE — win32 FFI pivot (`@dllImport` + alternatename pragma + own structs, no SDK headers in generated TU): 0 errors / 0 LNK errors, 3 known warnings left.
+- Hexa rest params are `Type.Rest(element, native)` (typer): `@nativeVariadic` means raw C `...` (FFI/`declare`/genuine `printf`, never iterated — `for/in` over it is TODO); otherwise the Hexa ABI `(count, arrayptr*)` — definitions `(fixed..., int32_t $nrest_, Elem* $rest_)`, calls pack discrete args into a `metaBlock`-hoisted stack array (`0, nullptr` when empty), `f(...r)` forwards the caller's pair with no copy. Untyped `...rest` falls back to `Any`. No new `VariadicKind` (genC keys off `Rest`; genJs checks it to keep JS `...`).
+- `reflect.hexa` lowers Hexa-rest bodies (genC-only pass, JS byte-identical): `for p in rest` → `Block`+`While` over `$nrest` (a new `For` would never lower — the normalizer already ran), `.length` → `$nrest`, `rest[i]` → bounds-checked nullable ternary (`i < $nrest ? $rest[i] : null`); `as Array` copy is an explicit TODO error. Iterating `Console` methods (`log/error/warn/info/group/assert` in `library/c/c.hexa`) lost `@nativeVariadic` (Hexa rest; js-identical).
+- `source/main.hexa` resets static `Typer.delayedInstance = null` after the self-tests — the test Typer's closure otherwise fills real-build C-library generics against its synthetic empty project (`Cannot find type SizeOfPointer` while instantiating `ConstArrayPointer<UInt16>`; previously masked because Array-typed rest params refreshed the static via `typeArray.instantiateGeneric`).
+- Known gap (DONE Oct 2026): `wprintf` declare gained `@nativeVariadic` (was lowering as Hexa rest count+ptr instead of C `...`) and `logString` uses `%ls` (UTF-16 needs wide format; `%hs` stopped at the first NUL) — `console.log` prints real text on native now.
+- `Await` unwraps the settled value (genC `Await` case, native-only): `await p` on statically-known non-`Void` `Promise<T>` emits `((T)(size_t)(p->value_))` (scalars via null-safe `_toInt/_toFloat/_toBool`) instead of reinterpreting the promise object (vtable-garbage jump); executor-only promises read null. Void + dynamic + non-Promise paths unchanged.
+- `StringIndex` lowers to a `stringAt` static in reflect (genC-only): `s[i]` becomes `String_$stringAt_(s, i)` (`charAt` semantics, OOB → `''`); genC's `(&s[i])` was struct-pointer garbage.
+- Struct-typed object literals construct (genC `printObjectAs`, at every binding site that knows the target type: initializers, both call-arg printers, array/map element printers, `Return`, expression `Assign`): anonymous `Type.Struct` and named interfaces both `HEXA_NEW` + per-field stores via metaBlock temps; interface function-typed fields are fat pairs (`$f_`/`$e_` mirroring the struct-body emission) with `reinterpret_cast` ptr halves (C casts reject arity mismatches); dynamic-pointer sources bridge through `(size_t)` when Nice types lie. `Object_from`/`Map_from` stay null stubs for untyped literals.
+- `AnyValue_` nullptr comparison overloads (`== nullptr`/`!= nullptr` on `decltype(nullptr)`) so dynamic null guards work; all other dynamic ops stay Phase-1 stubs.
+- Never use `[A] + [B]` for IR lists: under the js runtime it is string coercion (produced silently-empty lowered loop bodies); always `push` into a fresh list.
+- `??` (`Elvis`) no longer desugars to an IIFE in the normalizer (the IIFE's closure alloc/fill dropped in return position → null-env AV at `getIcon`): the normalizer emits `Expression.Elvis` directly (genJs prints native `??`); `reflect.hexa` lowers simple lhs (`Ident`/literals, never `Dot`) to `If` with both branches `UnsafeBitCast` toward the result, and genC hoists complex lhs to a `metaBlock` temp with a shape-aware null check (`Null$*` via `.has_`, pointers via plain `nullptr`, non-nullable scalars are identity) — no closure, single eval. Fat values are a clear compile error. Class/enum static inits flush `metaBlock` temps like global inits.
+- `$call_` thunks forward fat (function-typed) params as two argv slots (ptr + env, static-ABI convention); thunks stay dead until F10.3 wires them.
+- Phase-1 `Promise` (no suspension until F9): executors run synchronously at construction (`settleResolve`/`settleReject`, first-settle wins, executor `throw` → reject); `.then` runs settled callbacks sync and re-arms a 0ms timer while pending; `.except` delegates to `then(null, …)`; `Promise.all` polls to settle (`Promise<[Any]>`). `await` still reads `.value` inline. Executor resolve/reject params are typed `(value/reason: Any?) => Void` (never `T` — `Void` has no C value) so pairs survive `setTimeout` forwarding, stored globals/maps/objects, and direct calls; `Any`-annotated or untyped params silently dropped the env (sentinel) or no-op'd the call. `nativeOnDraw` pumps `timerPump()` per frame (`#if native`, zero host edits). Event-callback `Any`-boundaries (`streamChat` onChunk/onDone/onError, `rl.on`, DOM listeners) and `Any → String` content (the `"null"` placeholder) stay F10 gaps.
+- `Promise.then` takes `(value: Any?) => Any?`, not `(value: T)` (Phase-3 step 2): `Promise<Void>.then` must not take a `Void` value param (no C value, C2065 + `Cannot return a Void non-value` in `except`'s passthrough once `case New` propagation types lambdas concretely). Stored `value` is already `Any?`; typed callers keep explicit annotations. Js declare stays `(value: T)`.
+- `Array.map` is generic `map<U>` on native (`library/c/array.hexa`, Phase-3 step 3): method `U` lives at METHOD-BASE `1000000+` so `Dot` receiver fixup preserves it for call-site inference (anonymous lambdas stay `Any`-bound, matching genC's single erased `->[Any]` impl; named fns bind precisely). `new Array<U>(0)` inside `Array` itself works (ctor early in same class). `Tests ProbeBox` uses `[]` (js `Array` is `declare`, no ctor — dual-target rule, not a bug).
+- `Promise.then` is generic `then<U>` on native (`library/c/c.hexa`, Phase-3 step 4, same offset — no new typer work): `new Promise<U>` inside `Promise` itself (ctor early, like `map`); anonymous → erased `Promise<Any>`, named → precise. `except` implements `Promise<T>` directly (not via `then<U>`, which would erase to `Any`). Js declares stay non-generic.
+- F9 runtime landed (`library/cxx/hexa.c` + `timerPump`, Phase-3 step 5, M1 green): `HexaPromiseBase`/`HexaAwaiter`/`hexaPendingAwaits`/`hexaPumpResumes()` (`extern "C"`, frame pump driver, zero host edits). `extern "C"` DOES work (55 alternatename pragmas are all `__imp_` DLL thunks, none for same-TU). Per-function `HEXA_C`/`HEXA_CPP` macros landed (outer retained for vars/prototypes).
+- F9.2 codegen in progress (`typer typePromise` + `genC printAsyncReturnType`/`linkagePrefix`/`printCoroutines`/`co_return`/`co_await`, Phase-3 step 6, M1 red iterating): async→`Promise<T>*`, `co_await (*p)` (reference operator — C2803), no `return_void` (C3782), per-`Promise_X` `operator co_await` + `promise_type` + `coroutine_traits`. Remaining: linkage order (C4518), struct forwards for `Promise<Null$...>` + `namespace std` placement, missed async wraps (vtable/global), Perfide `await` fixes (genuine bugs).
+- F7 converter hardening (0 warnings, compiler-only): `printToAnyConverter` bridges the
+  `typeAny` arm through `(size_t)` (Nice-`Any` but scalar C values — widened fields — no
+  longer warn C4312); `printInitializer` converts `If` branches toward the DECLARED `Int`
+  result (`Any_*` branches via `->_toInt()`, the rest via the normal converter — no more
+  box-both + outer truncation C4311). Branch test keys on `cShape`, not Nice `Nullable`
+  (the nullable-`Int` sentinel is `int64_t`, and `->_toInt()` on it is C2227).
+- F10.1 first consumer (genC `Is`, no runtime change): `x is T` with an `Any`-shaped,
+  side-effect-free receiver (`Ident`/`Dot` chains) and a concrete vtable-bearing class
+  target emits a null-safe tag check (`p != nullptr && ((const void**)p)[0] ==
+  (const void*)(&X__$)`); all other shapes keep the legacy truthiness path. Guards:
+  project-classes membership (name match), not template/external-with-imports,
+  `api != StructureNoVirtual`, not `@struct`/`@union`, not `ClassKind.Interface`,
+  non-scalar target. Exact-type only (documented narrow spot).
+- F10.3 first slice (pair-boxing + thunk-registry dispatch, `genC`-emitted, zero `.c`
+  edits): `FatPair_{tag,impl,env}` heap records + `Any_boxFatPair_`/`Any_isFatPair_`
+  + `{impl,call}` table with `FatPair_lookupCall_` (emitted post-Types; thunks
+  forward-declared ahead of it); `printDynamicCall` at both `DYNWRAP` sites (single-eval
+  callee/args via metaBlock, legacy proxy fallback over boxed argv); call-arg funnel
+  (`printCallArguments` + Virtual) and `var`/assign/global/field inits (via
+  `printInitializer`) box fat values as pairs; dynamic unbox (`fatPtrAs`/`fatEnvStr`)
+  reads pairs, legacy bridge + sentinel otherwise. Bare function designators
+  (`closure$N_` impls, plain globals incl. dropped-type uses) bypass pairing (never
+  pairs; direct/thin call or legacy). C declarator rule: named fn-ptrs are
+  `void (*x)()` (casts stay `(void(*)())`). NOT covered: `Object_from`/array/map
+  element printers, ternaries (still `UNPAIRED-FAT`), scalar arg unboxing (D7).
+- F10.3 second slice (element printers + ternary lowering + leaf gate): array
+  literals into `Any` slots build `Array<Any>` directly (the inferred
+  `Array<Fn>` storage is single-slot); map values with `Any` value type;
+  `If` box-both path; `Any`-branch ternaries lower to statement-style if/else
+  into a hoisted `Any_*` temp (per-side boxing). New `isBoxableFat` gate (leaf
+  `Ident`/`Dot` on non-dynamic bases/`Parenthesis` only) — composites have no
+  addressable pair. `Object_from` deliberately untouched (null stub — dead code
+  until F10.2 materialization). Fat-result ternaries stay S3c.
+- D7 scalar boxing (genC-emitted runtime, zero `.c` edits): `AnyInt_{v:int64}`
+  / `AnyFloat_{v:double}` heap boxes with tag vtables + `Any_boxInt/Float` +
+  total unboxers `Any_unboxInt/Int64/Float/String` (null → default, small ints
+  incl. negatives read as values so legacy int-as-pointer shapes never deref,
+  Bool singletons by identity, only valid heap reaches the tag deref).
+  Boxing rerouted for all int/float widths (no int reaches `Any` raw anymore);
+  unboxing rerouted for `Any→`scalar conversions, thunk argv + returns,
+  `Await`/settled-`.value`, `If`-branch ints, `Any→String` (real strings pass
+  through, scalars format, else the `"null"` stub stands in — js-identical for
+  non-strings). `==`/`!=` scalar-vs-scalar compare by value (`(int64_t)`,
+  `(double)` if a float is involved) — required, not cosmetic: box-both
+  pointer identity made `c != 0` in `String_$countUTF16zUpTo` always-true
+  (fresh heap addresses) → unbounded scan → AV at boot. Everything else keeps
+  legacy pointer-compare semantics.
+- F10.2a plain objects (genC-emitted runtime, zero `.c` edits): `AnyObject_`
+  heap bags (`tag/count/cap/entries`, linear content compare, growth leaks
+  like all Phase-1 heap) + `Any_objectNew/Set/Get/Find/StringEquals/IsObject/
+  Count/KeyAt` + `Any_dynGet_/Any_dynSet_`; `let_`/`$set` dispatch does real
+  field store/load on bags, legacy proxy otherwise.
+- Object literals into `Any` slots construct bags (new `printObjectAs`
+  `Any_*` arm + `printAnyObjectLit` metaBlock temps; values pair-box fat or
+  `Any`-convert); `$set` values and dynamic-call argv share the arm.
+  `Object_from` stays the stub for untyped contexts.
+- Dynamic member reads print `Any_dynGet_` (the field value); dynamic method
+  calls (VirtualMethod dynamic arms, Index-lowered `.get`/`.set` with
+  null-result `Dot`s) go through `printDynamicCall`; `isDynamicCallee` keys
+  on the declared base for null-result `Dot`s (static TitleCase bases
+  excluded — typeless class idents stringify to `Any_*`).
+- Use-node shape lies corrected at three Binop sites: `binopShape`
+  (dynamic-rooted `Dot` → `Any_*`) for `==`/`!=`, `binopFromType` for
+  box-both, `===`/`!==` delegation to synthetic `Binop(Equal/Unequal)`;
+  dynamic `Assignop` targets evaluate RHS once and read the field back
+  (Phase-1 no-op parity until F10 content reflection).
+- Native `JSON.parse` objects are bags (matches the JS plain-object shape);
+  `stringifyInner` has an `AnyObject` branch (explicit-null reads as missing,
+  like the `Map` branch).
+- F10.2b string interning is a 64k-bucket table (`Hexa/library/c/string.hexa`):
+  module-level `var stringBuckets ArrayByValue<String?, 65536> = []` emits a
+  BSS-resident `String_*[65536] = {}` (no init loop, no heap); `fromUTF16`
+  hashes with the unchanged sum (`0x1e2caa1f` + units), indexes `hash % 65536`
+  (negative-guarded), walks only that bucket, links new strings at the walked
+  tail, and (new) stores `result.bytesHash` — previously never assigned, so
+  the old reject was dead and every same-length string got fully compared.
+  `String.root` is kept solely because genC's `HEXA_MAIN` prologue assigns
+  `String_$root_ = String_$new_()`; the walk no longer touches it. Verified
+  shape in `Tests` (BSS decl, raw `[]` read/write, null-guarded `if let`).
+- `Array.join` on native routes element conversion through `anyToString`,
+  which is now a real Hexa function (`Any_unboxString_` — real strings pass
+  through, scalars format, else the interned `'null'` placeholder). Previously
+  `Any_$toString_` (C stub) returned `'null'` for everything, so native
+  `Array.join`/`path.join` returned `"null"`-joined garbage. Js untouched.
+- `@weak` on instance fields means weak links: ARC `Dot`-assigns into them skip
+  both the retain and the release (no temp either); reads are unaffected.
+  Recorded per class (`NiceClass.weakFields`, normalizer-read from field
+  decorators); unresolvable bases stay strong (safe default). First consumer:
+  the intern-bucket `next` link.
+- Field decorators survive `private`/`static`/`readonly` in any combination:
+  the parser consumes all modifiers pre-`switch` (a lone `case KPrivate` used
+  to end the iteration and silently drop the collected decorators — every
+  `@`-annotated `private` field lost them). No other behavior change (nothing
+  else reads field decorators yet).
+- Alloc-path sweep pressure + observability are genC-emitted, zero host
+  changes: `hexaRegisterLive_` counts births and sweeps every 8192nd;
+  `HEXA_SWEEP_MODE` defaults to 0 (full); every sweep line logs `rssMB`/
+  `committedMB` (kernel32 `K32GetProcessMemoryInfo` via `__declspec(dllimport)`,
+  own 72-byte struct, no SDK headers) + live-string census (`strLive`/
+  `strBytes`/`strMax`/`strBig`). Host watchdog mirrors the exit numbers
+  (main-hexa.cpp only).
