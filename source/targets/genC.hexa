@@ -3787,11 +3787,32 @@ class GenCxx {
 		r += 'struct AnyObject__ ' + lb + ' uint8_t _x_; ' + rb + ';' + nl
 		r += 'const struct AnyObject__ AnyObject__$ = ' + lb + '0' + rb + ';' + nl
 		r += 'struct AnyObjectEntry_ ' + lb + ' String_* k_; Any_* v_; ' + rb + ';' + nl
-		r += 'struct AnyObject_ ' + lb + ' const struct AnyObject__* _; int32_t count_; int32_t cap_; struct AnyObjectEntry_* entries_; ' + rb + ';' + nl
-		r += 'Any_* Any_objectNew_() ' + lb + ' AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; return (Any_*)(o); ' + rb + nl
+		r += 'struct AnyObject_ ' + lb + ' const struct AnyObject__* _; int32_t rc_; int32_t count_; int32_t cap_; struct AnyObjectEntry_* entries_; ' + rb + ';' + nl
+		r += 'Any_* Any_objectNew_() ' + lb + ' AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; hexaRegisterLive_((void*)o); return (Any_*)(o); ' + rb + nl
 		r += 'uint8_t Any_objectStringEquals_(String_* a, String_* b) ' + lb + ' if (a == b) return (uint8_t)1; if (a == nullptr || b == nullptr) return (uint8_t)0; if (a->length_ != b->length_) return (uint8_t)0; for (int32_t i = (int32_t)0; i < a->length_; i++) ' + lb + ' if (a->bytes_[i] != b->bytes_[i]) return (uint8_t)0; ' + rb + ' return (uint8_t)1; ' + rb + nl
 		r += 'int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
-		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' o->entries_[at].v_ = v; return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; o->entries_[o->count_].v_ = v; o->count_++; ' + rb + nl
+		r += '// Counted-tag registry (precise `Any` ownership): every vtable tag the sweep
+'
+		r += '// may free, plus the box/bag tags. `Any_isCounted_` consults it — bare
+'
+		r += '// code pointers, structs, native buffers and unknown shapes all miss
+'
+		r += '// and leak (safe) instead of corrupting a header that is not there.' + nl
+		r += 'static const void* hexaCountedTags_[] = ' + lb + nl
+
+		for n in vtableClasses {
+			r += '(const void*)&' + n + '__$,' + nl
+		}
+		r += '(const void*)&FatPair__$, (const void*)&AnyInt__$, (const void*)&AnyFloat__$, (const void*)&AnyObject__$' + nl
+		r += rb + ';' + nl
+		r += 'static uint8_t hexaTagIsCounted_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaCountedTags_)/sizeof(hexaCountedTags_[0]); i_++) ' + lb + ' if (hexaCountedTags_[i_] != nullptr && hexaCountedTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
+		r += 'uint8_t Any_isCounted_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr) return (uint8_t)0; return hexaTagIsCounted_(tag_); ' + rb + nl
+		r += '#ifdef __cplusplus' + nl
+		r += 'extern "C++" ' + lb + nl
+		r += 'template <typename T> struct HexaDeferCountedDec_ ' + lb + ' T o_; HexaDeferCountedDec_(T o): o_(o) ' + lb + ' ' + rb + ' ~HexaDeferCountedDec_() ' + lb + ' if (Any_isCounted_((Any_*)(o_))) hexaUnref((void*)o_); ' + rb + ' ' + rb + ';' + nl
+		r += rb + ' // extern "C++"' + nl
+		r += '#endif' + nl
+		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
 		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return nullptr; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return nullptr; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return nullptr; ' + rb + nl
 		r += 'uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
 		r += 'int32_t Any_objectCount_(Any_* p) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return (int32_t)0; return ((AnyObject_*)(p))->count_; ' + rb + nl
