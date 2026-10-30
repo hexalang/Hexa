@@ -329,6 +329,10 @@ class ArcInserter {
 								i += 2
 							}
 						case Call(func, args, expects, kind):
+							// Recurse into callee + args (nested closure bodies).
+							this.processExpression(func)
+
+							for arg in args { this.processExpression(arg) }
 							let pre_stmts = [] // Collect inserts for rvalue args
 							for j in args.length {
 								let arg = args[j]
@@ -372,12 +376,34 @@ class ArcInserter {
 
 							if pre_stmts.length > 0 { // Insert before call
 								// TODO els.spliceAndInsert(i, 0, ...pre_stmts) // Insert array at i
+							if pre_stmts.length > 0 { // Insert before call, in order
+								var k = 0 // Each insert shifts the tail right, so advance
+
 								for stmt in pre_stmts {
 									// TODO i + N?
 									els.spliceAndInsert(i, 0, stmt)
+									els.spliceAndInsert(i + k, 0, stmt)
+									k++
 								}
 
 								i += pre_stmts.length // Skip inserted
+							}
+
+							// Discarded +1 results (statement calls): hold the value in an
+							// `Any` temp so the scope guard releases what nobody owns.
+							// Only provably-+1 Hexa callees returning plain managed
+							// objects (fat returns keep leaking for now — pair
+							// boxing on discard needs its own contract).
+							if let rt = this.hexaCalleeReturns(func) {
+								if this.needsARC(rt) {
+									let tname = this.unique('temp_call_ret')
+									let anyT = this.typer.typeAny
+									let t = Expression.Ident(tname, anyT)
+									els[i] = Statement.Const(tname, Expression.Call(func, args, rt, kind, expects), anyT)
+									els.spliceAndInsert(i + 1, 0, Statement.DeferRefDec([t]))
+									arcDiscardedCalls++
+									i += 1 // Skip inserted guard (Const needs no revisit)
+								}
 							}
 						case Assign(left, right, _):
 							let left_dataType = this.getType(left)
@@ -422,7 +448,7 @@ class ArcInserter {
 							// For now, insert similar, but op may use left, so eval right first? Complex, assume no Assignop for ARC
 							// To be correct: temp_old = left temp_right = eval Binop(left, op - =, right) assign left = temp_right inc left dec temp_old
 							// But if op is +=, Binop(left, +, right)
-							let left_type = this.getType(left)
+							let left_type = this.niceTypeOf(left) ?? this.getType(left)
 
 							switch left {
 								case Ident(name, _):
@@ -441,7 +467,128 @@ class ArcInserter {
 										i += 4 // Skip to after inserts (original removed)
 									}
 							}
-						case _:
+						case Return(expr):
+							// +1 transfer (B3): the caller consumes exactly one share.
+							// Fresh rvalues (+1 by construction: `new`, literals via
+							// interning, Hexa-call results) and plain lvalues (retained
+							// below, released by the owner's own guard) transfer directly.
+							// Anything else — `If`/`Elvis` ternaries, string/immortal
+							// literals (`return 'NaN'` is NOT +1, it is immortal!), dynamic
+							// and native shapes, or effectful reads — hoists once into a
+							// temp that takes the +1, so the value evaluates exactly once
+							// and the caller share is real. Without the temp retain the
+							// caller's transfer release would zero an immortal or a
+							// borrowed branch, and the sweep (F11) would free it while
+							// owners still point at it. Leak-only-if-over-conservative
+							// (a fresh-but-unrecognized native value keeps one share).
+							if expr != null {
+								var retType = this.niceTypeOf(expr) ?? this.getType(expr)
+
+								// Diagnostic: returns whose type is lost entirely (neither
+								// carried nor mapped). Still counted below via the `Any`
+								// fallback (transfer release without a matching
+								// caller-side retain would be the over-release) — if
+								// nonzero on a real corpus, the type loss itself
+								// wants a normalizer/lifter fix (cf. closures `fr`).
+								if retType == null {
+									switch expr {
+										case Ident(_, _): arcReturnUnknown++
+										case Dot(_, _, _): arcReturnUnknown++
+										case Index(_, _, _): arcReturnUnknown++
+										case Call(_, _, _, _, _): arcReturnUnknown++
+										case String(_): arcReturnUnknown++
+										case This(_): arcReturnUnknown++
+										case _: // Immediates and untyped shapes need no counting
+									}
+								}
+
+								// Null-safe transfer: a typeless return of addressable
+								// shape (`Ident`/`Dot`/`Index`/`Call`/`String`/`This`,
+								// e.g. an untyped lambda param) is `Any_*` at the C
+								// level (genC falls back to `typeAny` for the same
+								// node), so hold it through the counted `Any` guard
+								// instead of skipping it (skipping frees live).
+								if retType == null {
+									switch expr {
+										case Ident(_, _): retType = this.typer.typeAny
+										case Dot(_, _, _): retType = this.typer.typeAny
+										case Index(_, _, _): retType = this.typer.typeAny
+										case Call(_, _, _, _, _): retType = this.typer.typeAny
+										case String(_): retType = this.typer.typeAny
+										case This(_): retType = this.typer.typeAny
+										case _:
+									}
+								}
+
+								if this.needsRefRetain(retType) {
+									if this.isLvalueExpr(expr) and not this.needsHoistForReturn(expr) {
+										els.spliceAndInsert(i, 0, Statement.RefInc([expr]))
+										arcReturnRetains++
+										i += 1 // Skip inserted
+									} else if not this.isFreshOwned(expr) {
+										let tempRet = this.unique('temp_ret')
+										let nt = Expression.Ident(tempRet, retType)
+										els.spliceAndInsert(i, 0, Statement.Const(tempRet, expr, retType))
+										els.spliceAndInsert(i + 1, 0, Statement.RefInc([nt]))
+										els[i + 2] = Statement.Return(nt)
+										arcReturnRetains++
+										i += 2 // Skip Const + guard (Return needs no revisit)
+									}
+								}
+							}
+						case Throw(expr):
+							// Same +1 transfer as Return (the handler guards the release):
+							// non-lvalue, non-fresh values hoist once and take the +1.
+							// Union gate like every other site (`needsRefRetain`:
+							// ARC + fat-env + Any) — a thrown closure's env is a
+							// share too, and the catcher below guards the same set.
+							// Null-safe like Return (typeless throws ride `Any`).
+							if expr != null {
+								if not this.isLvalueExpr(expr) and not this.isFreshOwned(expr) {
+									var throwType = this.niceTypeOf(expr) ?? this.getType(expr)
+
+									if throwType == null {
+										switch expr {
+											case Ident(_, _): throwType = this.typer.typeAny
+											case Dot(_, _, _): throwType = this.typer.typeAny
+											case Index(_, _, _): throwType = this.typer.typeAny
+											case Call(_, _, _, _, _): throwType = this.typer.typeAny
+											case String(_): throwType = this.typer.typeAny
+											case This(_): throwType = this.typer.typeAny
+											case _:
+										}
+									}
+
+									if this.needsRefRetain(throwType) {
+										let tempRet = this.unique('temp_ret')
+										let nt = Expression.Ident(tempRet, throwType)
+										els.spliceAndInsert(i, 0, Statement.Const(tempRet, expr, throwType))
+										els.spliceAndInsert(i + 1, 0, Statement.RefInc([nt]))
+										els[i + 2] = Statement.Throw(nt)
+										arcThrowRetains++
+										i += 2 // Skip Const + guard (Throw needs no revisit)
+									}
+								} else if this.isLvalueExpr(expr) {
+									var throwTypeL = this.niceTypeOf(expr) ?? this.getType(expr)
+
+									if throwTypeL == null {
+										switch expr {
+											case Ident(_, _): throwTypeL = this.typer.typeAny
+											case Dot(_, _, _): throwTypeL = this.typer.typeAny
+											case Index(_, _, _): throwTypeL = this.typer.typeAny
+											case Call(_, _, _, _, _): throwTypeL = this.typer.typeAny
+											case This(_): throwTypeL = this.typer.typeAny
+											case _: // `String` is fresh-owned; others need no counting
+										}
+									}
+
+									if this.needsRefRetain(throwTypeL) {
+										els.spliceAndInsert(i, 0, Statement.RefInc([expr]))
+										arcThrowRetains++
+										i += 1 // Skip inserted
+									}
+								}
+							}
 					}
 					i++
 				}
@@ -472,7 +619,9 @@ class ArcInserter {
 								// body_els.unshift(Statement.DeferRefDec(param_objs))
 								// body_els.unshift(Statement.RefInc(param_objs))
 								// s.body = Statement.Block(body_els) // Only re-assign if was non-Block
-								throw 'Not a block for ARC'
+								// TODO wrap non-block bodies (arrow `=> expr`) so the param
+								// ref-count prologue fits — skipped for now: `$ref/$unref`
+								// are stubs, so dropping these inserts is a no-op
 						}
 					}
 				}
@@ -520,7 +669,34 @@ class ArcInserter {
 				this.countBareReturn(body)
 				this.processStatement(body)
 
-				for catch_ in catches { this.processStatement(catch_) }
+				for k in catches.length {
+					var cb = catches[k]
+					this.countBareReturn(cb)
+
+					// Caught values arrive +1 (throw-side transfer for
+					// borrowed refs, factory +1 for constructed ones):
+					// guard the release at catch-block end. No RefInc —
+					// the binding is owned from the start. Bare bodies
+					// get wrapped so the guard has a list to live in.
+					// Union gate, mirroring Throw above (ARC + fat + Any).
+					if k < vars.length, k < types.length, this.needsRefRetain(types[k]) {
+						switch cb {
+							case Block(_):
+							case _:
+								cb = Statement.Block([cb])
+								catches[k] = cb
+						}
+
+						switch cb {
+							case Block(els):
+								els.unshift(Statement.DeferRefDec([Expression.Ident(vars[k], types[k])]))
+								arcCatchGuards++
+							case _:
+						}
+					}
+
+					this.processStatement(cb)
+				}
 				// Add cases for other statements like Return(expr): processExpression(expr), etc.
 			case Return(expr): if expr != null { this.processExpression(expr) }
 				// TODO function result should be handled somehow specially?
@@ -993,17 +1169,17 @@ class ArcInserter {
 			if sep != -1 {
 				if let cls = this.findNiceClass(k.slice(0, sep)) {
 					for v in cls.vars { switch v {
-						case Var(fname, _, _):
-							if fname == name {
-								return true
-							}
-						case Const(fname, _, _):
-							if fname == name {
-								return true
-							}
-						case _:
-							continue
-					} }
+							case Var(fname, _, _):
+								if fname == name {
+									return true
+								}
+							case Const(fname, _, _):
+								if fname == name {
+									return true
+								}
+							case _:
+								continue
+						} }
 				}
 			}
 		}
