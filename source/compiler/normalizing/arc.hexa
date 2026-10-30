@@ -179,6 +179,19 @@ class ArcInserter {
 					}
 				case _:
 			} }
+
+		for cls in niceProject.classes {
+			for v in cls.staticVars { switch v {
+					case Var(name, expr, dataType):
+						if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+							out.push(Expression.Dot(Expression.Ident(cls.name, this.typer.typeAny), name, dataType))
+						}
+					case Const(name, expr, dataType):
+						if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+							out.push(Expression.Dot(Expression.Ident(cls.name, this.typer.typeAny), name, dataType))
+						}
+					case _:
+				} }
 		}
 
 		for enu in niceProject.enumsSimple {
@@ -411,7 +424,7 @@ class ArcInserter {
 
 							switch left {
 								case Ident(name, _):
-									if this.needsARC(left_dataType) { // Handle reassign for ARC var
+									if this.needsRefRetain(left_dataType) { // Handle reassign for ARC var
 										let temp_name = this.unique('temp_old')
 										let temp = Expression.Ident(temp_name, left_dataType)
 										els.spliceAndInsert(i, 0, Statement.Const(temp_name, left, left_dataType)) // Save old
@@ -1067,28 +1080,26 @@ class ArcInserter {
 
 			if let ncc = nc {
 				for m in ncc.methods { switch m {
-					case Function(mname, body, _, _, ftype, _, _):
-						if mname == name {
-							if body == null {
-								return null
-							}
-
-							switch ftype {
-								case Function(_, returns, _):
-									return returns
-								case _:
+						case Function(mname, body, _, _, ftype, _, _):
+							if mname == name {
+								if body == null {
 									return null
-							}
-						}
-					case _:
-				} }
+								}
 
 				for m in ncc.staticMethods { switch m {
 					case Function(mname, body, _, _, ftype, _, _):
 						if mname == name {
 							if body == null {
 								return null
+								switch ftype {
+									case Function(_, returns, _):
+										return returns
+									case _:
+										return null
+								}
 							}
+						case _:
+					} }
 
 							switch ftype {
 								case Function(_, returns, _):
