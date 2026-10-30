@@ -105,6 +105,11 @@
 #endif
 int HEXA_MAIN(int, char **);
 
+// Per-function linkage (F9: async funs are C++ for coroutines, rest stay C
+// for direct host links without pragma aliasing — pragma only covers
+// `__imp_` DLL thunks, NOT same-TU Hexa<->host symbols, so `extern "C"`
+// DOES work (prevents mangling). Outer `extern "C" {` wrapper is retained
+// for variables/prototypes; functions carry explicit linkage (inner wins).
 #ifdef __cplusplus
 	#define HEXA_C extern "C"
 	#define HEXA_CPP extern "C++"
@@ -127,6 +132,10 @@ int HEXA_MAIN(int, char **);
 			//	FlushFileBuffers(_);
 			//	ExitProcess(where);
 			//}
+			// NOTE the definition lives in `library/c/hexa.c` (inside its own
+			// `extern "C"`) — a plain `static` forward declaration here would
+			// contradict that linkage (C2732), and all call sites come after
+			// the Defaults section anyway
 		#else
 			#define HEXA_NEW(z) malloc(z)
 			#define HEXA_UNREACHABLE(where) {}
@@ -351,7 +360,78 @@ extern "C" inline void hexaPumpResumes() noexcept {
 //#define $bool_null 254 // 0b11111110
 // Runtime code is under MIT license
 // Forward
-struct Any_ {};
+struct String_;
+struct Any_;
+// Dynamic object surface for `Any` values — the generated dynamic paths
+// (`obj.field` via `let_`/`$set`, `Any`→primitive conversions) call these.
+// Phase 1: stubs that keep every call site compiling; real reflection
+// (accessor tables, JS-truthiness per D7) lands with F10.
+// `AnyValue_` is the call/get proxy: `any->let_(name)` and `proxy(args...)`
+// return it so DYNAMIC CHAINS (`path_->let_(L"join")(a, b)->let_(...)`) type
+// check; every operation is a no-op placeholder (Phase 1 acceptance: the API
+// exists, semantics land with F10/F9)
+struct AnyValue_ {
+	struct Any_* value_;
+	// Chains `proxy->member(...)` back through `Any_` (never null)
+	struct Any_* operator->() const;
+	// Used as `Any_*` (casts, implicit params, assignments)
+	operator struct Any_*() const { return value_; }
+	// Converts to ANY typed slot the code generator expects (pointers and
+	// scalars alike) — Phase 1 stub semantics, F10 reflection replaces it
+	template <typename T> operator T() const { return T(); }
+	// Dynamic call (`fn(...)` on `Any`) — returns another proxy
+	template <typename... A> struct AnyValue_ operator()(A... args) const { return AnyValue_{value_}; }
+	// Placeholder comparisons/arithmetic so dynamic values survive typed
+	// contexts (real semantics per D7 with F10)
+	template <typename T> uint8_t operator==(T other) const { return 0; }
+	template <typename T> uint8_t operator!=(T other) const { return 1; }
+	// Null checks ARE meaningful even in Phase 1 (JS: `x != null` is false
+	// exactly when x is null) — and guards like `if (obj.field != null)`
+	// must not pass on a null receiver, or the guarded deref AVs. These
+	// non-template overloads win over the templates above for nullptr
+	// (`decltype(nullptr)` needs no includes).
+	uint8_t operator==(decltype(nullptr)) const { return value_ == nullptr; }
+	uint8_t operator!=(decltype(nullptr)) const { return value_ != nullptr; }
+	// Compound assignment on dynamic members (`obj.field += 1`) — F10
+	// turns these into real `set` reflections
+	template <typename T> AnyValue_ operator+=(T) const { return *this; }
+	template <typename T> AnyValue_ operator-=(T) const { return *this; }
+	template <typename T> AnyValue_ operator*=(T) const { return *this; }
+	template <typename T> AnyValue_ operator/=(T) const { return *this; }
+};
+
+// Arithmetic/comparison with dynamic values — THREE overloads per operator
+// (both dynamic / dynamic-left / dynamic-right) so no call is ambiguous
+// (Phase 1 stubs — real semantics per D7 with F10)
+#define HEXA_ANY_BINOP(op, ret) \
+	static inline ret operator op(AnyValue_ a, AnyValue_ b) { return 0; } \
+	template <typename T> static inline ret operator op(AnyValue_ a, T b) { return 0; } \
+	template <typename T> static inline ret operator op(T a, AnyValue_ b) { return 0; }
+HEXA_ANY_BINOP(+, int64_t)
+HEXA_ANY_BINOP(-, int64_t)
+HEXA_ANY_BINOP(*, int64_t)
+HEXA_ANY_BINOP(/, int64_t)
+HEXA_ANY_BINOP(%, int64_t)
+HEXA_ANY_BINOP(<, uint8_t)
+HEXA_ANY_BINOP(>, uint8_t)
+HEXA_ANY_BINOP(<=, uint8_t)
+HEXA_ANY_BINOP(>=, uint8_t)
+#undef HEXA_ANY_BINOP
+struct Any_ {
+	// Field get (`obj.field`) — the receiver stands in for the result so
+	// chains keep a live pointer (Phase 1 no-op)
+	struct AnyValue_ let_(struct String_* name_) { return AnyValue_{this}; }
+	// Field set (`obj.field = value`)
+	void $set(struct String_* name_, struct Any_* value_) { }
+	// JS-truthiness conversions (D7 — TODO real tables)
+	uint8_t _toBool() { return 1; }
+	int32_t _toInt() { return 0; }
+	double _toFloat() { return 0.0; }
+	// JS `ToString` (D7 — TODO real reflection)
+	struct String_* toString_() { return nullptr; }
+	// Dynamic call (`fn(...)` where `fn` is an `Any` value)
+	template <typename... A> struct AnyValue_ operator()(A... args) { return AnyValue_{this}; }
+};
 typedef struct Any_ Any_;
 inline Any_* AnyValue_::operator->() const {
 	static Any_ stub;
@@ -387,7 +467,34 @@ inline Any_* AnyValue_::operator->() const {
 #define _catch(_)
 #define _throw(_) {}
 
-// COM interop
+// ARC retain/release (D6): plain non-atomic `rc++`/`rc--`, single-threaded
+// programs for now (relaxed atomics when threads land). No explicit null
+// test: null (0) falls inside the immediate range below. No `rc == 0` test:
+// deallocation is the sweep's job (F11), never the decrement site's.
+// Immediates (tagged small ints, incl. 0/null — same test as the unboxers)
+// carry no header and are skipped.
+struct HexaHeader_ { const void* _; int32_t rc_; };
+HEXA_C void hexaRef(void* p) {
+	int64_t v_ = (int64_t)(p);
+	if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return;
+	((struct HexaHeader_*)(p))->rc_++;
+}
+HEXA_C void hexaUnref(void* p) {
+	int64_t v_ = (int64_t)(p);
+	if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return;
+	((struct HexaHeader_*)(p))->rc_--;
+}
+// D4 scope guard: `DeferRefDec` lowers to one of these per retained value
+// (constructed where ArcInserter put the Defer, destructs at block exit —
+// normal returns AND C++ unwinding both release, D5). Trivial
+// non-throwing ctor keeps the inc-to-guard window empty by construction.
+// C++ only: pure-C targets use the inline best-effort form (F4.4).
+#ifdef __cplusplus
+template <typename T>
+struct HexaDeferDec_ { T o_; HexaDeferDec_(T o): o_(o) {} ~HexaDeferDec_() { hexaUnref((void*)o_); } };
+#endif
+
+// COM interop DEL
 struct IUnknown_ {
 //	// IUnknown interface
 //	virtual HRESULT __stdcall__ QueryInterface_(_REFIID riid, void **ppvObject) const {
@@ -509,7 +616,8 @@ struct Any_* Any_fromBool(const uint8_t this_) {
 }
 
 // Just {}, allows new fields adding via reflection
-struct Object_ {};
+// NOTE `struct Object_` is emitted by the generated code (class `Object`) —
+// a duplicate definition here would be C2011, so no struct in the prologue
 
 #if 0
 	extern "C++" { DEL
