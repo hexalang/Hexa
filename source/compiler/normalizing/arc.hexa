@@ -157,25 +157,13 @@ class ArcInserter {
 		let out: [Expression] = []
 
 		for g in niceProject.globalVars { switch g {
-			case Var(name, expr, dataType):
-				if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-					out.push(Expression.Ident(name, dataType))
-				}
-			case Const(name, expr, dataType):
-				if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-					out.push(Expression.Ident(name, dataType))
-				}
-			case _:
-		} }
-		for cls in niceProject.classes {
-			for v in cls.staticVars { switch v {
 				case Var(name, expr, dataType):
 					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-						out.push(Expression.Dot(Expression.Ident(cls.name, this.typer.typeAny), name, dataType))
+						out.push(Expression.Ident(name, dataType))
 					}
 				case Const(name, expr, dataType):
 					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-						out.push(Expression.Dot(Expression.Ident(cls.name, this.typer.typeAny), name, dataType))
+						out.push(Expression.Ident(name, dataType))
 					}
 				case _:
 			} }
@@ -327,20 +315,40 @@ class ArcInserter {
 
 				while i < els.length { // Use while to handle inserts
 					switch els[i] {
-						case Const(name, expr, _): // Use expr.type? Assume type from expressionType.get(expr) or add to IR
-							let dataType = this.getType(els[i]) // Helper to get stmt type, assume Const has type param as in IR
-							if expr != null and this.needsARC(dataType) { // If initialized ARC local
+						case Const(name, expr, dataType): // Carried payload type (shell rebuilds drop map entries — same loss as Return/Dot)
+							// Recurse into the initializer first (F3.2): nested
+							// `Function`/`Arrow` bodies must get their own param
+							// prologues + return +1s. Pure-expression recursion
+							// is mutation-free; only nested bodies insert.
+							if expr != null { this.processExpression(expr) }
+
+							if expr != null and this.needsRefRetain(dataType) { // If initialized ARC local
 								let obj = Expression.Ident(name, dataType) // Object to ref count
-								els.spliceAndInsert(i + 1, 0, Statement.RefInc([obj])) // Insert inc after decl
-								els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([obj])) // Insert dec after inc
-								i += 2 // Skip inserted
+								if this.isFreshOwned(expr) {
+									els.spliceAndInsert(i + 1, 0, Statement.DeferRefDec([obj])) // Transfer: +1 already, guard release only
+									arcTransferredInits++
+									i += 1
+								} else {
+									els.spliceAndInsert(i + 1, 0, Statement.RefInc([obj])) // Insert inc after decl
+									els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([obj])) // Insert dec after inc
+									i += 2 // Skip inserted
+								}
 							}
 						case Var(name, expr, dataType): // Similar for Var, but if reassigned, handled separately
-							if expr != null and this.needsARC(dataType) {
+							if expr != null { this.processExpression(expr) }
+
+							if expr != null and this.needsRefRetain(dataType) {
 								let obj = Expression.Ident(name, dataType)
-								els.spliceAndInsert(i + 1, 0, Statement.RefInc([obj]))
-								els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([obj]))
-								i += 2
+
+								if this.isFreshOwned(expr) {
+									els.spliceAndInsert(i + 1, 0, Statement.DeferRefDec([obj])) // Transfer: +1 already, guard release only
+									arcTransferredInits++
+									i += 1
+								} else {
+									els.spliceAndInsert(i + 1, 0, Statement.RefInc([obj]))
+									els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([obj]))
+									i += 2
+								}
 							}
 						case Call(func, args, expects, kind):
 							// Recurse into callee + args (nested closure bodies).
@@ -420,7 +428,11 @@ class ArcInserter {
 								}
 							}
 						case Assign(left, right, _):
-							let left_dataType = this.getType(left)
+							// Recurse into both sides (nested closure bodies in RHS).
+							this.processExpression(left)
+
+							if right != null { this.processExpression(right) }
+							let left_dataType = this.niceTypeOf(left) ?? this.getType(left)
 
 							switch left {
 								case Ident(name, _):
@@ -428,9 +440,15 @@ class ArcInserter {
 										let temp_name = this.unique('temp_old')
 										let temp = Expression.Ident(temp_name, left_dataType)
 										els.spliceAndInsert(i, 0, Statement.Const(temp_name, left, left_dataType)) // Save old
-										els.spliceAndInsert(i + 2, 0, Statement.RefInc([left])) // Inc new after assign (i+1 is assign)
-										els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp])) // Dec old
-										i += 3 // Skip inserted
+										if this.isFreshOwned(right) {
+											els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([temp])) // Transfer +1, release old only
+											i += 2 // Skip inserted
+										} else {
+											els.spliceAndInsert(i + 2, 0, Statement.RefInc([left])) // Inc new after assign (i+1 is assign)
+											els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp])) // Dec old
+											i += 3 // Skip inserted
+										}
+									}
 								case Dot(_, _, _):
 									// Field stores to pure targets (ident chains):
 									// same save/inc/dec shape; the target is only
@@ -531,7 +549,6 @@ class ArcInserter {
 											}
 										}
 									}
-								}
 							}
 						} else {
 							// Impure subscript (effectful base/index): same conservative
@@ -574,10 +591,22 @@ class ArcInserter {
 										els.spliceAndInsert(i, 0, Statement.Const(temp_old_name, left, left_type)) // Save old
 										els.spliceAndInsert(i + 1, 0, Statement.Const(temp_right_name, binop, left_type)) // Eval new
 										els.spliceAndInsert(i + 2, 0, Statement.Assign(left, temp_right, null)) // Assign
-										els.spliceAndInsert(i + 3, 0, Statement.RefInc([left])) // Inc new
-										els.spliceAndInsert(i + 4, 0, Statement.DeferRefDec([temp_old])) // Dec old
-										els.splice(i + 5, 1) // Remove original Assignop
-										i += 4 // Skip to after inserts (original removed)
+										// Fresh `left + right` (+1 by construction, e.g. String
+										// `+=` once the Binop-Add arm is re-landed with a
+										// genC-mirroring predicate) transfers: release
+										// the old only. Borrowed results keep the retain.
+										// NOTE: keep the cursor math in sync with the net
+										// insert count (transfer +4/-1, retain +5/-1).
+										if this.isFreshOwned(binop) {
+											els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp_old])) // Transfer +1, release old only
+											els.splice(i + 4, 1) // Remove original Assignop
+											i += 3 // Skip inserted (original removed)
+										} else {
+											els.spliceAndInsert(i + 3, 0, Statement.RefInc([left])) // Inc new
+											els.spliceAndInsert(i + 4, 0, Statement.DeferRefDec([temp_old])) // Dec old
+											els.splice(i + 5, 1) // Remove original Assignop
+											i += 4 // Skip to after inserts (original removed)
+										}
 									}
 							}
 						case Return(expr):
@@ -711,12 +740,44 @@ class ArcInserter {
 					let param_objs = []
 
 					switch dataType {
-						case Function(args, returns):
+						case Function(types, returns):
 							for j in args.length {
-								let param_dataType = args[j].dataType // Get param type
-								if this.needsARC(param_dataType) {
-									let obj = Expression.Ident(args[j].name, param_dataType)
-									param_objs.push(obj)
+								if j < types.length {
+									let param_dataType = types[j].dataType // Get param type
+
+									if this.needsRefRetain(param_dataType) {
+										// Retain elision: a param proven non-escaping
+										// needs no entry retain — every use stays
+										// within the call (pure reads or calls into
+										// non-escaping slots), rooted in the
+										// caller's ownership. Unknown/absent map
+										// entries retain as before (never elide one
+										// side of the pair: param_objs drives both
+										// the `RefInc` and its `DeferRefDec`).
+										var skipRetain = false
+
+										if let k = arcFuncKey {
+											if let row = niceProject.funcArgEscape.get(k) {
+												if j < row.length, not row[j] {
+													skipRetain = true
+												}
+											}
+										}
+
+										if skipRetain {
+											arcElidedParams++
+											continue
+										}
+
+										arcRetainedParams++
+
+										// NOTE the name comes from the STATEMENT's
+										// `args` (the renamed parameter names) — the
+										// function TYPE keeps the raw source names and
+										// would reference undeclared identifiers
+										let obj = Expression.Ident(args[j], param_dataType)
+										param_objs.push(obj)
+									}
 								}
 							}
 					}
@@ -1096,15 +1157,18 @@ class ArcInserter {
 						case _:
 					} }
 
-							switch ftype {
-								case Function(_, returns, _):
-									return returns
-								case _:
 				for m in ncc.staticMethods { switch m {
 						case Function(mname, body, _, _, ftype, _, _):
 							if mname == name {
 								if body == null {
 									return null
+								}
+
+								switch ftype {
+									case Function(_, returns, _):
+										return returns
+									case _:
+										return null
 								}
 							}
 						case _:
