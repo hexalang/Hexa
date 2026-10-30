@@ -59,7 +59,6 @@ class TestTyper {
 		shouldError('0 or false')
 
 		// Enum and class fields
-		shouldError('enum E { A B A }') // Duplicate
 		shouldError('enum E { A(value: Int) B A(value: Int) }') // Duplicate
 		shouldError('enum E { B(value: Int) A = 1 }') // Mixing complex and simple enum values
 		shouldError('enum E { lowercase }') // Values should be upper case
@@ -73,6 +72,7 @@ class TestTyper {
 		shouldError('class A { static fun x() {} } B.y()')
 		shouldError('class A { static fun x() {} } A.y()')
 		shouldError('module { class A { static fun x() {} } } A.y()')
+		shouldError('enum E \{ A B A \}') // Duplicate
 
 		// Enum static
 		shouldNotError('enum E : Int { static fun x() {} } E.x()')
@@ -101,8 +101,8 @@ class TestTyper {
 		shouldError('var x = 1 var y = x y = true') // Simple inference
 		shouldNotError('var x = null var y = true x = y')
 		// shouldError('var x = null var y = true y = x')
-		shouldNotError('fun x() {} var y = x y = x')
-		shouldNotError('fun x() {} var y: ()=>Void = x y = x')
+		shouldNotError('fun x() \{\} var y = x y = x')
+		shouldNotError('fun x() \{\} var y: ()=>Void = x y = x')
 
 		shouldNotError('class A { new() {} } let a = new A()')
 		shouldError('class A { } let a = new A()') // No constructor
@@ -123,16 +123,24 @@ class TestTyper {
 		shouldNotError('var i: Float = 123')
 		shouldError('var i: Int = 0.123')
 
+		// First-class `Number` (double shape, mutually assignable with `Float`)
+		shouldNotError('var n: Number = 123')
+		shouldNotError('var n: Number = 1.5')
+		shouldNotError('var n: Number = 1.5 var f: Float = n')
+		shouldNotError('var f: Float = 1.5 var n: Number = f')
+		shouldNotError('var n: Number = 1.5 var m: Number = n + 1')
+		shouldNotError('var a: Number = 1.5 var b: Number = 2.5 if a < b \{\}')
+
 		// Conditions
-		shouldNotError('if true {}')
-		shouldNotError('if (true == false) {}')
-		shouldNotError('if (1 == 2) {}')
-		shouldNotError('if (1 != 2) {}')
-		shouldNotError('if (1 >= 2) {}')
+		shouldNotError('if true \{\}')
+		shouldNotError('if (true == false) \{\}')
+		shouldNotError('if (1 == 2) \{\}')
+		shouldNotError('if (1 != 2) \{\}')
+		shouldNotError('if (1 >= 2) \{\}')
 
 		shouldErrorTemplate(
 			'$d$ a = $a$',
-			['$b$', '{ $b$ }'],
+			['$b$', '\{ $b$ \}'],
 			['break', 'continue', 'return $c$'],
 			['1', "abc"],
 			['let', '"var"']
