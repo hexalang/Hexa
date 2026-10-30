@@ -101,18 +101,9 @@ class GenCxx {
 		}
 		voidFuncsBuilt = true
 		for g in project.globalFuncs { switch g {
-			case Function(gname, _, _, _, funcType, _, _):
-				if isVoidReturnType(funcType) {
-					voidFuncs.set(gname, true)
-				}
-			case _:
-		} }
-		for c in project.classes {
-			for m in c.methods { switch m {
-				case Function(mname, _, _, _, funcType, _, _):
+				case Function(gname, _, _, _, funcType, _, _):
 					if isVoidReturnType(funcType) {
-						voidFuncs.set(mname, true)
-						voidFuncs.set(c.name + '_$' + mname, true)
+						voidFuncs.set(gname, true)
 					}
 				case _:
 			} }
@@ -281,19 +272,22 @@ class GenCxx {
 			types.push('\n\};\n')
 
 			for v in e.staticMethods { switch v {
-					case Function(name, expr, args, defaults, funcType, _, isAsync):
-						forwardFunctions.push(printFunctionReturnType(funcType))
+					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
+						forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						forwardFunctions.push(' ' + e.name + '_$' + name + '_')
-						forwardFunctions.push(printFunctionArguments(args, funcType))
+						forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 						forwardFunctions.push(';\n')
 
 						// TODO cache `printFunctionReturnType` here etc to not print twice
-						out.push(printFunctionReturnType(funcType))
+						out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						out.push(' ' + e.name + '_$' + name + '_')
-						out.push(printFunctionArguments(args, funcType))
+						out.push(printFunctionArguments(args, funcType, variadic))
 						let _currentReturnType = currentReturnType
 						currentReturnType = getFunctionReturnType(funcType)
-						out.push(' ' + printBlock(expr) + ';\n\n')
+						let _insideAsyncFunction = insideAsyncFunction
+						insideAsyncFunction = isAsync
+						out.push(' ' + (isAsync? printFunctionBody(expr, printFunctionReturnType(funcType)) : printBlock(expr)) + ';\n\n')
+						insideAsyncFunction = _insideAsyncFunction
 						// out.push(' {};\n')
 						currentReturnType = _currentReturnType
 				} }
@@ -368,26 +362,29 @@ class GenCxx {
 				} }
 
 			for v in e.staticMethods { switch v {
-						// types.push('\n\tstatic ')
-					case Function(name, expr, args, defaults, funcType, _, isAsync):
+					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
+						// types.push('\\n\\tstatic ')
 						// types.push(printFunctionReturnType(funcType))
 						// types.push(' ' + name + '_')
 						// types.push(printFunctionArguments(args, funcType, true))
 						// types.push(';')
 
-						forwardFunctions.push(printFunctionReturnType(funcType))
+						forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						forwardFunctions.push(' ' + e.name + '_$' + name + '_')
-						forwardFunctions.push(printFunctionArguments(args, funcType))
+						forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 						forwardFunctions.push(';\n')
 
-						out.push(printFunctionReturnType(funcType))
+						out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						out.push(' ' + e.name + '_$' + name + '_')
-						out.push(printFunctionArguments(args, funcType))
+						out.push(printFunctionArguments(args, funcType, variadic))
 
 						let _currentReturnType = currentReturnType
 						currentReturnType = getFunctionReturnType(funcType)
-						// out.push(' {};\n')
-						out.push(' ' + printBlock(expr) + ';\n\n')
+						let _insideAsyncFunction = insideAsyncFunction
+						insideAsyncFunction = isAsync
+						// out.push(' {};\\n')
+						out.push(' ' + (isAsync? printFunctionBody(expr, printFunctionReturnType(funcType)) : printBlock(expr)) + ';\n\n')
+						insideAsyncFunction = _insideAsyncFunction
 						currentReturnType = _currentReturnType
 				} }
 			types.push('\n\};\n')
@@ -595,51 +592,53 @@ class GenCxx {
 				destroyTable.push(openBrace + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + c.name + '_$' + dd + '_, sizeof(' + c.name + '_)' + closeBrace)
 			}
 
-					// Synthesized container destroys (F11.2, ARC-marked): see
-					// NiceClass.destroyKind. Skipped when a user @destructor
-					// owns the slot. Additive dead code until the sweep lands.
-					if c.destructor == null {
-						if c.destroyKind == 1 {
-							let dn = c.name + '_$destroyARC_'
-							forwardFunctions.push('void ' + dn + '(void*)')
-							forwardFunctions.push(';\n')
-							out.push('void ' + dn + '(void* p_) \{\n')
-							out.push('\t' + c.name + '_* a_ = (' + c.name + '_*)p_;\n')
-						out.push('\tfor (int32_t i_ = 0; i_ < a_->length_; i_++) hexaUnref(a_->data_[i_]);\n')
-						out.push('\tHEXA_FREE(a_->data_, sizeof(void*) * (size_t)a_->capacity_);\n')
-						out.push('\};\n\n')
-						let ob = String.fromCharCode(123)
-						let cb = String.fromCharCode(125)
-						destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
-						arrayDestroyTags.push(c.name)
-						}
-						if c.destroyKind == 2 {
-							let dn = c.name + '_$destroyARC_'
-							forwardFunctions.push('void ' + dn + '(void*)')
-							forwardFunctions.push(';\n')
-							out.push('void ' + dn + '(void* p_) \{\n')
-						out.push('\t' + c.name + '_* a_ = (' + c.name + '_*)p_;\n')
-						out.push('\tHEXA_FREE(a_->data_, sizeof(void*) * (size_t)a_->capacity_);\n')
-						out.push('\};\n\n')
-						let ob = String.fromCharCode(123)
-						let cb = String.fromCharCode(125)
-						destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
-						arrayDestroyTags.push(c.name)
-						}
-						if c.destroyKind == 3 {
-							let dn = c.name + '_$destroyARC_'
-							forwardFunctions.push('void ' + dn + '(void*)')
-							forwardFunctions.push(';\n')
-							out.push('void ' + dn + '(void* p_) \{\n')
-							out.push('\t' + c.name + '_* m_ = (' + c.name + '_*)p_;\n')
-							out.push('\thexaUnref(m_->key_);\n')
-							out.push('\thexaUnref(m_->value_);\n')
-							out.push('\};\n\n')
-							let ob = String.fromCharCode(123)
-							let cb = String.fromCharCode(125)
-							destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
-						}
-					}
+			// Synthesized container destroys (F11.2, ARC-marked): see
+			// NiceClass.destroyKind. Skipped when a user @destructor
+			// owns the slot. Additive dead code until the sweep lands.
+			if c.destructor == null {
+				if c.destroyKind == 1 {
+					let dn = c.name + '_$destroyARC_'
+					forwardFunctions.push('void ' + dn + '(void*)')
+					forwardFunctions.push(';\n')
+					out.push('void ' + dn + '(void* p_) \{\n')
+					out.push('\t' + c.name + '_* a_ = (' + c.name + '_*)p_;\n')
+					out.push('\tfor (int32_t i_ = 0; i_ < a_->length_; i_++) hexaUnref(a_->data_[i_]);\n')
+					out.push('\tHEXA_FREE(a_->data_, sizeof(void*) * (size_t)a_->capacity_);\n')
+					out.push('\};\n\n')
+					let ob = String.fromCharCode(123)
+					let cb = String.fromCharCode(125)
+					destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
+					arrayDestroyTags.push(c.name)
+				}
+
+				if c.destroyKind == 2 {
+					let dn = c.name + '_$destroyARC_'
+					forwardFunctions.push('void ' + dn + '(void*)')
+					forwardFunctions.push(';\n')
+					out.push('void ' + dn + '(void* p_) \{\n')
+					out.push('\t' + c.name + '_* a_ = (' + c.name + '_*)p_;\n')
+					out.push('\tHEXA_FREE(a_->data_, sizeof(void*) * (size_t)a_->capacity_);\n')
+					out.push('\};\n\n')
+					let ob = String.fromCharCode(123)
+					let cb = String.fromCharCode(125)
+					destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
+					arrayDestroyTags.push(c.name)
+				}
+
+				if c.destroyKind == 3 {
+					let dn = c.name + '_$destroyARC_'
+					forwardFunctions.push('void ' + dn + '(void*)')
+					forwardFunctions.push(';\n')
+					out.push('void ' + dn + '(void* p_) \{\n')
+					out.push('\t' + c.name + '_* m_ = (' + c.name + '_*)p_;\n')
+					out.push('\thexaUnref(m_->key_);\n')
+					out.push('\thexaUnref(m_->value_);\n')
+					out.push('\};\n\n')
+					let ob = String.fromCharCode(123)
+					let cb = String.fromCharCode(125)
+					destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
+				}
+			}
 
 			// TODO `for i : v in`
 			var vi = -1
@@ -846,22 +845,52 @@ class GenCxx {
 							// out.push('\t_->this_(')
 							out.push('\t' + c.name + '_$this_(')
 							// out.push([for (a in args) a + '_'].join(', '))
-							let arg = [for a in args a + '_']
-							arg.unshift('_')
+							// S3b: fat ctor params forward BOTH halves to `$this_`
+							// (plain `a_` names would not match the split signature).
+							let arg: [String] = ['_']
+
+							for i in args.length {
+								var split = false
+								switch funcType {
+									case Function(fargs, _, _):
+										if i < fargs.length, isFatValueType(fargs[i].dataType) {
+											arg.push(args[i] + '$ptr_')
+											arg.push(args[i] + '$env_')
+											split = true
+										}
+									case _:
+								}
+
+								if not split {
+									arg.push(args[i] + '_')
+								}
+							}
 							out.push(arg.join(', '))
-							out.push(');\n')
-							out.push('\treturn _;\n')
+							out.push(');
+')
+							// F11 live registry: register AFTER $this_ completes (a
+							// registered object is always fully constructed; an
+							// unregistered-but-live one merely leaks). Skipped for
+							// headerless layouts (structs/native) — nothing to count.
+							if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
+								// Ok
+							} else {
+								out.push('	hexaRegisterLive_((void*)_);
+')
+							}
+							out.push('	return _;
+')
 							out.push('\};\n\n')
 						} else {
 							thisArgument = c.name + '_* $this'
 							vtable.push('\n\t')
-							vtable.push(printFunctionReturnType(funcType))
+							vtable.push((isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							vtable.push(' (*const ' + name + '_) ')
 							vtable.push(printFunctionArguments(args, funcType, variadic))
 							vtable.push(';')
 							nonEmptyTable = true
 
-							forwardFunctions.push(printFunctionReturnType(funcType))
+							forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
 							forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 							forwardFunctions.push(';\n')
@@ -869,7 +898,7 @@ class GenCxx {
 							let vbind = '&' + c.name + '_$' + name + '_'
 							vtableBind.push(vbind)
 
-							out.push(printFunctionReturnType(funcType))
+							out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							out.push(' ' + c.name + '_$' + name + '_')
 							out.push(printFunctionArguments(args, funcType, variadic))
 							let _currentReturnType = currentReturnType
@@ -882,11 +911,19 @@ class GenCxx {
 							insideAsyncFunction = isAsync
 
 							if let expr = expr {
-								out.push(' ' + printBlock(expr) + ';\n\n')
+								out.push(' ' + (isAsync? printFunctionBody(expr, printFunctionReturnType(funcType)) : printBlock(expr)) + ';\n\n')
 							} else {
 								let temp = tempId++
-								// TODO proper `nullptr` kind
-								out.push(' \{\n\tHEXA_UNREACHABLE(\(temp));\n\treturn nullptr;\n\};\n\n')
+								let returns = printFunctionReturnType(funcType)
+
+								// NOTE the abstract stub must return a value
+								// matching the C return type (`void` functions
+								// return nothing, scalars cannot take nullptr)
+								if returns == 'void' {
+									out.push(' \{\n\tHEXA_UNREACHABLE(\(temp));\n\};\n\n')
+								} else {
+									out.push(' \{\n\tHEXA_UNREACHABLE(\(temp));\n\treturn (' + returns + ')0;\n\};\n\n')
+								}
 							}
 							insideAsyncFunction = _insideAsyncFunction
 							// out.push('\}\n')
@@ -960,13 +997,13 @@ class GenCxx {
 			vtableClasses.push(c.name)
 
 			for v in c.staticMethods { switch v {
-					case Function(name, expr, args, defaults, funcType, _, isAsync):
-						forwardFunctions.push(printFunctionReturnType(funcType))
+					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
+						forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						forwardFunctions.push(' ' + c.name + '_$' + name + '_')
 						forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 						forwardFunctions.push(';\n')
 
-						out.push(printFunctionReturnType(funcType))
+						out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						out.push(' ' + c.name + '_$' + name + '_')
 						out.push(printFunctionArguments(args, funcType, variadic))
 
@@ -1018,6 +1055,9 @@ class GenCxx {
 			}*/
 		for g in project.globalFuncs { switch g {
 				case Function(name, expr, args, defaults, funcType, variadic, isAsync):
+					// S3b: track the fat impl being printed (self-recursion
+					// threads `$env`, not any slot).
+					currentFatFn = name
 					let link = project.globalLink.get(g) // TODO null guard
 					var shouldEmitHeader = false
 					var customHeader: String? = null
@@ -1088,8 +1128,8 @@ class GenCxx {
 						types.push(customHeader)
 						types.push('\n')
 					} else if expr != null or shouldEmitHeader {
-						types.push(spec)
-						types.push(printFunctionReturnType(funcType))
+						types.push(linkagePrefix(isAsync) + spec)
+						types.push((isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						types.push(' ' + name)
 						types.push(printFunctionArguments(args, funcType, variadic))
 
@@ -1124,20 +1164,43 @@ class GenCxx {
 						// We have `link.convention = Default` if `link` is present
 						// out. types.push(defaultCallingConvention)
 						// }
-						let returns = printFunctionReturnType(funcType)
+						let returns = linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 						out.push(returns)
 						out.push(' ' + name)
 						out.push(printFunctionArguments(args, funcType, variadic))
 
 						let _currentReturnType = currentReturnType
 						currentReturnType = getFunctionReturnType(funcType)
-						out.push(' ' + printFunctionBody(expr, returns) + ';\n\n')
+						let _insideAsyncFunction = insideAsyncFunction
+						insideAsyncFunction = isAsync
+						out.push(' ' + printFunctionBody(expr, printFunctionReturnType(funcType)) + ';\n\n')
+						// S4: Any-callable thunk for every fat closure impl (even
+						// empty ones) — additive dead code until dynamic calls
+						// wire it (F10.3 replaces the `AnyValue_` proxy).
+						if name.startsWith('closure$'), not name.endsWith('$thin_') {
+							out.push(printClosureThunk(name, funcType))
+							// F10.3 registry: impl + thunk names for the pair
+							// dispatch table (emitted post-Types with the
+							// coroutines block — needs no bodies, just names).
+							// `name` here already carries the trailing `_`
+							// (impl); the thunk swaps it for `$call_`.
+							let implBase = name.substr(0, name.length - 1)
+
+							if not fatPairImpls.includes(implBase) {
+								fatPairImpls.push(implBase)
+							}
+						}
+						insideAsyncFunction = _insideAsyncFunction
 						currentReturnType = _currentReturnType
+						currentFatFn = null
 					}
 					// out.push(printFunctionArguments(args, defaults) + ' ' + printBlock(expr) + ';')
 			} }
 
 			// Init
+			// NOTE locals of the last printed function must not leak into
+			// global/static initializers below (`cShape` keys on them)
+		localDecls = [:]
 		out.push('int HEXA_MAIN(int argc, char **argv) \{\n')
 		// out.push('\tprintf("Starting...\\n");fflush(stdout);\n')
 		out.push('%%%HEXA_STRINGS@@@\n')
@@ -1148,11 +1211,30 @@ class GenCxx {
 			for v in e.staticVars { switch v {
 					case Var(name, expr, dataType):
 						if (expr != null) {
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							// Flush metaBlock temps (Elvis hoist, struct
+							// temps) before the assignment — same protocol
+							// as global inits (C2065 otherwise)
+							let savedMbSimple = metaBlock
+							metaBlock = []
+							let initStrSimple = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbSimple
+							out.push('\t' + e.name + '_$' + name + '_ = ' + initStrSimple + ';\n')
 						}
 					case Const(name, expr, dataType):
 						if (expr != null) {
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							let savedMbSimpleC = metaBlock
+							metaBlock = []
+							let initStrSimpleC = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbSimpleC
+							out.push('\t' + e.name + '_$' + name + '_ = ' + initStrSimpleC + ';\n')
 						}
 				} }
 		}
@@ -1161,11 +1243,27 @@ class GenCxx {
 			for v in e.staticVars { switch v {
 					case Var(name, expr, dataType):
 						if expr != null {
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							let savedMbComplex = metaBlock
+							metaBlock = []
+							let initStrComplex = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbComplex
+							out.push('\t' + e.name + '_$' + name + '_ = ' + initStrComplex + ';\n')
 						}
 					case Const(name, expr, dataType):
 						if expr != null {
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							let savedMbComplexC = metaBlock
+							metaBlock = []
+							let initStrComplexC = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbComplexC
+							out.push('\t' + e.name + '_$' + name + '_ = ' + initStrComplexC + ';\n')
 						}
 				} }
 		}
@@ -1174,11 +1272,27 @@ class GenCxx {
 			for v in e.staticVars { switch v {
 					case Var(name, expr, dataType):
 						if expr != null {
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							let savedMbClass = metaBlock
+							metaBlock = []
+							let initStrClass = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbClass
+							out.push('\t' + e.name + '_$' + name + '_ = ' + initStrClass + ';\n')
 						}
 					case Const(name, expr, dataType):
 						if expr != null {
-							out.push('\t' + e.name + '_$' + name + '_ = ' + printExpression(expr) + ';\n')
+							let savedMbClassC = metaBlock
+							metaBlock = []
+							let initStrClassC = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbClassC
+							out.push('\t' + e.name + '_$' + name + '_ = ' + initStrClassC + ';\n')
 						}
 				} }
 		}
@@ -1307,15 +1421,29 @@ class GenCxx {
 
 							globalVariables.push(';\n')
 
-						if expr != null {
-							let value String = printExpression(expr)
+							if expr != null {
+								let value String = printExpression(expr)
 
-							// Printing zero global integers causes bug in Hexa runtime code
-							// due to assignment of heap offset of zero after strings allocation
-							// Also in C global values are guaranteed to be initialized to 0
-							// TODO check for `project.typer.typeInt` and other integer types
-							if value != '(int32_t)0' {
-								out.push('\t' + name + '_ = ' + value + ';\n')
+								// Printing zero global integers causes bug in Hexa runtime code
+								// due to assignment of heap offset of zero after strings allocation
+								// Also in C global values are guaranteed to be initialized to 0
+								// TODO check for `project.typer.typeInt` and other integer types
+								if value != '(int32_t)0' {
+									// NOTE initializers convert like everywhere else
+									// (unrelated pointers bridge through `size_t`).
+									// Flush `metaBlock` temps (e.g. VirtualMethod
+									// receiver spill) before the assignment —
+									// otherwise the temp is used undeclared (C2065).
+									let savedMb = metaBlock
+									metaBlock = []
+									let initStr = printInitializer(dataType, expr)
+
+									for line in metaBlock {
+										out.push('\t' + line + ';\n')
+									}
+									metaBlock = savedMb
+									out.push('\t' + name + '_ = ' + initStr + ';\n')
+								}
 								// TODO init them at declaration! int a = 123;
 							}
 						}
@@ -1325,11 +1453,32 @@ class GenCxx {
 					// TODO maybe not useful
 					// else out.push(' = null')
 				case Const(name, expr, dataType):
-					globalVariables.push(stringifyType(dataType))
-					globalVariables.push(' ' + name + '_;\n')
+					// S3b F1.6: `let`-bound function-typed globals double up too.
+					if isFatValueType(dataType) {
+						let ptrType = stringifyType(dataType)
+						globalVariables.push(ptrType)
+						globalVariables.push(' ' + name + '$ptr_;\\n')
+						globalVariables.push('void* ' + name + '$env_;\\n')
 
-					if expr != null {
-						out.push('\t' + name + '_ = ' + printExpression(expr) + ';\n')
+						if expr != null {
+							out.push('\t' + name + '$ptr_ = ' + fatPtrAs(expr, dataType) + ';\n')
+							out.push('\t' + name + '$env_ = ' + fatEnvStr(expr) + ';\n')
+						}
+					} else {
+						globalVariables.push(stringifyType(dataType))
+						globalVariables.push(' ' + name + '_;\n')
+
+						if expr != null {
+							let savedMbConst = metaBlock
+							metaBlock = []
+							let initStrConst = printInitializer(dataType, expr)
+
+							for line in metaBlock {
+								out.push('\t' + line + ';\n')
+							}
+							metaBlock = savedMbConst
+							out.push('\t' + name + '_ = ' + initStrConst + ';\n')
+						}
 					}
 					// types.push('void* ' + name + '_;\n')
 					// out.push('\n\tvar ' + name + ' = ' + printExpression(expr))
@@ -1868,7 +2017,7 @@ class GenCxx {
 						}
 				}
 
-				return stringifyType(dataType) + ' ' + name + '_' + (expr == null? '' : ' = ' + printTypeConverter(printExpression(expr), getType(expr), dataType))
+				return stringifyType(dataType) + ' ' + name + '_' + (expr == null? '' : ' = ' + printInitializer(dataType, expr))
 
 				// case Function(name, expr, args, defaults, types, returns):
 				// return printType(returns) + ' _x' + name + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
@@ -1878,7 +2027,7 @@ class GenCxx {
 				currentReturnType = getFunctionReturnType(funcType)
 
 				let temp = tempId++
-				let rt = printFunctionReturnType(funcType)
+				let rt = linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 				forwardFunctions.push(rt)
 				forwardFunctions.push(' _$\(temp)')
 				forwardFunctions.push(printFunctionArguments(args, funcType))
@@ -1912,7 +2061,10 @@ class GenCxx {
 				globalFunctions.push(' _$\(temp)')
 				globalFunctions.push(printFunctionArguments(args, funcType))
 				globalFunctions.push(' ')
-				globalFunctions.push(printBlock(expr))
+				let _insideAsyncFunction = insideAsyncFunction
+				insideAsyncFunction = isAsync
+				globalFunctions.push(isAsync? printFunctionBody(expr, printFunctionReturnType(funcType)) : printBlock(expr))
+				insideAsyncFunction = _insideAsyncFunction
 				tabs = tab
 
 				currentReturnType = _currentReturnType
@@ -1938,15 +2090,15 @@ class GenCxx {
 				let keyword = 'return'
 
 				if e == null {
-					return 'return'
+					return keyword
 				}
-				// let type = getType(e)
-				// if (type != currentReturnType) {
-				// if (type == project.typer.typeBool) return 'return Any_fromBool(' + printExpression(e) + ')'
-				// if (currentReturnType == project.typer.typeBool) return 'return (' + printExpression(e) + ')->_toBool()'
-				// return 'return (' + stringifyType(currentReturnType) + ')(' + printExpression(e) + ')'
-				// }
-				return 'return ' + printTypeConverter(printExpression(e), getType(e), currentReturnType)
+
+				// Struct-typed literal: real construction (see printObjectAs).
+				if let s = printObjectAs(currentReturnType, e) {
+					return keyword + ' ' + s
+				}
+
+				return keyword + ' ' + forcedCast(currentReturnType, printTypeConverter(printExpression(e), valueType(e), currentReturnType))
 
 			case If(econd, eif, eelse):
 				var r = '\n\(tabs)if (' + printExpression(econd) + ') ' + printBlock(eif)
@@ -2101,7 +2253,8 @@ class GenCxx {
 				popTab()
 				// TODO test $try for null at each functions calls and goto $catch
 				// TODO test $try for null and do ARC
-				r += '\n' + tabs + '$catch: ; \} _catch(' + printType(t[0]) + ' _x' + v[0] + ') \{\n' + tabs + ' '
+				// NOTE param must print like `Ident` does (`e` → `e_`)
+				r += '\n' + tabs + '$catch: ; \} _catch(' + printType(t[0]) + ' ' + v[0] + '_) \{\n' + tabs + ' '
 				pushTab()
 				r += printStatement(catches[0])
 				popTab()
@@ -2147,25 +2300,81 @@ class GenCxx {
 									}
 							}
 
-							return printExpression(expr) +
-							'->$set(String_$fromUTF16z_(L"' + name + '"), ' + printToAnyConverter(printExpression(v), getType(v)) + ')'
+							// F10.2: fat values stored into bags box as pairs (impl + env
+							// survive for the dynamic call slot); object literals
+							// construct real bags (no `Object_from` null stubs);
+							// other values use the plain `Any` conversion as before.
+							var dynVal = printToAnyConverter(printExpression(v), getType(v))
+
+							if let objLit = printObjectAs(project.typer.typeAny, v) {
+								dynVal = objLit
+							} else if isBoxableFat(v) {
+								dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+							}
+							return anyDynSetStr(printExpression(expr), name, dynVal)
 						}
 					case Index(expr, index):
-						switch getType(expr) {
-							case ClassInstance(kind, generic):
-								if kind.name != 'Array' {
-									return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
-									+ ' = ' + printExpression(v)
-								}
-								// TODO meta block
-								return printExpression(Expression.Call(
-										Expression.Dot(expr, 'set', null /*TODO*/),
-										[index, v],
-										project.typer.typeVoid,
-										// [project.typer.typeInt, generic[0] /*TODO is this correct way to pass `T`*/],
-										CallKind.VirtualMethod
-									))
+						// `Any` (or untyped) receivers index DYNAMICALLY —
+						// `obj[i] = v` becomes the `set` reflection stub call
+						let exprType = getType(expr)
+
+						if isDynamic(exprType) {
+							return printExpression(Expression.Call(
+									Expression.Dot(expr, 'set', null /*TODO*/),
+									[index, v],
+									project.typer.typeVoid,
+									CallKind.Function,
+									[]
+								))
 						}
+
+						switch Type.unwrapNullable(exprType) {
+							case ClassInstance(kind, generic):
+								// Containers with a `set` method (Array, Map)
+								// write through it — raw `expr[i] = v` is only
+								// for pointer shaped storage
+								if kind.fields.get('set') == ClassTypeField.Method {
+									var keyType = project.typer.typeInt
+									var valueType: Type? = null
+
+									if kind.name != 'Array' {
+										if let g = generic, g.length > 1 {
+											keyType = g[0]
+											valueType = g[1]
+										}
+									} else {
+										if let g = generic, g.length > 0 {
+											valueType = g[0]
+										}
+									}
+
+									// NOTE the arguments are pre-converted
+									// (`UnsafeBitCast` no-ops on matching
+									// types) — the rebuilt `Call` node carries
+									// no `expects`
+									let key = Expression.UnsafeBitCast(index, keyType)
+									var value = v
+
+									if let to = valueType {
+										value = Expression.UnsafeBitCast(v, to)
+									}
+
+									return printExpression(Expression.Call(
+											Expression.Dot(expr, 'set', null /*TODO*/),
+											[key, value],
+											project.typer.typeVoid,
+											CallKind.VirtualMethod,
+											[]
+										))
+								}
+
+								return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
+								+ ' = ' + printExpression(v)
+							case _:
+						}
+
+						return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
+						+ ' = ' + printExpression(v)
 				}
 				return printExpression(a) + ' = ' + printInitializer(getType(a), v)
 				// printExpression(v)
@@ -2368,6 +2577,34 @@ class GenCxx {
 
 				// TODO don't use "0" as tag, use 1+; use `switch (a? a->index : 0)` or
 				// generate `if (a) switch () else null-case` in normalizer
+			case PatternSwitch(_):
+				// TODO lower guards/binds to PlainSwitch/if-else in the normalizer
+				throw 'PatternSwitch must be lowered by the normalizer first'
+
+				// ARC retain/release (D3+D4): `RefInc` inlines the `rc++` now;
+				// `DeferRefDec` below constructs a scope guard whose C++
+				// destructor runs the `rc--` at block exit on every path
+				// (normal returns AND unwinding, D5). S3b: fat values
+				// retain/release the ENV half only (the code ptr is never
+				// heap memory).
+			case RefInc(name):
+				let incParts: [String] = []
+
+				for e in name {
+					if isFatValueType(valueType(e)) {
+						incParts.push('hexaRef(' + fatEnvStr(e) + ')')
+					} else if isAnyLikeValue(valueType(e)) {
+						// Any-shaped slots may hold managed payloads (or
+						// immediates/singletons): count through the runtime
+						// guard, never blind. Refs print twice like the
+						// neighboring arms — RefInc operands are always
+						// single-eval shapes (Ident temps, pure Dots).
+						incParts.push('if (Any_isCounted_((Any_*)(' + printExpression(e) + '))) hexaRef((void*)(' + printExpression(e) + '))')
+					} else {
+						incParts.push('hexaRef(' + printExpression(e) + ')')
+					}
+				}
+				return incParts.join('; ')
 
 				/*
 						let temp = f()
@@ -2375,16 +2612,43 @@ class GenCxx {
 							switch temp.index {
 								// no null case
 							}
+				// D4: scope-exit guard. Constructed here, the destructor runs the
+				// `rc--` at block exit on every path — the `defer rc--` half
+				// of the pair (an exception between `RefInc` and here cannot
+				// skip what was never retained, and can never double-free
+				// per D6). One shared `void*` instantiation; pure-C targets
+				// keep the inline best-effort form (F4.4).
+			case DeferRefDec(name):
+				if cpp {
+					let decParts: [String] = []
+
+					for e in name {
+						let tid = tempId++
+						var target = printExpression(e)
+
+						if isFatValueType(valueType(e)) {
+							target = fatEnvStr(e)
+						}
+
+						if isAnyLikeValue(valueType(e)) and not isFatValueType(valueType(e)) {
+							// Any-shaped slots: the counted guard checks the
+							// payload shape at scope exit (immediates and
+							// Bool singletons skip the release).
+							decParts.push('HexaDeferCountedDec_<void*> _$defer' + tid + '_(' + target + ');')
 						} else {
 							null case
+							decParts.push('HexaDeferDec_<void*> _$defer' + tid + '_(' + target + ');')
 						}
 						^ in normalizer
 					*/
 				var r = 'switch (' + printExpression(expr) + ') \{'
+					}
 
 				// case 1: case 2: case 3:
 				for i in cases.length { if (cases[i].length > 0) {
 						r += '\n' + tabs
+					return decParts.join(' ')
+				}
 
 						for cc in cases[i] {
 							r += 'case ' + printExpression(cc) + ': '
@@ -2394,12 +2658,22 @@ class GenCxx {
 						// r += printStatement(statements[i])
 						// popTab()
 						// r += '\n' + tabs + '\} break;\n' + tabs
+				let legacyParts: [String] = []
 
 						pushTab()
 						r += printBlock(statements[i])
 						popTab()
 						r += ' break;'
 					} }
+				for e in name {
+					if isFatValueType(valueType(e)) {
+						legacyParts.push('hexaUnref(' + fatEnvStr(e) + ')')
+					} else if isAnyLikeValue(valueType(e)) {
+						legacyParts.push('if (Any_isCounted_((Any_*)(' + printExpression(e) + '))) hexaUnref((void*)(' + printExpression(e) + '))')
+					} else {
+						legacyParts.push('hexaUnref(' + printExpression(e) + ')')
+					}
+				}
 
 					// default:
 				for i in cases.length { if (cases[i].length == 0) {
@@ -2408,9 +2682,24 @@ class GenCxx {
 						r += printBlock(statements[i])
 						// r += '\n' + tabs
 					} }
+				return legacyParts.join('; ')
 
 				r += '\n' + tabs
 				return r + '\}'
+				// `super(...)` → parent constructor (`this` reinterpreted as parent type)
+			case SuperConstructor(args):
+				if let superName = currentSuperType {
+					let me = customThis ?? '$this'
+					var callArgs = ''
+
+					if args.length > 0 {
+						callArgs = ', ' + [for a in args printExpression(a)].join(', ')
+					}
+
+					return superName + ' _ $ this_((' + superName + ' *) ' + me + callArgs + ') '
+				}
+
+				throw ' SuperConstructor outside of an extended class '
 
 			case _: console.error("Unknown statement kind (GenCxx):", s)
 				console.trace("Here I am!")
@@ -2446,35 +2735,37 @@ class GenCxx {
 
 		// Spread forwarding `f(...r)` / `f(x, ...r)` — pass caller's count+ptr, no copy.
 		for a in args { if isRestSpread(a) {
-			for i in fixedCount {
-				if stringifyType(exp[i]) == 'void' {
-					continue
-				}
-				if i < args.length, not isRestSpread(args[i]) {
-					// Fat fixed params (`setImmediate(cb, ...)` with `Any` cb)
-					// expand to two C slots like `printCallArguments`.
-					if isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
-						prefix.push(fatPtrAs(args[i], exp[i]))
-						prefix.push(fatEnvStr(args[i]))
+				for i in fixedCount {
+					if stringifyType(exp[i]) == 'void' {
 						continue
 					}
-					prefix.push(printTypeConverter(printExpression(args[i]), valueType(args[i]), exp[i]))
-				} else if i >= args.length {
-					if isFatValueType(exp[i]) {
-						prefix.push('nullptr')
-						prefix.push('hexaSentinelEnv_')
-						continue
-					}
-					prefix.push(padValue(exp[i]))
-				}
-			}
-			prefix.push('$nrest_')
-			prefix.push('$rest_')
-			if me != null { return '(' + prefix.join(', ') + ') ' }
-			return '(' + prefix.join(', ') + ') '
-		} }
 
-		// Discrete args `f(a, b, c)` — pack rest extras into a stack array.
+					if i < args.length, not isRestSpread(args[i]) {
+						// Fat fixed params (`setImmediate(cb, ...)` with `Any` cb)
+						// expand to two C slots like `printCallArguments`.
+						if isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
+							prefix.push(fatPtrAs(args[i], exp[i]))
+							prefix.push(fatEnvStr(args[i]))
+							continue
+						}
+						prefix.push(printTypeConverter(printExpression(args[i]), valueType(args[i]), exp[i]))
+					} else if i >= args.length {
+						if isFatValueType(exp[i]) {
+							prefix.push('nullptr')
+							prefix.push('hexaSentinelEnv_')
+							continue
+						}
+						prefix.push(padValue(exp[i]))
+					}
+				}
+				prefix.push('$nrest_')
+				prefix.push('$rest_')
+
+				if me != null { return '(' + prefix.join(', ') + ') ' }
+				return '(' + prefix.join(', ') + ') '
+			} }
+
+			// Discrete args `f(a, b, c)` — pack rest extras into a stack array.
 		var restCount = args.length - fixedCount
 
 		if restCount < 0 { restCount = 0 }
@@ -2800,99 +3091,103 @@ class GenCxx {
 	/// flags M2+ triage — zero hits expected in Perfide: no function returns,
 	/// no closure arrays per trace).
 	fun fatPtrStr(e: Expression): String { switch e {
-		case Parenthesis(inner):
-			return fatPtrStr(inner)
-		case Ident(name, _):
-			// Dropped creation (field/global/var initializers): the local twin
-			// was never emitted — fall back to the thin wrapper (global env),
-			// exactly S2-identical and always in scope.
-			if let db0 = closureBaseName(e) {
-				let ds0 = db0.substr(8, db0.length - 8)
-				if project.droppedClosureEnvs.get('closureEnv$' + ds0) != null {
-					return db0 + '$thin_'
+			case Parenthesis(inner):
+				return fatPtrStr(inner)
+			case Ident(name, _):
+				// Dropped creation (field/global/var initializers): the local twin
+				// was never emitted — fall back to the thin wrapper (global env),
+				// exactly S2-identical and always in scope.
+				if let db0 = closureBaseName(e) {
+					let ds0 = db0.substr(8, db0.length - 8)
+
+					if project.droppedClosureEnvs.get('closureEnv$' + ds0) != null {
+						return db0 + '$thin_'
+					}
 				}
-			}
-			// Lifted closure value → fat impl directly (per-instance callers
-			// use the local twin; fallback positions use the thin wrapper via
-			// generic `printExpression`, never here).
-			if closureBaseName(e) != null {
-				return (closureBaseName(e) as!String) + '_'
-			}
-			// Pair var/param/global → its ptr half.
-			if isFatValueType(valueType(e)) {
-				return name + '$ptr_'
-			}
-			// Plain global function → on-demand thin wrapper (fat impl shape).
-			if let gt = globalFuncType(name) {
-				if isFatValueType(gt) {
-					return thinWrapperFor(name)
+				// Lifted closure value → fat impl directly (per-instance callers
+				// use the local twin; fallback positions use the thin wrapper via
+				// generic `printExpression`, never here).
+				if closureBaseName(e) != null {
+					return (closureBaseName(e) as!String) + '_'
 				}
-			}
-			return printExpression(e) + '/*UNPAIRED-PTR*/'
-		case Dot(expr, name, _):
-			// Function-typed Variable field → double slot (`->$f_`). Methods,
-			// statics, dynamic receivers and inline structs never split.
-			if isFatFieldDot(expr, name, getType(e)) {
-				return printExpression(expr) + '->' + name + '$f_'
-			}
-			return printExpression(e) + '/*UNPAIRED-DOTPTR*/'
-		case Null(_):
-			return 'nullptr'
-		case _:
-			return '/*UNPAIRED-PTR*/nullptr'
-	} }
+				// Pair var/param/global → its ptr half.
+				if isFatValueType(valueType(e)) {
+					return name + '$ptr_'
+				}
+				// Plain global function → on-demand thin wrapper (fat impl shape).
+				if let gt = globalFuncType(name) {
+					if isFatValueType(gt) {
+						return thinWrapperFor(name)
+					}
+				}
+				return printExpression(e) + '/*UNPAIRED-PTR*/'
+			case Dot(expr, name, _):
+				// Function-typed Variable field → double slot (`->$f_`). Methods,
+				// statics, dynamic receivers and inline structs never split.
+				if isFatFieldDot(expr, name, getType(e)) {
+					return printExpression(expr) + '->' + name + '$f_'
+				}
+				return printExpression(e) + '/*UNPAIRED-DOTPTR*/'
+			case Null(_):
+				return 'nullptr'
+			case _:
+				return '/*UNPAIRED-PTR*/nullptr'
+		} }
 
 	/// S3b F1.6: C env half of a fat Nice value (uniform `void*`: local twin,
 	/// pair half, sentinel, or plain-global wrapper env). See `fatPtrStr`.
 	fun fatEnvStr(e: Expression): String { switch e {
-		case Parenthesis(inner):
-			return fatEnvStr(inner)
-		case Ident(name, _):
-			if let base = closureBaseName(e) {
-				let ds = base.substr(8, base.length - 8)
-				if project.droppedClosureEnvs.get('closureEnv$' + ds) != null {
-					return 'closureEnv$' + ds + '_'
-				}
-				if closureHasEnv(base) {
-					// S3b: the per-instance twin only dominates its own block
-					// (the hoisted creation site) — cross-function/method-value
-					// uses fall back to the global twin (S2 semantics, always
-					// in scope).
-					if localDecls.get('closureEnvL$' + ds) != null {
-						return 'closureEnvL$' + ds + '_'
+			case Parenthesis(inner):
+				return fatEnvStr(inner)
+			case Ident(name, _):
+				if let base = closureBaseName(e) {
+					let ds = base.substr(8, base.length - 8)
+
+					if project.droppedClosureEnvs.get('closureEnv$' + ds) != null {
+						return 'closureEnv$' + ds + '_'
 					}
-					return 'closureEnv$' + ds + '_'
-				}
-				return 'hexaSentinelEnv_'
-			}
-		if isFatValueType(valueType(e)) {
-			return name + '$env_'
-		}
-		// F10.3: a dynamic source holding a boxed fat pair unboxes its env
-		// (exact). Bare function designators and effectful sources keep the
-		// legacy sentinel (no worse than before; never a pair).
-		if isDynamic(valueType(e)), isPureIsReceiver(e), not isBareFunctionDesignator(e) {
-			let p = printExpression(e)
-			return '(Any_isFatPair_(' + p + ') ? ((FatPair_*)(' + p + '))->env_ : hexaSentinelEnv_)'
-		}
-		// Plain global function → sentinel (pairs with the wrapper above).
-			// S3b retirements: `hexaSentinelEnv_` replaces S3a `nullptr`.
-			if let gt = globalFuncType(name) {
-				if isFatValueType(gt) {
+
+					if closureHasEnv(base) {
+						// S3b: the per-instance twin only dominates its own block
+						// (the hoisted creation site) — cross-function/method-value
+						// uses fall back to the global twin (S2 semantics, always
+						// in scope).
+						if localDecls.get('closureEnvL$' + ds) != null {
+							return 'closureEnvL$' + ds + '_'
+						}
+						return 'closureEnv$' + ds + '_'
+					}
 					return 'hexaSentinelEnv_'
 				}
-			}
-			return 'hexaSentinelEnv_/*UNPAIRED-ENV*/'
-		case Dot(expr, name, _):
-			if isFatFieldDot(expr, name, getType(e)) {
-				return printExpression(expr) + '->' + name + '$e_'
-			}
-			return 'hexaSentinelEnv_/*UNPAIRED-DOTENV*/'
-		case Null(_):
-			return 'hexaSentinelEnv_'
-		case _:
-			return 'hexaSentinelEnv_/*UNPAIRED-ENV*/'
-	} }
+
+				if isFatValueType(valueType(e)) {
+					return name + '$env_'
+				}
+				// F10.3: a dynamic source holding a boxed fat pair unboxes its env
+				// (exact). Bare function designators and effectful sources keep the
+				// legacy sentinel (no worse than before; never a pair).
+				if isDynamic(valueType(e)), isPureIsReceiver(e), not isBareFunctionDesignator(e) {
+					let p = printExpression(e)
+					return '(Any_isFatPair_(' + p + ') ? ((FatPair_*)(' + p + '))->env_ : hexaSentinelEnv_)'
+				}
+				// Plain global function → sentinel (pairs with the wrapper above).
+				// S3b retirements: `hexaSentinelEnv_` replaces S3a `nullptr`.
+				if let gt = globalFuncType(name) {
+					if isFatValueType(gt) {
+						return 'hexaSentinelEnv_'
+					}
+				}
+				return 'hexaSentinelEnv_/*UNPAIRED-ENV*/'
+			case Dot(expr, name, _):
+				if isFatFieldDot(expr, name, getType(e)) {
+					return printExpression(expr) + '->' + name + '$e_'
+				}
+				return 'hexaSentinelEnv_/*UNPAIRED-DOTENV*/'
+			case Null(_):
+				return 'hexaSentinelEnv_'
+			case _:
+				return 'hexaSentinelEnv_/*UNPAIRED-ENV*/'
+		} }
 
 	/// S3b: source function type behind a fat value (for call-site casts).
 	/// `null` when there is no meaningful source (Null → nullptr needs none).
@@ -4132,15 +4427,16 @@ class GenCxx {
 		// ^ TODO ((==null)?false:_toBool)
 		// != null SHOULD BE DONE ONLY FOR NULLABLE AND Any
 		if fromValue == project.typer.typeAny, to == project.typer.typeInt {
-			return '(' + string + ')->_toInt()'
+			return 'Any_unboxInt_(' + string + ')'
 		}
 		// ^ TODO ((==null)?0:_toInt) cause 1+null+2=3
 
 		if fromValue == project.typer.typeAny, to == project.typer.typeFloat {
-			return '(' + string + ')->_toFloat()'
+			return 'Any_unboxFloat_(' + string + ')'
 		}
 
 		if fromValue == project.typer.typeAny, to == project.typer.typeNumber {
+			return 'Any_unboxFloat_(' + string + ')'
 		}
 		// ^ TODO ((==null)?0.0:_to) cause 1+null+2=3
 
@@ -4319,6 +4615,7 @@ class GenCxx {
 								}
 
 								if toNull == project.typer.typeNumber {
+									return 'Null$Float64\{' + string + ', 1\}'
 								}
 
 								if toNull == project.typer.typeFloat32 {
@@ -4371,6 +4668,7 @@ class GenCxx {
 										}
 
 										if toNull == project.typer.typeNumber {
+											return 'Null$Float64\{0.0, 0\}'
 										}
 
 										if toNull == project.typer.typeFloat32 {
@@ -4580,12 +4878,54 @@ class GenCxx {
 					results.push(thisArgument)
 				}
 
-				for a in args.length {
-					var result = stringifyType(types[a].dataType) + ' ' + args[a] + '_'
-					// if (defaults) { switch types[a] {
-					// case Nullable(_): result += ' = ((Unknown_ *)0)'
-					// case UnknownNullable(_): result += ' = ((Unknown_ *)0)'
-					// }}
+				// Hexa rest `...x: T` (no @nativeVariadic) is fixed `(count, ptr)`.
+				var hexaRestElement: Type? = null
+				var fixedLen = args.length
+
+				if types.length > 0, args.length > 0 {
+					switch types[types.length - 1].dataType {
+						case Rest(element, native):
+							if not native {
+								hexaRestElement = element
+								fixedLen = args.length - 1
+							}
+					}
+				}
+
+				for a in fixedLen {
+					// S3a fat impl env-first: leading `$env` (only lifted
+					// `closure$N` have it; user code cannot contain `$`) prints
+					// as uniform `void* $env_` (holds any `Env$N_*`/sentinel).
+					// Nice keeps the concrete type for callExpects; C needs
+					// void* so every function-typed value has identical shape.
+					// Registered as `Any` so the `$envT` UnsafeBitCast bridges
+					// via `(size_t)` (void*→Env$N_* needs an explicit cast).
+					if a == 0, args.length > 0, args[0] == '$env' {
+						localDecls.set('$env', project.typer.typeAny)
+						results.push('void* $env_')
+						continue
+					}
+					// S3b F1.6: function-typed params double up (`name$ptr_`,
+					// `name$env_`) from the type alone; env half is uniform
+					// `void*`. Single Nice binding stays one `localDecls` entry.
+					if isFatValueType(types[a].dataType) {
+						localDecls.set(args[a], types[a].dataType)
+						let ptrType = stringifyType(types[a].dataType)
+						results.push(ptrType + ' ' + args[a] + '$ptr_')
+						results.push('void* ' + args[a] + '$env_')
+						continue
+					}
+					let argType = stringifyType(types[a].dataType)
+
+					// `Void` parameters carry no value — dropped here and in
+					// the function-type typedefs (see `stringifyType`)
+					if argType == 'void' {
+						continue
+					}
+
+					// Declare for `cShape` — use nodes may lie about type
+					localDecls.set(args[a], types[a].dataType)
+					let result = argType + ' ' + args[a] + '_'
 					results.push(result)
 				}
 
@@ -4866,7 +5206,7 @@ class GenCxx {
 					}
 
 					name += '_$' + [for param in generic {
-							omitPointer(stringifyType(param, prefixNull: true))
+							mangleTypeSegment(stringifyType(param, prefixNull: true))
 						}].join('$')
 						// + '*'
 
@@ -5006,27 +5346,22 @@ class GenCxx {
 				}
 
 				let temp = tempId++
+				let name = '_$\(temp)'
+				typedefFunctionsMap.set(signature, name)
 				typedefFunctions.push('typedef ')
-				typedefFunctions.push(stringifyType(returns))
+				typedefFunctions.push(returnName)
 				// TODO use better name like _fun_123_
 				// TODO de-dup all function types in normalizer, expressions to use funcTypes[id]
 				// typedefFunctions.push(' (*_$\(temp))(')
 				typedefFunctions.push(' (')
 				// TODO respect `link.convention`
 				typedefFunctions.push(defaultCallingConvention)
-				typedefFunctions.push('*_$')
-				typedefFunctions.push('' + temp)
+				typedefFunctions.push('*')
+				typedefFunctions.push(name)
 				typedefFunctions.push(')(')
-
-				let a: [String] = []
-
-				for arg in args {
-					a.push(stringifyType(arg.dataType))
-				}
-
-				typedefFunctions.push(a.join(', '))
+				typedefFunctions.push(fatA.join(', '))
 				typedefFunctions.push(');\n')
-				return '_$\(temp)'
+				return name
 				// return 'Any_* /*Function* /'
 			case Rest(element, _):
 				// Hexa rest lowers to `(count, ptr)` — the ptr alone is `Elem*`.
@@ -5584,12 +5919,26 @@ class GenCxx {
 		return null
 	}
 
-	/// Returns type name without last `*` on the end
-	fun omitPointer(typeName: String): String {
-		if typeName.endsWith('*') {
-			return typeName.substr(0, typeName.length - 1)
+	/// F10.2: heap-construct an `AnyObject_*` bag from an object literal into
+	/// an `Any`-shaped slot (see printObjectAs). Values convert to `Any`
+	/// (fat values box as pairs so closures survive dispatch); keys are the
+	/// interned string literals. Emitted as a metaBlock temp + stores — the
+	/// caller flushes metaBlock before the owning assignment (same protocol
+	/// as struct construction and VirtualMethod spills).
+	fun printAnyObjectLit(names: [String], els: [Expression]): String {
+		let tid = tempId++
+		let tmp = '_$obj' + tid
+		metaBlock.push('Any_* ' + tmp + ' = Any_objectNew_()')
+
+		for i in names.length {
+			var vstr = printToAnyConverter(printExpression(els[i]), valueType(els[i]))
+
+			if isBoxableFat(els[i]) {
+				vstr = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(els[i]) + '), ' + fatEnvStr(els[i]) + ')'
+			}
+			metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 		}
-		return typeName
+		return tmp
 	}
 
 	fun registerString(string: String): Int {
@@ -5800,14 +6149,14 @@ class GenCxx {
 				}
 		}
 
-		let vType = getType(v)
+		let vType = valueType(v)
 
 		if vType == project.typer.typeAny, ofType != project.typer.typeAny {
 			// Cast Any to expected type
 			// return printTypeConverter(printExpression(v), vType, ofType)
 		}
 
-		return printTypeConverter(printExpression(v), vType, ofType)
+		return forcedCast(ofType, printTypeConverter(printExpression(v), vType, ofType))
 		// return printExpression(v)
 	}
 
@@ -6003,7 +6352,13 @@ class GenCxx {
 					}
 				}
 
-				let id = registerString(charsOut.join(""))
+				// C4129: Hexa escaped braces arrive here as backslash+brace
+				// two-char sequences — C has no brace escape, emit bare.
+				// Built via fromCharCode to avoid brace literals in genC.
+				var rawStr = charsOut.join("")
+				rawStr = rawStr.split(String.fromCharCode(92) + String.fromCharCode(123)).join(String.fromCharCode(123))
+				rawStr = rawStr.split(String.fromCharCode(92) + String.fromCharCode(125)).join(String.fromCharCode(125))
+				let id = registerString(rawStr)
 				declarationsOfStringsMap.set(string, id)
 				return 'String_\(id)'
 				// return 'String_fromUTF8z("' + charsOut.join('') + '")'
@@ -6076,17 +6431,12 @@ class GenCxx {
 						// Dynamic
 						let dataType = getType(expr)
 
-						if ((dataType == project.typer.typeAny) or (dataType == null)) {
+						if isDynamic(dataType) {
+							// NOTE the receiver value may carry a SUBSTITUTED
+							// pointer type at the C level — the cast keeps the
+							// stub call well-formed for any of them
 							// TODO leaky!!
-							return printExpression(expr) + '->let_(String_$fromUTF16z_(L"' + name + '"))'
-						}
-
-						switch typed {
-							case ClassInstance(c):
-								// if let rename = c.fieldRenames[c.fieldNames.indexOf(name)] { TODO
-								if c.fieldRenames.includes(name) {
-									return printExpression(expr) + '->' + name
-								}
+							return anyDynGetStr(printExpression(expr), name)
 						}
 
 						// NOTE instance members keep their STABLE `name_` C
@@ -6096,11 +6446,14 @@ class GenCxx {
 						// declaration (`Set.size` printed `->size` vs `size_`)
 						return printExpression(expr) + '->' + name + '_'
 					case _:
-						switch getType(expr) {
-							case ClassInstance(c):
-								if c.fieldRenames.includes(name) {
-									return printExpression(expr) + '->' + name
-								}
+						// Dynamic `Any` receivers route EVERY member access
+						// through the reflection stub (F10 replaces it) —
+						// `x.y` on `Any` is `x->let_(L"y")`, chained calls
+						// then go through the `AnyValue_` proxy
+						let dataType = getType(expr)
+
+						if isDynamic(dataType) {
+							return anyDynGetStr(printExpression(expr), name)
 						}
 
 						// NOTE same as above: STABLE `name_` fields, no
@@ -6110,10 +6463,36 @@ class GenCxx {
 
 				// TODO to keep local var caches, use something like block.push()
 				// into current scope
-				switch kind {
-					case Static:
-						return printExpression(e) + printCallArguments(args)
 			case Call(e, args, dataType, kind, callExpectsField):
+				// S3a dual-mode TOP (before kind-switch: `Static` returns early
+				// and would bypass fat logic — thin-wrapper inners must print
+				// FAT with their explicit env). `Closure` → fat + auto-env;
+				// untagged fat-impl calls print fat with explicit args.
+				if kind == CallKind.Closure {
+					if closureBaseName(e) != null {
+						return printClosureFatCall(e, args, null)
+					}
+				}
+
+				if closureBaseName(e) != null {
+					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, exprCallExpects(callExpectsField, e))
+				}
+				// S3b: struct-field calls print thin-member + explicit env.
+				if isStructDotCall(e) {
+					return printStructDotCall(e, args, exprCallExpects(callExpectsField, e))
+				}
+				// S3b: method Dots typed as non-virtual still dispatch via the
+				// vtable (the typer only marks some sites VirtualMethod).
+				var effKind = effCallKind(e, kind)
+				// S3b F1.6: fat pair-held callees (params/locals/globals, field
+				// Dots) call `ptr_(env_, args...)`. Methods stay on the vtable
+				// path (`VirtualMethod` excluded).
+				if effKind != CallKind.VirtualMethod, isFatCallee(e) {
+					return printFatValueCall(e, args, exprCallExpects(callExpectsField, e))
+				}
+
+				switch effKind {
+					// TODO error on (_,_) if simple enum case CallKind.VirtualMethod(_, _): return '*.virtual'
 					case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
@@ -6175,9 +6554,9 @@ class GenCxx {
 								}
 
 								let result = if isStruct {
-									omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+									omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, exprCallExpects(callExpectsField, e))
 								} else {
-									'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args)
+									'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, exprCallExpects(callExpectsField, e))
 								}
 
 								for b in metaBlock {
@@ -6198,7 +6577,27 @@ class GenCxx {
 				// // TODO better way
 				// case SizeOf: return printExpression(e)
 				// }
-				return printExpression(e) + printCallArguments(args)
+				// S3a dual-mode (expressions): `CallKind.Closure` → fat impl +
+				// global/nullptr env; untagged fat-impl calls (explicit env)
+				// print fat with explicit args. Stored values print as thin
+				// wrappers via `Ident` below and never reach here as callees.
+				if kind == CallKind.Closure {
+					if closureBaseName(e) != null {
+						return printClosureFatCall(e, args, null)
+					}
+				}
+
+				if closureBaseName(e) != null {
+					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, exprCallExpects(callExpectsField, e))
+				}
+				// NOTE same proxy rule as statements (declared types decide).
+				// F10.3 pair dispatch replaces the proxy when the callee
+				// carries a boxed fat pair.
+				if isDynamicCallee(e) {
+					return printDynamicCall(e, args, exprCallExpects(callExpectsField, e))
+				}
+
+				return '/*DYNRAW*/' + printExpression(e) + printCallArguments(args, exprCallExpects(callExpectsField, e))
 
 			case Arrow(expr, args, defaults, types, returns, funcType, isAsync): {
 					return printExpression(
@@ -6215,7 +6614,7 @@ class GenCxx {
 				currentReturnType = getFunctionReturnType(funcType)
 
 				let temp = tempId++
-				let rt = printFunctionReturnType(funcType)
+				let rt = linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 				forwardFunctions.push(rt)
 				// TODO This must be re-think-ed
 				if defaultCallingConvention != '' {
@@ -6237,7 +6636,10 @@ class GenCxx {
 				globalFunctions.push(' _$\(temp)')
 				globalFunctions.push(printFunctionArguments(args, funcType))
 				globalFunctions.push(' ')
-				globalFunctions.push(printBlock(expr))
+				let _insideAsyncFunction = insideAsyncFunction
+				insideAsyncFunction = isAsync
+				globalFunctions.push(isAsync? printFunctionBody(expr, printFunctionReturnType(funcType)) : printBlock(expr))
+				insideAsyncFunction = _insideAsyncFunction
 				globalFunctions.push('\n\n')
 				tabs = tab
 
@@ -6293,7 +6695,29 @@ class GenCxx {
 				switch arrayType {
 					case ClassInstance(_, generic):
 						let elType: String = stringifyType(generic[0])
-						return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), (\(elType)[])\{' + [for a in el printExpression(a)].join(', ') + '\})'
+						// Struct-typed elements: real construction (see printObjectAs).
+						let elStrs: [String] = []
+
+						for a in el {
+							if let s = printObjectAs(generic[0], a) { elStrs.push(s) }
+							// F10.3: fat elements into `Any` slots box pairs.
+							else if isFatValueType(valueType(a)), stringifyType(generic[0]) == 'Any_*' { elStrs.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')') }
+							else { elStrs.push(printExpression(a)) }
+						}
+						let items = elStrs.join(', ')
+
+						// C++ has no compound literals (C4576) — the runtime
+						// helper builds the initializer buffer instead
+						if cpp {
+							return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), hexaItems<\(elType)>(\(items)))'
+						}
+
+						return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), (\(elType)[])\{' + items + '\})'
+				}
+
+				if cpp {
+					let items = [for a in el printExpression(a)].join(', ')
+					return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), hexaItems<Any_*>(\(items)))'
 				}
 
 				return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), \{' + [for a in el printExpression(a)].join(', ') + '\})'
@@ -6319,7 +6743,67 @@ class GenCxx {
 				return Token.stringify(op) + printExpression(e)
 
 			case Elvis(nullable, othewise):
-				return '((' + printExpression(nullable) + ')||(' + printExpression(othewise) + '))'
+				// Fallback — reflect lowers simple lhs to If, so any Elvis
+				// here is complex (Dot/Call/Index, single-eval required).
+				// Hoist lhs to a metaBlock temp (statement flushes it before
+				// use — no closure/env alloc, no double getter/call eval).
+				// Null check is shape-aware: Null$ structs via `has_`,
+				// pointers (incl. native struct ptrs, plain nullptr) via
+				// `!= <null literal for lhs type>`. Both branches convert
+				// toward the result (pointer results box to Any_* so the
+				// ternary is well-formed despite use-node lies); the owning
+				// statement converts outward as usual.
+				let lhsT = getType(nullable)
+				let resT = getType(othewise)
+
+				if isFatValueType(lhsT) or isFatValueType(resT) {
+					throw 'Elvis on function values needs statement lowering (pairs cannot ride a ternary)'
+				}
+				let lhsC = stringifyType(lhsT)
+
+				if lhsC == 'void' {
+					return printExpression(othewise)
+				}
+				// Non-nullable scalar `??` is dead (lhs cannot be null) —
+				// identity, no invalid `nullptr` compare (C2446 on double)
+				var lhsNullable = true
+				switch lhsT {
+					case Nullable(_): lhsNullable = true
+					case UnknownNullable(_): lhsNullable = true
+					case _: lhsNullable = false
+				}
+
+				if not lhsNullable, not lhsC.endsWith('*'), not lhsC.startsWith('_$') {
+					return printExpression(nullable)
+				}
+				let t = tempId++
+				metaBlock.push(lhsC + ' _$' + t + ' = ' + printExpression(nullable))
+				let tmp = '_$' + t
+				var cond = ''
+
+				if lhsC.startsWith('Null$') {
+					cond = '(' + tmp + '.has_ != 0)'
+				} else {
+					let nullLit = printExpression(Expression.Null(lhsT))
+					cond = '(' + tmp + ' != ' + nullLit + ')'
+				}
+				let resC = stringifyType(resT)
+				var thenS = ''
+				var elseS = ''
+
+				if resC == 'Any_*' {
+					// Dynamic result: box both (C-cast compiles for any
+					// pointer pair despite use-node lies); outer converts
+					thenS = printToAnyConverter(tmp, lhsT)
+					elseS = printToAnyConverter(printExpression(othewise), getType(othewise))
+				} else {
+					// Typed result (pointer or scalar): convert both toward
+					// it so the printed shape already matches — dynamic
+					// outers apply no conversion of their own (C2664)
+					thenS = printTypeConverter(tmp, lhsT, resT)
+					elseS = printTypeConverter(printExpression(othewise), getType(othewise), resT)
+				}
+				return '(' + cond + ')?(' + thenS + '):(' + elseS + ')'
 
 			case Parenthesis(e):
 				return '(' + printExpression(e) + ')'
@@ -6406,35 +6890,162 @@ class GenCxx {
 
 				if op == Token.Add {
 					if getType(a) == project.typer.typeString {
-						return 'String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), getType(b), project.typer.typeString) + ')'
+					if cShape(a) == 'String_*' {
+						return 'String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), valueType(b), project.typer.typeString) + ')'
 					}
 
-					if getType(b) == project.typer.typeString {
-						return 'String_$combine_(' + printTypeConverter(printExpression(a), getType(a), project.typer.typeString) + ', ' + printExpression(b) + ')'
+					if cShape(b) == 'String_*' {
+						return 'String_$combine_(' + printTypeConverter(printExpression(a), valueType(a), project.typer.typeString) + ', ' + printExpression(b) + ')'
 					}
 				}
 
 				let token = op == Token.IntegerDivide? '/' : Token.stringify(op)
 				return printExpression(a) + ' ' + token + ' ' + printExpression(b)
-
-			case Index(expr, index):
-				switch getType(expr) {
-					case ClassInstance(classType, generic):
-						if classType.name != 'Array' {
-							return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
-						}
+				// `x = y` used as an EXPRESSION (e.g. `while (m = re.exec(s))`)
+				// — same conversion rules as `Statement.Assign`
+				if op == Token.Assign {
+					// Struct/interface-typed literal: real construction (see printObjectAs).
+					if let s = printObjectAs(valueType(a), b) {
+						return printExpression(a) + ' = ' + s
+					}
+					return printExpression(a) + ' = ' + forcedCast(valueType(a), printTypeConverter(printExpression(b), valueType(b), valueType(a)))
 				}
 
-				// TODO meta block
-				// let expr = printExpression(expr)
-				// let index = printTypeConverter(printExpression(index), getType(index), project.typer.typeInt)
-				return printExpression(Expression.Call(
-						// TODO `set`
-						Expression.Dot(expr, 'get', null /*TODO*/),
-						[index],
-						project.typer.typeAny, // TODO this is a reflection access
-						CallKind.VirtualMethod
-					))
+				// C-friendly operators: Hexa's `and`/`or` → `&&`/`||`
+				var token = op == Token.IntegerDivide? '/' : Token.stringify(op)
+
+				if op == Token.KAnd or op == Token.LogicalAnd {
+					token = '&&'
+				}
+
+				if op == Token.KOr or op == Token.LogicalOr {
+					token = '||'
+				}
+
+				// Dynamic (`Any_*`) operands in arithmetic/comparisons —
+				// cast the dynamic side to the other operand's C type (the
+				// value is a placeholder until F10 reflection). NOTE operand
+				// shapes come from `cShape` — use-node types can lie about
+				// the C value (typer coerces `Any` uses to `Int` etc)
+				let aSide = cShape(a)
+				let bSide = cShape(b)
+				// The C shape the RESULT must have: a dynamic Nice type means
+				// downstream conversions call `-> _toFloat()`-style members,
+				// so the printed value must be `Any_*`-shaped (boxing rule
+				// keyed on the C shape — see docs/target-c.md Phase 1)
+				let resultSide = stringifyType(getType(e))
+				// `+ - * / %` where a pointer-typed side is involved is
+				// ill-formed C (C2110) — the `AnyValue_` proxy carries the
+				// operator stubs instead. Pure-scalar operands stay raw (a
+				// proxy cannot even be CONSTRUCTED from a scalar: C2440).
+				// (`==`/`!=` stay referential pointer compares, `&&`/`||` and
+				// pointer comparisons are legal C on raw pointers)
+				let illegalPointerOp = ['+', '*', '/', '%'].includes(token)
+				let aPtr = aSide.endsWith('*')
+				let bPtr = bSide.endsWith('*')
+
+				// NOTE `_$N` fn-ptr typedef names never end with `*`
+				if illegalPointerOp, aPtr or bPtr {
+					// Pointer-involved: the proxy needs `Any_*` operands but
+					// the Nice type may LIE about the C value (a struct field
+					// widened to `Any` after the C shape froze, e.g.
+					// `layout.bottomPanelH`). The `(size_t)` bridge compiles
+					// for EVERY shape (scalar or pointer) and round-trips
+					// genuine pointers bit-identically — placeholder
+					// semantics either way until F10
+					let boxedA = '(struct Any_ *)(size_t)(' + printExpression(a) + ')'
+					let boxedB = '(struct Any_ *)(size_t)(' + printExpression(b) + ')'
+					let proxy = '(AnyValue_\{' + boxedA + '\}) ' + token + ' (AnyValue_\{' + boxedB + '\})'
+
+					// Proxy operators return scalars (int64_t/uint8_t) —
+					// re-box when the Nice result claims dynamic
+					if resultSide == 'Any_*' {
+						return '(struct Any_ *) (size_t) (' + proxy + ')'
+					}
+
+					return '(' + resultSide + ')(' + proxy + ')'
+				}
+
+				// Mixed dynamic/scalar for the REMAINING operators (pointer
+				// arithmetic already proxied above): bridge the dynamic side
+				// to the peer's C type (placeholder semantics until F10)
+				if aSide == 'Any_*', bSide != 'Any_*', bSide != 'void' {
+					let raw = castOperand(bSide, printExpression(a)) + ' ' + token + ' ' + printExpression(b)
+
+					// Dynamic result over a typed C value — box it back so
+					// the C shape matches the `Any_*` Nice type
+					if resultSide == 'Any_*' {
+						return printToAnyConverter(raw, valueType(b))
+					}
+
+					return raw
+				}
+
+				if bSide == 'Any_*', aSide != 'Any_*', aSide != 'void' {
+					let raw = printExpression(a) + ' ' + token + ' ' + castOperand(aSide, printExpression(b))
+
+					if resultSide == 'Any_*' {
+						return printToAnyConverter(raw, valueType(a))
+					}
+
+					return raw
+				}
+
+				let raw = printExpression(a) + ' ' + token + ' ' + printExpression(b)
+
+				// Typed operands but a dynamic result type (e.g. erased
+				// generics) — keep the C shape consistent with the Nice type
+				if resultSide == 'Any_*', aSide != 'void', bSide != 'void' {
+					return printToAnyConverter(raw, valueType(a))
+				}
+
+				return raw
+
+			case Index(expr, index):
+				let exprType = getType(expr)
+
+				// `Any` (or untyped) receivers index DYNAMICALLY — the raw
+				// `expr[i]` form would index a struct object, not a storage
+				if isDynamic(exprType) {
+					return printExpression(Expression.Call(
+							Expression.Dot(expr, 'get', null /*TODO*/),
+							[index],
+							project.typer.typeAny,
+							// `Function` kind so the dynamic path prints the
+							// `let_(...)` reflection stub call (F10)
+							CallKind.Function,
+							[]
+						))
+				}
+
+				switch Type.unwrapNullable(exprType) {
+					case ClassInstance(classType, generic):
+						// Containers with a `get` method (Array, Map) read
+						// through it — raw `expr[i]` is only for pointer
+						// shaped storage (`ArrayPointer` and friends)
+						if classType.fields.get('get') == ClassTypeField.Method {
+							var keyType = project.typer.typeInt
+
+							if classType.name != 'Array' {
+								if let g = generic, g.length > 0 {
+									keyType = g[0]
+								}
+							}
+
+							return printExpression(Expression.Call(
+									Expression.Dot(expr, 'get', null /*TODO*/),
+									[Expression.UnsafeBitCast(index, keyType)],
+									project.typer.typeAny, // TODO this is a reflection access
+									CallKind.VirtualMethod,
+									[]
+								))
+						}
+
+						return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
+					case _:
+				}
+
+				return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
 
 			case If(econd, eif, eelse):
 				var r = ''
@@ -6529,7 +7140,7 @@ class GenCxx {
 				}
 
 				return 'Object_from(' + [for i in el.length {
-						((names[i]) + ', ' + printExpression(el[i]))
+						(printExpression(Expression.String(names[i])) + ', ' + printExpression(el[i]))
 					}].join(', ') + ')'
 
 			case Map(keys, values, keyType, valueType, mapType):
@@ -6560,7 +7171,7 @@ class GenCxx {
 				}
 
 				return '\(typeName)$from_(\(typeName)$new_(), \(keys.length), (\(kType)[])\{' +
-				[for el in keys printExpression(el)].join(', ')
+				keyItems
 				+ '\}, (\(vType)[])\{' +
 				[for el in values printExpression(el)].join(', ')
 				// TODO keep order with meta blocks `[for i in keys.length '' + printExpression(keys[i]) + ', ' + printExpression(values[i]) + ''].join(', ')`
@@ -6572,7 +7183,28 @@ class GenCxx {
 
 			case NativeOperator(kind, args, s, params, result): switch kind {
 					case Infix:
-						return '((' + printExpression(args[0]) + ')' + s + '(' + printExpression(args[1]) + '))'
+						// are not C operators — `===` even lexes as `==` + `=`
+						// (the stray-`=` syntax error). F10.2: strict equality
+						// rides the `==`/`!=` shape logic (box-both for
+						// mismatched pointer shapes) instead of a raw compare,
+						// which is C2446 on cross-type operands (`Tab_*` vs
+						// `Any_*`). `instanceof` stays an F10 stub.
+						if s == '===' {
+							return printExpression(Expression.Binop(args[0], Token.Equal, args[1], project.typer.typeBool))
+						}
+
+						if s == '!==' {
+							return printExpression(Expression.Binop(args[0], Token.Unequal, args[1], project.typer.typeBool))
+						}
+
+						var infix = s
+
+						if infix == 'instanceof' {
+							// Placeholder semantics until F10 reflection
+							return '((uint8_t)0 /*instanceof stub*/)'
+						}
+
+						return '((' + printExpression(args[0]) + ')' + infix + '(' + printExpression(args[1]) + '))'
 					case Function:
 						if let params = params, s == '*sizeof' {
 							return 'sizeof(' + omitPointer(stringifyType(params[0])) + ')'
@@ -6616,22 +7248,24 @@ class GenCxx {
 				// (`hexaPumpResumes`, zero host edits). Outside async (or
 				// non-Promise) keeps the pass-through (M1 safe).
 					// C++ forbids `co_await` inside `catch` (C2304) — fall back
-					// to the settled `.value` read below (no suspension).
-					if insideAsyncFunction, not insideCatch {
-						var awaitedAsync = getType(e)
-						var promiseT: Type? = null
-						switch awaitedAsync {
-							case ClassInstance(classType, generic):
-								if classType.name == 'Promise', generic != null, generic.length == 1 {
-									promiseT = generic[0]
-								}
-							case _:
-						}
-						if let t = promiseT {
-							if t == project.typer.typeVoid {
-								return '(co_await (*' + printExpression(e) + '), (void)0)'
 			case Await(e):
+				// C++ forbids `co_await` inside `catch` (C2304) — fall back
+				// to the settled `.value` read below (no suspension).
+				if insideAsyncFunction, not insideCatch {
+					var awaitedAsync = getType(e)
+					var promiseT: Type? = null
+					switch awaitedAsync {
+						case ClassInstance(classType, generic):
+							if classType.name == 'Promise', generic != null, generic.length == 1 {
+								promiseT = generic[0]
 							}
+						case _:
+					}
+
+					if let t = promiseT {
+						if t == project.typer.typeVoid {
+							return '(co_await (*' + printExpression(e) + '), (void)0)'
+						}
 						let base = '(co_await (*' + printExpression(e) + '))'
 
 						if t == project.typer.typeInt {
@@ -6649,68 +7283,71 @@ class GenCxx {
 						if t == project.typer.typeBool {
 							return '(' + base + ')->_toBool()'
 						}
-							return '((' + stringifyType(t) + ')(size_t)(' + base + '))'
-						}
+						return '((' + stringifyType(t) + ')(size_t)(' + base + '))'
 					}
-					// The C value is still the PROMISE pointer while `getType`
-					// reports the awaited result type — cast to it so
-					// `let x: T = await p` compiles (no-op until F9).
-					// Void-C callees (`async fun` without `return`) carry no C
-					// value — sequence for effects, yield typed null instead
-					// of casting `void` (C2440).
-					if isVoidValue(e) {
-						var awaitedVoid = getType(e)
+				}
+				// The C value is still the PROMISE pointer while `getType`
+				// reports the awaited result type — cast to it so
+				// `let x: T = await p` compiles (no-op until F9).
+				// Void-C callees (`async fun` without `return`) carry no C
+				// value — sequence for effects, yield typed null instead
+				// of casting `void` (C2440).
+				if isVoidValue(e) {
+					var awaitedVoid = getType(e)
 
-						switch awaitedVoid {
-							case ClassInstance(classType, generic):
-								if classType.name == 'Promise', generic != null, generic.length == 1 {
-									awaitedVoid = generic[0]
-								}
-							case _:
-						}
-
-						return '(' + printExpression(e) + ', (' + stringifyType(awaitedVoid) + ')0)'
-					}
-					var awaited = getType(e)
-
-					var settled = false
-					switch awaited {
+					switch awaitedVoid {
 						case ClassInstance(classType, generic):
 							if classType.name == 'Promise', generic != null, generic.length == 1 {
-								// Phase-1 native await (F9 lands real suspension):
-								// promises settle synchronously (resolve() stores
-								// .value at construction; executor promises never
-								// settle) and there is no event loop to suspend
-								// on — so read the settled value instead of
-								// reinterpreting the promise object (which jumps
-								// into garbage via vtable mismatch, M3 boot).
-								if generic[0] != project.typer.typeVoid {
-									awaited = generic[0]
-									settled = true
-								}
+								awaitedVoid = generic[0]
 							}
 						case _:
 					}
 
-					if settled {
-						let base = '(' + printExpression(e) + ')->value_'
-						// Scalar Ts unbox through the conversion helpers
-						// (null-safe: unsettled promises read defaults
-						// instead of crashing).
-						if awaited == project.typer.typeInt {
-							return 'Any_unboxInt_(' + base + ')'
+					return '(' + printExpression(e) + ', (' + stringifyType(awaitedVoid) + ')0)'
+				}
+				var awaited = getType(e)
+
+				var settled = false
+				switch awaited {
+					case ClassInstance(classType, generic):
+						if classType.name == 'Promise', generic != null, generic.length == 1 {
+							// Phase-1 native await (F9 lands real suspension):
+							// promises settle synchronously (resolve() stores
+							// .value at construction; executor promises never
+							// settle) and there is no event loop to suspend
+							// on — so read the settled value instead of
+							// reinterpreting the promise object (which jumps
+							// into garbage via vtable mismatch, M3 boot).
+							if generic[0] != project.typer.typeVoid {
+								awaited = generic[0]
+								settled = true
+							}
 						}
-						if awaited == project.typer.typeFloat or awaited == project.typer.typeNumber {
-							return 'Any_unboxFloat_(' + base + ')'
-						}
-						if awaited == project.typer.typeInt64 or awaited == project.typer.typeUInt64 {
-							return 'Any_unboxInt64_(' + base + ')'
-						}
-						if awaited == project.typer.typeBool {
-							return '(' + base + ')->_toBool()'
-						}
-						return '((' + stringifyType(awaited) + ')(size_t)(' + base + '))'
+					case _:
+				}
+
+				if settled {
+					let base = '(' + printExpression(e) + ')->value_'
+					// Scalar Ts unbox through the conversion helpers
+					// (null-safe: unsettled promises read defaults
+					// instead of crashing).
+					if awaited == project.typer.typeInt {
+						return 'Any_unboxInt_(' + base + ')'
 					}
+
+					if awaited == project.typer.typeFloat or awaited == project.typer.typeNumber {
+						return 'Any_unboxFloat_(' + base + ')'
+					}
+
+					if awaited == project.typer.typeInt64 or awaited == project.typer.typeUInt64 {
+						return 'Any_unboxInt64_(' + base + ')'
+					}
+
+					if awaited == project.typer.typeBool {
+						return '(' + base + ')->_toBool()'
+					}
+					return '((' + stringifyType(awaited) + ')(size_t)(' + base + '))'
+				}
 
 				return '((' + stringifyType(awaited) + ')(' + printExpression(e) + '))'
 
