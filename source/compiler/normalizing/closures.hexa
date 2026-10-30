@@ -75,6 +75,18 @@ class ClosureLifter {
 	/// TEMPORARY INSTRUMENTATION — >0 only while rewriting a lifted closure
 	/// body (top-level fn rewrites rename nothing, so UNRENAMED there is noise)
 	var insideLift = 0
+	/// TEMPORARY INSTRUMENTATION — capture set per lifted closure (S2 gate:
+	/// every `closure$N` with captures must get exactly one `Env$N` class with
+	/// exactly these fields; no-capture closures get none)
+	let closureCaptures: [String : [String]] = [:]
+	/// TEMPORARY INSTRUMENTATION — `closure$N` -> env slot global name
+	let closureEnvOf: [String : String] = [:]
+	/// TEMPORARY INSTRUMENTATION — `closure$N` -> env class name
+	let closureEnvClassOf: [String : String] = [:]
+	/// TEMPORARY INSTRUMENTATION — helpers synthesized this run (appended to
+	/// `niceProject.classes` only after all walks, so in-flight iteration is
+	/// never disturbed)
+	let pendingClasses: [NiceClass] = []
 	/// Env-fill assignments for the statement being rewritten (hoisted)
 	var hoisted: [Statement] = []
 	var id Int = 0
@@ -186,11 +198,18 @@ class ClosureLifter {
 			}
 		}
 
+		// S2: flush synthesized helpers (appended after all walks so
+		// in-flight `for c in niceProject.classes` iteration is undisturbed)
+		for nc in pendingClasses {
+			niceProject.classes.push(nc)
+		}
+
 		// TEMPORARY INSTRUMENTATION — post-pass checks (see each method's doc):
 		// independent re-derivation of every capture decision + the closure
 		// value-flow census for the F1.6 design. Any VERIFY-FAIL / FWD-REF /
 		// THIS-LEAK / DROPPED-FILL line is a live hole in the pass
 		verifyLifted()
+		verifyEnvs()
 		censusClosureUses()
 		traceLog('CENSUS calls=' + censusCalls + ' stored=' + censusStored + ' methodValues=' + censusMethodValues + ' closureKind=' + censusClosureKind)
 
@@ -228,6 +247,27 @@ class ClosureLifter {
 			// compiles clean). Any DROPPED-FILL line is a live instance
 			if hoisted.length > 0 {
 				traceLog('DROPPED-FILL var-init ' + kindOfStmt(old) + ' fills=' + hoisted.length)
+				// S3b: record dropped env globals so codegen falls back to the
+				// global slot (which exists) instead of the per-instance local
+				// twin (which was never emitted).
+				for h in hoisted { switch h {
+					case Assign(an, _, _): switch an {
+						case Dot(base, _, _): switch base {
+							case Ident(gname, _):
+								if gname.startsWith('closureEnv$') {
+									niceProject.droppedClosureEnvs.set(gname, true)
+									traceLog('DROPPED-ENV      `' + gname + '` (global fallback kept; S3c removes globals)')
+								}
+							case _:
+						}
+						case _:
+					}
+					case Var(vname, _, _):
+						if vname.startsWith('closureEnvL$') {
+							traceLog('DROPPED-LOCAL    `' + vname + '` (twin never emitted)')
+						}
+					case _:
+				} }
 			}
 
 			hoisted = saved
@@ -467,9 +507,9 @@ class ClosureLifter {
 				return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
 			case StringIndex(expr, index, result):
 				return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
-			case Call(callee, args, result, kind):
+			case Call(callee, args, result, kind, expects):
 				let newCallee = rewriteExpr(callee)
-				return Expression.Call(newCallee, rewriteExprList(args), result, closureCallKind(newCallee, kind))
+				return Expression.Call(newCallee, rewriteExprList(args), result, closureCallKind(newCallee, kind), expects)
 			case New(callee, args, result):
 				return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
 			case Binop(a, op, b, result):
@@ -572,6 +612,25 @@ class ClosureLifter {
 			declared.set(a, true)
 		}
 
+		// Hexa rest (`...x: T`) lowers in reflect (runs BEFORE lifting) to
+		// `$nrest`/`$rest` idents — declare them as params or the lifter
+		// captures them into `Env$N` and fills from an outer scope that has
+		// no `$nrest` (M1 `$nrest_` undeclared at the creation site).
+		switch funcType {
+			case Function(fargs, _, _):
+				if fargs.length > 0 {
+					switch fargs[fargs.length - 1].dataType {
+						case Rest(_, native):
+							if not native {
+								declared.set('$nrest', true)
+								declared.set('$rest', true)
+							}
+						case _:
+					}
+				}
+			case _:
+		}
+
 		if let me = selfName {
 			declared.set(me, true)
 		}
@@ -600,6 +659,98 @@ class ClosureLifter {
 		// `this` is captured as a pseudo-name
 		if foundThis != null as!Type {
 			captures.push('this')
+		}
+
+		// TEMPORARY INSTRUMENTATION — record the capture set (S2 gate)
+		closureCaptures.set('closure$' + id, [for c in captures c])
+
+		// S2: per-closure helper class + ONE global env slot (thin values —
+		// same sharing semantics as the old per-name globals; fattening is S3)
+		let envClassName = 'Env$' + id
+		let envGlobalName = 'closureEnv$' + id
+		// S3b per-instance local (same creation, block scope) alongside the
+		// global fallback (obj-elem/array/Any + thin wrappers keep using the
+		// global until F10 pair-boxing; S3c drops the global half). Pairs and
+		// direct IIFE calls use the local; recursion uses `$env`.
+		let envLocalName = 'closureEnvL$' + id
+		var envInstance: Type? = null
+
+		if captures.length > 0 {
+			let kind = new ClassType()
+			kind.name = envClassName
+			kind.kind = ClassKind.Class
+			// Fabricated node: only feeds decorator lookups (-> none) and
+			// never reaches diagnostics. User code cannot contain `$`, so no
+			// real node can collide with it
+			kind.parent = Node.Ident(envClassName, null)
+			kind.useless = false
+
+			let instanceType = Type.ClassInstance(kind, null)
+			envInstance = instanceType
+
+			let nc = new NiceClass()
+			nc.external = false
+			nc.useless = false
+			nc.name = envClassName
+			nc.extend = null
+			nc.genericParams = []
+			nc.api = ClassBinaryInterface.Closure
+			nc.usedByValueDepth = 0
+			nc.template = false
+			nc.classType = instanceType
+			nc.implement = ''
+			nc.implementParams = []
+			nc.rename = 0
+			nc.constructor = -1
+			nc.methods = []
+			nc.staticMethods = []
+			nc.vars = []
+			nc.staticVars = []
+
+			// `new () {}` — genC emits `$new_`/`$this_` from it; the empty
+			// body zero-inits via HEXA_NEW
+			nc.methods.push(Statement.Function('new', Statement.Block([]), [], [], Type.Function([], instanceType, false), VariadicKind.NotVariadic, false))
+
+			for name in captures {
+				var ftype = used.get(name)
+
+				if name == 'this' {
+					ftype = foundThis
+				}
+
+				// Untyped uses (the typer leaves some positions, e.g. unannotated
+				// callback params, without a type) default to `Any` — a null
+				// field/Dot type would print a bare `Any_*` field yet skip the
+				// dynamic-call wrap at use sites (`C2064`).
+				if ftype == null {
+					traceLog('UNTYPED-CAPTURE  closure$' + id + ' `' + name + '` (defaulting to Any)')
+					ftype = niceProject.typer.typeAny
+				}
+
+				kind.fieldNames.push(name)
+				kind.fieldRenames.push(name)
+				kind.fieldStatic.push(false)
+				kind.fieldInitialized.push(false)
+				kind.protected.push(false)
+				kind.immutable.push(false)
+				kind.fields.set(name, ClassTypeField.Variable)
+				nc.vars.push(Statement.Var(name, null, ftype))
+			}
+
+			pendingClasses.push(nc)
+			markGlobal(envClassName, 'envClass')
+			closureEnvClassOf.set('closure$' + id, envClassName)
+			closureEnvOf.set('closure$' + id, envGlobalName)
+
+			// The single global env slot + its allocation (runs at each
+			// creation-site execution, like the old per-name fills)
+			niceProject.globalVars.push(Statement.Var(envGlobalName, null, instanceType))
+			hoisted.push(Statement.Assign(Expression.Ident(envGlobalName, instanceType), Expression.New(Expression.Ident(envClassName, null), [], instanceType), instanceType))
+			// S3b per-instance local twin (same block scope as the owner;
+			// pairs + direct IIFE calls use it, recursion uses `$env`).
+			hoisted.push(Statement.Var(envLocalName, Expression.New(Expression.Ident(envClassName, null), [], instanceType), instanceType))
+			traceLog('ENV-CLASS      closure$' + id + ' -> `' + envClassName + '` fields=' + captures.length)
+			traceLog('ENV-LOCAL      closure$' + id + ' -> `' + envLocalName + '` (per-instance twin)')
 		}
 
 		// Per-closure-site env: one global per captured name, filled at the
@@ -657,6 +808,53 @@ class ClosureLifter {
 		// NOTE restore the declared-set too — nested lifts overwrite it and
 		// stale entries would mis-flag the outer body's locals
 		currentDeclared = outerDeclared
+
+		// S3a: fat impl signature (env-first). C prints `void* $env_` for the
+		// leading `$env` arg (genC names it); Nice keeps the concrete type for
+		// callExpects (global/local instance arg matches with no conversion).
+		// Empty closures take an ignored `$env` too (uniform fat shape; env is
+		// nullptr/sentinel at their calls).
+		var envDataType: Type = niceProject.typer.typeAny
+		if captures.length > 0 {
+			envDataType = envInstance as!Type
+		}
+		var origFargs: [FunctionArgument] = []
+		var origReturns: Type = niceProject.typer.typeAny
+		var origVariadic = false
+		switch funcType {
+			case Function(fa, fr, fv):
+				origFargs = fa ?? []
+				// Untyped lambdas carry a null return (e.g. `fun (x) {...}` with
+				// no annotation) — default to `Any` so the fat impl, thin
+				// wrapper and all call sites keep a type (ARC `returnUnknown`
+				// tripwire stays zero; `Any` is guarded, never blind).
+				origReturns = fr ?? niceProject.typer.typeAny
+				origVariadic = fv
+		}
+		let fatArgs = ['$env']
+		for a in args {
+			fatArgs.push(a)
+		}
+		let fatFargs: [FunctionArgument] = []
+		let envFa = new FunctionArgument(withType: envDataType)
+		envFa.name = '$env'
+		fatFargs.push(envFa)
+		for fa in origFargs {
+			fatFargs.push(fa)
+		}
+		let fatFuncType = Type.Function(fatFargs, origReturns, origVariadic)
+
+		// S3a: cast `void* $env` to concrete `$envT` at the top of fat bodies
+		// with captures (empty bodies ignore `$env`; no cast needed).
+		var newBody = newBodyRaw
+		if captures.length > 0 {
+			let castInit = Expression.UnsafeBitCast(Expression.Ident('$env', niceProject.typer.typeAny), envInstance as!Type)
+			let castVar = Statement.Var('envT$' + id, castInit, envInstance as!Type)
+			newBody = Statement.Block([castVar, newBodyRaw])
+			traceLog('FAT-IMPL       closure$' + id + ' env-first fields=' + captures.length)
+		} else {
+			traceLog('FAT-IMPL       closure$' + id + ' env-first (empty, env ignored)')
+		}
 
 		let fnName = 'closure$' + id
 		niceProject.globalFuncs.push(Statement.Function(fnName, newBody, args, newDefaults, funcType, variadic, isAsync))
@@ -982,7 +1180,13 @@ class ClosureLifter {
 	}
 
 	fun censusTopFn(s: Statement) { switch s {
-		case Function(_, body, _, _, _, _, _):
+		case Function(name, body, _, _, _, _, _):
+			// S3a: thin wrappers (`closure$N$thin` → fat with global env) are
+			// pass plumbing, not user calls — skip or the wrapper inner calls
+			// inflate CENSUS calls and break the `closureKind == calls` gate.
+			if name != null, name.endsWith('$thin') {
+				return
+			}
 			censusStmt(body)
 	} }
 
@@ -1166,6 +1370,96 @@ class ClosureLifter {
 				}
 			}
 	} }
+
+	/// TEMPORARY INSTRUMENTATION (S2 gate): every `closure$N` with captures
+	/// must own exactly one `Env$N` class with exactly the captured fields;
+	/// no-capture closures must own none; no orphan `Env$*` classes or
+	/// `closureEnv$*` globals may exist. Any VERIFY-ENV line is a synthesis bug.
+	fun verifyEnvs() {
+		for cname in closureCaptures.keys() {
+			let expected = closureCaptures.get(cname)
+
+			if expected != null, expected.length > 0 {
+				if closureEnvClassOf.get(cname) == null {
+					traceLog('VERIFY-ENV-MISSING ' + cname + ' has captures but no env class recorded')
+				}
+
+				if closureEnvOf.get(cname) == null {
+					traceLog('VERIFY-ENV-MISSING ' + cname + ' has captures but no env slot recorded')
+				}
+
+				// Field set must equal the capture set (order-insensitive)
+				let ename = closureEnvClassOf.get(cname)
+
+				if let ename = ename {
+					for c in niceProject.classes {
+						if c.name == ename {
+							var fieldCount = 0
+
+							for v in c.vars { switch v {
+								case Var(fname, _, _):
+									fieldCount++
+									var wanted = false
+
+									for w in expected {
+										if w == fname {
+											wanted = true
+										}
+									}
+
+									if not wanted {
+										traceLog('VERIFY-ENV-EXTRAFIELD ' + ename + ' field `' + fname + '` not captured')
+									}
+								case _:
+							} }
+
+							if fieldCount != expected.length {
+								traceLog('VERIFY-ENV-COUNT ' + ename + ' fields=' + fieldCount + ' captures=' + expected.length)
+							}
+						}
+					}
+				}
+			} else {
+				if closureEnvClassOf.get(cname) != null or closureEnvOf.get(cname) != null {
+					traceLog('VERIFY-ENV-EXTRA ' + cname + ' capture-less but has env records')
+				}
+			}
+		}
+
+		for c in niceProject.classes {
+			if c.name.startsWith('Env$') {
+				var owned = false
+
+				for k in closureEnvClassOf.keys() {
+					if closureEnvClassOf.get(k) == c.name {
+						owned = true
+					}
+				}
+
+				if not owned {
+					traceLog('VERIFY-ENV-ORPHAN class `' + c.name + '`')
+				}
+			}
+		}
+
+		for v in niceProject.globalVars { switch v {
+			case Var(name, _, _):
+				if name.startsWith('closureEnv$') {
+					var owned = false
+
+					for k in closureEnvOf.keys() {
+						if closureEnvOf.get(k) == name {
+							owned = true
+						}
+					}
+
+					if not owned {
+						traceLog('VERIFY-ENV-ORPHAN global `' + name + '`')
+					}
+				}
+			case _:
+		} }
+	}
 
 	fun verifyLifted() {
 		for f in niceProject.globalFuncs { switch f {
