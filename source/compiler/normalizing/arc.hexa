@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: MPL-2.0
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 
-/// Ref-counting (ARC) implementation
-/// (here DeferRefDec implemented in code gen as automatic `defer` operation on scope exit)
-/// ArcInserter to insert RefInc/DeferRefDec after Normalizer.
+/// Ref-counting (ARC) implementation: inserts `RefInc` now + `DeferRefDec`
+/// scope guards (genC emits them as C++ RAII guards whose destructor runs
+/// `rc--` at block exit on every path, incl. unwinding).
+/// ArcInserter runs after Normalizer, before ClosureLifter/Reflect.
 @final
 class ArcInserter {
 	var niceProject: NiceProject // The IR to mutate
@@ -21,8 +22,10 @@ class ArcInserter {
 	let rcClassNames [String : Bool] = [:]
 	var rcNamesBuilt Bool = false
 	// Escape-map key of the top-level function currently processed (global
-	// name or `Class_$method`, same scheme as the census). Guides retain
-	// elision below; null inside init blocks or for unresolvable shapes.
+	// name or `Class_$method`, same scheme as the reflect census). Guides
+	// retain elision below. Null only at global/init scope (outside any
+	// function); call sites pass `?? ''` so even nameless shapes yield a
+	// non-null key and simply miss the escape map (retain path).
 	var arcFuncKey String? = null
 	// Entry retains kept (paired with their Defer) vs elided.
 	var arcElidedParams Int = 0
@@ -51,11 +54,12 @@ class ArcInserter {
 	var arcWeakMisses [String] = []
 	var arcWeakLogged Int = 0
 	// Hexa-implemented globals (name -> declared return type): calls into
-	// these return +1 by construction (B3 covers every Block return; bare
-	// managed returns tripwire at zero). Built once: skips body-less
-	// (native/declare) entries and anything also declared as external —
-	// presence in this map IS the Hexa-implemented proof, so call sites
-	// need only one lookup.
+	// these return +1 by construction (every Block return takes +1; bare
+	// managed returns are counted by `arcBareReturns`). Built once from
+	// `globalFuncs` with a body and no `declareTypes` entry (skips
+	// body-less native/declare entries) — presence in this map IS the
+	// Hexa-implemented proof, so call sites need only one lookup.
+	// NOTE: closures/lambdas are NOT in this map (only top-level globals).
 	let arcHexaReturns [String : Type] = [:]
 
 	new (niceProject: NiceProject) {
@@ -64,7 +68,9 @@ class ArcInserter {
 		this.expressionType = niceProject.expressionType // Assume map is accessible
 	}
 
-	/// Escape key for a statement-function (mirrors the census).
+	/// Escape key for a statement-function (mirrors the reflect census:
+	/// `name` for globals, `Class_$name` for methods). The `null` arm is
+	/// defensive (call sites pass `?? ''`, so it never fires today).
 	fun arcKeyFor(prefix: String, name: String): String? {
 		if name == null {
 			return null
@@ -145,11 +151,12 @@ class ArcInserter {
 		return s
 	}
 
-	/// Immortal retains (F3.2): `globalVars` + class/enum `staticVars` live
-	/// in `HEXA_MAIN` with no scope exit (no `Defer` — immortal per D2/D6).
+	/// Immortal retains: `globalVars` + class/enum `staticVars` live in
+	/// `HEXA_MAIN` with no scope exit (no `Defer` — immortals never release).
 	/// Borrowed inits (`let g = other`) need one `RefInc` so the shared
 	/// object stays alive when the source is reassigned; fresh `+1` inits
-	/// (`new`, literals, Hexa-call results) transfer with no retain.
+	/// (`new`, `Array/Object/Map` literals, `StringConcatenation`,
+	/// Hexa-global/method call results, both-fresh `If`) transfer with no retain.
 	/// Instance field defaults arrive as explicit constructor-body Assigns
 	/// (reflect `lowerFieldDefaults`, genC-only) — ARC owns them via the
 	/// standard Dot-assign arm. No separate handling here.
@@ -359,8 +366,10 @@ class ArcInserter {
 							for j in args.length {
 								let arg = args[j]
 
-								// Temp + guard only for provably-+1 rvalues (fresh
-								// literals, Hexa-implemented calls): native/dynamic
+								// Temp + guard only for provably-+1 rvalues (`isOwnedInit`:
+								// `new`, `Array/Object/Map` literals,
+								// `StringConcatenation`, both-fresh `If`,
+								// Hexa-global/method calls): native/dynamic
 								// rvalues pass through unguarded — a guard would
 								// release what was never retained, while a missing
 								// one merely leaks until per-function conventions land.
@@ -398,8 +407,9 @@ class ArcInserter {
 							// Discarded +1 results (statement calls): hold the value in an
 							// `Any` temp so the scope guard releases what nobody owns.
 							// Only provably-+1 Hexa callees returning plain managed
-							// objects (fat returns keep leaking for now — pair
-							// boxing on discard needs its own contract).
+							// objects (`needsARC`): fat-env and `Any` returns keep
+							// leaking for now — pair boxing on discard needs its
+							// own contract.
 							if let rt = this.hexaCalleeReturns(func) {
 								if this.needsARC(rt) {
 									let tname = this.unique('temp_call_ret')
@@ -685,7 +695,9 @@ class ArcInserter {
 											case Index(_, _, _): throwTypeL = this.typer.typeAny
 											case Call(_, _, _, _, _): throwTypeL = this.typer.typeAny
 											case This(_): throwTypeL = this.typer.typeAny
-											case _: // `String` is fresh-owned; others need no counting
+											case _: // Immediates need no counting (`String`
+												// never lands here: non-lvalue, so the hoist
+												// arm above owns it)
 										}
 									}
 
@@ -699,7 +711,7 @@ class ArcInserter {
 					}
 					i++
 				}
-			case Function(name, body, args, defaults, dataType, variadic):
+			case Function(name, body, args, defaults, dataType, variadic, isAsync):
 				if body != null {
 					this.processStatement(body) // Recurse on body
 					let param_objs = []
@@ -748,7 +760,8 @@ class ArcInserter {
 					}
 
 					if param_objs.length > 0 {
-						switch body { // New: Switch to handle body variants directly
+						switch body { // Bodies are `Block` here (`wrapBodyToBlock`
+							// runs before this): unshift entry prologue in place.
 							case Block(els):
 								els.unshift(Statement.DeferRefDec(param_objs)) // Mutate existing els in-place
 								els.unshift(Statement.RefInc(param_objs)) // Mutate existing els
@@ -777,7 +790,7 @@ class ArcInserter {
 				this.processExpression(cond)
 				this.countBareReturn(body)
 				this.processStatement(body)
-			case For(name, over, body):
+			case For(name, over, body, _):
 				this.processExpression(over)
 				this.countBareReturn(body)
 				this.processStatement(body)
@@ -857,10 +870,10 @@ class ArcInserter {
 
 	fun processExpression(e: Expression) Void { // Recurse on subexpressions, no mutate here (lifts happen in stmt context)
 		switch e {
-			case Binop(a, op, b): this.processExpression(a) this.processExpression(b)
+			case Binop(a, op, b, _): this.processExpression(a) this.processExpression(b)
 			case Unop(op, postfix, inner): this.processExpression(inner)
-			case Dot(expr, _): this.processExpression(expr)
-			case Index(expr, index): this.processExpression(expr) this.processExpression(index)
+			case Dot(expr, _, _): this.processExpression(expr)
+			case Index(expr, index, _): this.processExpression(expr) this.processExpression(index)
 			case StringIndex(expr, index, _): this.processExpression(expr) this.processExpression(index)
 			case Call(func, args, dataType, kind): this.processExpression(func) for arg in args { this.processExpression(arg) }
 			case If(cond, then, else_): this.processExpression(cond) this.processExpression(then) if else_ != null { this.processExpression(else_) }
@@ -1010,11 +1023,11 @@ class ArcInserter {
 	}
 
 	/// True for calls that provably return +1: bare calls into
-	/// Hexa-implemented globals (closures included), or method calls that
-	/// resolve to a Hexa-implemented (non-null-body) method. Native/declare,
-	/// dynamic and unresolvable callees keep the retaining path — their
-	/// conventions are unknown, and an extra inc only leaks while a
-	/// missing one frees live.
+	/// Hexa-implemented globals (`arcHexaReturns`), or method calls that
+	/// resolve to a Hexa-implemented (non-null-body) method
+	/// (`hexaMethodReturns`). Native/declare, dynamic and unresolvable
+	/// callees keep the retaining path — their conventions are unknown, and
+	/// an extra inc only leaks while a missing one frees live.
 	fun isPlusOneCall(e: Expression): Bool {
 		if e == null {
 			return false
@@ -1148,7 +1161,7 @@ class ArcInserter {
 
 	/// Fresh +1 values need no entry retain — ownership transfers to the
 	/// binding, which only guards the release. `new` sets rc=1 at birth;
-	/// array/object/map literals build through `$new_` the same way
+	/// `Array/Object/Map` literals build through `$new_` the same way
 	/// (untyped `{}` lowers to a null stub, and the guard skips null).
 	/// Hexa-global calls return +1 by construction (B3); native, Dot and
 	/// unknown callees keep the retain (their conventions are unknown).
@@ -1235,7 +1248,7 @@ class ArcInserter {
 				return true
 			case Dot(base, _, _):
 				return this.isPureTargetRead(base)
-			case Binop(a, _, b):
+			case Binop(a, _, b, _):
 				return this.isPureIndex(a) and this.isPureIndex(b)
 			case Parenthesis(inner):
 				return this.isPureIndex(inner)
@@ -1401,7 +1414,8 @@ class ArcInserter {
 	/// and friends rebuild Dot/Call/New/... nodes without transferring the
 	/// map, so the map only survives for identity-kept Idents).
 	/// Returns null when the type was never inferred or the shape carries
-	/// none (literals/immortals need no counting anyway).
+	/// none. Scalar immediates (`Int/Float/Bool/Null`) need no arm (never
+	/// counted); `String` DOES (immortal interned object, see below).
 	fun niceTypeOf(e: Expression): Type? {
 		if e == null {
 			return null
@@ -1507,7 +1521,7 @@ class ArcInserter {
 	/// managed payloads that the static type cannot see (container elements,
 	/// `Any` fields/params/returns, dynamic values). They must be counted
 	/// through the runtime guard, never skipped and never counted blind.
-	/// `null` (fully erased) stays uncounted: without any static hint the
+	/// A missing type (`null`) stays uncounted: without any static hint the
 	/// guarded form could misread a widened scalar as a pointer — leak-safe,
 	/// and returns already prove `returnUnknown == 0` on real corpora.
 	fun isAnyLike(dataType: Type): Bool {
