@@ -109,15 +109,92 @@ class String {
 		return result
 	}
 
-	fun toUpperCase(): String {return''} // TODO
-	fun toLowerCase(): String {return''} // TODO
-	fun includes(str: String): Bool {return false} // TODO
-	fun charAt(index: Int): String {return''} // TODO
 	// TODO `@weak` for other fun
 	fun indexOf(@weak str: String, startIndex: Int?): Int {return 0} // TODO
-	fun lastIndexOf(str: String, startIndex: Int?): Int {return 0} // TODO
-	fun split(delimiter: String): [String] {return []} // TODO
 	// fun toUpperCase(): String TODO typer not errors here!
+	// ASCII-only case mapping (full Unicode tables land with the locale runtime)
+	fun toUpperCase(): String {
+		var out = ''
+		for i in length {
+			if let c = charCodeAt(i) {
+				if c >= 97 and c <= 122 { out = out + String.fromCharCode(c - 32) } else { out = out + String.fromCharCode(c) }
+			}
+		}
+		return out
+	}
+	fun toLowerCase(): String {
+		var out = ''
+		for i in length {
+			if let c = charCodeAt(i) {
+				if c >= 65 and c <= 90 { out = out + String.fromCharCode(c + 32) } else { out = out + String.fromCharCode(c) }
+			}
+		}
+		return out
+	}
+	fun includes(str: String): Bool { return indexOf(str) >= 0 }
+	fun charAt(index: Int): String {
+		if let c = charCodeAt(index) { return String.fromCharCode(c) }
+		return ''
+	}
+	// `s[i]` sugar lowers here on native (genC has no address-of-char form —
+	// `&s[i]` was struct-pointer garbage). OOB → ''.
+	static fun stringAt(s: String, i: Int): String { return s.charAt(i) }
+	// Naive code-unit search (real engine, O(n*m); destacar: empty needle → start)
+	fun indexOf(@weak str: String, startIndex: Int? = 0): Int {
+		var start = 0
+		if let s = startIndex { start = s }
+		if str.length == 0 {
+			if start > length { return length }
+			if start < 0 { return 0 }
+			return start
+		}
+		if start < 0 { start = 0 }
+		var i = start
+		while i + str.length <= length {
+			var match = true
+			for j in str.length {
+				if not (bytes[i + j] == str.bytes[j]) { match = false }
+			}
+			if match { return i }
+			i++
+		}
+		return -1
+	}
+	// Last occurrence at or before start (default = from the end, JS default)
+	fun lastIndexOf(str: String, startIndex: Int = 1073741824): Int {
+		if str.length == 0 { return length }
+		var start = length - str.length
+		if startIndex < start { start = startIndex }
+		if start < 0 { return -1 }
+		var i = start
+		while i >= 0 {
+			var match = true
+			for j in str.length {
+				if not (bytes[i + j] == str.bytes[j]) { match = false }
+			}
+			if match { return i }
+			i--
+		}
+		return -1
+	}
+	fun split(delimiter: String): [String] {
+		var parts [String] = []
+		if delimiter.length == 0 {
+			for i in length {
+				if let c = charCodeAt(i) { parts.push(String.fromCharCode(c)) }
+			}
+			return parts
+		}
+		var start = 0
+		var idx = indexOf(delimiter, start)
+		while idx >= 0 {
+			parts.push(substring(start, idx))
+			start = idx + delimiter.length
+			idx = indexOf(delimiter, start)
+		}
+		parts.push(substring(start, length))
+		return parts
+	}
 
 	fun toString(): String {
 		// TODO test case for ref equality and ARC
