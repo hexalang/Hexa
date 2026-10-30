@@ -89,11 +89,11 @@ class GenCxx {
 	var voidFuncsBuilt Bool = false
 	/// True when the declared C return is `void`
 	fun isVoidReturnType(funcType: Type): Bool { switch funcType {
-		case Function(_, returns):
-			return stringifyType(returns) == 'void'
-		case _:
-			return false
-	} }
+			case Function(_, returns):
+				return stringifyType(returns) == 'void'
+			case _:
+				return false
+		} }
 	/// Fill `voidFuncs` once per emit (globals + methods, bare + qualified)
 	fun buildVoidFuncs() {
 		if voidFuncsBuilt {
@@ -116,27 +116,38 @@ class GenCxx {
 					}
 				case _:
 			} }
+
+		for c in project.classes {
+			for m in c.methods { switch m {
+					case Function(mname, _, _, _, funcType, _, _):
+						if isVoidReturnType(funcType) {
+							voidFuncs.set(mname, true)
+							voidFuncs.set(c.name + '_$' + mname, true)
+						}
+					case _:
+				} }
+
 			for m in c.staticMethods { switch m {
-				case Function(mname, _, _, _, funcType, _, _):
-					if isVoidReturnType(funcType) {
-						voidFuncs.set(mname, true)
-						voidFuncs.set(c.name + '_$' + mname, true)
-					}
-				case _:
-			} }
+					case Function(mname, _, _, _, funcType, _, _):
+						if isVoidReturnType(funcType) {
+							voidFuncs.set(mname, true)
+							voidFuncs.set(c.name + '_$' + mname, true)
+						}
+					case _:
+				} }
 		}
 	}
 	/// True when the callee emits C `void` (declared return, not Nice result)
 	fun isVoidCallee(e: Expression): Bool { switch e {
-		case Ident(name, _):
-			return voidFuncs.get(name) == true
-		case Dot(_, name, _):
-			return voidFuncs.get(name) == true
-		case Parenthesis(inner):
-			return isVoidCallee(inner)
-		case _:
-			return false
-	} }
+			case Ident(name, _):
+				return voidFuncs.get(name) == true
+			case Dot(_, name, _):
+				return voidFuncs.get(name) == true
+			case Parenthesis(inner):
+				return isVoidCallee(inner)
+			case _:
+				return false
+		} }
 	/// Forward declarations for the minted inline structures (`forward` is
 	/// local to `stringify` and flushes these before assembly)
 	let structDefsForward: [String] = []
@@ -211,15 +222,15 @@ class GenCxx {
 		registerString('null') // id == 1
 		declarationsOfStringsMap.set('null', 1)
 
-// Register declared types of globals upfront — expression printing
+		// Register declared types of globals upfront — expression printing
 		// (class methods etc.) may reference them before the GlobalVariables
 		// section is assembled, and `cShape` needs the DECLARED C shape
 		for g in project.globalVars {
 			switch g {
 				case Var(name, expr, dataType):
 					globalDecls.set(name, dataType)
-					case Const(name, expr, dataType):
-						globalDecls.set(name, dataType)
+				case Const(name, expr, dataType):
+					globalDecls.set(name, dataType)
 			}
 		}
 
@@ -386,6 +397,9 @@ class GenCxx {
 		let duplicates: [String] = []
 		// TODO this syntax `let duplicates = String []`
 		for c in project.classes {
+			// `super(...)` resolves to the currently-printed class' parent
+			currentSuperType = c.extend
+
 			if c.external {
 				// TODO rename to just 'require'
 				if c.jsRequire != null {
@@ -396,7 +410,20 @@ class GenCxx {
 				if let jsNative = c.jsNative, jsNative != c.name {
 					forward.push('#define ' + c.name + ' ' + jsNative)
 				}
-				continue
+
+				// Host/FFI-mapped externals are done here — everything else is
+				// a plain Hexa-shaped data type (`declare class` with fields,
+				// e.g. the tool argument records) and falls through to NORMAL
+				// emission: its fields get accessed and C needs the definition.
+				// Builtin-mapped shapes (`ByValue<Int>` → `int32_t`,
+				// `ArrayByValue<T, N>` → `T[N]`) name real C types already
+				if c.jsRequire != null or c.jsNative != null {
+					continue
+				}
+
+				if not stringifyType(c.classType).endsWith('_*') {
+					continue
+				}
 			}
 			// if (c.name == 'String') {
 			// continue
@@ -466,6 +493,19 @@ class GenCxx {
 			let n = c.name + '_*'
 			// TODO better way
 			c.name = stringifyType(c.classType).replace('_*', '')
+			// NOTE class NAMES come from the class type itself —
+			// `stringifyType` erases bare generic classes to `Any_*` which
+			// must not become the emitted struct name
+			var cName = ''
+
+			switch c.classType {
+				case Class(kind):
+					cName = kind.name
+				case _:
+					cName = stringifyType(c.classType).replace('_*', '')
+			}
+
+			c.name = cName
 
 			if c.name == 'Array' {
 				// console.log(c.dataType)
@@ -549,11 +589,11 @@ class GenCxx {
 			let vtableBind = []
 			// ARC destroy-table row (F11 sweep reads it): vtable identity,
 			// destroy fn (the `@destructor` method), instance size.
-					if let dd = c.destructor {
-						let openBrace = String.fromCharCode(123)
-						let closeBrace = String.fromCharCode(125)
-						destroyTable.push(openBrace + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + c.name + '_$' + dd + '_, sizeof(' + c.name + '_)' + closeBrace)
-					}
+			if let dd = c.destructor {
+				let openBrace = String.fromCharCode(123)
+				let closeBrace = String.fromCharCode(125)
+				destroyTable.push(openBrace + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + c.name + '_$' + dd + '_, sizeof(' + c.name + '_)' + closeBrace)
+			}
 
 					// Synthesized container destroys (F11.2, ARC-marked): see
 					// NiceClass.destroyKind. Skipped when a user @destructor
@@ -613,6 +653,11 @@ class GenCxx {
 							types.push('\n\t\(stringifyType(dataType)) ' + name + '_')
 							types.push(' : ' + bits)
 							types.push(';') // TODO probably must be a single `types.push` if bit-arrays-by-value are supported in C
+						} else if isFatValueType(dataType) {
+							// S3b F1.6: function-typed fields double up
+							// (`name$f_` + `void* name$e_`, D1) from the type alone.
+							types.push('\n\t\(stringifyType(dataType)) ' + name + '$f_;')
+							types.push('\n\tvoid* ' + name + '$e_;')
 						} else {
 							types.push('\n\t\(stringifyType(dataType)) ' + name + '_;')
 						}
@@ -638,7 +683,13 @@ class GenCxx {
 						// if (expr != null)
 						// out.push('\n\t\t\tthis.' + name + ' = ' + printExpression(expr) + '')
 					case Const(name, expr, dataType):
-						// if (let t = dataType)
+						// S3b F1.6: `let`-bound function-typed fields double up too.
+						if isFatValueType(dataType) {
+							types.push('\n\t\(stringifyType(dataType)) ' + name + '$f_;')
+							types.push('\n\tvoid* ' + name + '$e_;')
+						} else {
+							types.push('\n\t\(stringifyType(dataType)) ' + name + '_;')
+						}
 
 						/*let name = switch c.dataType {
 							case ClassInstance(c):
@@ -653,8 +704,8 @@ class GenCxx {
 
 								name
 							case _: name
-						}*/
-						types.push('\n\t\(stringifyType(dataType)) ' + name + '_;')
+												}*/
+						// (S3b: the single push moved into the if/else above.)
 						// else
 						// types.push('\n\tAny_* ' + name + '_;')
 						// if (expr != null) // null if property
@@ -718,14 +769,34 @@ class GenCxx {
 											}
 
 											if not isArrayByValue {
-												out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';\n')
+												// S3b F1.6: function-typed fields init BOTH halves.
+												// `Any` sources bridge via `fatPtrAs` (M1 compiles).
+												if isFatValueType(dataType) {
+													out.push('\t$this->' + name + '$f_ = ' + fatPtrAs(expr, dataType) + ';' + '
+')
+													out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '
+')
+												} else {
+													out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '
+')
+												}
 											} else {
 												// TODO
 											}
 										}
 									case Const(name, expr, dataType):
 										if expr != null {
-											out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';\n')
+											// S3b F1.6: `let`-bound function-typed fields init BOTH halves.
+											// `Any` sources bridge via `fatPtrAs` (M1 compiles).
+											if isFatValueType(dataType) {
+												out.push('\t$this->' + name + '$f_ = ' + fatPtrAs(expr, dataType) + ';' + '
+')
+												out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '
+')
+											} else {
+												out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '
+')
+											}
 										}
 								} }
 							pushTab()
@@ -736,6 +807,9 @@ class GenCxx {
 								case Block(el): if el.length > 0 {
 										out.push('\t' + printBlock(expr) + ';\n')
 									}
+								case null:
+									// Body-less constructor (`declare class`) —
+									// fields stay zeroed by `HEXA_NEW`
 								case _:
 									out.push('\t' + printBlock(expr) + ';\n')
 							}
@@ -747,7 +821,7 @@ class GenCxx {
 							// Alloc
 							// out.push(c.name + '_* ' + c.name + '_$new_() \{\n')
 							out.push(c.name + '_* ' + c.name + '_$new_')
-							out.push(printFunctionArguments(args, funcType))
+							out.push(printFunctionArguments(args, funcType, variadic))
 							out.push(' \{\n')
 							// out.push('\tprintf("\(c.name).new_()\\n");fflush(stdout);\n')
 							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
@@ -757,13 +831,13 @@ class GenCxx {
 								out.push('\t$_[0] = (void *)&' + c.name + '__$;\n')
 							}
 							out.push('\t' + c.name + '_* _ = (' + c.name + '_*)($_);\n')
-						// ARC birth count (D6: +1 return): matches the vtable-gated
-						// `rc_` slot above — structs/native layouts stay untouched.
-						if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
-							// Ok
-						} else {
-							out.push('\t_->rc_ = 1;\n')
-						}
+							// ARC birth count (D6: +1 return): matches the vtable-gated
+							// `rc_` slot above — structs/native layouts stay untouched.
+							if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
+								// Ok
+							} else {
+								out.push('\t_->rc_ = 1;\n')
+							}
 
 							// out.push('\tvoid* buffer_ = (struct ' + c.name + '_*)(HEXA_NEW(sizeof(struct ' + c.name + '_)));\n')
 							// out.push('\tstruct ' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
@@ -783,13 +857,13 @@ class GenCxx {
 							vtable.push('\n\t')
 							vtable.push(printFunctionReturnType(funcType))
 							vtable.push(' (*const ' + name + '_) ')
-							vtable.push(printFunctionArguments(args, funcType))
+							vtable.push(printFunctionArguments(args, funcType, variadic))
 							vtable.push(';')
 							nonEmptyTable = true
 
 							forwardFunctions.push(printFunctionReturnType(funcType))
 							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
-							forwardFunctions.push(printFunctionArguments(args, funcType))
+							forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 							forwardFunctions.push(';\n')
 
 							let vbind = '&' + c.name + '_$' + name + '_'
@@ -797,7 +871,7 @@ class GenCxx {
 
 							out.push(printFunctionReturnType(funcType))
 							out.push(' ' + c.name + '_$' + name + '_')
-							out.push(printFunctionArguments(args, funcType))
+							out.push(printFunctionArguments(args, funcType, variadic))
 							let _currentReturnType = currentReturnType
 							currentReturnType = getFunctionReturnType(funcType)
 							customThis = '$this'
@@ -898,10 +972,29 @@ class GenCxx {
 
 						let _currentReturnType = currentReturnType
 						currentReturnType = getFunctionReturnType(funcType)
-						// out.push('\t{printf("\(c.name).\(name)()\\n");\n\t')
-						// out.push('\{\};\n')
-						out.push(' ' + printBlock(expr) + ';\n\n')
-						// out.push('\t};\n')
+						let _insideAsyncFunction = insideAsyncFunction
+						insideAsyncFunction = isAsync
+						// out.push('\t{printf(\"\(c.name).\(name)()\\n\");\n\t')
+						// out.push('\\{\\};\\n')
+						if let e = expr {
+							out.push(' ' + (isAsync? printFunctionBody(e, printFunctionReturnType(funcType)) : printBlock(e)) + ';\n\n')
+						} else {
+							// Body-less declare static — abstract stub with
+							// matching return, mirrors instance-method stubs.
+							// Built without brace escapes via fromCharCode.
+							let temp = tempId++
+							let returns = printFunctionReturnType(funcType)
+							let openBrace = String.fromCharCode(123)
+							let closeBrace = String.fromCharCode(125)
+
+							if returns == 'void' {
+								out.push(' ' + openBrace + ' HEXA_UNREACHABLE(' + temp + '); ' + closeBrace)
+							} else {
+								out.push(' ' + openBrace + ' HEXA_UNREACHABLE(' + temp + '); return (' + returns + ')0; ' + closeBrace)
+							}
+						}
+						insideAsyncFunction = _insideAsyncFunction
+						// out.push('\\t};\\n')
 						currentReturnType = _currentReturnType
 						// out.push(printFunctionArguments(args, defaults) + ' => \{ ' + printStatement(expr) + ' \}')
 				} }
@@ -1003,13 +1096,13 @@ class GenCxx {
 						if let link = link, let linkName = link.linkName {
 							// let linkName = exports and linkName.startsWith('__')? '_' + linkName : linkName
 							if exports and extraUnderscore and linkName.startsWith('_') {
-								types.push(' HEXA_LINK("_')
+								types.push(' HEXA_LINK(\"_')
 							} else {
-								types.push(' HEXA_LINK("')
+								types.push(' HEXA_LINK(\"')
 							}
 
 							types.push(linkName)
-							types.push('")')
+							types.push('\")')
 						}
 						types.push(';\n')
 
@@ -1096,6 +1189,7 @@ class GenCxx {
 		// tests both halves. F2 unifies this with the full sentinel family.
 		globalVariables.push('alignas(4096) static uint8_t hexaSentinelEnvStore_[4096];\n')
 		globalVariables.push('void* hexaSentinelEnv_ = (void*)hexaSentinelEnvStore_;\n')
+
 		for g in project.globalVars {
 			var defaults = true
 			// TODO rename 'default' in JS gen `var default = true`
@@ -1196,22 +1290,22 @@ class GenCxx {
 
 							defaults = false
 						} else {
-						// types.push('void* ' + name + '_;\n')
-						globalVariables.push(stringifyType(dataType))
-						globalVariables.push(' ' + name + '_') // TODO respect `@rename`
+							// types.push('void* ' + name + '_;\n')
+							globalVariables.push(stringifyType(dataType))
+							globalVariables.push(' ' + name + '_') // TODO respect `@rename`
 
-						if let link = link, let linkName = link.linkName {
-							if exports and extraUnderscore and linkName.startsWith('_') {
-								globalVariables.push(' HEXA_LINK("_')
-							} else {
-								globalVariables.push(' HEXA_LINK("')
+							if let link = link, let linkName = link.linkName {
+								if exports and extraUnderscore and linkName.startsWith('_') {
+									globalVariables.push(' HEXA_LINK("_')
+								} else {
+									globalVariables.push(' HEXA_LINK("')
+								}
+
+								globalVariables.push(linkName)
+								globalVariables.push('")')
 							}
 
-							globalVariables.push(linkName)
-							globalVariables.push('")')
-						}
-
-						globalVariables.push(';\n')
+							globalVariables.push(';\n')
 
 						if expr != null {
 							let value String = printExpression(expr)
@@ -1222,8 +1316,8 @@ class GenCxx {
 							// TODO check for `project.typer.typeInt` and other integer types
 							if value != '(int32_t)0' {
 								out.push('\t' + name + '_ = ' + value + ';\n')
+								// TODO init them at declaration! int a = 123;
 							}
-							// TODO init them at declaration! int a = 123;
 						}
 					}
 					// out.push('\n\tvar ' + name)
@@ -1323,7 +1417,11 @@ class GenCxx {
 			// + '\n\n// Strings\nString_* String_Strings[\(declarationsOfStrings.length)] = {nullptr};\n'
 			// + '\n\n// Strings\nstruct String_** String_Strings;\n'
 			+ '\n// Types\n' +
+			structBodies +
 			types.join('')
+
+			+ '\n// Live registry (F11 side-table of live heap objects, no layout change)\n' +
+			printLiveRegistry()
 
 			+ '\n// Coroutines (F9: per-Promise co_await + promise_type, after structs)\n' +
 			printCoroutines()
@@ -1338,7 +1436,11 @@ class GenCxx {
 			printDestroyTable()
 
 			+ '\n// Global variables\n' +
-			globalVariables.join('')
+			printAnyObject() + globalVariables.join('')
+
+			+ '\n// Sweep (F11: deferred free of rc==0 live entries, D6)\n' +
+			printTagNames() +
+			printSweep()
 
 			+ '\n// Global functions\n' +
 			globalFunctions.join('')
@@ -1698,6 +1800,7 @@ class GenCxx {
 				if isFatValueType(dataType) {
 					let ptrType = stringifyType(dataType)
 					var r = ptrType + ' ' + name + '$ptr_; void* ' + name + '$env_'
+
 					if expr != null {
 						r += '; ' + name + '$ptr_ = ' + fatPtrAs(expr, dataType) + '; ' + name + '$env_ = ' + fatEnvStr(expr)
 					}
@@ -1883,7 +1986,7 @@ class GenCxx {
 								}
 							}
 
-							let temp = tempId++
+								let temp = tempId++
 
 								let exprType = getType(expr)
 								let typeString = stringifyType(exprType)
@@ -1941,20 +2044,20 @@ class GenCxx {
 				// `Any` sources bridge via `fatPtrAs` (M1 compiles).
 				// TODO kinds like `static`
 				if isFatValueType(valueType(a)) { switch a {
-					case Ident(aname, _):
-						return aname + '$ptr_ = ' + fatPtrAs(v, valueType(a)) + '; ' + aname + '$env_ = ' + fatEnvStr(v)
-					case Dot(expr, dname, _):
-						// Only Variable fields of real classes carry pairs —
-						// methods/statics/dynamics/structs fall through to the
-						// generic single-slot handling below.
-						if isFatFieldDot(expr, dname, getType(a)) {
-							let base = printExpression(expr)
-							return base + '->' + dname + '$f_ = ' + fatPtrAs(v, getType(a)) + '; ' + base + '->' + dname + '$e_ = ' + fatEnvStr(v)
-						}
-					case _:
-						return '/*UNPAIRED-ASSIGN*/' + printExpression(a) + ' = ' + printExpression(v)
-				} }
-				// TODO kinds like `static`
+						case Ident(aname, _):
+							return aname + '$ptr_ = ' + fatPtrAs(v, valueType(a)) + '; ' + aname + '$env_ = ' + fatEnvStr(v)
+						case Dot(expr, dname, _):
+							// Only Variable fields of real classes carry pairs —
+							// methods/statics/dynamics/structs fall through to the
+							// generic single-slot handling below.
+							if isFatFieldDot(expr, dname, getType(a)) {
+								let base = printExpression(expr)
+								return base + '->' + dname + '$f_ = ' + fatPtrAs(v, getType(a)) + '; ' + base + '->' + dname + '$e_ = ' + fatEnvStr(v)
+							}
+						case _:
+							return '/*UNPAIRED-ASSIGN*/' + printExpression(a) + ' = ' + printExpression(v)
+					} }
+					// TODO kinds like `static`
 				switch a {
 					case Dot(expr, name):
 						// Dynamic
@@ -2045,6 +2148,7 @@ class GenCxx {
 									dynOpBase = true
 								}
 						}
+
 						if dynOpBase {
 							let bt = tempId++
 							let btmp = '_$bt' + bt
@@ -2054,6 +2158,7 @@ class GenCxx {
 						}
 					case _:
 				}
+
 				if getType(a) == project.typer.typeString, op == Token.Add {
 					switch a {
 						case Index(expr, index): {
@@ -2078,10 +2183,10 @@ class GenCxx {
 
 								// `storage[index] += string`
 								return '_$\(tempStorage)->_->set_(_$\(tempStorage), _$\(tempIndex), String_$combine_(_$\(tempStorage)->_->get_(_$\(tempStorage), _$\(tempIndex)), '
-								+ printTypeConverter(printExpression(value), getType(value), project.typer.typeString) + '))'
+								+ printTypeConverter(printExpression(value), valueType(value), project.typer.typeString) + '))'
 							}
 					}
-					return printExpression(a) + ' = String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(value), getType(value), project.typer.typeString) + ')'
+					return printExpression(a) + ' = String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(value), valueType(value), project.typer.typeString) + ')'
 				}
 				return printExpression(a) + ' ' + Token.stringify(op) + '= ' + printExpression(value)
 
@@ -2111,7 +2216,7 @@ class GenCxx {
 						if else_ {
 							r += ' else'
 						}
-						r += '\n' + tabs + 'if (('
+						r += '\n' + tabs + 'if (' + '('
 						let conds = []
 
 						for cc in cases[i] { switch cc {
@@ -2210,6 +2315,7 @@ class GenCxx {
 
 	fun hexaRestElement(exp: [Type]): Type? {
 		if exp.length == 0 { return null }
+
 		switch exp[exp.length - 1] {
 			case Rest(element, native):
 				if not native { return element }
@@ -2219,18 +2325,19 @@ class GenCxx {
 	}
 
 	fun isRestSpread(arg: Expression): Bool { switch arg {
-		case Spread(inner):
-			switch valueType(inner) {
-				case Rest(_, _): return true
-				case _:
-			}
-		case _:
-	} return false }
+			case Spread(inner):
+				switch valueType(inner) {
+					case Rest(_, _): return true
+					case _:
+				}
+			case _:
+		} return false }
 
 	fun printHexaRestCall(args: [Expression], exp: [Type], restElem: Type, me: String?): String {
 		// Hexa ABI `(fixed..., count, ptr)` — plain C stack array, no `Array` object.
 		let fixedCount = exp.length - 1
 		let prefix: [String] = []
+
 		if let m = me { prefix.push(m) }
 
 		// Spread forwarding `f(...r)` / `f(x, ...r)` — pass caller's count+ptr, no copy.
@@ -2265,11 +2372,14 @@ class GenCxx {
 
 		// Discrete args `f(a, b, c)` — pack rest extras into a stack array.
 		var restCount = args.length - fixedCount
+
 		if restCount < 0 { restCount = 0 }
+
 		for i in fixedCount {
 			if stringifyType(exp[i]) == 'void' {
 				continue
 			}
+
 			if i < args.length {
 				// Fat fixed params expand to two C slots (see above).
 				if isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
@@ -2287,14 +2397,17 @@ class GenCxx {
 				prefix.push(padValue(exp[i]))
 			}
 		}
+
 		if restCount == 0 {
 			prefix.push('0')
 			prefix.push('nullptr')
+
 			if me != null { return '(' + prefix.join(', ') + ') ' }
 			return '(' + prefix.join(', ') + ') '
 		}
 		let elemC = stringifyType(restElem)
 		let parts: [String] = []
+
 		for k in restCount {
 			let idx = fixedCount + k
 			parts.push(printTypeConverter(printExpression(args[idx]), valueType(args[idx]), restElem))
@@ -2303,6 +2416,7 @@ class GenCxx {
 		metaBlock.push(elemC + ' ' + tmp + '[' + ('' + restCount) + '] = \{' + parts.join(', ') + '\};')
 		prefix.push('' + restCount)
 		prefix.push(tmp)
+
 		if me != null { return '(' + prefix.join(', ') + ') ' }
 		return '(' + prefix.join(', ') + ') '
 	}
@@ -2441,16 +2555,16 @@ class GenCxx {
 	/// Base fat name for a callee (unwraps IIFE `Parenthesis`; null unless the
 	/// callee is a lifted closure impl, never a `$thin` wrapper).
 	fun closureBaseName(e: Expression): String? { switch e {
-		case Ident(name, _):
-			if name.startsWith('closure$'), not name.endsWith('$thin') {
-				return name
-			}
-			return null
-		case Parenthesis(inner):
-			return closureBaseName(inner)
-		case _:
-			return null
-	} }
+			case Ident(name, _):
+				if name.startsWith('closure$'), not name.endsWith('$thin') {
+					return name
+				}
+				return null
+			case Parenthesis(inner):
+				return closureBaseName(inner)
+			case _:
+				return null
+		} }
 
 	/// S3b: does lifted `base` (`closure$N`) capture (has an `Env$N` helper)?
 	/// Decided from `NiceClass`es (globals no longer consulted — S3b threads
@@ -2459,6 +2573,7 @@ class GenCxx {
 	fun closureHasEnv(base: String): Bool {
 		let suffix = base.substr(8, base.length - 8)
 		let envClass = 'Env$' + suffix
+
 		for c in project.classes {
 			if c.name == envClass {
 				return true
@@ -2471,6 +2586,7 @@ class GenCxx {
 	fun closureEnvType(base: String): Type? {
 		let suffix = base.substr(8, base.length - 8)
 		let envClass = 'Env$' + suffix
+
 		for c in project.classes {
 			if c.name == envClass {
 				return c.classType
@@ -2606,6 +2722,7 @@ class GenCxx {
 		if closureBaseName(e) != null {
 			return true
 		}
+
 		switch e {
 			case Ident(name, _):
 				return globalFuncType(name) != null
@@ -2651,13 +2768,14 @@ class GenCxx {
 			return globalFuncTypeCache.get(name)
 		}
 		globalFuncTypeCacheDone.set(name, true)
+
 		for g in project.globalFuncs { switch g {
-			case Function(gname, _, _, _, gfuncType, _, _):
-				if gname == name {
-					globalFuncTypeCache.set(name, gfuncType)
-					return gfuncType
-				}
-		} }
+				case Function(gname, _, _, _, gfuncType, _, _):
+					if gname == name {
+						globalFuncTypeCache.set(name, gfuncType)
+						return gfuncType
+					}
+			} }
 		return null
 	}
 	/// S3b: true if a call ARG (or any value) flows to a fat position: typed
@@ -2667,11 +2785,13 @@ class GenCxx {
 		if isFatValueType(valueType(e)) {
 			return true
 		}
+
 		switch e {
 			case Ident(name, _):
 				if closureBaseName(e) != null {
 					return true
 				}
+
 				if let gt = globalFuncType(name) {
 					return isFatValueType(gt)
 				}
@@ -2680,8 +2800,8 @@ class GenCxx {
 				// S3b: an explicit `null` for a fat param splices to the null
 				// pair (`nullptr` + sentinel) via `fatPtrStr`/`fatEnvStr`
 				// (both have `Null` arms) — never a single cast.
-				case Null(_):
-					return true
+			case Null(_):
+				return true
 			case _:
 		}
 		return false
@@ -2694,14 +2814,15 @@ class GenCxx {
 		// env ignored).
 		var ftype: Type? = null
 		for g in project.globalFuncs { switch g {
-			case Function(gname, _, _, _, gfuncType, _, _):
-				if gname == funcName {
-					ftype = gfuncType
-				}
-		} }
+				case Function(gname, _, _, _, gfuncType, _, _):
+					if gname == funcName {
+						ftype = gfuncType
+					}
+			} }
 		let ft = ftype as!Type
 		var fargs: [FunctionArgument] = []
 		var frets: Type = project.typer.typeAny
+
 		switch ft {
 			case Function(fa, fr, _):
 				fargs = fa
@@ -2710,8 +2831,10 @@ class GenCxx {
 		let retName = stringifyType(frets)
 		let params: [String] = ['void* env_']
 		let fwd: [String] = []
+
 		for i in fargs.length {
 			let ti = stringifyType(fargs[i].dataType)
+
 			if ti == 'void' {
 				continue
 			}
@@ -2743,10 +2866,12 @@ class GenCxx {
 		// value, which stays `Any_*`) — field lookup must key on what is
 		// actually stored (see `cShape`/`valueType`).
 		let bt = valueType(base)
+
 		if bt == null {
 			return null
 		}
 		let bt = getType(base)
+
 		if bt == null {
 			return null
 		}
@@ -2764,6 +2889,7 @@ class GenCxx {
 				if kind.fields.get(name) == ClassTypeField.Method {
 					return ClassTypeField.Method
 				}
+
 				if kind.fieldNames.includes(name) {
 					return ClassTypeField.Variable
 				}
@@ -2772,6 +2898,7 @@ class GenCxx {
 				if kind.fields.get(name) == ClassTypeField.Method {
 					return ClassTypeField.Method
 				}
+
 				if kind.fieldNames.includes(name) {
 					return ClassTypeField.Variable
 				}
@@ -2802,17 +2929,17 @@ class GenCxx {
 	/// shape). Structs emit SINGLE members, so these print thin-member +
 	/// explicit env instead of pairs (until F10 pair-boxing).
 	fun isStructDotCall(e: Expression): Bool { switch e {
-		case Dot(base, _, _):
-			switch getType(base) {
-				case Struct(_, _):
-					return isFatValueType(getType(e))
-				case _:
-			}
-		case Parenthesis(inner):
-			return isStructDotCall(inner)
-		case _:
-	}
-	return false
+			case Dot(base, _, _):
+				switch getType(base) {
+					case Struct(_, _):
+						return isFatValueType(getType(e))
+					case _:
+				}
+			case Parenthesis(inner):
+				return isStructDotCall(inner)
+			case _:
+		}
+		return false
 	}
 
 	/// S3b: struct-field call shape — thin member + explicit env first arg
@@ -2823,12 +2950,14 @@ class GenCxx {
 		var newExpects: [Type]? = null
 		if let oe = derivedExpects {
 			let ne: [Type] = [project.typer.typeAny]
+
 			for t in oe {
 				ne.push(t)
 			}
 			newExpects = ne
 		}
 		let newArgs: [Expression] = [envExpr]
+
 		for a in args {
 			newArgs.push(a)
 		}
@@ -2839,16 +2968,16 @@ class GenCxx {
 	/// like the callee classifiers do — IIFE-shaped callees hide the Dot).
 	/// Methods typed as non-virtual still dispatch via the vtable.
 	fun effCallKind(e: Expression, kind: CallKind): CallKind { switch e {
-		case Parenthesis(inner):
-			return effCallKind(inner, kind)
-		case Dot(base, name, _):
-			if kind != CallKind.VirtualMethod, isMethodDot(base, name) {
-				return CallKind.VirtualMethod
-			}
-			return kind
-		case _:
-			return kind
-	} }
+			case Parenthesis(inner):
+				return effCallKind(inner, kind)
+			case Dot(base, name, _):
+				if kind != CallKind.VirtualMethod, isMethodDot(base, name) {
+					return CallKind.VirtualMethod
+				}
+				return kind
+			case _:
+				return kind
+		} }
 
 	fun isFatCallee(e: Expression): Bool { switch e {
 		case Ident(name, _):
@@ -2870,6 +2999,7 @@ class GenCxx {
 	fun printFatValueCall(callee: Expression, args: [Expression], expects: [Type]?): String {
 		var ptr = ''
 		var env = ''
+
 		switch callee {
 			case Ident(name, _):
 				ptr = name + '$ptr_'
@@ -2888,6 +3018,7 @@ class GenCxx {
 		}
 		let tail = printCallArguments(args, expects)
 		let inner = tail.substring(1, tail.length - 2)
+
 		if inner == '' {
 			return ptr + '(' + env + ') '
 		}
@@ -2899,6 +3030,7 @@ class GenCxx {
 		let suffix = base.substr(8, base.length - 8)
 		var envType: Type = project.typer.typeAny
 		var envExpr: Expression = Expression.Ident('hexaSentinelEnv', project.typer.typeAny)
+
 		if currentFatFn != null, currentFatFn == base {
 			// Self-recursion: thread the current `$env`, not any slot.
 			envExpr = Expression.Ident('$env', project.typer.typeAny)
@@ -2907,6 +3039,7 @@ class GenCxx {
 			// S2 semantics — sequential immediate use stays correct). Pair
 			// bindings use the per-instance LOCAL twin where it dominates.
 			let envGlobal = 'closureEnv$' + suffix
+
 			if let gt = globalDecls.get(envGlobal) {
 				envType = gt
 			} else if let it = closureEnvType(base) {
@@ -2918,12 +3051,14 @@ class GenCxx {
 		var newExpects: [Type]? = null
 		if let oe = origExpects {
 			let ne: [Type] = [envType]
+
 			for t in oe {
 				ne.push(t)
 			}
 			newExpects = ne
 		}
 		let newArgs: [Expression] = [envExpr]
+
 		for a in args {
 			newArgs.push(a)
 		}
@@ -2941,6 +3076,7 @@ class GenCxx {
 		let thunk = base + '$call_'
 		var fargs: [FunctionArgument] = []
 		var frets: Type = project.typer.typeAny
+
 		switch funcType {
 			case Function(fa, fr, _):
 				fargs = fa
@@ -2949,6 +3085,7 @@ class GenCxx {
 		let retName = stringifyType(frets)
 		let unboxed: [String] = []
 		var ai = 0
+
 		for k in fargs.length {
 			if k == 0 {
 				continue
@@ -2963,6 +3100,7 @@ class GenCxx {
 						continue
 					}
 					let elemC = stringifyType(element)
+
 					if elemC.endsWith('*') {
 						unboxed.push('((argc_ > ' + ai + ') ? (argc_ - ' + ai + ') : 0)')
 						unboxed.push('((argc_ > ' + ai + ') ? (' + elemC + '*)(size_t)(argv_ + ' + ai + ') : nullptr)')
@@ -2985,10 +3123,12 @@ class GenCxx {
 			continue
 		}
 		let ti = stringifyType(fargs[k].dataType)
+
 			if ti == 'void' {
 				continue
 			}
 			var u = ''
+
 			if ti.endsWith('*') {
 				u = '(' + ti + ')(size_t)(((argc_ > ' + ai + ') ? argv_[' + ai + '] : nullptr))'
 			} else if ti == 'int32_t' {
@@ -3006,11 +3146,13 @@ class GenCxx {
 			ai++
 		}
 		let allArgs: [String] = ['env_']
+
 		for u in unboxed {
 			allArgs.push(u)
 		}
 		let call = cName + '(' + allArgs.join(', ') + ')'
 		var r = 'Any_* ' + thunk + '(void* env_, Any_** argv_, int32_t argc_) \{\n'
+
 		if retName == 'void' {
 			r += call + ';\n'
 			r += 'return nullptr;\n'
@@ -3047,18 +3189,22 @@ class GenCxx {
 		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env) \{ FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->impl_ = impl; p->env_ = env; return (Any_*)(p); \}\n'
 		r += 'uint8_t Any_isFatPair_(Any_* p) \{ if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (uint8_t)0; return (uint8_t)(((const void**)(p))[0] == (const void*)(&FatPair__$)) ? 1 : 0; \}\n'
 		r += 'struct FatPairCallEntry_ \{ void (*impl_)(); Any_* (*call_)(void*, Any_**, int32_t); \};\n'
+
 		if fatPairImpls.length == 0 {
 			r += 'static Any_* (*FatPair_lookupCall_(void)) (void*, Any_**, int32_t);\n'
 			r += 'static Any_* (*FatPair_lookupCall_(void)) (void*, Any_**, int32_t) \{ return nullptr; \}\n'
 			return r
 		}
+
 		for n in fatPairImpls {
 			r += 'Any_* ' + n + '$call_(void*, Any_**, int32_t);\n'
 		}
 		var rows: [String] = []
+
 		for n in fatPairImpls {
 			rows.push('\{(void(*)())(' + n + '_), ' + n + '$call_\}')
 		}
+
 		if rows.length == 0 {
 			rows.push('\{nullptr, nullptr\}')
 		}
@@ -3071,7 +3217,6 @@ class GenCxx {
 	/// tag vtables, first word like every object. All unboxers are total and
 	/// never AV: null reads as default; small ints (incl. negatives — legacy
 	/// int-as-pointer placeholders) read as values, so no deref; Bool
-	fun printScalarBoxing(): String {
 	/// singletons compare by identity (empty structs carry no tag); only
 	/// valid heap objects reach the tag deref. FatPair_ reads as non-scalar
 	/// default (pairs are functions, not numbers). `String__$` doubles as the
@@ -3138,6 +3283,7 @@ class GenCxx {
 		var r = '// ARC destroy registry (tag -> destructor, F11 sweep reads it)' + nl
 		r += 'struct HexaDestroyEntry_ ' + lb + ' const void* tag_; void (*destroy_)(void*); size_t size_; ' + rb + ';' + nl
 		r += 'static const struct HexaDestroyEntry_ hexaDestroyTable_[] = ' + lb
+
 		if destroyTable.length == 0 {
 			r += lb + 'nullptr, nullptr, 0' + rb
 		} else {
@@ -3170,10 +3316,10 @@ class GenCxx {
 		r += 'void hexaSweep(void);' + nl
 		r += 'static size_t hexaAllocSinceSweep_ = 0;' + nl
 		r += 'void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)8192) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
-	r += 'size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
-	r += 'void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
-	return r
-}
+		r += 'size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
+		r += 'void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
+		return r
+	}
 
 	/// Sweep victim-class names (diagnostic): one `if` per vtable-managed
 	/// class so the sweep can log WHO it frees (first victims per sweep).
@@ -3185,6 +3331,7 @@ class GenCxx {
 		let nl = String.fromCharCode(10)
 		var r = '// Sweep victim-class names (diagnostic, first freed per sweep)' + nl
 		r += 'static const char* hexaTagName_(const void* tag_) ' + lb + nl
+
 		for n in vtableClasses {
 			r += 'if (tag_ == (const void*)(&' + n + '__$)) return "' + n + '";' + nl
 		}
@@ -3232,10 +3379,12 @@ class GenCxx {
 		r += '__declspec(dllimport) int K32GetProcessMemoryInfo(void* hProcess, void* ppsmemCounters, unsigned long cb);' + nl
 		r += '__declspec(dllimport) void* GetCurrentProcess(void);' + nl
 		r += 'static const void* hexaArrayTags_[] = ' + lb
+
 		if arrayDestroyTags.length == 0 {
 			r += 'nullptr'
 		} else {
 			var rows: [String] = []
+
 			for n in arrayDestroyTags { rows.push('(const void*)&' + n + '__$') }
 			r += rows.join(', ')
 		}
@@ -3301,6 +3450,7 @@ class GenCxx {
 		let fok = '_$fok' + t
 		metaBlock.push('Any_* ' + ftmp + ' = ' + printExpression(callee))
 		var boxes: [String] = []
+
 		for a in args {
 			// F10.2: object literals into `Any` build real bags (same as
 			// every other `Any`-shaped binding site, see printObjectAs).
@@ -3313,6 +3463,7 @@ class GenCxx {
 			}
 		}
 		var argvUse = 'nullptr'
+
 		if boxes.length > 0 {
 			metaBlock.push('Any_* ' + fargv + '[] = \{' + boxes.join(', ') + '\}')
 			argvUse = fargv
@@ -3321,6 +3472,7 @@ class GenCxx {
 		metaBlock.push('uint8_t ' + fok + ' = 0')
 		metaBlock.push('if (Any_isFatPair_(' + ftmp + ')) \{ FatPair_* fp = (FatPair_*)(' + ftmp + '); Any_* (*fc)(void*, Any_**, int32_t) = FatPair_lookupCall_(fp->impl_); if (fc != nullptr) \{ ' + fres + ' = fc(fp->env_, ' + argvUse + ', ' + args.length + '); ' + fok + ' = 1; \} \}')
 		var refs: [String] = []
+
 		for i in args.length {
 			refs.push(fargv + '[' + i + ']')
 		}
@@ -3331,6 +3483,9 @@ class GenCxx {
 	fun printCallArgumentsVirtual(me: String, args: [Expression], expects: [Type]? = null) {
 		if args.length == 0 {
 			return '(' + me + ')'
+			if let exp = expects, let restElem = hexaRestElement(exp) {
+				return printHexaRestCall(args, exp, restElem, me)
+			}
 		}
 
 		if let exp = expects {
@@ -3385,6 +3540,7 @@ class GenCxx {
 				}
 			case _:
 		}
+
 		switch t {
 			case Nullable(inner):
 				return Type.ClassInstance(project.typer.typePromise, [Type.unwrapNullable(inner)])
@@ -3424,6 +3580,7 @@ class GenCxx {
 		let nl = String.fromCharCode(10)
 		var r = '#ifdef __cplusplus' + nl
 		r += 'extern "C++" ' + lb + nl
+
 		for s in promiseStructs {
 			r += 'HEXA_PROMISE_CORO(' + s + ')' + nl
 		}
@@ -3470,7 +3627,7 @@ class GenCxx {
 
 	/// Zero/null literal matching a C parameter type — for padded optional
 	/// arguments (`HitBox(text, x, y)` against `new (…, w: Float = 0, …)`)
-	fun padValue(to: Type): String {		let name = stringifyType(to)
+	fun padValue(to: Type): String { let name = stringifyType(to)
 
 		if name == 'double' {
 			return '(double)0.0'
@@ -3625,6 +3782,7 @@ class GenCxx {
 		if fromValue == project.typer.typeAny, to == project.typer.typeFloat32 {
 			return '((float)(Any_unboxFloat_(' + string + '))) '
 		}
+
 		if fromValue == project.typer.typeInt, to == project.typer.typeString {
 			return 'String_$fromInt32_(' + string + ')'
 		}
@@ -3663,20 +3821,28 @@ class GenCxx {
 			return 'String_$fromBool_(' + string + ')'
 		}
 
+		if fromValue == project.typer.typeFloat, to == project.typer.typeString {
+			return 'String_$fromFloat_(' + string + ') '
+		}
+
+		if fromValue == project.typer.typeNumber, to == project.typer.typeString {
+			return 'String_$fromFloat_(' + string + ') '
+		}
+
+		if fromValue == project.typer.typeFloat32, to == project.typer.typeString {
+			return 'String_$fromFloat_(' + string + ') '
+		}
+
 		if fromValue == project.typer.typeString {
 			switch to {
 				case ClassInstance(classType, generic):
 					// TODO for strict type check, store all strings like "ConstCharPointer" as constants
 					if classType.name == 'ConstCharPointer' {
-						// console.log('ConstCharPointer', type)
-						// throw 'bye'
 
 						return '(' + string + ')->bytes_'
 					}
 
 					if classType.name == 'ConstArrayPointer' {
-						// console.log('ConstArrayPointer', type)
-						// console.log('ConstArrayPointer of ', generic[0])
 
 						switch generic[0] {
 							// TODO `case (project.typer.typeInt):`
@@ -3687,14 +3853,11 @@ class GenCxx {
 									case 'ClangWideChar': return '(wchar_t *)((' + string + ')->bytes_)'
 								}
 						}
-						// throw 'bye'
 						return '(' + string + ')->bytes_'
 					}
 			}
 
 			if string == 'String_199' {
-				console.log('fromValue == project.typer.typeString to', to)
-				throw 'bye'
 			}
 		}
 
@@ -3706,7 +3869,9 @@ class GenCxx {
 					let cleanedType = omitPointer(stringifyType(fromValue))
 					// TODO use meta block
 					if cleanedType != 'Any_' {
-						return cleanedType + '$toString_(' + string + ')'
+						// Direct `toString_` call — every class emits one (the
+						// synthesized `[object Object]` fallback included)
+						return cleanedType + '$toString_(' + string + ') '
 					}
 
 					// `Any` — unbox through the D7 helper: real strings pass
@@ -3731,6 +3896,7 @@ class GenCxx {
 		if to == null {
 			return printToAnyConverter(string, fromValue)
 		}
+
 		switch to {
 			case Nullable(toNull):
 				if toNull == project.typer.typeAny {
@@ -3828,6 +3994,9 @@ class GenCxx {
 											return '(Null$Float64)\{0.0, 0\}'
 										}
 
+										if toNull == project.typer.typeNumber {
+										}
+
 										if toNull == project.typer.typeFloat32 {
 											return '(Null$Float32)\{0.0f, 0\}'
 										}
@@ -3868,6 +4037,8 @@ class GenCxx {
 									or
 									(fromValue == project.typer.typeNullFloat and to == project.typer.typeFloat)
 									or
+									(fromValue == project.typer.typeNullNumber and to == project.typer.typeNumber)
+									or
 									(fromValue == project.typer.typeNullFloat32 and to == project.typer.typeFloat32)
 								{
 									return string + '.value_'
@@ -3885,13 +4056,13 @@ class GenCxx {
 								return 'String_$fromBool_(' + string + ')'
 							}
 
-						if fromNull == project.typer.typeFloat, to == project.typer.typeString {
-							return 'String_$fromFloat_(' + string + '.value_)'
-						}
+							if fromNull == project.typer.typeFloat, to == project.typer.typeString {
+								return 'String_$fromFloat_(' + string + '.value_)'
+							}
 
-						if fromNull == project.typer.typeNumber, to == project.typer.typeString {
-							return 'String_$fromFloat_(' + string + '.value_)'
-						}
+							if fromNull == project.typer.typeNumber, to == project.typer.typeString {
+								return 'String_$fromFloat_(' + string + '.value_)'
+							}
 
 							if fromNull == project.typer.typeFloat32, to == project.typer.typeString {
 								return 'String_$fromFloat_(' + string + '.value_)'
@@ -4329,9 +4500,11 @@ class GenCxx {
 					// since `stringifyType` cannot see local `forward`).
 					if name == 'Promise' or name.startsWith('Promise_$') or name.startsWith('Promise_$_') {
 						var structName = name + '_'
+
 						if name.endsWith('_') {
 							structName = name
 						}
+
 						if not promiseStructs.includes(structName) {
 							promiseStructs.push(structName)
 						}
@@ -4379,7 +4552,28 @@ class GenCxx {
 				// return stringifyType(sub)
 				// }
 				// return enumType.name + '_*/*EnumInstance*/'
-			case Struct(_): return 'Any_*/*Struct*/'
+			case Struct(names, fieldTypes):
+				// Inline structural type (`interface { ... }`) — mint a real C
+				// struct with the named fields so member accesses compile
+				// (one definition per distinct shape; F10 reflection later)
+				let fields: [String] = []
+
+				for i in names.length {
+					fields.push(stringifyType(fieldTypes[i]) + ' ' + names[i] + '_')
+				}
+
+				let signature = fields.join(';')
+
+				if let existing = structDefsMap.get(signature) {
+					return existing
+				}
+
+				let structName = 'Struct_' + (tempId++)
+				structDefsMap.set(signature, structName + '_*')
+				structDefsForward.push('struct ' + structName + '_;')
+				structDefsForward.push('typedef struct ' + structName + '_ ' + structName + '_;')
+				structDefs.push('struct ' + structName + '_ \{\n\t' + fields.join(';\n\t') + ';\n\};\n')
+				return structName + '_*'
 			case Function(args, returns):
 				// NOTE nested function types emit their own typedefs, so all
 				// names must be resolved BEFORE this declaration is assembled
@@ -4423,6 +4617,7 @@ class GenCxx {
 				// function-typed values share one shape (`f$ptr(f$env, ...)`).
 				// Thin direct globals never use typedefs (called by name).
 				let fatA = ['void*']
+
 				for x in a {
 					fatA.push(x)
 				}
@@ -4575,13 +4770,13 @@ class GenCxx {
 	/// (erased/Generic) stays dynamic (existing `Any` paths); method values
 	/// stay thin (F6). Used by bindings, calls, fields, `==`, conversions.
 	fun isFatValueType(dataType: Type?): Bool { switch dataType {
-		case Function(_, _, _):
-			return true
-		case Nullable(inner):
-			return isFatValueType(inner)
-		case _:
-			return false
-	} }
+			case Function(_, _, _):
+				return true
+			case Nullable(inner):
+				return isFatValueType(inner)
+			case _:
+				return false
+		} }
 
 	/// Any-shaped values that may hold managed payloads (exact `Any`, its
 	/// nullables, erased generics): ARC retains/releases them through the
@@ -4624,15 +4819,15 @@ class GenCxx {
 				if let t = globalDecls.get(name) {
 					return stringifyType(t) == 'Any_*'
 				}
-			// F10.2: lowered dynamic calls (`a[i]` → `a.get(i)`) build
-			// `Dot` nodes with a null result, so `getType` says nothing —
-			// key on the DECLARED base type instead (declared types win).
-			// Static/typed bases (`Math.floor`, `m.get` on a Map) stay
-			// false here exactly as before. Static bases take the static
-			// print path (TitleCase ident) — never dynamic, even though a
-			// bare class ident is typeless (null stringifies to `Any_*`,
-			// which `isDynamic` would otherwise accept). Mirrors
-			// `dotFieldKind`.
+				// F10.2: lowered dynamic calls (`a[i]` → `a.get(i)`) build
+				// `Dot` nodes with a null result, so `getType` says nothing —
+				// key on the DECLARED base type instead (declared types win).
+				// Static/typed bases (`Math.floor`, `m.get` on a Map) stay
+				// false here exactly as before. Static bases take the static
+				// print path (TitleCase ident) — never dynamic, even though a
+				// bare class ident is typeless (null stringifies to `Any_*`,
+				// which `isDynamic` would otherwise accept). Mirrors
+				// `dotFieldKind`.
 			case Dot(base, _, _):
 				var isStaticBase = false
 				switch base {
@@ -4642,6 +4837,7 @@ class GenCxx {
 						}
 					case _:
 				}
+
 				if not isStaticBase, isDynamic(valueType(base)) {
 					return true
 				}
@@ -4676,6 +4872,7 @@ class GenCxx {
 						}
 					case _:
 				}
+
 				if not isStaticBase, isDynamic(valueType(base)) {
 					return 'Any_*'
 				}
@@ -4711,11 +4908,11 @@ class GenCxx {
 	/// `Dot` chains over them (stub `let_` getters, no mutation). Calls and
 	/// exotic shapes keep the legacy single-evaluation truthiness path.
 	fun isPureIsReceiver(e: Expression): Bool { switch e {
-		case Ident(_, _): return true
-		case Dot(base, _, _): return isPureIsReceiver(base)
-		case Parenthesis(inner): return isPureIsReceiver(inner)
-		case _: return false
-	} }
+			case Ident(_, _): return true
+			case Dot(base, _, _): return isPureIsReceiver(base)
+			case Parenthesis(inner): return isPureIsReceiver(inner)
+			case _: return false
+		} }
 
 	/// F10.1 first consumer: `x is T` for `Any`-shaped receivers via vtable-tag
 	/// comparison. Every vtable-bearing heap object stores its vtable first
@@ -4731,10 +4928,12 @@ class GenCxx {
 		if cShape(receiver) != 'Any_*' {
 			return null
 		}
+
 		if not isPureIsReceiver(receiver) {
 			return null
 		}
 		var t = target
+
 		switch t {
 			case Nullable(inner): t = inner
 			case UnknownNullable(handle):
@@ -4756,14 +4955,17 @@ class GenCxx {
 				return null
 		}
 		let structName = omitPointer(stringifyType(t))
+
 		for c in project.classes {
 			if c.name == structName or (c.name + '_') == structName {
 				if c.template {
 					return null
 				}
+
 				if c.jsRequire != null or c.jsNative != null {
 					return null
 				}
+
 				if c.api == ClassBinaryInterface.StructureNoVirtual {
 					return null
 				}
@@ -4783,6 +4985,7 @@ class GenCxx {
 						isIface = kind.kind == ClassKind.Interface
 					case _:
 				}
+
 				if not kindOk or isStructOrUnion or isIface {
 					return null
 				}
@@ -4825,15 +5028,15 @@ class GenCxx {
 	}
 	/// True when the expression evaluates a C-void call (direct or awaited)
 	fun isVoidValue(e: Expression): Bool { switch e {
-		case Call(callee, _, _, _):
-			return isVoidCallee(callee)
-		case Parenthesis(inner):
-			return isVoidValue(inner)
-		case Await(inner):
-			return isVoidValue(inner)
-		case _:
-			return false
-	} }
+			case Call(callee, _, _, _):
+				return isVoidCallee(callee)
+			case Parenthesis(inner):
+				return isVoidValue(inner)
+			case Await(inner):
+				return isVoidValue(inner)
+			case _:
+				return false
+		} }
 
 	/// Sanitizes a type name into a valid C identifier segment for generic
 	/// instantiation mangling: strips `/*...*/` annotation markers (they are
@@ -4928,6 +5131,7 @@ class GenCxx {
 		// Nullable interface/struct targets construct the same way (the C
 		// struct has no null wrapper — null is a null pointer).
 		var t = toType
+
 		switch t {
 			case Nullable(inner): t = inner
 			case _:
@@ -4939,6 +5143,7 @@ class GenCxx {
 			case ClassInstance(c, g):
 				if c.name == 'Promise', g != null, g.length == 1 {
 					t = g[0]
+
 					switch t {
 						case Nullable(inner): t = inner
 						case _:
@@ -4955,8 +5160,9 @@ class GenCxx {
 				case _:
 			}
 		}
+
 		switch t {
-		case Struct(names, fieldTypes):
+			case Struct(names, fieldTypes):
 				switch e {
 					case Object(onames, oels):
 						return printStructObject(names, fieldTypes, onames, oels)
@@ -5025,6 +5231,7 @@ class GenCxx {
 		let tid = tempId++
 		let tmp = '_$struct\(tid)'
 		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
+
 		for i in names.length {
 			for k in onames.length {
 				if onames[k] == names[i] {
@@ -5043,6 +5250,7 @@ class GenCxx {
 	fun printInterfaceObject(className: String, onames: [String], oels: [Expression]): String {
 		var names: [String] = []
 		var ftypes: [Type] = []
+
 		for c in project.classes {
 			if c.name == className {
 				for v in c.vars {
@@ -5093,6 +5301,7 @@ class GenCxx {
 			let sname = omitPointer(stringifyType(ftype))
 			return '(' + sname + '*)(' + s + ')'
 		}
+
 		if isFatValueType(ftype) {
 			// Function-typed struct fields hold thin single values in Phase 1
 			// (S2) while the typedef is fat (env-first) — arity and
@@ -5101,8 +5310,10 @@ class GenCxx {
 			return 'reinterpret_cast<' + stringifyType(ftype) + '>(' + printExpression(val) + ')'
 		}
 		let vt = valueType(val)
+
 		if isDynamic(vt), vt != project.typer.typeAny {
 			let want = stringifyType(ftype)
+
 			if want.endsWith('*') {
 				// Use-node type is unreliable (erased generics, unknown-null
 				// payloads) but the C value is a real pointer: bridge through
@@ -5128,12 +5339,14 @@ class GenCxx {
 			switch v {
 				case If(econd, eif, eelse):
 					var aStr = printExpression(eif)
+
 					if cShape(eif) == 'Any_*' {
 						aStr = 'Any_unboxInt_(' + aStr + ')'
 					} else {
 						aStr = printTypeConverter(aStr, valueType(eif), ofType)
 					}
 					var bStr = printExpression(eelse)
+
 					if cShape(eelse) == 'Any_*' {
 						bStr = 'Any_unboxInt_(' + bStr + ')'
 					} else {
@@ -5162,8 +5375,8 @@ class GenCxx {
 						parts.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')')
 					} else {
 						parts.push(printTypeConverter(printExpression(a), valueType(a), project.typer.typeAny))
+						}
 					}
-				}
 					return forcedCast(ofType, 'Array_$Any_$from_(Array_$Any_$new_(' + el.length + '), hexaItems<Any_*>(' + parts.join(', ') + '))')
 				case _:
 			}
@@ -5176,6 +5389,7 @@ class GenCxx {
 		if isBoxableFat(v), stringifyType(ofType) == 'Any_*' {
 			return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
 		}
+
 		switch ofType {
 			case ClassInstance(c):
 				if c.name == 'ArrayByValue' {
@@ -5357,6 +5571,38 @@ class GenCxx {
 							} else if s[0] == '\\' {
 								charsOut.push("\\\\")
 								s.shift()
+							} else if s[0] == 'u' {
+								// `\uXXXX` — surrogate pairs must merge
+								// into ONE `\UXXXXXXXX` escape: MSVC
+								// rejects lone surrogates in universal
+								// character names (C3850)
+								var handled = false
+
+								if s.length >= 11, s[5] == '\\', s[6] == 'u' {
+									let hi = parseInt(s[1] + s[2] + s[3] + s[4], 16)
+									let lo = parseInt(s[7] + s[8] + s[9] + s[10], 16)
+
+									if hi >= 0xD800 and hi <= 0xDBFF, lo >= 0xDC00 and lo <= 0xDFFF {
+										let point = 0x10000 + ((hi - 0xD800) * 0x400) + (lo - 0xDC00)
+										var hex = point.toString(16)
+
+										while hex.length < 8 {
+											hex = '0' + hex
+										}
+
+										charsOut.push('\\U' + hex)
+
+										for k in 11 {
+											s.shift()
+										}
+
+										handled = true
+									}
+								}
+
+								if not handled {
+									charsOut.push('\\')
+								}
 							} else {
 								charsOut.push('\\')
 							}
@@ -5384,6 +5630,7 @@ class GenCxx {
 		if isMethodDot(expr, name) {
 			return printExpression(expr) + '->_->' + name + '_'
 		}
+
 				if name == 'toZeroOrOne' {
 					let dataType = getType(expr)
 
@@ -5472,10 +5719,10 @@ class GenCxx {
 
 				// TODO to keep local var caches, use something like block.push()
 				// into current scope
-			case Call(e, args, dataType, kind):
 				switch kind {
 					case Static:
 						return printExpression(e) + printCallArguments(args)
+			case Call(e, args, dataType, kind, callExpectsField):
 					case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
@@ -5499,7 +5746,7 @@ class GenCxx {
 								}
 							}
 
-							let temp = tempId++
+								let temp = tempId++
 								let temp1 = tempId++
 								let mb = metaBlock
 								metaBlock = []
@@ -5641,7 +5888,12 @@ class GenCxx {
 				return name + '$new_' + printCallArguments(args, constructorExpects(name))
 
 			case Array(el, arrayType):
-				let typeName = stringifyType(arrayType)
+				var typeName = stringifyType(arrayType)
+
+				// Erased/unknown array types still allocate a real container
+				if typeName == 'Any_*' {
+					typeName = 'Array_$Any_*'
+				}
 
 				if el.length == 0 {
 					return '\(omitPointer(typeName))$new_(0)'
@@ -5695,12 +5947,14 @@ class GenCxx {
 								aNull = true
 							case _:
 						}
+
 						switch b {
 							case Null(_):
 								bNull = true
 							case _:
 						}
 						let op2 = op == Token.Unequal? '!=' : '=='
+
 						if aNull or bNull {
 							let p = aNull? fatPtrStr(b) : fatPtrStr(a)
 							return '(' + p + ' ' + op2 + ' nullptr)'
@@ -5709,6 +5963,7 @@ class GenCxx {
 						let pb = fatPtrStr(b)
 						let ea = fatEnvStr(a)
 						let eb = fatEnvStr(b)
+
 						if op == Token.Unequal {
 							return '!((' + pa + ') == (' + pb + ') && (' + ea + ') == (' + eb + '))'
 						}
@@ -5738,14 +5993,17 @@ class GenCxx {
 
 					if aName != bName {
 						let op2 = op == Token.Unequal? '!=' : '=='
+
 						if isIntCTypeName(aName), isIntCTypeName(bName) {
 							return '((int64_t)(' + printExpression(a) + ') ' + op2 + ' (int64_t)(' + printExpression(b) + '))'
 						}
+
 						if isFloatCTypeName(aName) {
 							if isIntCTypeName(bName) or isFloatCTypeName(bName) {
 								return '((double)(' + printExpression(a) + ') ' + op2 + ' (double)(' + printExpression(b) + '))'
 							}
 						}
+
 						if isFloatCTypeName(bName) {
 							if isIntCTypeName(aName) or isFloatCTypeName(aName) {
 								return '((double)(' + printExpression(a) + ') ' + op2 + ' (double)(' + printExpression(b) + '))'
@@ -5808,9 +6066,11 @@ class GenCxx {
 						metaBlock.push('Any_* ' + tmp + ' = nullptr')
 						var ba = printTypeConverter(printExpression(eif), valueType(eif), project.typer.typeAny)
 						var bb = printTypeConverter(printExpression(eelse), valueType(eelse), project.typer.typeAny)
+
 						if isBoxableFat(eif) {
 							ba = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eif) + '), ' + fatEnvStr(eif) + ')'
 						}
+
 						if isBoxableFat(eelse) {
 							bb = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eelse) + '), ' + fatEnvStr(eelse) + ')'
 						}
@@ -5842,9 +6102,11 @@ class GenCxx {
 						// shapes only — composites keep the legacy drop).
 						var boxA = printToAnyConverter(printExpression(eif), valueType(eif))
 						var boxB = printToAnyConverter(printExpression(eelse), valueType(eelse))
+
 						if isBoxableFat(eif) {
 							boxA = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eif) + '), ' + fatEnvStr(eif) + ')'
 						}
+
 						if isBoxableFat(eelse) {
 							boxB = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eelse) + '), ' + fatEnvStr(eelse) + ')'
 						}
@@ -5889,6 +6151,7 @@ class GenCxx {
 				let keyItems = [for el in keys printExpression(el)].join(', ')
 				// Struct-typed values: real construction (see printObjectAs).
 				let valStrs: [String] = []
+
 				for el in values {
 					if let s = printObjectAs(valueType, el) { valStrs.push(s) }
 					// F10.3: fat values into `Any` slots box pairs (leaf
@@ -5959,7 +6222,6 @@ class GenCxx {
 				// pending ones suspend and resume on the frame pump
 				// (`hexaPumpResumes`, zero host edits). Outside async (or
 				// non-Promise) keeps the pass-through (M1 safe).
-				case Await(e):
 					// C++ forbids `co_await` inside `catch` (C2304) — fall back
 					// to the settled `.value` read below (no suspension).
 					if insideAsyncFunction, not insideCatch {
@@ -5975,17 +6237,22 @@ class GenCxx {
 						if let t = promiseT {
 							if t == project.typer.typeVoid {
 								return '(co_await (*' + printExpression(e) + '), (void)0)'
+			case Await(e):
 							}
 						let base = '(co_await (*' + printExpression(e) + '))'
+
 						if t == project.typer.typeInt {
 							return 'Any_unboxInt_(' + base + ')'
 						}
+
 						if t == project.typer.typeFloat or t == project.typer.typeNumber {
 							return 'Any_unboxFloat_(' + base + ')'
 						}
+
 						if t == project.typer.typeInt64 or t == project.typer.typeUInt64 {
 							return 'Any_unboxInt64_(' + base + ')'
 						}
+
 						if t == project.typer.typeBool {
 							return '(' + base + ')->_toBool()'
 						}
@@ -6052,7 +6319,7 @@ class GenCxx {
 						return '((' + stringifyType(awaited) + ')(size_t)(' + base + '))'
 					}
 
-					return '((' + stringifyType(awaited) + ')(' + printExpression(e) + '))'
+				return '((' + stringifyType(awaited) + ')(' + printExpression(e) + '))'
 
 				// `x !.` force-unwrap — nullability checks are elided for now (stub)
 			case RemoveNullability(expr, _):
@@ -6060,17 +6327,17 @@ class GenCxx {
 
 				// `"str"[i]` — `String?` per element: the ADDRESS of the
 				// character slot stands in for the one-char string (F7)
-				case StringIndex(expr, index, _):
-					return '(&' + printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + '])'
+			case StringIndex(expr, index, _):
+				return '(&' + printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + '])'
 
 				// `x is T` — vtable-tag check for `Any` receivers (F10.1 first
 				// consumer: exact-type, null-safe); everything else keeps the
 				// legacy truthiness path (other targets emit it too).
-				case Is(e, t):
-					if let tag = anyIsTagCheck(e, t) {
-						return tag
-					}
-					return '((bool)(' + printExpression(e) + '))'
+			case Is(e, t):
+				if let tag = anyIsTagCheck(e, t) {
+					return tag
+				}
+				return '((bool)(' + printExpression(e) + '))'
 
 				// `...value` — a runtime list cannot expand statically (stub: pass as-is)
 			case Spread(expr):
