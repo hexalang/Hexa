@@ -28,28 +28,28 @@ class ArcInserter {
 	var arcElidedParams Int = 0
 	var arcRetainedParams Int = 0
 	var arcReturnRetains Int = 0
-var arcReturnUnknown Int = 0
+	var arcReturnUnknown Int = 0
 	var arcTransferredInits Int = 0
 	var arcFieldStores Int = 0
 	var arcDotAssignsSeen Int = 0
 	var arcDotImpure Int = 0
 	var arcDotNonARC Int = 0
-var arcIndexAssignsSeen Int = 0
-var arcIndexStores Int = 0
-var arcDiscardedCalls Int = 0
-var arcCallTemps Int = 0
-var arcCallTempsSkipped Int = 0
-var arcBareReturns Int = 0
-var arcThrowRetains Int = 0
-var arcCatchGuards Int = 0
-var arcWrappedBodies Int = 0
-var arcBufferStores Int = 0
-var arcDestroyMarked Int = 0
-var arcImmortalRetains Int = 0
-var arcWeakStores Int = 0
-// TEMP-DIAG (triage only): first дороге weak-Dot misses + the weak table.
-var arcWeakMisses [String] = []
-var arcWeakLogged Int = 0
+	var arcIndexAssignsSeen Int = 0
+	var arcIndexStores Int = 0
+	var arcDiscardedCalls Int = 0
+	var arcCallTemps Int = 0
+	var arcCallTempsSkipped Int = 0
+	var arcBareReturns Int = 0
+	var arcThrowRetains Int = 0
+	var arcCatchGuards Int = 0
+	var arcWrappedBodies Int = 0
+	var arcBufferStores Int = 0
+	var arcDestroyMarked Int = 0
+	var arcImmortalRetains Int = 0
+	var arcWeakStores Int = 0
+	// TEMP-DIAG (triage only): first дороге weak-Dot misses + the weak table.
+	var arcWeakMisses [String] = []
+	var arcWeakLogged Int = 0
 	// Hexa-implemented globals (name -> declared return type): calls into
 	// these return +1 by construction (B3 covers every Block return; bare
 	// managed returns tripwire at zero). Built once: skips body-less
@@ -107,6 +107,7 @@ var arcWeakLogged Int = 0
 						arcDestroyMarked++
 					}
 				}
+
 				if c.name == 'Map', generics.length > 1 {
 					nc.destroyKind = 3
 					arcDestroyMarked++
@@ -131,6 +132,7 @@ var arcWeakLogged Int = 0
 						case Block(_):
 						case _:
 							let wrapped = Statement.Function(name, Statement.Block([body]), args, defaults, dataType, variadic, isAsync)
+
 							if let link = niceProject.globalLink.get(s) {
 								niceProject.globalLink.set(wrapped, link)
 							}
@@ -153,6 +155,7 @@ var arcWeakLogged Int = 0
 	/// standard Dot-assign arm. No separate handling here.
 	fun collectImmortalRetains(): [Expression] {
 		let out: [Expression] = []
+
 		for g in niceProject.globalVars { switch g {
 			case Var(name, expr, dataType):
 				if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
@@ -177,6 +180,7 @@ var arcWeakLogged Int = 0
 				case _:
 			} }
 		}
+
 		for enu in niceProject.enumsSimple {
 			for v in enu.staticVars { switch v {
 				case Var(name, expr, dataType):
@@ -190,6 +194,7 @@ var arcWeakLogged Int = 0
 				case _:
 			} }
 		}
+
 		for enu in niceProject.enumsComplex {
 			for v in enu.staticVars { switch v {
 				case Var(name, expr, dataType):
@@ -210,16 +215,16 @@ var arcWeakLogged Int = 0
 		// Hexa-implemented globals (their calls return +1): used to
 		// transfer call results instead of over-retaining them.
 		for func in niceProject.globalFuncs { switch func {
-			case Function(name, body, _, _, ftype, _, _):
-				if name != null and body != null and niceProject.declareTypes.get(name) == null {
-					switch ftype {
-						case Function(_, returns, _):
-							arcHexaReturns.set(name, returns)
-						case _:
+				case Function(name, body, _, _, ftype, _, _):
+					if name != null and body != null and niceProject.declareTypes.get(name) == null {
+						switch ftype {
+							case Function(_, returns, _):
+								arcHexaReturns.set(name, returns)
+							case _:
+						}
 					}
-				}
-			case _:
-		} }
+				case _:
+			} }
 
 		for i in niceProject.globalFuncs.length { // Process global functions
 			niceProject.globalFuncs[i] = this.wrapBodyToBlock(niceProject.globalFuncs[i])
@@ -229,6 +234,7 @@ var arcWeakLogged Int = 0
 
 		for cls in niceProject.classes { // Process class methods
 			this.markContainerDestroy(cls)
+
 			for i in cls.methods.length {
 				cls.methods[i] = this.wrapBodyToBlock(cls.methods[i])
 				arcFuncKey = arcKeyFor(cls.name, stmtFuncName(cls.methods[i]) ?? '')
@@ -269,6 +275,7 @@ var arcWeakLogged Int = 0
 		// `HEXA_MAIN` global/static assignments, so every slot exists).
 		// No `Defer` — globals/statics never exit scope (D2/D6).
 		let immortal = this.collectImmortalRetains()
+
 		if immortal.length > 0 {
 			var placed = false
 			for init_block in niceProject.init { switch init_block {
@@ -288,6 +295,7 @@ var arcWeakLogged Int = 0
 		Fs.writeFileSync('arc-trace.log', 'ARC-ELIDE params=' + arcElidedParams + ' retained=' + arcRetainedParams + ' returnRetains=' + arcReturnRetains + ' returnUnknown=' + arcReturnUnknown + ' transferredInits=' + arcTransferredInits + ' fieldStores=' + arcFieldStores + ' dotAssignsSeen=' + arcDotAssignsSeen + ' dotImpure=' + arcDotImpure + ' dotNonARC=' + arcDotNonARC + ' bareReturns=' + arcBareReturns + ' indexAssignsSeen=' + arcIndexAssignsSeen + ' indexStores=' + arcIndexStores + ' discardedCalls=' + arcDiscardedCalls + ' callTemps=' + arcCallTemps + ' callTempsSkipped=' + arcCallTempsSkipped + ' throwRetains=' + arcThrowRetains + ' catchGuards=' + arcCatchGuards + ' wrappedBodies=' + arcWrappedBodies + ' bufferStores=' + arcBufferStores + ' destroyMarked=' + arcDestroyMarked + ' immortalRetains=' + arcImmortalRetains + ' weakStores=' + arcWeakStores)
 		// TEMP-DIAG: weak-field table + first unresolvable Dot bases.
 		var wtab: [String] = []
+
 		for nc in niceProject.classes {
 			if nc.weakFields.length > 0 {
 				wtab.push(nc.name + ': ' + nc.weakFields.join(','))
@@ -368,6 +376,7 @@ var arcWeakLogged Int = 0
 									// TODO i + N?
 									els.spliceAndInsert(i, 0, stmt)
 								}
+
 								i += pre_stmts.length // Skip inserted
 							}
 						case Assign(left, right, _):
@@ -407,6 +416,7 @@ var arcWeakLogged Int = 0
 						case Assignop(left, op, right):
 							// Recurse into both sides (nested closure bodies).
 							this.processExpression(left)
+
 							if right != null { this.processExpression(right) }
 							// Similar to Assign, but for correctness, assume no for ARC or handle eval
 							// For now, insert similar, but op may use left, so eval right first? Complex, assume no Assignop for ARC
@@ -468,26 +478,46 @@ var arcWeakLogged Int = 0
 				}
 			case If(cond, then, else_):
 				this.processExpression(cond) // Recurse expr
+				this.countBareReturn(then)
 				this.processStatement(then)
 
-				if else_ != null { this.processStatement(else_) }
+				if else_ != null {
+					this.countBareReturn(else_)
+					this.processStatement(else_)
+				}
 			case While(cond, body, pre):
 				this.processExpression(cond)
+				this.countBareReturn(body)
 				this.processStatement(body)
 			case For(name, over, body):
 				this.processExpression(over)
+				this.countBareReturn(body)
 				this.processStatement(body)
 			case PlainSwitch(index, cases, stmts):
 				this.processExpression(index)
 
-				for stmt in stmts { this.processStatement(stmt) }
+				for stmt in stmts {
+					this.countBareReturn(stmt)
+					this.processStatement(stmt)
+				}
 			case PatternSwitch(index, cases, stmts, guardians, binds):
 				this.processExpression(index)
 
-				for stmt in stmts { this.processStatement(stmt) }
+				for stmt in stmts {
+					this.countBareReturn(stmt)
+					this.processStatement(stmt)
+				}
 				// Guardians are expr, processExpression
 				for g in guardians { if g != null { this.processExpression(g) } }
+
+				for b in binds {
+					for stmt in b {
+						this.countBareReturn(stmt)
+						this.processStatement(stmt)
+					}
+				}
 			case Try(body, types, vars, catches, temp):
+				this.countBareReturn(body)
 				this.processStatement(body)
 
 				for catch_ in catches { this.processStatement(catch_) }
@@ -496,6 +526,16 @@ var arcWeakLogged Int = 0
 				// TODO function result should be handled somehow specially?
 			case Throw(expr): this.processExpression(expr)
 			case Increment(expr) | Decrement(expr): this.processExpression(expr) // But not for rc, for numbers
+			case Statements(els):
+				// Scope-less sequence (genC prints without braces — plain
+				// `stmt; stmt;...`): identical ARC treatment to Block via a
+				// shared-array shell. Guards land in the enclosing C scope
+				// and release at its end (pins longer, never unsafe). The
+				// shell is discarded; inserts mutate the shared `els` array.
+				// (Normalizer and both lowering passes preserve Statements,
+				// so without this arm whole subtrees — nested bodies,
+				// inits, returns — were silently skipped.)
+				this.processStatement(Statement.Block(els))
 			case _:
 		}
 	}
@@ -509,8 +549,8 @@ var arcWeakLogged Int = 0
 			case StringIndex(expr, index, _): this.processExpression(expr) this.processExpression(index)
 			case Call(func, args, dataType, kind): this.processExpression(func) for arg in args { this.processExpression(arg) }
 			case If(cond, then, else_): this.processExpression(cond) this.processExpression(then) if else_ != null { this.processExpression(else_) }
-		case Elvis(a, b): this.processExpression(a as!Expression) this.processExpression(b as!Expression)
-		case UnsafeBitCast(inner, _): this.processExpression(inner)
+			case Elvis(a, b): this.processExpression(a as!Expression) this.processExpression(b as!Expression)
+			case UnsafeBitCast(inner, _): this.processExpression(inner)
 			case New(_, args, dataType): for arg in args { this.processExpression(arg) }
 			case Function(name, body, args, defaults, dataType): if body != null { this.processStatement(body) }
 			case Arrow(expr, args, defaults, types, rettype, dataType): this.processExpression(expr) // Body is expr
@@ -618,17 +658,17 @@ var arcWeakLogged Int = 0
 
 	/// TEMP-DIAG: one-line shape summary for a Dot base (no types).
 	fun describeWeakBase(b: Expression): String { switch b {
-		case Ident(n, _):
-			return 'Ident(' + n + ')'
-		case This(_):
-			return 'This'
-		case Dot(x, n, _):
-			return 'Dot(' + this.describeWeakBase(x) + '.' + n + ')'
-		case Parenthesis(i):
-			return 'Paren(' + this.describeWeakBase(i) + ')'
-		case _:
-			return 'other'
-	} return 'other' }
+			case Ident(n, _):
+				return 'Ident(' + n + ')'
+			case This(_):
+				return 'This'
+			case Dot(x, n, _):
+				return 'Dot(' + this.describeWeakBase(x) + '.' + n + ')'
+			case Parenthesis(i):
+				return 'Paren(' + this.describeWeakBase(i) + ')'
+			case _:
+				return 'other'
+		} return 'other' }
 
 	/// Innermost class name behind a value type, unwrapping the same
 	/// nullable/erased layers `needsARC` looks through (if-let temporaries
@@ -637,6 +677,7 @@ var arcWeakLogged Int = 0
 		if t == null {
 			return null
 		}
+
 		switch t {
 			case ClassInstance(c, _):
 				return c.name
@@ -818,18 +859,18 @@ var arcWeakLogged Int = 0
 				return this.isPlusOneCall(callee)
 			case Parenthesis(inner):
 				return this.isOwnedInit(inner)
-			// NOTE (reverted 2026-10-29): a Binop-Add transfer arm lived here
-			// (fresh when a String operand is present). It regressed boot:
-			// `String_$combine_+0x130` AV-read `FFFFFFFFFFFFFFFF` from
-			// `bootProbe_` — a `+1` was skipped for a value genC did NOT
-			// route through `combine_` (dynamic `Any`/null/lost-map shapes
-			// take the proxy/raw-`+` path), so the sweep freed live.
-			// Keep the retaining path until genC keys `+` on the same
-			// declared-type predicate (like fat `==`/`!=` already does).
-		// `StringConcatenation` stays: genC unconditionally emits
-		// `combine_` for it, so +1 transfer is exact (no producer
-		// exists today — documents the contract for when one does).
-		case StringConcatenation(_, _):
+				// NOTE (reverted 2026-10-29): a Binop-Add transfer arm lived here
+				// (fresh when a String operand is present). It regressed boot:
+				// `String_$combine_+0x130` AV-read `FFFFFFFFFFFFFFFF` from
+				// `bootProbe_` — a `+1` was skipped for a value genC did NOT
+				// route through `combine_` (dynamic `Any`/null/lost-map shapes
+				// take the proxy/raw-`+` path), so the sweep freed live.
+				// Keep the retaining path until genC keys `+` on the same
+				// declared-type predicate (like fat `==`/`!=` already does).
+				// `StringConcatenation` stays: genC unconditionally emits
+				// `combine_` for it, so +1 transfer is exact (no producer
+				// exists today — documents the contract for when one does).
+			case StringConcatenation(_, _):
 				return true
 			case If(_, then, else_, _):
 				// Both-branch-fresh ⇒ the selected branch's +1 is the
@@ -948,6 +989,7 @@ var arcWeakLogged Int = 0
 	fun isOwnField(name: String): Bool {
 		if let k = arcFuncKey {
 			let sep = k.indexOf('_$')
+
 			if sep != -1 {
 				if let cls = this.findNiceClass(k.slice(0, sep)) {
 					for v in cls.vars { switch v {
@@ -1051,17 +1093,17 @@ var arcWeakLogged Int = 0
 		}
 
 		switch e {
-		case Ident(_, dataType):
-			return dataType
-		case This(me):
-			return me
-		case String(_):
-			// String literals are immortal interned heap objects (NOT
-			// immediates): a `return 'lit'` with a lost map entry must still
-			// take the caller's +1, or the transfer release zeroes the
-			// shared global and the sweep frees it (UAF + mojibake).
-			// Scalar literal shapes need no arm (never counted).
-			return typer.typeString
+			case Ident(_, dataType):
+				return dataType
+			case This(me):
+				return me
+			case String(_):
+				// String literals are immortal interned heap objects (NOT
+				// immediates): a `return 'lit'` with a lost map entry must still
+				// take the caller's +1, or the transfer release zeroes the
+				// shared global and the sweep frees it (UAF + mojibake).
+				// Scalar literal shapes need no arm (never counted).
+				return typer.typeString
 			case Dot(_, _, result):
 				return result
 			case Call(_, _, result, _, _):
@@ -1105,6 +1147,7 @@ var arcWeakLogged Int = 0
 			case Return(expr):
 				if expr != null {
 					let retType = this.niceTypeOf(expr) ?? this.getType(expr)
+
 					if this.needsRefRetain(retType) and (this.isLvalueExpr(expr) or not this.isFreshOwned(expr)) {
 						arcBareReturns++
 					}
