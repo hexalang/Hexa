@@ -11,9 +11,12 @@
 fun autoFormatWholeFile(file: String, noParsingCheck: Bool = false): String {
 	let content = Buffer.from(file)
 
+	// Initialize compiler
+	Lexer.init()
+
 	try {
 		// TODO range formatter
-		let tokens = Lexer.tokenize(content, 'hexa.hexa', format: true)
+		let tokensWithoutComments = Lexer.tokenize(content, 'hexa.hexa', format: false)
 
 		// Validate the AST FIRST: the formatter below is purely token-based and
 		// would happily re-emit malformed code (wrong spacing/indentation on a
@@ -25,12 +28,14 @@ fun autoFormatWholeFile(file: String, noParsingCheck: Bool = false): String {
 		// into fresh ones), so `tokens` below still holds the original stream.
 		if not noParsingCheck {
 			try {
-				Parser.parseNodes(tokens, new Project(), lint: true)
+				Parser.parseNodes(tokensWithoutComments, new Project(), lint: true)
 			} catch e: CompilerErrors {
 				// Syntax invalid → bail out early, original file is preserved
 				return file
 			}
 		}
+
+		let tokens = Lexer.tokenize(content, 'hexa.hexa', format: true)
 
 		let count = tokens.line.length - 1
 		let result = ['']
