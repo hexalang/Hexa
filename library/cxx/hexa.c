@@ -38,15 +38,10 @@
 		// #include <new> // Placement new
 		// TODO include if C++11:
 		// #include <functional> // For [&]
-		#ifdef __GNUC__
-			#define restrict __restrict__
-		#else
-			#if defined(_MSC_VER) || defined(__clang__)
-				#define restrict __restrict
-			#else
-				#define restrict
 			#endif
-		#endif
+		// NOTE `restrict` is #defined AFTER the system includes below — a
+		// `#define restrict __restrict` before them rewrites the token inside
+		// MSVC's `__declspec(restrict)` (C2485 in corecrt_malloc.h)
 	#else
 		// TODO include if C11:
 		#include <stdbool.h>
@@ -59,34 +54,65 @@
 	#ifndef HEXA_NO_PLATFORM_INCLUDES
 		// TODO don't include any at all,
 		// just let module bindings import them
-		#include <stdio.h> // printf
-		#include <stdlib.h> // malloc
-		// #include <string.h> // strlen
+	#include <stdio.h> // printf
+	#include <stdlib.h> // malloc
+	#include <string.h> // memcpy, memset, memcmp
+	#include <wchar.h> // wcslen
+	#include <math.h> // NAN, INFINITY, isfinite
 
-		// TODO defines before includes
-		#ifndef UNICODE
-			#define UNICODE
+	// FFI pivot: the generated TU compiles standalone (own TU, no SDK headers).
+	// The only Windows ABI facts it needs are declared here (pointer-sized
+	// handle typedefs + the heap/console runtime imports used by HEXA_NEW /
+	// HEXA_FREE / HEXA_UNREACHABLE). Everything else binds via @dllImport
+	// declares whose prototypes genC emits (suffixed names aliased at link).
+	#ifdef _WIN32
+		typedef void* HANDLE;
+		typedef void* HMODULE;
+		typedef void* HLOCAL;
+		typedef void* LPSECURITY_ATTRIBUTES;
+		typedef void* LPOVERLAPPED;
+		typedef void* LPFILETIME;
+		typedef void* LPTIME_ZONE_INFORMATION;
+		typedef void* HINTERNET;
+		typedef unsigned long* LPDWORD;
+		typedef unsigned long u_long;
+		#define HEAP_ZERO_MEMORY 0x00000008
+		// C linkage: kernel32 exports are undecorated; the references must be
+		// too (same reason the dllimport Win32 prototypes alias undecorated).
+		#ifdef __cplusplus
+		extern "C" {
 		#endif
-		#ifndef WIN32_LEAN_AND_MEAN
-			#define WIN32_LEAN_AND_MEAN
+		void* GetProcessHeap(void);
+		void* HeapAlloc(void* heap, unsigned long flags, unsigned long long size);
+		int HeapFree(void* heap, unsigned long flags, void* ptr);
+		void* GetStdHandle(unsigned long id);
+		int WriteFile(void* h, const void* buf, unsigned long n, unsigned long* written, void* over);
+		int FlushFileBuffers(void* h);
+		void ExitProcess(unsigned code);
+		#ifdef __cplusplus
+		}
 		#endif
-		#ifndef WIN32_EXTRA_LEAN
-			#define WIN32_EXTRA_LEAN
-			#define NOSERVICE
-			#define NOMCX
-			#define NOIME
-			#define NOSOUND
-			#define NOCOMM
-			#define NOKANJI
-			#define NORPC
-			#define NOPROXYSTUB
-			#define NOIMAGE
-			#define NOTAPE
-			#define NOGDI
-			#define NOUSER
-		#endif
-		#ifdef _WIN32
-			#include <windows.h>
+	#endif
+
+	// FFI pivot: the generated TU is compiled standalone (own TU, own
+	// prototypes) — no SDK headers here by design (lean-Windows block
+	// removed); module bindings carry what they need via their own
+	// @customHeader holders.
+	#endif
+#endif
+
+// After the system includes: a `restrict` keyword mapping for user code
+// (defined earlier it would corrupt `__declspec(restrict)` in MSVC headers)
+#ifdef __cplusplus
+	#ifndef restrict
+		#ifdef __GNUC__
+			#define restrict __restrict__
+		#else
+			#if defined(_MSC_VER) || defined(__clang__)
+				#define restrict __restrict
+			#else
+				#define restrict
+			#endif
 		#endif
 	#endif
 #endif
@@ -797,6 +823,11 @@ uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
 // TODO consider adding meta-block unroll
 Null$UInt64 toNull$UInt64(uint64_t value) {
 	return (Null$UInt64){value, (uint8_t)(value != 0)};
+	// NOTE no compound literal `(Null$UInt64){...}` — C4576 in C++ mode
+	Null$UInt64 result;
+	result.value_ = value;
+	result.has_ = (uint8_t)(value != 0);
+	return result;
 }
 
 struct Null$Int64 {
@@ -846,12 +877,13 @@ typedef struct Null$Int64 Null$Int64;
 //	return (struct Array_*)0;
 //};
 // name, value, name, value
-struct Object_* Object_from(void* stub, ...) {
-	return (struct Object_*)0;
+// NOTE returns `Any_*` — object literals are passed around as `Any`
+struct Any_* Object_from(void* stub, ...) {
+	return (struct Any_*)0;
 };
 // key, value, key, value
-struct Map_* Map_from(void* stub, ...) {
-	return (struct Map_*)0;
+struct Any_* Map_from(void* stub, ...) {
+	return (struct Any_*)0;
 };
 
 //uint32_t Any_::AddRef_() {
