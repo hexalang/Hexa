@@ -144,6 +144,18 @@ class GenCxx {
 	let typedefFunctions: [String] = []
 	let globalVariables: [String] = []
 	let globalFunctions: [String] = []
+	// ARC destroy registry rows (tag + destroy fn + size), one per class
+	// declaring `@destructor`. Read by the future F11 sweep via the lookup
+	// below; backends never consult it today.
+	let destroyTable: [String] = []
+	// Vtable-managed class names (every class that actually emits a `__$`
+	// tag global), for the sweep victim-name table. Collected at vtable
+	// emission so the table can only reference symbols that exist.
+	let vtableClasses: [String] = []
+	// Vtable-managed container class names (destroyKind 1/2 arrays) for the
+	// sweep bisect: `hexaArrayTags_` lets `HEXA_SWEEP_MODE=2` skip exactly
+	// the array-element unref cascade while freeing everything else.
+	let arrayDestroyTags: [String] = []
 	let types: [String] = []
 	let dllExports: [String] = []
 	// TODO Docs
@@ -389,12 +401,23 @@ class GenCxx {
 			// if (c.name == 'String') {
 			// continue
 			// }
-			if c.name == 'Any' {
+			// `Any` maps onto the runtime `struct Any_` and `Bool` onto the
+			// `Bool_` macro — matched by TYPE name so a scope-unique rename
+			// of the nice class name cannot miss them
+			var builtinName = c.name
+
+			switch c.classType {
+				case Class(kind):
+					builtinName = kind.name
+				case _:
+			}
+
+			if builtinName == 'Any' {
 				// forward.push('#define Any_ Unknown_')
 				continue
 			}
 			// TODO better idea
-			if c.name == 'Bool' {
+			if builtinName == 'Bool' {
 				continue
 			}
 
@@ -518,9 +541,65 @@ class GenCxx {
 				// Ok
 			} else {
 				types.push('\n\tconst struct ' + c.name + '__ * const _;')
+				// ARC header (D6): every vtable-managed instance starts with
+				// `(_, rc)`. Structs keep their exact C ABI (no header).
+				types.push('\n\tint32_t rc_;')
 			}
 			let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = \{\n\t']
 			let vtableBind = []
+			// ARC destroy-table row (F11 sweep reads it): vtable identity,
+			// destroy fn (the `@destructor` method), instance size.
+					if let dd = c.destructor {
+						let openBrace = String.fromCharCode(123)
+						let closeBrace = String.fromCharCode(125)
+						destroyTable.push(openBrace + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + c.name + '_$' + dd + '_, sizeof(' + c.name + '_)' + closeBrace)
+					}
+
+					// Synthesized container destroys (F11.2, ARC-marked): see
+					// NiceClass.destroyKind. Skipped when a user @destructor
+					// owns the slot. Additive dead code until the sweep lands.
+					if c.destructor == null {
+						if c.destroyKind == 1 {
+							let dn = c.name + '_$destroyARC_'
+							forwardFunctions.push('void ' + dn + '(void*)')
+							forwardFunctions.push(';\n')
+							out.push('void ' + dn + '(void* p_) \{\n')
+							out.push('\t' + c.name + '_* a_ = (' + c.name + '_*)p_;\n')
+						out.push('\tfor (int32_t i_ = 0; i_ < a_->length_; i_++) hexaUnref(a_->data_[i_]);\n')
+						out.push('\tHEXA_FREE(a_->data_, sizeof(void*) * (size_t)a_->capacity_);\n')
+						out.push('\};\n\n')
+						let ob = String.fromCharCode(123)
+						let cb = String.fromCharCode(125)
+						destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
+						arrayDestroyTags.push(c.name)
+						}
+						if c.destroyKind == 2 {
+							let dn = c.name + '_$destroyARC_'
+							forwardFunctions.push('void ' + dn + '(void*)')
+							forwardFunctions.push(';\n')
+							out.push('void ' + dn + '(void* p_) \{\n')
+						out.push('\t' + c.name + '_* a_ = (' + c.name + '_*)p_;\n')
+						out.push('\tHEXA_FREE(a_->data_, sizeof(void*) * (size_t)a_->capacity_);\n')
+						out.push('\};\n\n')
+						let ob = String.fromCharCode(123)
+						let cb = String.fromCharCode(125)
+						destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
+						arrayDestroyTags.push(c.name)
+						}
+						if c.destroyKind == 3 {
+							let dn = c.name + '_$destroyARC_'
+							forwardFunctions.push('void ' + dn + '(void*)')
+							forwardFunctions.push(';\n')
+							out.push('void ' + dn + '(void* p_) \{\n')
+							out.push('\t' + c.name + '_* m_ = (' + c.name + '_*)p_;\n')
+							out.push('\thexaUnref(m_->key_);\n')
+							out.push('\thexaUnref(m_->value_);\n')
+							out.push('\};\n\n')
+							let ob = String.fromCharCode(123)
+							let cb = String.fromCharCode(125)
+							destroyTable.push(ob + ' (const void*)&' + c.name + '__$, (void(*)(void*))' + dn + ', sizeof(' + c.name + '_)' + cb)
+						}
+					}
 
 			// TODO `for i : v in`
 			var vi = -1
@@ -678,6 +757,13 @@ class GenCxx {
 								out.push('\t$_[0] = (void *)&' + c.name + '__$;\n')
 							}
 							out.push('\t' + c.name + '_* _ = (' + c.name + '_*)($_);\n')
+						// ARC birth count (D6: +1 return): matches the vtable-gated
+						// `rc_` slot above — structs/native layouts stay untouched.
+						if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
+							// Ok
+						} else {
+							out.push('\t_->rc_ = 1;\n')
+						}
 
 							// out.push('\tvoid* buffer_ = (struct ' + c.name + '_*)(HEXA_NEW(sizeof(struct ' + c.name + '_)));\n')
 							// out.push('\tstruct ' + c.name + '_* _ = new (buffer_) ' + c.name + '_();\n')
@@ -797,6 +883,7 @@ class GenCxx {
 			vtableValue.push(vtableBind.join(',\n\t'))
 			vtable.push(vtableValue.join('') + '\n\};\n')
 			types.unshift(vtable.join(''))
+			vtableClasses.push(c.name)
 
 			for v in c.staticMethods { switch v {
 					case Function(name, expr, args, defaults, funcType, _, isAsync):
@@ -1246,6 +1333,9 @@ class GenCxx {
 
 			+ '\n// Scalar boxing (D7: real `Any` payloads for ints/floats)\n' +
 			printScalarBoxing()
+
+			+ '\n// Destroy table (ARC: tag -> destructor for the F11 sweep)\n' +
+			printDestroyTable()
 
 			+ '\n// Global variables\n' +
 			globalVariables.join('')
@@ -1774,7 +1864,26 @@ class GenCxx {
 					case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
-								let temp = tempId++
+					// Dynamic receivers (`Any`/erased) have no
+						// vtable — the Dot path prints the reflection
+						// stub call instead (F10). F10.2: route through the
+						// dynamic call slot (bags may hold the method as a
+						// pair; otherwise the legacy proxy no-ops as before).
+						// A raw `Any_dynGet_(...)(args)` call would not even
+						// compile (`Any_*` is not callable, C2064).
+						if isDynamic(valueType(expr)) {
+							return printDynamicCall(e, args, expectsOrDerived(expects, e))
+						}
+
+							// Scalar receivers (`x.toString()` on `Int`) have
+							// no vtable either — same helper as expressions
+							if name == 'toString' {
+								if let helper = scalarToString(printExpression(expr), cShape(expr)) {
+									return helper
+								}
+							}
+
+							let temp = tempId++
 
 								let exprType = getType(expr)
 								let typeString = stringifyType(exprType)
@@ -2972,7 +3081,7 @@ class GenCxx {
 		var r = '// D7 scalar boxing (real `Any` payloads for ints/floats)\n'
 		r += 'struct AnyInt__ \{ uint8_t _x_; \};\n'
 		r += 'const struct AnyInt__ AnyInt__$ = \{0\};\n'
-		r += 'struct AnyInt_ \{ const struct AnyInt__* _; int64_t v_; \};\n'
+		r += 'struct AnyInt_ \{ const struct AnyInt__* _; int32_t rc_; int64_t v_; \};\n'
 		r += 'struct AnyFloat__ \{ uint8_t _x_; \};\n'
 		r += 'const struct AnyFloat__ AnyFloat__$ = \{0\};\n'
 		r += 'struct AnyFloat_ \{ const struct AnyFloat__* _; double v_; \};\n'
@@ -3014,6 +3123,161 @@ class GenCxx {
 		r += 'String_* Any_objectKeyAt_(Any_* p, int32_t i) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return nullptr; AnyObject_* o = (AnyObject_*)(p); if (i < (int32_t)0 || i >= o->count_) return nullptr; return o->entries_[i].k_; ' + rb + nl
 		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr) return nullptr; if (Any_isObject_(p)) return Any_objectGet_(p, k); return (Any_*)(((Any_*)(p))->let_(k)); ' + rb + nl
 		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; if (Any_isObject_(p)) ' + lb + ' Any_objectSet_(p, k, v); return; ' + rb + ' ((Any_*)(p))->$set(k, v); ' + rb + nl
+		return r
+	}
+
+	/// ARC destroy registry: one row per `@destructor` class (vtable tag,
+	/// destroy fn, instance size) plus a tag lookup for the future F11 sweep.
+	/// Always emitted (lone null row when empty) so the sweep links blindly.
+	/// (Braces ride via fromCharCode like the neighboring runtime printers —
+	/// never as escapes, which misparse in this position.)
+	fun printDestroyTable(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// ARC destroy registry (tag -> destructor, F11 sweep reads it)' + nl
+		r += 'struct HexaDestroyEntry_ ' + lb + ' const void* tag_; void (*destroy_)(void*); size_t size_; ' + rb + ';' + nl
+		r += 'static const struct HexaDestroyEntry_ hexaDestroyTable_[] = ' + lb
+		if destroyTable.length == 0 {
+			r += lb + 'nullptr, nullptr, 0' + rb
+		} else {
+			r += destroyTable.join(', ')
+		}
+		r += rb + ';' + nl
+		r += 'static void (*HexaDestroyLookup_(const void* tag))(void*) ' + lb + ' for (size_t i_ = 0; i_ < sizeof(hexaDestroyTable_)/sizeof(hexaDestroyTable_[0]); i_++) ' + lb + ' if (hexaDestroyTable_[i_].tag_ != nullptr && hexaDestroyTable_[i_].tag_ == tag) return hexaDestroyTable_[i_].destroy_; ' + rb + ' return nullptr; ' + rb + nl
+		return r
+	}
+
+	/// F11 live-object registry (side table — the host mirrors Hexa layouts,
+	/// so no intrusive link may be added to instance headers). `$new_`
+	/// registers every vtable-managed birth after `$this_` completes (a
+	/// registered object is always fully constructed); boxes register at
+	/// creation. Nothing reads the table yet (sweep + census land next).
+	fun printLiveRegistry(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// F11 live-object registry (side table, host-mirror safe)' + nl
+		r += 'static void** hexaLiveList_ = nullptr;' + nl
+		r += 'static size_t hexaLiveNum_ = 0;' + nl
+		r += 'static size_t hexaLiveCap_ = 0;' + nl
+		// F11 pressure trigger (alloc-path sweep): managed births drive the
+		// sweep, so bursty allocators can't outrun the 600-pump cadence.
+		// Prototype rides here (hexaSweep is defined later in this TU);
+		// the sweep's own sweeping_ guard makes nested triggers (user
+		// @destructors that allocate) safe no-ops. Mode 4 (off) still pays
+		// a scan per interval — acceptable for a manual triage mode.
+		r += 'void hexaSweep(void);' + nl
+		r += 'static size_t hexaAllocSinceSweep_ = 0;' + nl
+		r += 'void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)8192) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
+	r += 'size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
+	r += 'void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
+	return r
+}
+
+	/// Sweep victim-class names (diagnostic): one `if` per vtable-managed
+	/// class so the sweep can log WHO it frees (first victims per sweep).
+	/// Same vtable predicate as the class printer (structs/unions/native
+	/// layouts have no `__$` tag global and are skipped).
+	fun printTagNames(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// Sweep victim-class names (diagnostic, first freed per sweep)' + nl
+		r += 'static const char* hexaTagName_(const void* tag_) ' + lb + nl
+		for n in vtableClasses {
+			r += 'if (tag_ == (const void*)(&' + n + '__$)) return "' + n + '";' + nl
+		}
+		r += 'return "?";' + nl
+		r += rb + nl
+		return r
+	}
+
+	/// F11 sweep v1 (deferred free, D6): scans the live side-table and frees
+	/// every `rc == 0` entry (destroy via `HexaDestroyLookup_`, then `HEXA_FREE`;
+	/// `AnyObject_` bags free their entry buffer inline — boxes have no table
+	/// row and no other inner heap). Swap-remove compacts the list, so a second
+	/// sweep never re-frees. Null/immediate/null-tag entries are compacted or
+	/// skipped (leak, safe). Re-entrancy guard (destroys only `hexaUnref` + free,
+	/// never allocate — belt-and-braces). Called from Hexa `timerPump()` next to
+	/// the census — never from the alloc path, so no `HEXA_NEW` re-entry.
+	/// Layout note: this section emits AFTER Global variables (`AnyObject_`
+	/// must be a complete type for the inline entry-buffer free).
+	/// `HEXA_SWEEP_MODE` bisect (diagnostic): 0 = DEFAULT, full incl. strings
+	/// (previously menubar UAF — shared interned literals freed while
+	/// referenced; ARC now pins every share: immortal globals/statics,
+	/// constructor-lowered field defaults, guarded transfers — under test).
+	/// 1 = retire `String` objects from the live set without
+	/// destroying/freeing them (bucket stays valid for future interns, object
+	/// stays mapped for any outstanding referrer — the D2 "interned globals
+	/// are immortal" rule made operational; the old bisect mode, kept for
+	/// triage). 2 = skip arrays, 3 =
+	/// destroy-less only, 4 = off (log only). Latched once per process.
+	/// Pressure trigger: every 8192nd managed birth also sweeps (alloc-path
+	/// hook in `hexaRegisterLive_`, same TU) so bursty allocators can't
+	/// outrun the 600-pump cadence.
+	fun printSweep(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// F11 sweep (deferred free of rc==0 live entries, D6)' + nl
+		// Per-sweep memory (taskmgr-comparable): WorkingSet + PagefileUsage via
+		// K32 (kernel32, no psapi dep — same pattern as the prologue imports).
+		// Logged on EVERY sweep so the file shows the reclaim timeline even
+		// when the frame pump never runs (headless smoke). Layout is the
+		// documented PROCESS_MEMORY_COUNTERS (64-bit): cb@0, faults@4,
+		// peakWS@8, WS@16, quotaPeakPaged@24, quotaPaged@32, quotaPeakNonPaged
+		// @40, quotaNonPaged@48, pagefile@56, peakPagefile@64 (72 bytes).
+		r += 'struct HexaMemCounters_ ' + lb + ' unsigned long cb_; unsigned long pageFaults_; unsigned long long peakWs_; unsigned long long ws_; unsigned long long quotaPeakPaged_; unsigned long long quotaPaged_; unsigned long long quotaPeakNonPaged_; unsigned long long quotaNonPaged_; unsigned long long pagefile_; unsigned long long pagefilePeak_; ' + rb + ';' + nl
+		r += '__declspec(dllimport) int K32GetProcessMemoryInfo(void* hProcess, void* ppsmemCounters, unsigned long cb);' + nl
+		r += '__declspec(dllimport) void* GetCurrentProcess(void);' + nl
+		r += 'static const void* hexaArrayTags_[] = ' + lb
+		if arrayDestroyTags.length == 0 {
+			r += 'nullptr'
+		} else {
+			var rows: [String] = []
+			for n in arrayDestroyTags { rows.push('(const void*)&' + n + '__$') }
+			r += rows.join(', ')
+		}
+		r += rb + ';' + nl
+		r += 'static uint8_t hexaTagIsArray_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayTags_)/sizeof(hexaArrayTags_[0]); i_++) ' + lb + ' if (hexaArrayTags_[i_] != nullptr && hexaArrayTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
+		r += 'void hexaSweep(void) ' + lb + nl
+		r += 'static uint8_t sweeping_ = 0;' + nl
+		r += 'if (sweeping_ != (uint8_t)0) return;' + nl
+		r += 'sweeping_ = 1;' + nl
+		r += 'static int mode_ = -1;' + nl
+		r += 'if (mode_ < 0) ' + lb + ' mode_ = 0; const char* e_ = getenv("HEXA_SWEEP_MODE"); if (e_ != nullptr) mode_ = atoi(e_); ' + rb + nl
+		r += 'static int victims_ = 0; victims_ = 0;' + nl
+		r += 'size_t freed_ = (size_t)0;' + nl
+		r += 'size_t strLive_ = (size_t)0;' + nl
+		r += 'size_t strBytes_ = (size_t)0;' + nl
+		r += 'size_t strMax_ = (size_t)0;' + nl
+		r += 'size_t strBig_ = (size_t)0;' + nl
+		r += 'size_t i_ = (size_t)0;' + nl
+		r += 'while (i_ < hexaLiveNum_) ' + lb + nl
+		r += 'void* p_ = hexaLiveList_[i_];' + nl
+		r += 'if (p_ == nullptr) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
+		r += 'int64_t v_ = (int64_t)p_;' + nl
+		r += 'if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
+		r += 'const void* tag_ = ((const void**)(p_))[0];' + nl
+		r += 'if (tag_ == (const void*)(&String__$)) ' + lb + ' strLive_++; strBytes_ += (size_t)(((String_*)(p_))->bytesLength_); if ((size_t)(((String_*)(p_))->bytesLength_) > strMax_) strMax_ = (size_t)(((String_*)(p_))->bytesLength_); if ((size_t)(((String_*)(p_))->bytesLength_) >= (size_t)1048576) strBig_++; ' + rb + nl
+		r += 'if (tag_ == nullptr) ' + lb + ' i_++; continue; ' + rb + nl
+		r += 'if (((const struct HexaHeader_*)(p_))->rc_ != (int32_t)0) ' + lb + ' i_++; continue; ' + rb + nl
+		r += 'if (mode_ == 4) ' + lb + ' i_++; continue; ' + rb + nl
+		r += 'if (mode_ == 1 && tag_ == (const void*)(&String__$)) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
+		r += 'if (mode_ == 2 && hexaTagIsArray_(tag_)) ' + lb + ' i_++; continue; ' + rb + nl
+		r += 'if (mode_ == 3) ' + lb + ' void (*dd_)(void*) = HexaDestroyLookup_(tag_); if (dd_ != nullptr) ' + lb + ' i_++; continue; ' + rb + ' ' + rb + nl
+		r += 'if (victims_ < 64) ' + lb + ' victims_++; FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", hexaTagName_(tag_), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d head=", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, "%04x ", (unsigned)(s_->bytes_[k_])); int32_t bi_ = (int32_t)(s_->bytesHash_ % 65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; uint8_t inb_ = (uint8_t)0; uint8_t ishead_ = (uint8_t)0; String_* cur_ = stringBuckets_[bi_]; if (cur_ == s_) ishead_ = (uint8_t)1; int32_t guard_ = (int32_t)0; while (cur_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (cur_ == s_) ' + lb + ' inb_ = (uint8_t)1; break; ' + rb + ' cur_ = cur_->next_; guard_++; ' + rb + ' fprintf(vf_, " inbucket=%d ishead=%d", (int)inb_, (int)ishead_); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + nl
+		r += 'if (tag_ == (const void*)(&AnyObject__$)) ' + lb + ' AnyObject_* o_ = (AnyObject_*)(p_); if (o_->entries_ != nullptr) ' + lb + ' for (size_t j_ = (size_t)0; j_ < (size_t)o_->count_; j_++) ' + lb + ' if (Any_isCounted_((Any_*)(o_->entries_[j_].k_))) hexaUnref((void*)(o_->entries_[j_].k_)); if (Any_isCounted_(o_->entries_[j_].v_)) hexaUnref((void*)(o_->entries_[j_].v_)); ' + rb + ' HEXA_FREE(o_->entries_, 0); ' + rb + ' ' + rb + ' else if (tag_ == (const void*)(&FatPair__$)) ' + lb + ' FatPair_* fp_ = (FatPair_*)(p_); if (fp_->env_ != nullptr && !((int64_t)(fp_->env_) >= (int64_t)-65535 && (int64_t)(fp_->env_) <= (int64_t)65535)) hexaUnref(fp_->env_); ' + rb + ' else ' + lb + ' void (*d_)(void*) = HexaDestroyLookup_(tag_); if (d_ != nullptr) d_(p_); ' + rb + nl
+		r += 'HEXA_FREE(p_, 0);' + nl
+		r += 'hexaLiveNum_--;' + nl
+		r += 'if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_];' + nl
+		r += 'freed_++;' + nl
+		r += rb + nl
+		r += 'FILE* f_ = fopen("sweep-census.log", "a");' + nl
+		r += 'if (f_ != nullptr) ' + lb + ' struct HexaMemCounters_ mc_; mc_.cb_ = (unsigned long)sizeof(struct HexaMemCounters_); unsigned long long rssMB_ = (unsigned long long)0; unsigned long long comMB_ = (unsigned long long)0; if (K32GetProcessMemoryInfo(GetCurrentProcess(), (void*)&mc_, (unsigned long)sizeof(struct HexaMemCounters_))) ' + lb + ' rssMB_ = mc_.ws_ / ((unsigned long long)1048576); comMB_ = mc_.pagefile_ / ((unsigned long long)1048576); ' + rb + ' fprintf(f_, "sweep mode=%d freed=%llu live=%llu rssMB=%llu committedMB=%llu strLive=%llu strBytes=%llu strMax=%llu strBig=%llu", mode_, (unsigned long long)freed_, (unsigned long long)hexaLiveNum_, rssMB_, comMB_, (unsigned long long)strLive_, (unsigned long long)strBytes_, (unsigned long long)strMax_, (unsigned long long)strBig_); fputc(10, f_); fclose(f_); ' + rb + nl
+		r += 'sweeping_ = (uint8_t)0;' + nl
+		r += rb + nl
 		return r
 	}
 
@@ -3135,6 +3399,11 @@ class GenCxx {
 				return Type.ClassInstance(project.typer.typePromise, [t])
 		}
 	}
+	fun printAsyncReturnType(funcType: Type): String { switch funcType {
+			case Function(args, returns):
+				return stringifyType(promiseOf(returns))
+			case _:
+				return stringifyType(promiseOf(project.typer.typeVoid))
 		} }
 
 	fun printToAnyConverter(string: String, fromType: Type): String {
@@ -4186,6 +4455,9 @@ class GenCxx {
 				typedefFunctions.push(');\n')
 				return '_$\(temp)'
 				// return 'Any_* /*Function* /'
+			case Rest(element, _):
+				// Hexa rest lowers to `(count, ptr)` — the ptr alone is `Elem*`.
+				return stringifyType(element) + '*'
 			case Constant(value): return value
 			case null:
 				return 'Any_*'
@@ -4310,6 +4582,31 @@ class GenCxx {
 		case _:
 			return false
 	} }
+
+	/// Any-shaped values that may hold managed payloads (exact `Any`, its
+	/// nullables, erased generics): ARC retains/releases them through the
+	/// `Any_isCounted_` runtime guard, never blind. Mirrors the ARC-pass
+	/// `isAnyLike` predicate — both must agree.
+	fun isAnyLikeValue(dataType: Type?): Bool {
+		if dataType == null {
+			return false
+		}
+
+		if dataType == project.typer.typeAny {
+			return true
+		}
+
+		switch dataType {
+			case Nullable(inner):
+				return isAnyLikeValue(inner)
+			case UnknownNullable(inner):
+				return isAnyLikeValue(inner)
+			case Unknown(inner):
+				return isAnyLikeValue(inner.value)
+			case _:
+				return false
+		}
+	}
 
 	/// Whether a call callee must go through the `AnyValue_` call proxy:
 	/// an `Any_*`-SHAPED callee is a raw pointer and `ptr(args)` is not valid
@@ -4738,6 +5035,85 @@ class GenCxx {
 		return tmp
 	}
 
+	/// Heap-construct a named interface `Name_*` from an object literal (see
+	/// printObjectAs). Field order/types come from the class declaration
+	/// (matched by name — literal order may differ); missing fields stay
+	/// zero. The vtable slot stays null (interfaces carry no bodies) —
+	/// virtual dispatch on such values is F10 territory.
+	fun printInterfaceObject(className: String, onames: [String], oels: [Expression]): String {
+		var names: [String] = []
+		var ftypes: [Type] = []
+		for c in project.classes {
+			if c.name == className {
+				for v in c.vars {
+					switch v {
+						case Var(n, _, t):
+							names.push(n)
+							ftypes.push(t)
+						case Const(n, _, t):
+							names.push(n)
+							ftypes.push(t)
+						case _:
+							continue
+					}
+				}
+			}
+		}
+		let sname = className + '_'
+		let tid = tempId++
+		let tmp = '_$iface' + tid
+					metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
+					// ARC birth count (interface literals are heap-managed like classes).
+					metaBlock.push(tmp + '->rc_ = 1')
+					metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
+		for i in names.length {
+			for k in onames.length {
+				if onames[k] == names[i] {
+					if isFatValueType(ftypes[i]) {
+						// Pair-held function field (D1 — mirrors the struct
+						// body emission, which doubles fat fields into
+						// `$f_`/`$e_`): ptr half is the fat impl (fatPtrStr)
+						// with a reinterpret_cast (C-style casts are rejected
+						// on arity mismatch, C2440); env half is the twin.
+						metaBlock.push(tmp + '->' + names[i] + '$f_ = ' + 'reinterpret_cast<' + stringifyType(ftypes[i]) + '>(' + fatPtrStr(oels[k]) + ')')
+						metaBlock.push(tmp + '->' + names[i] + '$e_ = ' + fatEnvStr(oels[k]))
+					} else {
+						metaBlock.push(tmp + '->' + names[i] + '_ = ' + printStructFieldValue(ftypes[i], oels[k]))
+					}
+				}
+			}
+		}
+		return tmp
+	}
+
+	/// One struct field value, converted to its declared type (recursing into
+	/// nested struct literals, which printTypeConverter cannot see as strings).
+	fun printStructFieldValue(ftype: Type, val: Expression): String {
+		if let s = printObjectAs(ftype, val) {
+			let sname = omitPointer(stringifyType(ftype))
+			return '(' + sname + '*)(' + s + ')'
+		}
+		if isFatValueType(ftype) {
+			// Function-typed struct fields hold thin single values in Phase 1
+			// (S2) while the typedef is fat (env-first) — arity and
+			// convention can differ, so C-style casts are rejected (C2440)
+			// and only reinterpret_cast compiles (x64: extra args ignored).
+			return 'reinterpret_cast<' + stringifyType(ftype) + '>(' + printExpression(val) + ')'
+		}
+		let vt = valueType(val)
+		if isDynamic(vt), vt != project.typer.typeAny {
+			let want = stringifyType(ftype)
+			if want.endsWith('*') {
+				// Use-node type is unreliable (erased generics, unknown-null
+				// payloads) but the C value is a real pointer: bridge through
+				// size_t (null-safe, bit-preserving). Exact-Any sources keep
+				// the converter's stub semantics (Phase-1 placeholder per F10);
+				// without this the converter's passthrough arms emit the value
+				// raw (C2440 on shape mismatch).
+				return '(' + want + ')(size_t)(' + printExpression(val) + ')'
+			}
+		}
+		return printTypeConverter(printExpression(val), valueType(val), ftype)
 	}
 
 	fun printInitializer(ofType: Type, v: Expression) {
@@ -5103,7 +5479,27 @@ class GenCxx {
 					case VirtualMethod:
 						switch e {
 							case Dot(expr, name, result):
-								let temp = tempId++
+							// Dynamic receivers (`Any`/erased) have no
+							// vtable — the Dot path prints the reflection
+							// stub call instead (F10). F10.2: route through the
+							// dynamic call slot (bags may hold the method as a
+							// pair; otherwise the legacy proxy no-ops as before).
+							// A raw `Any_dynGet_(...)(args)` call would not even
+							// compile (`Any_*` is not callable, C2064).
+							if isDynamic(valueType(expr)) {
+								return printDynamicCall(e, args, exprCallExpects(callExpectsField, e))
+							}
+
+							// Scalar receivers (`(n ?? 0).toString()` on `Int`)
+							// have no vtable — `int->_->toString_` is invalid C
+							// (C2227/C2660). Emit the conversion helper instead
+							if name == 'toString' {
+								if let helper = scalarToString(printExpression(expr), cShape(expr)) {
+									return helper
+								}
+							}
+
+							let temp = tempId++
 								let temp1 = tempId++
 								let mb = metaBlock
 								metaBlock = []
@@ -5242,7 +5638,7 @@ class GenCxx {
 							// }
 						}
 				}
-				return name + '$new_' + printCallArguments(args)
+				return name + '$new_' + printCallArguments(args, constructorExpects(name))
 
 			case Array(el, arrayType):
 				let typeName = stringifyType(arrayType)
