@@ -251,15 +251,15 @@ class ClosureLifter {
 				// global slot (which exists) instead of the per-instance local
 				// twin (which was never emitted).
 				for h in hoisted { switch h {
-					case Assign(an, _, _): switch an {
-						case Dot(base, _, _): switch base {
-							case Ident(gname, _):
-								if gname.startsWith('closureEnv$') {
-									niceProject.droppedClosureEnvs.set(gname, true)
-									traceLog('DROPPED-ENV      `' + gname + '` (global fallback kept; S3c removes globals)')
-								}
-							case _:
-						}
+						case Assign(an, _, _): switch an {
+								case Dot(base, _, _): switch base {
+										case Ident(gname, _):
+											if gname.startsWith('closureEnv$') {
+												niceProject.droppedClosureEnvs.set(gname, true)
+												traceLog('DROPPED-ENV      `' + gname + '` (global fallback kept; S3c removes globals)')
+											}
+										case _:
+									}
 						case _:
 					}
 					case Var(vname, _, _):
@@ -267,7 +267,7 @@ class ClosureLifter {
 							traceLog('DROPPED-LOCAL    `' + vname + '` (twin never emitted)')
 						}
 					case _:
-				} }
+					} }
 			}
 
 			hoisted = saved
@@ -443,19 +443,19 @@ class ClosureLifter {
 				return Statement.RefInc(rewriteExprList(name))
 			case DeferRefDec(name):
 				return Statement.DeferRefDec(rewriteExprList(name))
-			// Leaves: nothing to rewrite (silent — no MISS noise)
-		case Continue | Break:
-			return s
-		case _:
-			// TEMPORARY INSTRUMENTATION — an unhandled statement kind is
-			// returned UNREWRITTEN: capture renames inside it never apply
-			// (null list slots are not misses)
-			if s != null, kindOfStmt(s) != 'UnknownStmt' {
-				traceLog('REWRITE-MISS stmt ' + kindOfStmt(s))
-			}
+				// Leaves: nothing to rewrite (silent — no MISS noise)
+			case Continue | Break:
+				return s
+			case _:
+				// TEMPORARY INSTRUMENTATION — an unhandled statement kind is
+				// returned UNREWRITTEN: capture renames inside it never apply
+				// (null list slots are not misses)
+				if s != null, kindOfStmt(s) != 'UnknownStmt' {
+					traceLog('REWRITE-MISS stmt ' + kindOfStmt(s))
+				}
 
-			return s
-	} }
+				return s
+		} }
 
 	/// TEMPORARY INSTRUMENTATION — tags calls to lifted closures with the new
 	/// `CallKind.Closure` (F1.2 canary: genC/normalizer/arc must all tolerate
@@ -468,8 +468,8 @@ class ClosureLifter {
 				if name.startsWith('closure$') {
 					k = CallKind.Closure
 				}
-			// IIFE shape from the normalizer: `Call(Parenthesis(Function...))`
-			// — the function inside still lifts to a closure call
+				// IIFE shape from the normalizer: `Call(Parenthesis(Function...))`
+				// — the function inside still lifts to a closure call
 			case Parenthesis(inner):
 				k = closureCallKind(inner, kind)
 		}
@@ -488,7 +488,7 @@ class ClosureLifter {
 	}
 
 	/// Rewrites expressions: applies capture renames and lifts closures
-		fun rewriteExpr(e: Expression): Expression { switch e {
+	fun rewriteExpr(e: Expression): Expression { switch e {
 			case Ident(name, dataType):
 				if let replacement = renames.get(name) {
 					return replacement
@@ -524,8 +524,8 @@ class ClosureLifter {
 				return Expression.Object(names, rewriteExprList(el), types)
 			case Map(keys, values, keyType, valueType, mapType):
 				return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
-			case If(econd, eif, eelse):
-				return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse))
+			case If(econd, eif, eelse, result):
+				return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse), result)
 			case Elvis(a, b):
 				// NOTE payloads are Nice Expressions (normalizer builds them
 				// via `nodeToExpression`, typed as `Node`) — recurse so
@@ -562,7 +562,7 @@ class ClosureLifter {
 				return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
 			case NativeOperator(kind, args, name, params, result):
 				return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
-						// Leaves: nothing to rewrite (silent — no MISS noise)
+				// Leaves: nothing to rewrite (silent — no MISS noise)
 			case String(_): return e
 			case Int(_): return e
 			case Float(_): return e
@@ -815,6 +815,7 @@ class ClosureLifter {
 		// Empty closures take an ignored `$env` too (uniform fat shape; env is
 		// nullptr/sentinel at their calls).
 		var envDataType: Type = niceProject.typer.typeAny
+
 		if captures.length > 0 {
 			envDataType = envInstance as!Type
 		}
@@ -832,6 +833,7 @@ class ClosureLifter {
 				origVariadic = fv
 		}
 		let fatArgs = ['$env']
+
 		for a in args {
 			fatArgs.push(a)
 		}
@@ -839,6 +841,7 @@ class ClosureLifter {
 		let envFa = new FunctionArgument(withType: envDataType)
 		envFa.name = '$env'
 		fatFargs.push(envFa)
+
 		for fa in origFargs {
 			fatFargs.push(fa)
 		}
@@ -847,6 +850,7 @@ class ClosureLifter {
 		// S3a: cast `void* $env` to concrete `$envT` at the top of fat bodies
 		// with captures (empty bodies ignore `$env`; no cast needed).
 		var newBody = newBodyRaw
+
 		if captures.length > 0 {
 			let castInit = Expression.UnsafeBitCast(Expression.Ident('$env', niceProject.typer.typeAny), envInstance as!Type)
 			let castVar = Statement.Var('envT$' + id, castInit, envInstance as!Type)
@@ -1148,6 +1152,7 @@ class ClosureLifter {
 
 		for c in niceProject.classes {
 			for m in c.methods { censusTopFn(m) }
+
 			for m in c.staticMethods { censusTopFn(m) }
 			censusVarList(c.vars)
 			censusVarList(c.staticVars)
@@ -1172,23 +1177,23 @@ class ClosureLifter {
 
 	fun collectMethodNames(list: [Statement]) {
 		for s in list { switch s {
-			case Function(name, _, _, _, _, _, _):
-				if name != null {
-					methodNames.set(name, true)
-				}
-		} }
+				case Function(name, _, _, _, _, _, _):
+					if name != null {
+						methodNames.set(name, true)
+					}
+			} }
 	}
 
 	fun censusTopFn(s: Statement) { switch s {
-		case Function(name, body, _, _, _, _, _):
-			// S3a: thin wrappers (`closure$N$thin` → fat with global env) are
-			// pass plumbing, not user calls — skip or the wrapper inner calls
-			// inflate CENSUS calls and break the `closureKind == calls` gate.
-			if name != null, name.endsWith('$thin') {
-				return
-			}
-			censusStmt(body)
-	} }
+			case Function(name, body, _, _, _, _, _):
+				// S3a: thin wrappers (`closure$N$thin` → fat with global env) are
+				// pass plumbing, not user calls — skip or the wrapper inner calls
+				// inflate CENSUS calls and break the `closureKind == calls` gate.
+				if name != null, name.endsWith('$thin') {
+					return
+				}
+				censusStmt(body)
+		} }
 
 	fun censusVarList(list: [Statement]) {
 		for s in list { switch s {
@@ -1369,7 +1374,7 @@ class ClosureLifter {
 					traceLog('CENSUS-MISS expr ' + k)
 				}
 			}
-	} }
+		} }
 
 	/// TEMPORARY INSTRUMENTATION (S2 gate): every `closure$N` with captures
 	/// must own exactly one `Env$N` class with exactly the captured fields;
@@ -1397,21 +1402,21 @@ class ClosureLifter {
 							var fieldCount = 0
 
 							for v in c.vars { switch v {
-								case Var(fname, _, _):
-									fieldCount++
-									var wanted = false
+									case Var(fname, _, _):
+										fieldCount++
+										var wanted = false
 
-									for w in expected {
-										if w == fname {
-											wanted = true
+										for w in expected {
+											if w == fname {
+												wanted = true
+											}
 										}
-									}
 
-									if not wanted {
-										traceLog('VERIFY-ENV-EXTRAFIELD ' + ename + ' field `' + fname + '` not captured')
-									}
-								case _:
-							} }
+										if not wanted {
+											traceLog('VERIFY-ENV-EXTRAFIELD ' + ename + ' field `' + fname + '` not captured')
+										}
+									case _:
+								} }
 
 							if fieldCount != expected.length {
 								traceLog('VERIFY-ENV-COUNT ' + ename + ' fields=' + fieldCount + ' captures=' + expected.length)
@@ -1443,42 +1448,42 @@ class ClosureLifter {
 		}
 
 		for v in niceProject.globalVars { switch v {
-			case Var(name, _, _):
-				if name.startsWith('closureEnv$') {
-					var owned = false
+				case Var(name, _, _):
+					if name.startsWith('closureEnv$') {
+						var owned = false
 
-					for k in closureEnvOf.keys() {
-						if closureEnvOf.get(k) == name {
-							owned = true
+						for k in closureEnvOf.keys() {
+							if closureEnvOf.get(k) == name {
+								owned = true
+							}
+						}
+
+						if not owned {
+							traceLog('VERIFY-ENV-ORPHAN global `' + name + '`')
 						}
 					}
-
-					if not owned {
-						traceLog('VERIFY-ENV-ORPHAN global `' + name + '`')
-					}
-				}
-			case _:
-		} }
+				case _:
+			} }
 	}
 
 	fun verifyLifted() {
 		for f in niceProject.globalFuncs { switch f {
-			case Function(name, body, args, _, _, _, _):
-				if name != null, name.startsWith('closure$') {
-					// Existence set (reuse the pass's own walk)
-					let used: [String : Type] = [:]
-					let declaredAll: [String : Bool] = [:]
+				case Function(name, body, args, _, _, _, _):
+					if name != null, name.startsWith('closure$') {
+						// Existence set (reuse the pass's own walk)
+						let used: [String : Type] = [:]
+						let declaredAll: [String : Bool] = [:]
 
-					for a in args { declaredAll.set(a, true) }
-					collect(body, used, declaredAll)
+						for a in args { declaredAll.set(a, true) }
+						collect(body, used, declaredAll)
 
-					let soFar: [String : Bool] = [:]
+						let soFar: [String : Bool] = [:]
 
-					for a in args { soFar.set(a, true) }
-					verifyStmt(body, declaredAll, soFar, name)
-				}
-			case _: { }
-		} }
+						for a in args { soFar.set(a, true) }
+						verifyStmt(body, declaredAll, soFar, name)
+					}
+				case _: { }
+			} }
 	}
 
 	fun verifyVisible(name: String, declaredAll: [String : Bool], soFar: [String : Bool], fn: String) {
@@ -1669,5 +1674,5 @@ class ClosureLifter {
 					traceLog('VERIFY-MISS expr ' + k)
 				}
 			}
-	} }
+		} }
 }
