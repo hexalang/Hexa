@@ -46,6 +46,7 @@ Only `source\...` (compiler) and `library\...` (std) are described below, ignore
 - source\data\nice.hexa `NiceProject`/nice nodes — simplified typed IR consumed by generators
 - source\targets.hexa target registry (`enum Generators` JavaScript/Native, `availableGenerators(name)`, `setLibrary(target, options, defines)`)
 - source\targets\genJs.hexa JS generator (`class GenJs`: nice nodes → modern JS with classes/let/const/=>, `.js` extension)
+- source\targets\genC.hexa C generator (`class GenCxx` C mode: C-with-C++-compat output, some features need C11)
 - source\server.hexa legacy compiler-server protocol (`ServerCommandKind`: GetWholeFileSyntaxErrors/SyncFileContents/FindProjectFile/AutocheckProject/Completion/Hover/…)
 - source\server\api.hexa server API types stub (TODO only)
 - source\server\lsp.hexa standard LSP server (`class LspServer`: JSON-RPC over stdin/stdout for VSCode/Zed/…, document sync + diagnostics)
