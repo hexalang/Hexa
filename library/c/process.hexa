@@ -1,6 +1,6 @@
 // The MIT License
 //
-// Copyright (C) 2022-2025 Oleh Petrenko
+// Copyright (C) 2026 Oleh Petrenko
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -48,6 +48,7 @@ class Process {
 fun argvOf(): [String] { return winCommandLineArgs() }
 
 class ProcessModule {
+	new () { }
 	let stdin: ProcessStd
 	let stdout: ProcessStd
 	let stderr: ProcessStd
@@ -81,16 +82,63 @@ class ProcessModule {
 		var blob ArrayByValue<UInt8, 48> = [0]
 		for i in 48 { blob[i] = 0 }
 		var rss = 0
-		if getProcessMemoryInfoWin(getCurrentProcessWin(), blob as!ArrayPointer<UInt8>, 48u32) != 0 {
+		var committed = 0
+		var peakRss = 0
+		var peakCommitted = 0
+		if getProcessMemoryInfoWin(getCurrentProcessWin(), blob as!ArrayPointer<UInt8>, 80u32) != 0 {
 			let ws = readU64LE(blob as!ArrayPointer<UInt8>, 16)
 			if ws >= 2147483647u64 {
 				rss = 2147483647
 			} else {
 				rss = ws as!Int
 			}
+			let pf = readU64LE(blob as!ArrayPointer<UInt8>, 56)
+			if pf >= 2147483647u64 {
+				committed = 2147483647
+			} else {
+				committed = pf as!Int
+			}
+			let pws = readU64LE(blob as!ArrayPointer<UInt8>, 8)
+			if pws >= 2147483647u64 {
+				peakRss = 2147483647
+			} else {
+				peakRss = pws as!Int
+			}
+			let ppf = readU64LE(blob as!ArrayPointer<UInt8>, 64)
+			if ppf >= 2147483647u64 {
+				peakCommitted = 2147483647
+			} else {
+				peakCommitted = ppf as!Int
+			}
 		}
 		// Heap totals have no Win32 counter — shape parity only (M11 allocator).
-		return { rss: rss, heapTotal: 0, heapUsed: 0 }
+		return { rss: rss, committed: committed, peakRss: peakRss, peakCommitted: peakCommitted, heapTotal: 0, heapUsed: 0 }
+	}
+	fun logMemWatch(tag: String): Void {
+		// Watchdog-adjacent memory line (taskmgr-comparable): working set
+		// (used) + pagefile usage (committed) + peaks, whole MB via Float
+		// math (exact for our magnitudes, zero backslash escapes). Appends to
+		// mem-watch.log AND stdout so the build log shows the timeline.
+		var blob ArrayByValue<UInt8, 80> = [0]
+		for i in 80 { blob[i] = 0 }
+		var rssMB = 0
+		var comMB = 0
+		var peakMB = 0
+		var peakComMB = 0
+		if getProcessMemoryInfoWin(getCurrentProcessWin(), blob as!ArrayPointer<UInt8>, 80u32) != 0 {
+			rssMB = Math.floor((readU64LE(blob as!ArrayPointer<UInt8>, 16) as!Float) / 1048576.0)
+			comMB = Math.floor((readU64LE(blob as!ArrayPointer<UInt8>, 56) as!Float) / 1048576.0)
+			peakMB = Math.floor((readU64LE(blob as!ArrayPointer<UInt8>, 8) as!Float) / 1048576.0)
+			peakComMB = Math.floor((readU64LE(blob as!ArrayPointer<UInt8>, 64) as!Float) / 1048576.0)
+		}
+		let line = '[mem ' + tag + '] rss=' + rssMB + 'MB committed=' + comMB + 'MB peakRss=' + peakMB + 'MB peakCommitted=' + peakComMB + 'MB'
+		// NOTE console.logString (exact-arity), not console.log (Hexa rest):
+		// virtual rest-method `expects` do not resolve from library scope
+		// (static calls do) — raw fallback prints 2 args against a 3-slot
+		// `(this, count, ptr)` and C2198s. Exact-arity methods are immune
+		// (raw print equals the declared shape). Separate F7 follow-up.
+		console.logString(line)
+		Fs.appendFileSync('mem-watch.log', line + String.fromCharCode(10))
 	}
 	fun pidOf(): Int { return getCurrentProcessId() as!Int }
 	fun argvOf(): [String] { return winCommandLineArgs() }
@@ -425,9 +473,9 @@ fun spawnImpl(command: String, args: [String], cwd: String?, stdio: Any?, showWi
 		si.dwFlags = startfUseStdHandles + startfUseShowWindow
 		si.wShowWindow = swHide as!UInt16
 	}
-	let piMem = malloc(24u64)
+	let piMem = malloc(sizeOf<ProcessInfo>())
 	let pi = piMem as!ProcessInfo
-	zeroMemory(pi as!ArrayPointer<UInt8>, 24u32)
+	zeroMemory(pi as!ArrayPointer<UInt8>, sizeOf<ProcessInfo>() as!UInt32)
 	var cwdPtr: ConstArrayPointer<ClangWideChar>? = null
 	if cwd != null {
 		if let c = cwd { cwdPtr = c.utf16() }
@@ -688,10 +736,20 @@ fun spawnArgsArray(args: Any?): [String] {
 }
 class ChildProcessModule {
 	new () { }
-	fun spawn(command: String, args: Any? = null, options: Any? = null): Any { return null }
-	fun spawnSync(command: String, args: Any? = null, options: Any? = null): Any { return null }
 	fun exec(command: String, options: Any? = null, callback: Any? = null): Any { return null }
-	fun execFile(file: String, args: Any? = null, options: Any? = null, callback: Any? = null): Any { return null }
+	fun spawn(command: String, args: Any? = null, options: Any? = null): Any {
+		let proc = spawnImpl(command, spawnArgsArray(args), optsCwd(options), stdioOf(options), optsWindowsHide(options), optsShell(options))
+		return proc as Any
+	}
+	fun spawnSync(command: String, args: Any? = null, options: Any? = null): Any {
+		return spawnSyncImpl(command, spawnArgsArray(args), options) as Any
+	}
+	fun exec(command: String, options: Any? = null, callback: Any? = null): Any {
+		return runCollected(command, [], options, callback, true) as Any
+	}
+	fun execFile(file: String, args: Any? = null, options: Any? = null, callback: Any? = null): Any {
+		return runCollected(file, spawnArgsArray(args), options, callback, false) as Any
+	}
 	fun fork(modulePath: String, args: Any? = null, options: Any? = null): Any { return null }
 }
 // Blocking spawn (Node spawnSync semantics): wait, drain, build the result.
