@@ -42,11 +42,19 @@ class String {
 	static let defaultLimit: Int = 1073741824
 
 	/// This is also initialized by code gen, thus `??`
+	// Kept for genC's HEXA_MAIN prologue (`String_$root_ = String_$new_();`)
+	// — harmless single empty string; the intern walk no longer uses it
+	// (see stringBuckets + fromUTF16 below).
 	@weak private static let root: String = root ?? new String()
 	// TODO ^ this should not compile
 
 	/// Used for runtime purposes
-	@keep private var next: String? = null
+	// Weak link (never ARC-retained on store, never released on overwrite):
+	// the intern bucket holds entries weakly by design — ownership lives
+	// with the entry's real holders, and `destroy` unlinks before freeing.
+	// Without this, every tail-appended interned string kept one unreleased
+	// share and could never reach rc==0 (only bucket heads were sweepable).
+	@keep @weak private var next: String? = null
 	@keep private var bytesLength: Int = 0
 	@keep private var bytesHash: Int = 0
 	// TODO if bytes allocated next to String, it could be as `char bytes[]` in C thus not wasting space for separate field which is good for small strings (also less mallocs)
@@ -101,7 +109,6 @@ class String {
 		return result
 	}
 
-	//fun toUpperCase(): String TODO typer not errors here!
 	fun toUpperCase(): String {return''} // TODO
 	fun toLowerCase(): String {return''} // TODO
 	fun includes(str: String): Bool {return false} // TODO
@@ -110,6 +117,7 @@ class String {
 	fun indexOf(@weak str: String, startIndex: Int?): Int {return 0} // TODO
 	fun lastIndexOf(str: String, startIndex: Int?): Int {return 0} // TODO
 	fun split(delimiter: String): [String] {return []} // TODO
+	// fun toUpperCase(): String TODO typer not errors here!
 
 	fun toString(): String {
 		// TODO test case for ref equality and ARC
@@ -160,16 +168,95 @@ class String {
 		// TODO `return bytes[index]`
 	}
 
-	fun trim(): String {return''} // TODO
-
 	fun substr(pos: Int, len: Int?): String {
 		if let len = len, pos == 0 and length >= len {
 			// TODO hint of unused function result, cause I made a bug here not doing `return`
 			return fromUTF16zUpTo(bytes, len)
+	// ASCII/JS whitespace trim (full Unicode White_Space lands with locale tables)
+	fun trim(): String { return trimStart().trimEnd() }
+	fun trimLeft(): String { return trimStart() }
+	fun trimRight(): String { return trimEnd() }
+	fun isTrimUnit(code: Int): Bool {
+		return code == 32 or code == 9 or code == 10 or code == 13 or code == 12 or code == 11 or code == 160
+	}
+	fun trimStart(): String {
+		var i = 0
+		while i < length {
+			if let c = charCodeAt(i) {
+				if isTrimUnit(c) { i++ } else { return substring(i, length) }
+			} else { return substring(i, length) }
+		}
+		return ''
+	}
+	fun trimEnd(): String {
+		var end = length
+		while end > 0 {
+			if let c = charCodeAt(end - 1) {
+				if isTrimUnit(c) { end-- } else { return substring(0, end) }
+			} else { return substring(0, end) }
 		}
 
 		return ''
 	} // TODO full functionality and tests
+	}
+	fun padStart(targetLength: Int, padString: String = ' '): String {
+		var pad = padString
+		if pad.length == 0 { pad = ' ' }
+		if length >= targetLength { return this }
+		let need = targetLength - length
+		var fill = ''
+		while fill.length < need { fill = fill + pad }
+		if fill.length > need { fill = fill.substring(0, need) }
+		return fill + this
+	}
+	fun padEnd(targetLength: Int, padString: String = ' '): String {
+		var pad = padString
+		if pad.length == 0 { pad = ' ' }
+		if length >= targetLength { return this }
+		let need = targetLength - length
+		var fill = ''
+		while fill.length < need { fill = fill + pad }
+		if fill.length > need { fill = fill.substring(0, need) }
+		return this + fill
+	}
+	fun repeat(count: Int): String {
+		// JS throws RangeError on negative; native keeps '' (no throw ABI yet)
+		if count <= 0 or length == 0 { return '' }
+		var out = ''
+		for k in count { out = out + this }
+		return out
+	}
+	// BMP code point, or astral value assembled from a surrogate pair
+	fun codePointAt(pos: Int): Int? {
+		if let hi = charCodeAt(pos) {
+			if hi >= 55296 and hi <= 56319 {
+				if let lo = charCodeAt(pos + 1) {
+					if lo >= 56320 and lo <= 57343 { return 65536 + (hi - 55296) * 1024 + (lo - 56320) }
+				}
+			}
+			return hi
+		}
+		return null
+	}
+	// Code-unit order (locale-aware tailoring needs ICU tables — later)
+	fun localeCompare(compareString: String, locales: Any? = 'en', options: Any? = { }): Int {
+		var n = length
+		if compareString.length < n { n = compareString.length }
+		for i in n {
+			if let a = charCodeAt(i) {
+				if let b = compareString.charCodeAt(i) {
+					if a < b { return -1 }
+					if a > b { return 1 }
+				}
+			}
+		}
+		if length < compareString.length { return -1 }
+		if length > compareString.length { return 1 }
+		return 0
+	}
+	fun normalize(form: String? = 'NFC'): String { return '' } // TODO
+	fun valueOf(): String { return this } // TODO
+	static fun fromCodePoint(...codePoints: Int): String { return '' } // TODO
 
 	fun endsWith(str: String): Bool {
 		if this.length < str.length {
@@ -186,10 +273,92 @@ class String {
 		return allSame
 	}
 
-	fun startsWith(str: String): Bool {return false} // TODO
-	fun slice(pos: Int, len: Int?): String {return''} // TODO
-	fun replace(what: String, with: String): String {return''} // TODO
-	fun replaceAll(what: String, with: String): String {return''} // TODO
+	fun startsWith(str: String): Bool {
+		if str.length > length { return false }
+		for i in str.length {
+			if not (bytes[i] == str.bytes[i]) { return false }
+		}
+		return true
+	}
+	// JS slice: no swap, negatives count from the end
+	fun slice(pos: Int, len: Int? = 1073741824): String {
+		var start = pos
+		if start < 0 {
+			start = length + start
+			if start < 0 { start = 0 }
+		}
+		var end = length
+		if let e = len {
+			end = e
+			if end < 0 {
+				end = length + end
+				if end < 0 { end = 0 }
+			}
+		}
+		if start > length { start = length }
+		if end > length { end = length }
+		if end <= start { return '' }
+		var out = ''
+		var i = start
+		while i < end {
+			if let c = charCodeAt(i) { out = out + String.fromCharCode(c) }
+			i++
+		}
+		return out
+	}
+	// Legacy substr(pos, len): length-based, negative pos counts from the end
+	fun substr(pos: Int, len: Int = 1073741824): String {
+		var start = pos
+		if start < 0 { start = length + start }
+		if start < 0 { start = 0 }
+		if start >= length { return '' }
+		var count = length - start
+		if len <= 0 { return '' }
+		if len < count { count = len }
+		var out = ''
+		for k in count {
+			if let c = charCodeAt(start + k) { out = out + String.fromCharCode(c) }
+		}
+		return out
+	}
+	// at(): negative counts from the end, out-of-range → null
+	fun at(index: Int): String? {
+		var i = index
+		if i < 0 { i = length + i }
+		if let c = charCodeAt(i) { return String.fromCharCode(c) }
+		return null
+	}
+	fun replace(what: String, with: String): String {
+		// JS: empty needle anchors at the front
+		if what.length == 0 { return with + this }
+		let idx = indexOf(what)
+		if idx < 0 { return this }
+		return substring(0, idx) + with + substring(idx + what.length, length)
+	}
+	fun replaceAll(what: String, with: String): String {
+		// JS: empty needle wraps every char plus both ends
+		if what.length == 0 {
+			var out = with
+			for i in length {
+				if let c = charCodeAt(i) { out = out + String.fromCharCode(c) + with }
+			}
+			return out
+		}
+		var out = ''
+		var start = 0
+		var idx = indexOf(what, start)
+		while idx >= 0 {
+			out = out + substring(start, idx) + with
+			start = idx + what.length
+			idx = indexOf(what, start)
+		}
+		return out + substring(start, length)
+	}
+	// RegExp first-arg overloads (same JS `String.prototype.replace/all` behavior)
+	fun replaceRegExp(what: RegExp, withString: String): String { return '' } // TODO
+	fun replaceAllRegExp(what: RegExp, withString: String): String { return '' } // TODO
+	fun match(regexp: RegExp): RegExpMatch? { return null } // TODO
+	fun search(regexp: RegExp): Int { return -1 } // TODO
 
 	// Runtime functions below //
 
