@@ -183,30 +183,30 @@ class ArcInserter {
 
 		for enu in niceProject.enumsSimple {
 			for v in enu.staticVars { switch v {
-				case Var(name, expr, dataType):
-					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
-					}
-				case Const(name, expr, dataType):
-					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
-					}
-				case _:
-			} }
+					case Var(name, expr, dataType):
+						if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+							out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+						}
+					case Const(name, expr, dataType):
+						if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+							out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+						}
+					case _:
+				} }
 		}
 
 		for enu in niceProject.enumsComplex {
 			for v in enu.staticVars { switch v {
-				case Var(name, expr, dataType):
-					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
-					}
-				case Const(name, expr, dataType):
-					if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
-						out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
-					}
-				case _:
-			} }
+					case Var(name, expr, dataType):
+						if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+							out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+						}
+					case Const(name, expr, dataType):
+						if expr != null, this.needsRefRetain(dataType), not this.isFreshOwned(expr) {
+							out.push(Expression.Dot(Expression.Ident(enu.name, this.typer.typeAny), name, dataType))
+						}
+					case _:
+				} }
 		}
 		return out
 	}
@@ -279,14 +279,15 @@ class ArcInserter {
 		if immortal.length > 0 {
 			var placed = false
 			for init_block in niceProject.init { switch init_block {
-				case Block(els):
-					if not placed {
-						els.push(Statement.RefInc(immortal))
-						arcImmortalRetains += immortal.length
-						placed = true
-					}
-				case _:
-			} }
+					case Block(els):
+						if not placed {
+							els.push(Statement.RefInc(immortal))
+							arcImmortalRetains += immortal.length
+							placed = true
+						}
+					case _:
+				} }
+
 			if not placed {
 				niceProject.init.push(Statement.Block([Statement.RefInc(immortal)]))
 				arcImmortalRetains += immortal.length
@@ -417,6 +418,105 @@ class ArcInserter {
 										els.spliceAndInsert(i + 2, 0, Statement.RefInc([left])) // Inc new after assign (i+1 is assign)
 										els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp])) // Dec old
 										i += 3 // Skip inserted
+								case Dot(_, _, _):
+									// Field stores to pure targets (ident chains):
+									// same save/inc/dec shape; the target is only
+									// ever re-read, never re-evaluated with effects.
+									// (Index targets have their own arm below.)
+									arcDotAssignsSeen++
+									// Rebuilt Dots lose map entries; the carried
+									// payload type survives (falls back to the map).
+									let fieldType = this.niceTypeOf(left) ?? left_dataType
+
+									if this.isWeakDot(left) {
+										// Weak link (`@weak` field, e.g. the intern-bucket `next`
+										// chain): plain store, no ownership change. No temp (nothing
+										// to release — the old value's real owners release it), no
+										// retain (the slot must not own, or the entry could never
+										// reach rc==0). Reads are unaffected (traversal temps still
+										// take their transient shares). See `isWeakDot`.
+										arcWeakStores++
+									} else if this.isPureTargetRead(left) {
+										if this.needsRefRetain(fieldType) {
+											let temp_name = this.unique('temp_old')
+											let temp = Expression.Ident(temp_name, fieldType)
+											els.spliceAndInsert(i, 0, Statement.Const(temp_name, left, fieldType)) // Save old field
+											if this.isFreshOwned(right) {
+												els.spliceAndInsert(i + 2, 0, Statement.DeferRefDec([temp])) // Transfer +1, release old only
+												i += 2 // Skip inserted
+											} else {
+												els.spliceAndInsert(i + 2, 0, Statement.RefInc([left])) // Inc new field after assign
+												els.spliceAndInsert(i + 3, 0, Statement.DeferRefDec([temp])) // Dec old field
+												i += 3 // Skip inserted
+											}
+											arcFieldStores++
+										} else {
+											arcDotNonARC++
+										}
+									} else {
+										arcDotImpure++
+										// Impure targets (call/index roots): re-reading the slot
+										// could run user code twice, so the old value is leaked,
+										// never released — but a borrowed RHS still takes its +1,
+										// or the sweep (F11) would free the stored value while the
+										// slot still points at it. RHS hoists once, the slot stores
+										// the temp, the temp is retained. Leak-only-if-wrong.
+										if this.needsRefRetain(fieldType) {
+											let tempNew = this.unique('temp_new')
+											let nt = Expression.Ident(tempNew, fieldType)
+											els.spliceAndInsert(i, 0, Statement.Const(tempNew, right, fieldType))
+											els[i + 1] = Statement.Assign(left, nt, null)
+											els.spliceAndInsert(i + 2, 0, Statement.RefInc([nt]))
+											arcFieldStores++
+											i += 2 // Skip Const + guard (Assign needs no revisit)
+										}
+									}
+								case Index(base, idx, _):
+									// Container element stores (pure base and index): the
+									// container owns the ELEMENT type, so `null`/non-ARC
+									// stores into managed slots still release the old value
+									// (Map.delete and overwrite tails). Array/Map slots key
+									// off the element type; raw `ArrayPointer` buffers only
+									// when rooted at the container itself (`this` or an own
+									// field — growth copies and slices are pure moves and
+									// stay out). The store moves through the temp (single
+									// rhs eval); fresh +1 rvalues transfer, borrowed ones
+									// retain. Dynamic shapes and impure subscripts stay out.
+									arcIndexAssignsSeen++
+
+									if this.isPureTargetRead(base) and this.isPureIndex(idx) {
+										if this.isArrayOrMap(base) {
+											let slotT = this.elementTypeOf(base) ?? this.niceTypeOf(right) ?? this.getType(right)
+
+											if slotT != null and (this.needsARC(slotT) or this.isAnyLike(slotT)) {
+												arcIndexStores++
+												i += this.emitElementStore(els, i, left, right, slotT)
+											}
+										} else {
+											if let bslot = this.containerBufferElement(base) {
+												if this.needsARC(bslot) or this.isAnyLike(bslot) {
+													arcBufferStores++
+													i += this.emitElementStore(els, i, left, right, bslot)
+												}
+											}
+										}
+									} else {
+										// Impure subscript (effectful base/index): same conservative
+										// shape as impure Dot — hoist RHS once, retain the temp,
+										// leak the old slot (never double-evaluate the subscript).
+										if this.isArrayOrMap(base) {
+											let slotT = this.elementTypeOf(base) ?? this.niceTypeOf(right) ?? this.getType(right)
+
+											if slotT != null and (this.needsARC(slotT) or this.isAnyLike(slotT)) {
+												let tempNew = this.unique('temp_new')
+												let nt = Expression.Ident(tempNew, slotT)
+												els.spliceAndInsert(i, 0, Statement.Const(tempNew, right, slotT))
+												els[i + 1] = Statement.Assign(left, nt, null)
+												els.spliceAndInsert(i + 2, 0, Statement.RefInc([nt]))
+												arcIndexStores++
+												i += 2 // Skip Const + guard (Assign needs no revisit)
+											}
+										}
 									}
 								}
 							}
