@@ -79,8 +79,12 @@ class ProcessModule {
 	let platform: String = 'win32'
 	fun memoryUsage(): Any // TODO iterface { let rss: Int, let heapTotal: Int, let heapUsed: Int }
 	fun memoryUsage(): Any {
-		var blob ArrayByValue<UInt8, 48> = [0]
-		for i in 48 { blob[i] = 0 }
+		// PROCESS_MEMORY_COUNTERS (documented Win32 layout, 64-bit): cb@0,
+		// PageFaultCount@4, PeakWorkingSetSize@8, WorkingSetSize@16,
+		// QuotaPeakPaged@24, QuotaPaged@32, QuotaPeakNonPaged@40,
+		// QuotaNonPaged@48, PagefileUsage@56 (= committed), PeakPagefile@64.
+		// 80-byte blob leaves headroom; no SDK headers (own struct offsets).
+		var blob ArrayByValue<UInt8, 80> = [0]
 		var rss = 0
 		var committed = 0
 		var peakRss = 0
@@ -144,11 +148,16 @@ class ProcessModule {
 	fun argvOf(): [String] { return winCommandLineArgs() }
 }
 
-declare let process: ProcessModule
+// Native owns `process` (like `fs`/`path`/`__dirname` — no host storage).
+// Perfide top-level globals deref it at startup (`lspIsWindows`,
+// `terminal isWindows`), so it must be a real object, not a null extern.
+// `@lazy` keeps the DCE contract: unused → dropped whole, used → once at startup.
+@lazy let process ProcessModule = ProcessModule()
 
 // child_process — mirrors library/nodejs `declare class ChildProcessModule`.
-// Compile-only stubs: native spawn/exec land with M8 (terminal/build/debug);
-// windowsHide monkey-patching is a node-only concern (see native_bridge).
+// Real Win32 implementation: CreateProcessW with redirected pipes, polled by
+// pumpChildProcs() (hooked into the core timerPump — no per-spawn closures,
+// so concurrent spawns stay correct under the Phase-1 per-site env rule).
 class ChildProcPipe {
 	var listeners [Any] = []
 	new () { }
@@ -836,8 +845,10 @@ fun runCollected(file: String, argv: [String], options: Any?, callback: Any?, us
 	return proc
 }
 
-// readline — mirrors library/nodejs `declare class ReadlineModule` (stub:
-// the search tool's line reader arrives with M6).
+// readline — mirrors library/nodejs `declare class ReadlineModule`.
+// Real line splitter over any 'data'-emitting input: reads attach without
+// closures (stream.lineReader typed field — see FsReadStream), so concurrent
+// readers stay correct under the Phase-1 per-site env rule.
 class ReadlineInterface {
 	var input: Any? = null
 	var pending: String = ''
@@ -928,8 +939,9 @@ class ReadlineModule {
 	}
 }
 
-// https/http — mirrors library/nodejs `declare class HttpsModule`/`HttpModule`
-// (stubs: Perfide's fetch fallback uses global fetch on native, M8).
+// https/http — mirrors library/nodejs `declare class HttpsModule`/`HttpModule`.
+// Real WinHTTP core below (sync request + redirect follow); responses stream
+// out through a global delivery pump so concurrent gets stay correct.
 class HttpUrl {
 	var secure: Bool = false
 	var host: String = ''
