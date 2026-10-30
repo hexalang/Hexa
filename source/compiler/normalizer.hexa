@@ -21,6 +21,24 @@ class Normalizer {
 	var package: Package
 	var thisType: Type? = null
 
+	// Hexa rest `...x: T` with `@nativeVariadic` is raw C `...`,
+	// otherwise Hexa ABI `(count, arrayptr*)` — fixed C params, NotVariadic.
+	fun variadicKindOf(funcType: Type?, variadic: Bool): VariadicKind {
+		if not variadic { return VariadicKind.NotVariadic }
+		if let ft = funcType { switch ft {
+			case Function(args, _, _):
+				if args.length > 0 {
+					switch args[args.length - 1].dataType {
+						case Rest(_, native):
+							if native { return VariadicKind.NativeVariadic }
+							return VariadicKind.NotVariadic
+					}
+				}
+		} }
+		if variadic { return VariadicKind.NativeVariadic }
+		return VariadicKind.NotVariadic
+	}
+
 	// Pre-computed value of say `let x = 123` thus `inline[x] == 123`
 	let inline: [Node : Expression] = [:]
 
@@ -366,6 +384,7 @@ class Normalizer {
 							if let map = typer.parents.get(source) { switch map as! Node {
 								case Module(_):
 									let result = Expression.Ident(globalAccessor + (parentNames.get(source) ?? name), null)
+
 									if let name = getNative(source) {
 										niceProject.native.set(result, true)
 									}
@@ -374,10 +393,11 @@ class Normalizer {
 									// Check if this is a static method
 									if project.mapStatic.get(source) == true {
 										let staticSource = typer.parents.get(source)
+
 										switch staticSource {
 											case Class(t, _):
 												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
-											case Enum(t,_):
+											case Enum(t, _):
 												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 											case _:
 												throw 'staticSource is \(staticSource) for \(name)'
@@ -467,6 +487,7 @@ class Normalizer {
 						if not nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
 							return tag
 						}
+
 						if not nativeEnums, valuesType == null, let tag = getTag(parent, name) {
 							return Expression.Enum(DataHelper.extractTypeName(t), name, tag, [])
 						}
@@ -599,13 +620,14 @@ class Normalizer {
 
 				return Expression.Call(v, a, typer.types.get(e), kind)
 
-				case Binop(a, op, b):
+			case Binop(a, op, b):
 				// TODO extract bin-op handler to function so than can be called commutatively `infixCommutative()`
 				let ea = nodeToExpression(a)
 				let eb = nodeToExpression(b)
 
 				if op == Token.Assign {
 					var source: Node? = typer.parents.get(a)
+
 					if let source = source {
 						switch source {
 							case Var(name, _):
