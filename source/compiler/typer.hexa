@@ -27,21 +27,13 @@ class Typer {
 		// so we do not fill them here
 		// Check duplicate module-level names, point at first definition
 		fun checkOverrides(info: Module, name: String, e: Node) {
-			if info.exported.has(name) {
-				if let prev = info.exported.get(name) {
 					// TODO report via failNonFatal (as a warning)
-					fail('Module `\(info.path)` already exports name `\(name)`\n' + positionOf(prev) + '`\(name)` is first defined here', e)
-				} else {
-					fail('Module `\(info.path)` already exports name `\(name)`', e)
-				}
+			if let previous = info.exported.get(name) {
+				fail('Module `\(info.path)` already exports name `\(name)`' + hereIs('`\(name)` is already exported here', previous), e)
 			}
 
-			if info.imported.has(name) {
-				if let prev = info.imported.get(name) {
-					fail('Module `\(info.path)` already imports name `\(name)`\n' + positionOf(prev) + '`\(name)` is first defined here', e)
-				} else {
-					fail('Module `\(info.path)` already imports name `\(name)`', e)
-				}
+			if let previous = info.imported.get(name) {
+				fail('Module `\(info.path)` already imports name `\(name)`' + hereIs('`\(name)` is already imported here', previous), e)
 			}
 		}
 
@@ -754,8 +746,9 @@ class Typer {
 								let name = DataHelper.extractTypeName(params[i])
 
 								if names.includes(name) {
-									fail('Parameter `\(name)` already exists in `<T, ...>`', node)
-									// TODO where
+									// Type parameters carry no position data, so reference by ordinal
+									let at = names.indexOf(name)
+									fail('Parameter `\(name)` already exists in `<T, ...>`, first occurrence is parameter #\(at + 1)', node)
 								}
 								names.push(name)
 							}
@@ -830,6 +823,10 @@ class Typer {
 								classType.fieldNames.push(name)
 								classType.fieldInitialized[classType.fieldNames.length - 1] = false
 								classType.fieldRenames[classType.fieldNames.length - 1] = getRename(field, name, classDecorators)
+								// S3b: register Variable fields (methods register below
+								// as Method) — member-kind queries (`callKindOf`,
+								// codegen pair-splitting) need both, not just methods.
+								classType.fields.set(name, ClassTypeField.Variable)
 								addScope(name, field)
 
 								if project.mapStatic.get(field) == true {
@@ -865,10 +862,28 @@ class Typer {
 							case Function(name, expr, vars, rettype, _, variadic):
 								// console.log('class fun', name, classType.name)
 								if let rettype = rettype {
+									// Method-level generics get their own scope (same as
+									// the `if external` site below) — otherwise a fresh
+									// name like `map<U>` fails with `Cannot find type U`.
+									pushScope()
+
+									if let mparams = project.mapFuncParams.get(field) {
+										if mparams.length > 0 {
+											var methodGenericIndex = 0
+
+											for mgenericParam in mparams {
+												let mgname = DataHelper.extractTypeName(mgenericParam)
+												// METHOD-BASE: offset so class-`T` (0) and method-`U` (1000000+) never collide in `Dot` fixup
+												addScopeType(mgname, Type.Generic(1000000 + methodGenericIndex, mgname))
+												methodGenericIndex++
+											}
+										}
+									}
 									types.set(
 										field,
 										Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(field)), toType(rettype, field), variadic)
 									)
+									popScope()
 								}
 
 								// TODO ensure in parser `new` has no return type
@@ -935,6 +950,22 @@ class Typer {
 								}
 
 								if external, types.get(field) == null {
+									// Same method-generic scope as the registration loop
+									// above (covers `fun name<T>` without a return type).
+									pushScope()
+
+									if let mparams = project.mapFuncParams.get(field) {
+										if mparams.length > 0 {
+											var methodGenericIndex = 0
+
+											for mgenericParam in mparams {
+												let mgname = DataHelper.extractTypeName(mgenericParam)
+												// METHOD-BASE (see above)
+												addScopeType(mgname, Type.Generic(1000000 + methodGenericIndex, mgname))
+												methodGenericIndex++
+											}
+										}
+									}
 									types.set(
 										field,
 										Type.Function(
@@ -944,6 +975,7 @@ class Typer {
 											variadic
 										)
 									)
+									popScope()
 								}
 
 								insideClassMethod = _insideClassMethod
@@ -1365,6 +1397,22 @@ class Typer {
 		return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
 	}
 
+	/// Secondary location of the *other* syntax element an error refers to (the
+	/// original declaration): "\n[file:line:col]: text". Empty when the node carries
+	/// no position data (cloned/instantiated/synthetic nodes), so call sites can
+	/// always concatenate it blindly: `fail('msg' + hereIs('declared here', other), node)`
+	fun hereIs(text: String, node: Node = null): String {
+		if node == null {
+			return ''
+		}
+		let maybeData = project.data.get(node)
+
+		if let data = maybeData {
+			return '\n[' + data.fileName + ':' + data.line + ':' + data.column + ']: ' + text
+		}
+		return ''
+	}
+
 	/// Produces type `[T]` from same looking node, and other cases
 	static fun nodeToNodeType(node: Node): NodeType { switch node {
 			case Array(el):
@@ -1510,7 +1558,9 @@ class Typer {
 	var thisNode: Node = null as!Node // Current class node
 
 	// `var to = from`
-	fun unify(to: Type, fromValue: Type, node: Node): Type {
+	// `context` is the *other* syntax element (e.g. the called function), so mismatches
+	// can point at where the expected type comes from
+	fun unify(to: Type, fromValue: Type, node: Node, context: Node = null): Type {
 		// Short path
 		if to == fromValue {
 			return to
@@ -1521,7 +1571,7 @@ class Typer {
 		}
 
 		if fromValue == typeVoid {
-			fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`', node)
+			fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`' + hereIs('type `\(Type.stringify(to))` is expected here', context), node)
 		}
 
 		if to == typeFloat, fromValue == typeInt {
@@ -1941,7 +1991,7 @@ class Typer {
 			}
 
 			// TODO show also variable name (Ident) when possible for a value
-			fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`', node)
+			fail('Incompatible types `\(Type.stringify(to))` and value of `\(Type.stringify(fromValue))`' + hereIs('type `\(Type.stringify(to))` is expected here', context), node)
 		}
 
 		if toEnumInstance != fromEnumInstance, Type.unwrapNullable(to) != typeAny, Type.unwrapNullable(fromValue) != typeAny {
@@ -2318,9 +2368,15 @@ class Typer {
 		if let params = project.mapFuncParams.get(func) as![NodeType], params.length > 0 {
 			pushScope()
 
+			var funcGenericIndex = 0
+
 			for genericParam in params {
 				let name = DataHelper.extractTypeName(genericParam)
-				addScopeType(name, typeAny)
+				// Mini-template stubs, same shape as class generic params
+				// METHOD-BASE: method generics live at 1000000+ so `Dot`
+				// fixup (receiver generics) preserves them via out-of-range
+				addScopeType(name, Type.Generic(1000000 + funcGenericIndex, name))
+				funcGenericIndex++
 			}
 		}
 	}
@@ -2453,9 +2509,16 @@ class Typer {
 				// var x: [] = [] // TODO invalid!!!
 
 				if let params = project.mapFuncParams.get(node) as![NodeType] {
+					// `fun name<T>` generic params are mini-templates: the body
+					// types against `<T at N>` stubs (like class templates) and
+					// call sites substitute the inferred args (see `case Call`)
+					var funcGenericIndex = 0
+
 					for genericParam in params {
 						let name = DataHelper.extractTypeName(genericParam)
-						addScopeType(name, typeAny)
+						// METHOD-BASE (see pushFuncParamsIfRequired)
+						addScopeType(name, Type.Generic(1000000 + funcGenericIndex, name))
+						funcGenericIndex++
 					}
 				}
 				// case _: {
@@ -2577,6 +2640,33 @@ class Typer {
 		functionReturnsAType = _functionReturnsAType
 		functionActuallyReturns = _functionActuallyReturns
 
+		// F9 completion: async funs return `Promise<T>` (not `T`) so calls
+		// carry the promise type and `await` suspends via `co_await` (genC).
+		// `instantiateGeneric` normalizes Nullable (shared instance, no
+		// `Null$` bodies) and triggers the generic fill so bodies + methods
+		// emit (fixes C2027/C2065 for inferred returns like anonymous
+		// structs). Already-`Promise` annotations pass through (no double
+		// wrap). `return` unification above stays against `T`.
+		var finalRet = ret
+
+		if project.mapAsync.get(node) == true, typePromise.name == 'Promise' {
+			let inner = (ret ?? typeVoid) ?? typeAny
+			var alreadyPromise = false
+			switch inner {
+				case ClassInstance(c, g):
+					if c.name == 'Promise', g != null, g.length == 1 {
+						alreadyPromise = true
+					}
+				case _:
+			}
+
+			if alreadyPromise {
+				finalRet = inner
+			} else {
+				finalRet = typePromise.instantiateGeneric([inner])
+			}
+		}
+
 		// Set function type
 		// varTypes(vars)
 		types.set(node, Type.Function(args: varTypes(vars, variadic: variadic), returns: ret, variadic))
@@ -2587,7 +2677,15 @@ class Typer {
 		switch node {
 			// `class T {}`
 			case Class(t, extend, implement, f, external):
-				addScope(DataHelper.extractTypeName(t), node)
+				// NOTE generic instance clones must NOT replace the template
+				// in the name scope: `findType` has to keep resolving the name
+				// to the template node. Otherwise later `T<...>` lookups read
+				// the instance's already-substituted field types and the
+				// generic-args substitution (`genericFixup`) double-applies —
+				// silently swapping `<K>`/`<V>` between instantiations
+				if instanceOf == null {
+					addScope(DataHelper.extractTypeName(t), node)
+				}
 				let mod = currentModule
 
 				if params != null {
@@ -3086,6 +3184,7 @@ class Typer {
 							fail('Catch type must be a specific class, not `\{\}`', ca[i])
 						case Function(_):
 							fail('Catch type must be a specific class, not function', ca[i])
+							// TODO more
 					}
 					types.set(t[i], catchType)
 					pushScope()
@@ -3096,6 +3195,7 @@ class Typer {
 					if catchClauseValues.length > 0 {
 						let catchVar = catchClauseValues[0]
 						scopes[scopes.length - 1].set(DataHelper.varName(catchVar), catchVar)
+						types.set(catchVar, catchType)
 						// Process any additional let bindings and conditions
 
 						for j in 1... catchClauseValues.length - 1 {
@@ -3931,6 +4031,7 @@ class Typer {
 
 						if enumType.fieldEnumConstructor[index] != true {
 							// NOTE this case is probably impossible, i.e. .N *not* being constructor (than what?)
+							failNonFatal('Type `\(enumType.name)` is defined here', enumType.parent)
 							fail('Enum `\(enumType.name)` field `.\(n)` is not a value constructor', node)
 						}
 
@@ -4046,6 +4147,44 @@ class Typer {
 				let subj = find(DataHelper.extractTypeName(t))
 				parents.set(node, subj)
 
+				// Propagate expected parameter types to lambda arguments —
+				// `new Foo(fun (x) { ... })` must type `x` like `case Call` does.
+				// Anonymous `fun` values count like arrows (the executor shape);
+				// named functions keep their declared behavior. Generic classes
+				// substitute the actual instance params (mirrors `case Call`'s
+				// `genericFixup`, so `new Promise<Void>(fun (resolve) …)` types
+				// `resolve` concretely instead of leaking a `Generic` stub or
+				// falling back to null → `Any_*` single slot).
+				switch actualType {
+					case ClassInstance(classType, generic):
+						if classType.constructor != -1 {
+							switch classType.parent {
+								case Class(t, extend, implement, f, external, classKind):
+									switch types.get(f[classType.constructor]) {
+										case Function(args, returns, variadic):
+											for i in el.length {
+												if i < args.length {
+													let fixed = genericFixup(args[i].dataType, generic)
+
+													switch el[i] {
+														case Arrow(_):
+															expectedArrowType.set(el[i], fixed)
+														case Function(fname, _, _, _, _, _):
+															if fname == null {
+																expectedArrowType.set(el[i], fixed)
+															}
+														case _:
+													}
+												}
+											}
+										case _:
+									}
+								case _:
+							}
+						}
+					case _:
+				}
+
 				for e in el {
 					fillExpression(e)
 				}
@@ -4099,6 +4238,7 @@ class Typer {
 					if catchClauseValues.length > 0 {
 						let catchVar = catchClauseValues[0]
 						scopes[scopes.length - 1].set(DataHelper.varName(catchVar), catchVar)
+						types.set(catchVar, toType(t[i], catchVar))
 						// Process any additional let bindings and conditions
 
 						for j in 1... catchClauseValues.length - 1 {
@@ -4320,6 +4460,14 @@ class Typer {
 									fail('Cannot construct class without `new () \{\}` constructor', node)
 								}
 
+								// The actual `<...>` of the constructed instance
+								var actualParams: [Type]? = null
+
+								switch typeToCreate {
+									case ClassInstance(_, generics): actualParams = generics
+									case _:
+								}
+
 								switch classType.parent {
 									case Class(t, extend, implement, f, external, classKind):
 										// parents.set(e, f[classType.constructor])
@@ -4361,7 +4509,16 @@ class Typer {
 						fillExpression(e)
 				}
 
+				// Callee declaration for arity/type errors below (`fun is defined here`)
+				let calleeHint: Node = parents.get(e) ?? parents.get(node)
+
 				fun evaluateArguments(el: [Node], expected: [Type]) {
+					// LENIENT-SLOTS (temporary): a null expected slot (uninferrable
+					// param type) becomes Any instead of poisoning later slots
+					// through the `?? arg` carry-over below.
+					for ei in expected.length {
+						if expected[ei] == null { expected[ei] = typeAny }
+					}
 					var arg = expected[0]
 
 					for i in el.length {
@@ -4372,6 +4529,15 @@ class Typer {
 							case Arrow(_): {
 									expectedArrowType.set(e, arg)
 								}
+							case Function(fname, _, _, _, _, _):
+								// Same as arrows (see `case New`): untyped params of
+								// anonymous `fun` inherit the expected function type.
+								// Named functions keep their declared behavior —
+								// `fillFunction` only consults this map for untyped
+								// params, and explicit annotations always win.
+								if fname == null {
+									expectedArrowType.set(e, arg)
+								}
 						}
 
 						fillExpression(e)
@@ -4379,7 +4545,7 @@ class Typer {
 						let expectedType = arg
 						// `func(null)`
 						inferNullType(argumentValueType, expectedType, el[i])
-						unify(expectedType, argumentValueType, el[i])
+						unify(expectedType, argumentValueType, el[i], calleeHint)
 
 						// Take the latest arg type in case of ...variadic
 						arg = expected[i + 1] ?? arg
@@ -4450,8 +4616,58 @@ class Typer {
 
 						let expectedTypes: [Type] = []
 
+						// Mini-templates for `fun name<T>`: infer `<...>` from the
+						// actual arguments and substitute the bindings into the
+						// expected argument types and the result type
+						var boundGeneric: [Type]? = null
+
+						if constructor == null {
+							let funcNode = parents.get(e) ?? e
+
+							if let params = project.mapFuncParams.get(funcNode) as![NodeType], params.length > 0 {
+								let bound: [Type] = []
+
+								for p in params {
+									bound.push(typeAny)
+								}
+
+								// Arguments are not typed yet at this point.
+								// Lambdas (`=>` and anonymous `fun`) are skipped:
+								// they are filled later in `evaluateArguments` WITH
+								// the expected types (`expectedArrowType`); filling
+								// them here untyped trips type-sensitive bodies
+								// (`switch` on the param needs a known type) and
+								// their pre-expected types contribute nothing to
+								// binding (only the eventual return does, via the
+								// second fill).
+								for arg in el { switch arg {
+										case Arrow(_):
+										case Function(fname, _, _, _, _, _):
+											if fname != null {
+												fillExpression(arg)
+											}
+										case _:
+											fillExpression(arg)
+									} }
+
+								for i in args.length {
+									if i < el.length {
+										inferGenericBindings(args[i].dataType, types.get(el[i]), bound)
+									}
+								}
+
+								boundGeneric = bound
+							}
+						}
+
 						for i in args.length {
 							let arg = args[i]
+							var argType = arg.dataType
+
+							if boundGeneric != null {
+								// METHOD-BASE: method bindings via offset fixup (class already done in `Dot`)
+								argType = methodGenericFixup(arg.dataType, boundGeneric)
+							}
 
 							if variadic, i == args.length - 1 {
 								// Unwrap array type [T] to element type T for variadic argument checking
@@ -4468,6 +4684,13 @@ class Typer {
 							}
 						}
 						evaluateArguments(el, expectedTypes)
+
+						if boundGeneric != null {
+							// METHOD-BASE: method bindings via offset fixup
+							types.set(node, methodGenericFixup(returns, boundGeneric))
+						} else {
+							types.set(node, returns)
+						}
 
 						/*
 							for i in el.length { if let arg = args[i] {
@@ -4565,12 +4788,12 @@ class Typer {
 					let token = op == Token.LogicalAnd? 'and' : 'or'
 					// let token = Token.stringify(op)
 
-					if not booleanable(typeA) {
+					if typeA != null, not booleanable(typeA) {
 						// fail('Operator `a \(token) b` takes `a` of type `Bool` only, but got `\(Type.stringify(typeA))`', b)
 						fail('Operator `a \(token) b` takes `a` of type `Bool` only, but got `\(Type.stringify(typeA))`', a)
 					}
 
-					if not booleanable(typeB) {
+					if typeB != null, not booleanable(typeB) {
 						// TODO textual static analysis: typeB-a should be typeB-b
 						fail('Operator `a \(token) b` takes `b` of type `Bool` only, but got `\(Type.stringify(typeB))`', b)
 					}
@@ -4639,7 +4862,7 @@ class Typer {
 
 						// TODO `null == null` should error cause no sense
 
-						if leftString != 'null', rightString != 'null' {
+						if typeA != null, typeB != null, leftString != 'null', rightString != 'null' {
 							// TODO recommend `.address` for pointers
 							fail('Operator `a \(tokenString) b` requires `a` and `b` of comparable types, but got `\(leftString)` and `\(rightString)`', b)
 						}
@@ -4657,7 +4880,7 @@ class Typer {
 				) {
 					let comparable = areComparable(typeA, typeB)
 
-					if not comparable {
+					if typeA != null, typeB != null, not comparable {
 						let tokenString = Token.stringify(op)
 
 						let leftString = switch a {
@@ -4736,6 +4959,54 @@ class Typer {
 
 					if typeLeft == typeUInt16, typeRight == typeInt {
 						typeRight = typeUInt16
+					}
+
+					// Mixed Int/Float/Number arithmetic promotes to float
+					// (mirrors unify's Int→Float/Number acceptance; without this
+					// `Float - Int` inferred `Int` and broke later uses).
+					// Scoped to Int pairs like the UInt rules above so
+					// `Float + String` still concatenates to String.
+					if typeLeft == typeFloat32, typeRight == typeInt {
+						typeRight = typeFloat32
+					}
+
+					if typeLeft == typeInt, typeRight == typeFloat32 {
+						typeRight = typeFloat32
+					}
+
+					if typeLeft == typeFloat, typeRight == typeInt {
+						typeRight = typeFloat
+					}
+
+					if typeLeft == typeInt, typeRight == typeFloat {
+						typeRight = typeFloat
+					}
+
+					// `Number` mirrors `Float` promotion (same double shape)
+					if typeLeft == typeNumber, typeRight == typeInt {
+						typeRight = typeNumber
+					}
+
+					if typeLeft == typeInt, typeRight == typeNumber {
+						typeRight = typeNumber
+					}
+
+					// `Float` and `Number` mix keeps the left side's flavor
+					// (both lower to C `double`, so either is correct)
+					if typeLeft == typeFloat, typeRight == typeNumber {
+						typeRight = typeFloat
+					}
+
+					if typeLeft == typeNumber, typeRight == typeFloat {
+						typeRight = typeNumber
+					}
+
+					// A dynamic (Any) operand keeps the whole expression dynamic:
+					// unify/areComparable/booleanable all accept Any, while
+					// right-wins used to make `Any.x + 12` infer Int and the next
+					// mixed use infer Float → "Incompatible types `Int`/`Float`".
+					if typeLeft == typeAny or typeRight == typeAny {
+						typeRight = typeAny
 					}
 
 					types.set(node, typeRight)
@@ -4880,7 +5151,7 @@ class Typer {
 					let exprType = types.get(e)
 					// if exprType != typeBool, exprType != typeAny, exprType != null {
 
-					if not booleanable(exprType) {
+					if exprType != null, not booleanable(exprType) {
 						fail('Operator `not value` takes `value` of type `Bool` only, but got `\(Type.stringify(types.get(e)))`', e)
 					}
 					types.set(node, typeBool)
@@ -5003,7 +5274,7 @@ class Typer {
 								fail('`value[index]` expects `index` only of type `Int` or similar, but got `' + Type.stringify(iType) + '`', e)
 							}
 
-							if indexableIsMap, iType != mapKey {
+							if indexableIsMap, mapKey != null, iType != mapKey {
 								// TODO `or similar` i.e. inherited classes etc covariance
 								fail('`map[key]` expects `key` only of type `\(Type.stringify(mapKey))`, but got `' + Type.stringify(iType) + '`', e)
 							}
@@ -5090,7 +5361,7 @@ class Typer {
 					case _: // Ok
 				}
 				fillExpression(b)
-				types.set(node, unify(types.get(a), types.get(b), b))
+				types.set(node, unify(types.get(a), types.get(b), b, parent))
 
 				// `throw e`
 			case Throw(e):
@@ -5307,7 +5578,7 @@ class Typer {
 
 				if switchable.includes(etype) {
 					// Okay
-				} else if etype == typeFloat {
+				} else if etype == typeFloat or etype == typeNumber {
 					fail('Due to imprecise nature of `Float` type, switching over it is not allowed', exprs[0])
 				} else {
 					switch etype {
