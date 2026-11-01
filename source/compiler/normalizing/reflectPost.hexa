@@ -558,6 +558,76 @@ class ReflectPostLowerer {
 		}
 	}
 
+	/// Pure pre-gate: can this value lower to a bag without side effects
+	/// beyond its own evaluation? Mirrors the commit paths exactly
+	/// (same predicate, no pushes), so a pass here guarantees the commit
+	/// cannot strand partial builds in `hoisted`. Logs blockers with a
+	/// nesting path for triage; silent on success.
+	fun canLowerValue(fv: Expression, where: String): Bool {
+		switch fv {
+			case Object(_, vals, _):
+				for i in vals.length {
+					if not canLowerValue(vals[i], where + '.' + i) {
+						return false
+					}
+				}
+
+				return true
+			case _:
+				let ft = baseTypeOf(fv)
+
+				switch ft {
+					case Struct(_, fts):
+						for i in fts.length {
+							if not canLowerType(fts[i], where + '.' + i) {
+								return false
+							}
+						}
+
+						return true
+					case _:
+						if not isPlainBagField(ft) {
+							var typeName = 'null'
+
+							if ft != null {
+								typeName = Type.stringify(ft)
+							}
+
+							traceLog('REFLECT-POST-KEPT ' + where + ' kind=' + kindOfExpr(fv) + ' type=' + typeName)
+							return false
+						}
+
+						return true
+				}
+		}
+	}
+
+	/// Pure pre-gate over a struct type's fields (same contract as above).
+	fun canLowerType(t: Type?, where: String): Bool {
+		if t == null {
+			traceLog('REFLECT-POST-KEPT ' + where + ' untyped')
+			return false
+		}
+
+		switch t {
+			case Struct(_, fts):
+				for i in fts.length {
+					if not canLowerType(fts[i], where + '.' + i) {
+						return false
+					}
+				}
+
+				return true
+			case _:
+				if not isPlainBagField(t) {
+					traceLog('REFLECT-POST-KEPT ' + where + ' type=' + Type.stringify(t))
+					return false
+				}
+
+				return true
+		}
+	}
+
 	/// Trial lowering: struct value in an `Any` position becomes an
 	/// explicit bag build. Two heads share one tail:
 	/// - object literal: field exprs (already rewritten) go straight into
@@ -577,14 +647,65 @@ class ReflectPostLowerer {
 			return null
 		}
 
+		if not hoistable {
+			traceLog('REFLECT-POST-KEPT struct no-hoist position')
+			return null
+		}
+
 		switch e {
 			case Object(names, vals, _):
+				if names.length != vals.length {
+					traceLog('REFLECT-POST-KEPT object length mismatch')
+					return null
+				}
+
+				bagSites++
+
+				if not canLowerFields(vals, 'object') {
+					return null
+				}
+
 				return lowerObjectFields(names, vals)
+			case If(cond, eif, eelse, _):
+				// Conditional materialization: exactly one branch runs, so
+				// each lowered branch builds inside its own block. Partial
+				// lowering is sound only when the unlowered branch assigns
+				// safely as-is (bridge/box/nullptr — same conversion the
+				// fallback applies); fat/struct/untyped inline values would
+				// mis-convert, so those keep the whole If on the fallback.
+				bagSites++
+				let okA = canLowerValue(eif, 'then')
+				let okB = canLowerValue(eelse, 'else')
+				var canA = okA
+				var canB = okB
+
+				if not canA {
+					canA = inlineSafeAsAny(eif)
+				}
+
+				if not canB {
+					canB = inlineSafeAsAny(eelse)
+				}
+
+				if canA {
+					if canB {
+						return lowerIfStruct(cond, eif, eelse, okA, okB)
+					}
+				}
+
+				traceLog('REFLECT-POST-KEPT if unsafe branch')
+				return null
 			case _:
 				let st = baseTypeOf(e)
 
 				switch st {
 					case Struct(snames, sfts):
+						bagSites++
+
+						if not canLowerTypeList(sfts, 'struct') {
+							return null
+						}
+
 						return lowerStructExpr(e, st, snames, sfts)
 					case _:
 						return null
@@ -592,15 +713,89 @@ class ReflectPostLowerer {
 		}
 	}
 
-	/// Shared field pass: nested struct values lower first (their build
-	/// hoists before the outer sets that consume the inner bag temp);
-	/// a nested failure keeps the whole outer object on the fallback
-	/// (an inline nested literal would bypass materialization).
-	/// Plain leaves pass through for the set-call conversion.
-	/// Returns null when the outer object must stay on the fallback.
-	fun lowerObjectFields(names: [String], vals: [Expression]): Expression? {
-		bagSites++
+	/// Pure pre-gate over a field-value list (no pushes, logs blockers).
+	fun canLowerFields(vals: [Expression], where: String): Bool {
+		for i in vals.length {
+			if not canLowerValue(vals[i], where + '.' + i) {
+				return false
+			}
+		}
 
+		return true
+	}
+
+	/// Pure pre-gate over a struct type's fields (same contract).
+	fun canLowerTypeList(fts: [Type], where: String): Bool {
+		for i in fts.length {
+			if not canLowerType(fts[i], where + '.' + i) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	/// Conditional lowering: temp + If statement with per-branch builds.
+	/// `okA`/`okB` come from the pure pre-gate above, so both commits are
+	/// infallible and hoist strictly inside their own block.
+	fun lowerIfStruct(cond: Expression, eif: Expression, eelse: Expression, okA: Bool, okB: Bool): Expression {
+		let anyT = niceProject.typer.typeAny
+		let pst = '$pst' + tempId
+		tempId++
+		hoisted.push(Statement.Var(pst, Expression.Null(anyT), anyT))
+		// Branch A builds into its own block (commits hoist here, in order).
+		// Fresh Ident per use (same name = same variable; never share one
+		// IR object between parents).
+		let savedA = drainHoisted()
+		var valA = eif
+
+		if okA {
+			if let loweredA = tryLowerStructValue(eif, true) {
+				valA = loweredA
+			}
+		}
+
+		var blockA: [Statement] = []
+
+		for h in drainHoisted() {
+			blockA.push(h)
+		}
+
+		restoreHoisted(savedA)
+		blockA.push(Statement.Assign(Expression.Ident(pst, anyT), valA, null))
+		// Branch B (same shape).
+		let savedB = drainHoisted()
+		var valB = eelse
+
+		if okB {
+			if let loweredB = tryLowerStructValue(eelse, true) {
+				valB = loweredB
+			}
+		}
+
+		var blockB: [Statement] = []
+
+		for h in drainHoisted() {
+			blockB.push(h)
+		}
+
+		restoreHoisted(savedB)
+		blockB.push(Statement.Assign(Expression.Ident(pst, anyT), valB, null))
+		hoisted.push(Statement.If(cond, Statement.Block(blockA), Statement.Block(blockB)))
+		bagLowered++
+		traceLog('REFLECT-POST-LOWERED if->bag')
+		return Expression.Ident(pst, anyT)
+	}
+
+	/// Shared field pass (pre-gated by `tryLowerStructValue` — the checks
+	/// below only re-verify defensively and never push before their own
+	/// gate): nested struct values lower first (their build hoists before
+	/// the outer sets that consume the inner bag temp); a nested failure
+	/// keeps the whole outer object on the fallback (an inline nested
+	/// literal would bypass materialization). Plain leaves pass through
+	/// for the set-call conversion. Returns null when the outer object
+	/// must stay on the fallback.
+	fun lowerObjectFields(names: [String], vals: [Expression]): Expression? {
 		if names.length != vals.length {
 			traceLog('REFLECT-POST-KEPT object length mismatch')
 			return null
@@ -657,21 +852,23 @@ class ReflectPostLowerer {
 		return fv
 	}
 
-	/// Struct-expression head: spill the value once, then share the field
-	/// pass (nested struct reads lower recursively off the spill temp).
+	/// Struct-expression head (pre-gated by `tryLowerStructValue` — same
+	/// defensive-re-verify contract as above): spill the value once, then
+	/// share the field pass (nested struct reads lower recursively off
+	/// the spill temp).
 	fun lowerStructExpr(e: Expression, structT: Type, snames: [String], sfts: [Type]): Expression? {
-		bagSites++
-
 		for ft in sfts {
-			if not isPlainBagField(ft) and not isStructShape(ft) {
-				var typeName = 'null'
+			if not isPlainBagField(ft) {
+				if not isStructShape(ft) {
+					var typeName = 'null'
 
-				if ft != null {
-					typeName = Type.stringify(ft)
+					if ft != null {
+						typeName = Type.stringify(ft)
+					}
+
+					traceLog('REFLECT-POST-KEPT struct field type=' + typeName)
+					return null
 				}
-
-				traceLog('REFLECT-POST-KEPT struct field type=' + typeName)
-				return null
 			}
 		}
 
@@ -683,11 +880,10 @@ class ReflectPostLowerer {
 		let sp = '$psp' + tempId
 		tempId++
 		hoisted.push(Statement.Var(sp, e, structT))
-		let spIdent = Expression.Ident(sp, structT)
 		var rawVals: [Expression] = []
 
 		for i in snames.length {
-			rawVals.push(Expression.Dot(spIdent, snames[i], sfts[i]))
+			rawVals.push(Expression.Dot(Expression.Ident(sp, structT), snames[i], sfts[i]))
 		}
 
 		var newVals: [Expression] = []
@@ -704,14 +900,70 @@ class ReflectPostLowerer {
 	}
 
 	/// True for inline-struct shapes (nested bags recurse through them).
-	fun isStructShape(t: Type?): Bool { switch t {
+	fun isStructShape(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		switch t {
 			case Struct(_, _):
 				return true
 			case _:
 				return false
-		} }
+		}
+	}
+
+	/// True for function-typed values (pair boxing lives in genC).
+	/// Anything this flags must never cross a plain `Any` conversion,
+	/// in either direction (the fallback boxes it via `isBoxableFat`).
+	fun isFatType(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		switch t {
+			case Function(_, _, _):
+				return true
+			case Nullable(inner):
+				return isFatType(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// True when a value is safe to assign into an `Any` slot as-is
+	/// (bridge/box/nullptr — exactly what the fallback emits there).
+	/// Object literals and struct values need materialization, fat
+	/// values need pair boxing, untyped values keep the fallback.
+	fun inlineSafeAsAny(v: Expression): Bool {
+		switch v {
+			case Object(_, _, _):
+				return false
+			case Null(_):
+				return true
+			case _:
+				let ft = baseTypeOf(v)
+
+				if ft == null {
+					return false
+				}
+
+				if isFatType(ft) {
+					return false
+				}
+
+				switch ft {
+					case Struct(_, _):
+						return false
+					case _:
+						return true
+				}
+		}
+	}
 
 	/// Shared tail: `Var($psbN, Any_objectNew_())` + per-field sets.
+	/// Fresh Ident per use (same name = same variable; never share one
+	/// IR object between parents).
 	fun buildBag(names: [String], vals: [Expression]): Expression? {
 		if not hoistable {
 			traceLog('REFLECT-POST-KEPT object no-hoist position')
@@ -721,7 +973,6 @@ class ReflectPostLowerer {
 		let anyT = niceProject.typer.typeAny
 		let bag = '$psb' + tempId
 		tempId++
-		let bagIdent = Expression.Ident(bag, anyT)
 		hoisted.push(Statement.Var(bag, Expression.Call(bagNewCallee(), [], anyT, CallKind.Function, []), anyT))
 
 		// Explicit expects: the value converts to `Any` exactly like the
@@ -731,12 +982,12 @@ class ReflectPostLowerer {
 
 		for i in names.length {
 			let key = Expression.String(names[i])
-			hoisted.push(Statement.Call(bagSetCallee(), [bagIdent, key, vals[i]], setExpects, CallKind.Function))
+			hoisted.push(Statement.Call(bagSetCallee(), [Expression.Ident(bag, anyT), key, vals[i]], setExpects, CallKind.Function))
 		}
 
 		bagLowered++
 		traceLog('REFLECT-POST-LOWERED object->bag fields=' + names.length)
-		return bagIdent
+		return Expression.Ident(bag, anyT)
 	}
 
 	/// Trial lowering on a call argument: struct value into an `Any`
@@ -1015,7 +1266,13 @@ class ReflectPostLowerer {
 
 				return Statement.Const(name, ne, dataType)
 			case Function(name, body, args, defaults, funcType, variadic, isAsync):
-				return Statement.Function(name, rewriteNestedBody(body, args, funcType, name), args, rewriteExprList(defaults), funcType, variadic, isAsync)
+				// Defaults evaluate at call time in the caller scope — never
+				// hoist out of them (same rule as nested function defaults).
+				let savedHoistable = hoistable
+				hoistable = false
+				let newDefaults = rewriteExprList(defaults)
+				hoistable = savedHoistable
+				return Statement.Function(name, rewriteNestedBody(body, args, funcType, name), args, newDefaults, funcType, variadic, isAsync)
 			case Return(e):
 				let ne = rewriteExpr(e)
 
@@ -1053,23 +1310,37 @@ class ReflectPostLowerer {
 			case For(name, over, by, reverse):
 				return Statement.For(name, rewriteExpr(over), rewriteStmtHoisted(by), reverse)
 			case While(econd, e, pre):
-				return Statement.While(rewriteExpr(econd), rewriteStmtHoisted(e), pre)
+				// The condition runs per iteration: bag builds inside it must
+				// not hoist out (they would evaluate once with stale captures).
+				let savedHoistable = hoistable
+				hoistable = false
+				let nc = rewriteExpr(econd)
+				hoistable = savedHoistable
+				return Statement.While(nc, rewriteStmtHoisted(e), pre)
 			case Increment(e):
 				return Statement.Increment(rewriteExpr(e))
 			case Decrement(e):
 				return Statement.Decrement(rewriteExpr(e))
 			case PatternSwitch(expr, cases, statements, guards, binds):
+				// Case values match conditionally per case: no hoisting out of
+				// them either (same rule as guards below).
+				let savedHoistable = hoistable
+				hoistable = false
 				let newCases: [[Expression]] = []
 
 				for case_ in cases {
 					newCases.push(rewriteExprList(case_))
 				}
 
+				// Guards run conditionally per case: no hoisting out of them
+				// (a hoisted build would evaluate even when its case loses).
 				let newGuards: [Expression] = []
 
 				for g in guards {
 					newGuards.push(rewriteExpr(g))
 				}
+
+				hoistable = savedHoistable
 
 				let newStatements: [Statement] = []
 
@@ -1085,11 +1356,15 @@ class ReflectPostLowerer {
 
 				return Statement.PatternSwitch(rewriteExpr(expr), newCases, newStatements, newGuards, newBinds)
 			case PlainSwitch(expr, cases, statements):
+				let savedHoistable = hoistable
+				hoistable = false
 				let newCases: [[Expression]] = []
 
 				for case_ in cases {
 					newCases.push(rewriteExprList(case_))
 				}
+
+				hoistable = savedHoistable
 
 				let newStatements: [Statement] = []
 
@@ -1247,7 +1522,19 @@ class ReflectPostLowerer {
 			case New(callee, args, result):
 				return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
 			case Binop(a, op, b, result):
-				return Expression.Binop(rewriteExpr(a), op, rewriteExpr(b), result)
+				let na = rewriteExpr(a)
+
+				// `&&`/`||` short-circuit the right side: bag builds inside it
+				// must not hoist out (they would evaluate when skipped).
+				if op == Token.KAnd or op == Token.LogicalAnd or op == Token.KOr or op == Token.LogicalOr {
+					let savedHoistable = hoistable
+					hoistable = false
+					let nb = rewriteExpr(b)
+					hoistable = savedHoistable
+					return Expression.Binop(na, op, nb, result)
+				}
+
+				return Expression.Binop(na, op, rewriteExpr(b), result)
 			case Unop(op, postfix, inner):
 				return Expression.Unop(op, postfix, rewriteExpr(inner))
 			case Parenthesis(inner):
@@ -1259,9 +1546,25 @@ class ReflectPostLowerer {
 			case Map(keys, values, keyType, valueType, mapType):
 				return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
 			case If(econd, eif, eelse, result):
-				return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse), result)
+				let nc = rewriteExpr(econd)
+				// Branches run conditionally (at most one): bag builds inside
+				// them must not hoist out (they would evaluate unconditionally).
+				// The whole-If lowering in `tryLowerStructValue` re-attempts
+				// them with proper per-branch hoisting instead.
+				let savedHoistable = hoistable
+				hoistable = false
+				let nb = rewriteExpr(eif)
+				let ne = rewriteExpr(eelse)
+				hoistable = savedHoistable
+				return Expression.If(nc, nb, ne, result)
 			case Elvis(a, b):
-				return Expression.Elvis(rewriteExpr(a as!Expression), rewriteExpr(b as!Expression))
+				let na = rewriteExpr(a as!Expression)
+				// The fallback runs conditionally: same rule as If branches.
+				let savedHoistable = hoistable
+				hoistable = false
+				let nb = rewriteExpr(b as!Expression)
+				hoistable = savedHoistable
+				return Expression.Elvis(na, nb)
 			case This(_):
 				return e
 			case Await(inner):
