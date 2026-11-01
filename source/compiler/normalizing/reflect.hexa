@@ -169,6 +169,102 @@ class ReflectLowerer {
 		}
 	}
 
+	// ─── Hexa properties on the C target (F8 codegen gap) ──────────────────
+	// `var x: T { get() ... set(v) ... }` is a language feature: the parser
+	// records `Property(field, getter, setter)`, the typer types the member,
+	// the normalizer keeps the backing field + `get_x`/`set_x` methods and
+	// lists the name in `NiceClass.property`, and genJs emits real JS
+	// accessors. The C target has no accessors, so member access lowers HERE
+	// to the generated method calls — one source of truth, both targets
+	// behave identically (this is what made the canvas `fillStyle = …`
+	// surface reach D2D instead of dying in a stub).
+	var propertyReads Int = 0
+	var propertyWrites Int = 0
+	var propertySkips Int = 0
+
+	/// Does `className` declare `name` as a `{ get set }` property?
+	fun isPropertyOf(className: String, name: String): Bool {
+		for c in niceProject.classes {
+			if c.name == className {
+				return c.property.includes(name)
+			}
+		}
+		return false
+	}
+
+	/// Declared type of an expression receiver (expressionType map first,
+	/// then the payloads the normalizer keeps on Ident/This).
+	fun receiverTypeOf(e: Expression): Type? {
+		if let t = niceProject.expressionType.get(e) {
+			return t
+		}
+
+		switch e {
+			case Ident(_, dataType):
+				return dataType
+			case This(t):
+				return t
+			case Parenthesis(inner):
+				return receiverTypeOf(inner)
+			case _:
+				return null
+		}
+	}
+
+	/// Class payload of a class-instance type, null otherwise.
+	fun classKindOf(t: Type): ClassType? {
+		switch t {
+			case ClassInstance(kind, generic):
+				return kind
+			case _:
+				return null
+		}
+	}
+
+	/// Property name when `e` is `obj.prop` on a class instance whose `prop`
+	/// is a Hexa property. Null for every plain field/method access.
+	fun propertyNameOf(e: Expression): String? {
+		switch e {
+			case Dot(base, name, _):
+				if let t = receiverTypeOf(base) {
+					if let kind = classKindOf(Type.unwrapNullable(t)) {
+						if isPropertyOf(kind.name, name) {
+							return name
+						}
+					}
+				}
+			case _:
+		}
+		return null
+	}
+
+	/// Read lowering: `obj.prop` → `obj.get_prop()` (virtual, like any method).
+	fun lowerPropertyRead(e: Expression, name: String, result: Type?): Expression {
+		let base = switch e {
+			case Dot(b, _, _): rewriteExpr(b)
+			case _: rewriteExpr(e)
+		}
+		let getter = Expression.Dot(base, 'get_' + name, null)
+		propertyReads++
+		return Expression.Call(getter, [], result, CallKind.VirtualMethod, [])
+	}
+
+	/// Write lowering: `obj.prop = v` → `obj.set_prop(v)`.
+	fun lowerPropertyWrite(e: Expression, name: String, value: Expression, propType: Type?): Statement {
+		let base = switch e {
+			case Dot(b, _, _): rewriteExpr(b)
+			case _: rewriteExpr(e)
+		}
+		let setter = Expression.Dot(base, 'set_' + name, null)
+		let expects: [Type] = []
+
+		if let t = propType {
+			expects.push(t)
+		}
+		propertyWrites++
+		return Statement.Call(setter, [rewriteExpr(value)], expects, CallKind.VirtualMethod)
+	}
+
 	/// Side-effect-free assign targets only. Ident and This read no state
 	/// beyond the binding, Dot of a pure base repeats a pure read, so
 	/// spelling the target twice cannot run user code twice.
@@ -576,9 +672,34 @@ class ReflectLowerer {
 			case Throw(value):
 				return Statement.Throw(rewriteExpr(value))
 			case Assign(name, value, to):
+				// Hexa property write → generated `set_<name>(value)` call.
+				if let pn = propertyNameOf(name) {
+					let propType = switch name {
+						case Dot(_, _, r): r
+						case _: null
+					}
+					return lowerPropertyWrite(name, pn, value, propType)
+				}
+
 				return Statement.Assign(rewriteExpr(name), rewriteExpr(value), to)
 			case Assignop(name, op, value):
 				stmtAssignop++
+
+				// Hexa property `obj.prop op= v` → `obj.set_prop(obj.get_prop() op v)`
+				// (pure receivers only — the getter is spelled once).
+				if let pn = propertyNameOf(name) {
+					if isPureTarget(name) {
+						let propType = switch name {
+							case Dot(_, _, r): r
+							case _: null
+						}
+						let getter = lowerPropertyRead(name, pn, propType)
+						let sum = Expression.Binop(getter, op, rewriteExpr(value), propType)
+						propertyWrites++
+						return lowerPropertyWrite(name, pn, sum, propType)
+					}
+					propertySkips++
+				}
 
 				let ntName = rewriteExpr(name)
 				let nvName = rewriteExpr(value)
@@ -907,6 +1028,12 @@ class ReflectLowerer {
 								return Expression.Ident('$nrest', niceProject.typer.typeInt)
 							}
 					}
+				}
+
+				// Hexa property read → generated `get_<name>()` method call
+				// (the C target has no accessors).
+				if let pn = propertyNameOf(e) {
+					return lowerPropertyRead(e, pn, result)
 				}
 
 				if isAnyExpr(expr) {
