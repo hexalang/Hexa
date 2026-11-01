@@ -13,8 +13,6 @@ No need to indent manually, LSP autoformat handles that.
 
 Edit/read only .hexa files until requested otherwise.
 
-Leave // concise comments at the functional blocks to describe the meaning of the code.
-
 File structure brief (see hexa.json `global` for compile order, `entry: cli`):
 Only `source\...` (compiler) and `library\...` (std) are described below, ignore everything else.
 - source\main.hexa compiler driver — `declare class Package` (hexa.json shape: name/version/roots/global/entry/files/targets/define/randomSeed), `class Main` (full build pipeline: `processFile`/`processModule`/`loadModules`/`loadPackage`/`perform` + `repl`/`typeCheck` + `simplyCompileToJs`): Lexer.tokenize → Parser.parseNodes → Typer.fillModules → Normalizer.normalize → GenJs/GenCxx/GenLua.perform, CLI flags (`--target`, `--output-folder`, `--define`, `syntax-linter`, `targets`, `init`, `symlink`), `setLibrary`/`availableGenerators` target wiring, timing/line-count success message
@@ -31,6 +29,7 @@ Only `source\...` (compiler) and `library\...` (std) are described below, ignore
 - source\compiler\normalizer.hexa simplifier (`class Normalizer.normalize`: typed AST → `NiceProject` nice nodes for codegen, keyword/globalAccessor handling, inline opts)
 - source\compiler\normalizing\arc.hexa ARC ref-counting pass (`ArcInserter`: inserts RefInc/DeferRefDec after Normalizer)
 - source\compiler\normalizing\reflect.hexa reflect pre-lowering pass (`ReflectLowerer`: lowers dynamic `Any` shapes to explicit reflection calls after Normalizer, before ClosureLifter; genC stays almost-pure C AST printer)
+- source\compiler\normalizing\reflectPost.hexa reflect post-lowering pass (`ReflectPostLowerer`: runs after ClosureLifter, before ArcInserter; scalar `.toString()` → explicit `String.from*`, object/struct → explicit `Any_objectNew_()`/`Any_objectSet_()` bags incl. nesting, spills, conditional-`If` branches and empty-`expects` calls via signature probe, hoist scoping for conditional positions, plus a report-only ARC-shape census; genC fallbacks stay intact)
 - source\compiler\normalizing\renaming.hexa field renaming strategy (`@asTitleCase`/`@asIs` → `FieldRenaming`)
 - source\data\data.hexa `enum Node` — full untyped syntax tree (String/Import/Var/Class/Function/Call/…)
 - source\data\nodes.hexa `NodeData` position info (line/column/fileName) + `ClassKind` (Class/Interface/Type)
