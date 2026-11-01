@@ -50,6 +50,10 @@ class GenCxx {
 	/// Mapping of original strings (optimization)
 	var declarationsOfStringsMap: [String : Int] = [:]
 	var declarationsOfStrings: [String] = []
+	// F10: inline STRUCT <-> Any bridges — registered on demand by
+	// `anyToStructStr`, emitted once by `printAnyToStruct` (bag -> fields).
+	var anyToStructNames: [String : [String]] = [:]
+	var anyToStructTypes: [String : [Type]] = [:]
 	/// Function-type signature -> typedef name (`_$N`) so repeated
 	/// `stringifyType` calls return STABLE names (mangled generic names like
 	/// `Array<_$N>` depend on it) and identical types emit one typedef
@@ -1591,6 +1595,9 @@ class GenCxx {
 			printTagNames() +
 			printSweep()
 
+			+ '\n// Any -> struct helpers (F10 dynamic shape, registered on demand)\n' +
+			printAnyToStruct()
+
 			+ '\n// Global functions\n' +
 			globalFunctions.join('')
 
@@ -2135,6 +2142,12 @@ class GenCxx {
 				// S3b: method Dots typed as non-virtual still dispatch via the
 				// vtable (the typer only marks some sites VirtualMethod).
 				var effKind = effCallKind(e, kind)
+				// F10: interface-typed callees dispatch dynamically — the
+				// value may be a bag whose function fields are boxed pairs
+				// (the fat path would read struct slots off it).
+				if isInterfaceBase(e) {
+					return printDynamicCall(e, args, expectsOrDerived(expects, e))
+				}
 				// S3b F1.6: fat pair-held callees (params/locals/globals, field
 				// Dots) call `ptr_(env_, args...)`. Methods stay on the vtable
 				// path (`VirtualMethod` excluded).
@@ -2261,6 +2274,16 @@ class GenCxx {
 				return r + '\n' + tabs + '\}'
 
 			case Assign(a, v):
+				// F10 interface member write FIRST (fat and plain members
+				// share it): the read-ternary can never be an lvalue, so
+				// writes go through bag-set / struct-slot store.
+				if isInterfaceBase(a) {
+					switch a {
+						case Dot(expr, name):
+							return printIfaceAssign(expr, name, getType(a), v)
+						case _:
+					}
+				}
 				// S3b F1.6: fat targets assign BOTH halves (ptr + env, no
 				// conversion — shapes uniform). Value halves via shared
 				// helpers (closure impl+local/sentinel, pair halves, plain
@@ -2312,6 +2335,31 @@ class GenCxx {
 								dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
 							}
 							return anyDynSetStr(printExpression(expr), name, dynVal)
+						}
+
+						// F10 interface member write: bags store through the
+						// linear string-keyed set; interface structs store the
+						// DECL-order slot (an lvalue the read-ternary form can
+						// never be). Base and value hoist once each (same
+						// pattern as the dynamic Assignop arm below).
+						if isInterfaceType(dataType) {
+							let ibt = tempId++
+							let btmp = '_$ib' + ibt
+							let vtmp = '_$iv' + ibt
+							let rT = stringifyType(dataType)
+							let cb = String.fromCharCode(123)
+							let cc = String.fromCharCode(125)
+							var ifaceVal = printToAnyConverter(printExpression(v), getType(v))
+
+							if let objLit = printObjectAs(project.typer.typeAny, v) {
+								ifaceVal = objLit
+							} else if isBoxableFat(v) {
+								ifaceVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+							}
+							metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(expr))
+							metaBlock.push('Any_* ' + vtmp + ' = ' + ifaceVal)
+							metaBlock.push('if (' + btmp + ' != nullptr && ((const void**)(' + btmp + '))[0] == (const void*)(&AnyObject__$)) ' + cb + ' ' + anyDynSetStr('(Any_*)(' + btmp + ')', name, vtmp) + '; ' + cc + ' else ' + cb + ' ((' + rT + ')(' + btmp + '))->' + name + '_ = ' + printTypeConverter(vtmp, project.typer.typeAny, getType(a)) + '; ' + cc)
+							return '(void)0'
 						}
 					case Index(expr, index):
 						// `Any` (or untyped) receivers index DYNAMICALLY —
@@ -2394,9 +2442,15 @@ class GenCxx {
 				throw 'For statement reached codegen — normalizer must lower it first'
 
 			case Increment(e):
+				if isInterfaceBase(e) {
+					return printIfaceIncDec(e, '++')
+				}
 				return printExpression(e) + '++'
 
 			case Decrement(e):
+				if isInterfaceBase(e) {
+					return printIfaceIncDec(e, '--')
+				}
 				return printExpression(e) + '--'
 
 			case While(econd, e, pre):
@@ -2437,6 +2491,23 @@ class GenCxx {
 							metaBlock.push('Any_* ' + btmp + ' = ' + printExpression(base))
 							metaBlock.push('(void)(' + printExpression(value) + ')')
 							return anyDynSetStr(btmp, name, anyDynGetStr(btmp, name))
+						}
+
+						// F10 interface receiver: bags keep the documented
+						// dynamic no-op (read back — real arithmetic is F10
+						// content reflection); interface structs do the REAL
+						// op on their slot (an lvalue). Base + value hoist
+						// once each.
+						if isInterfaceType(valueType(base)) {
+							let rT = stringifyType(valueType(base))
+							let iot = tempId++
+							let btmp = '_$io' + iot
+							let vtmp = '_$iov' + iot
+							let cb = String.fromCharCode(123)
+							let cc = String.fromCharCode(125)
+							metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(base))
+							metaBlock.push('Any_* ' + vtmp + ' = ' + printToAnyConverter(printExpression(value), valueType(value)))
+							return 'if (' + btmp + ' != nullptr && ((const void**)(' + btmp + '))[0] == (const void*)(&AnyObject__$)) ' + cb + ' ' + anyDynSetStr('(Any_*)(' + btmp + ')', name, anyDynGetStr('(Any_*)(' + btmp + ')', name)) + '; ' + cc + ' else ' + cb + ' ((((' + rT + ')(' + btmp + '))->' + name + '_ ' + Token.stringify(op) + '= ' + printTypeConverter(vtmp, project.typer.typeAny, getType(a)) + '); ' + cc
 						}
 					case _:
 				}
@@ -2630,14 +2701,49 @@ class GenCxx {
 							target = fatEnvStr(e)
 						}
 
+						// Plain Ident slot (incl. its `$env_` twin): release
+						// the VARIABLE's live value at scope exit — ARC's
+						// per-assignment temp guards release rebinding olds,
+						// so a construction snapshot would double-release the
+						// FIRST value (rc drain → sweep frees live) and leak
+						// the last. Ternary/comment targets stay snapshots.
+						var isVarSlot = false
+
+						switch e {
+							case Ident(_, _): isVarSlot = true
+							case _:
+						}
+
+						if isVarSlot {
+							var plain = true
+							var ci = 0
+
+							while ci < target.length {
+								let ch = target.charCodeAt(ci) ?? -1
+
+								if ch == 63, ch == 40 { plain = false }
+								ci++
+							}
+
+							isVarSlot = plain
+						}
+
 						if isAnyLikeValue(valueType(e)) and not isFatValueType(valueType(e)) {
 							// Any-shaped slots: the counted guard checks the
 							// payload shape at scope exit (immediates and
 							// Bool singletons skip the release).
-							decParts.push('HexaDeferCountedDec_<void*> _$defer' + tid + '_(' + target + ');')
+							if isVarSlot {
+								decParts.push('HexaDeferCountedDecPtr_ _$defer' + tid + '_((void**)&(' + target + '));')
+							} else {
+								decParts.push('HexaDeferCountedDec_<void*> _$defer' + tid + '_(' + target + ');')
+							}
 						} else {
 							null case
-							decParts.push('HexaDeferDec_<void*> _$defer' + tid + '_(' + target + ');')
+							if isVarSlot {
+								decParts.push('HexaDeferDecPtr_ _$defer' + tid + '_((void**)&(' + target + '));')
+							} else {
+								decParts.push('HexaDeferDec_<void*> _$defer' + tid + '_(' + target + ');')
+							}
 						}
 						^ in normalizer
 					*/
@@ -3122,6 +3228,12 @@ class GenCxx {
 				}
 				return printExpression(e) + '/*UNPAIRED-PTR*/'
 			case Dot(expr, name, _):
+				// F10 interface members: pair halves live inside the boxed
+				// pair (bag value or struct `$f_`/`$e_` box), never as raw
+				// struct slots on a possibly-bag receiver.
+				if isInterfaceType(valueType(expr)) {
+					return '((FatPair_*)(' + printIfaceField(expr, name, getType(e)) + '))->impl_'
+				}
 				// Function-typed Variable field → double slot (`->$f_`). Methods,
 				// statics, dynamic receivers and inline structs never split.
 				if isFatFieldDot(expr, name, getType(e)) {
@@ -3179,6 +3291,12 @@ class GenCxx {
 				}
 				return 'hexaSentinelEnv_/*UNPAIRED-ENV*/'
 			case Dot(expr, name, _):
+				// F10 interface members — env half of the boxed pair (see
+				// fatPtrStr).
+				if isInterfaceType(valueType(expr)) {
+					return '((FatPair_*)(' + printIfaceField(expr, name, getType(e)) + '))->env_'
+				}
+
 				if isFatFieldDot(expr, name, getType(e)) {
 					return printExpression(expr) + '->' + name + '$e_'
 				}
@@ -3239,10 +3357,139 @@ class GenCxx {
 				if isDynamic(valueType(base)) {
 					return false
 				}
+
+				// F10: interface receivers may be bags — pair halves are
+				// not struct slots there (the boxed pair comes from the
+				// reflection read, see printIfaceField).
+				if isInterfaceType(valueType(base)) {
+					return false
+				}
 				return isFatValueType(valueType(e))
 			case _:
 				return false
 		} }
+
+	/// F10 (target-c.md): TypeScript-like interface semantics — the value
+	/// behind an interface-typed expression may be an `AnyObject` bag
+	/// (Any-typed literals, JSON.parse materialization) OR a DECL-ordered
+	/// interface struct, so member access must discriminate at runtime.
+	fun isInterfaceType(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		switch Type.unwrapNullable(t) {
+			case Class(kind):
+				return kind.kind == ClassKind.Interface
+			case ClassInstance(kind, _):
+				return kind.kind == ClassKind.Interface
+			case _:
+				return false
+		}
+	}
+
+	/// `isInterfaceType` on a Dot's base receiver.
+	fun isInterfaceBase(e: Expression): Bool { switch e {
+			case Dot(base, _, _):
+				return isInterfaceType(valueType(base))
+			case Parenthesis(inner):
+				return isInterfaceBase(inner)
+			case _:
+				return false
+		} }
+
+	/// F10 interface field read: first-word tag discriminates the shape —
+	/// bag → linear reflection by interned-string key (pointer identity
+	/// first, no hashing); interface struct → DECL-order slot boxed to Any
+	/// (the accessor's "read by known offset, convert" half). The Any
+	/// result converts to the static member type. Fat members stay as the
+	/// boxed pair (F10.3 dynamic slot / fatPtrStr+fatEnvStr unbox it).
+	/// The receiver hoists once — chains would otherwise multiply-emit the
+	/// whole discrimination (4 reads per level).
+	fun printIfaceField(base: Expression, name: String, memberT: Type?): String {
+		let rT = stringifyType(valueType(base))
+		let iht = tempId++
+		let itmp = '_$ib' + iht
+		metaBlock.push(rT + ' ' + itmp + ' = ' + printExpression(base))
+		return printIfaceFieldOn(itmp, name, memberT)
+	}
+
+	/// `printIfaceField` on an ALREADY-HOISTED receiver temp (an ident —
+	/// re-printing it is free, re-printing the base expression is not).
+	fun printIfaceFieldOn(recv: String, name: String, memberT: Type?): String {
+		let bag = anyDynGetStr(recv, name)
+		var slot = '(((' + recv + '))->' + name + '_)'
+
+		if isFatValueType(memberT) {
+			// Pair-held member: box the two halves — one Any for every
+			// consumer (dynamic call slot, fatPtrStr/fatEnvStr casts).
+			slot = 'Any_boxFatPair_((void(*)())((' + recv + ')->' + name + '$f_), ((' + recv + ')->' + name + '$e_))'
+			let pairExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + slot + ')'
+			return '(' + pairExpr + ')'
+		}
+		let boxed = printToAnyConverter(slot, memberT)
+		let anyExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + boxed + ')'
+
+		// Outer parens: the result is spliced into `(...) ->field` /
+		// `(...) = v` contexts — without them the postfix/cast precedence
+		// parses the TERNARY as the object (C2039/C2106).
+		if memberT == null {
+			return '(' + anyExpr + ')'
+		}
+		return '(' + printTypeConverter(anyExpr, project.typer.typeAny, memberT) + ')'
+	}
+
+	/// F10 interface member WRITE (statement): base + value hoist once
+	/// each; bag → linear string-keyed set, interface struct → DECL-order
+	/// slot store (fat members write the `$f_`/`$e_` halves from the boxed
+	/// pair). Returns a `(void)0` statement — the metaBlock carries the
+	/// real work (Assignop dynamic-arm pattern).
+	fun printIfaceAssign(expr: Expression, name: String, memberT: Type?, v: Expression): String {
+		let rT = stringifyType(valueType(expr))
+		let iat = tempId++
+		let btmp = '_$ia' + iat
+		let vtmp = '_$iv' + iat
+		let ftmp = '_$if' + iat
+		let cb = String.fromCharCode(123)
+		let cc = String.fromCharCode(125)
+		var ifaceVal = printToAnyConverter(printExpression(v), getType(v))
+
+		if let objLit = printObjectAs(project.typer.typeAny, v) {
+			ifaceVal = objLit
+		} else if isBoxableFat(v) {
+			ifaceVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+		}
+		metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(expr))
+		metaBlock.push('Any_* ' + vtmp + ' = ' + ifaceVal)
+		var structStore = ''
+
+		if isFatValueType(memberT) {
+			metaBlock.push('FatPair_* ' + ftmp + ' = (FatPair_*)(' + vtmp + ')')
+			structStore = '(((' + rT + ')(' + btmp + '))->' + name + '$f_ = ' + ftmp + '->impl_)' + '; ' + '(((' + rT + ')(' + btmp + '))->' + name + '$e_ = ' + ftmp + '->env_)'
+		} else {
+			structStore = '(((' + rT + ')(' + btmp + '))->' + name + '_ = ' + printTypeConverter(vtmp, project.typer.typeAny, memberT) + ')'
+		}
+		metaBlock.push('if (' + btmp + ' != nullptr && ((const void**)(' + btmp + '))[0] == (const void*)(&AnyObject__$)) ' + cb + ' ' + anyDynSetStr('(Any_*)(' + btmp + ')', name, vtmp) + '; ' + cc + ' else ' + cb + ' ' + structStore + '; ' + cc)
+		return '(void)0'
+	}
+
+	/// F10 interface receiver `x++`/`x--` (statement): bags keep the
+	/// documented dynamic no-op (read back — real arithmetic is F10 content
+	/// reflection); interface structs increment the slot (an lvalue).
+	fun printIfaceIncDec(e: Expression, sym: String): String {
+		switch e {
+			case Dot(base, name):
+				let rT = stringifyType(valueType(base))
+				let ict = tempId++
+				let btmp = '_$ix' + ict
+				let cb = String.fromCharCode(123)
+				let cc = String.fromCharCode(125)
+				metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(base))
+				metaBlock.push('if (' + btmp + ' != nullptr && ((const void**)(' + btmp + '))[0] == (const void*)(&AnyObject__$)) ' + cb + ' (void)(' + anyDynGetStr('(Any_*)(' + btmp + ')', name) + '); ' + cc + ' else ' + cb + ' ((((' + rT + ')(' + btmp + '))->' + name + '_)' + sym + '); ' + cc)
+			case _:
+		}
+		return '(void)0'
+	}
 
 	/// S3b: pair-ptr with a call-site cast when the value's typedef differs
 	/// from the expected one (restores the pre-S3b mismatched-fn-ptr cast,
@@ -3790,7 +4037,7 @@ class GenCxx {
 		r += 'struct AnyObject_ ' + lb + ' const struct AnyObject__* _; int32_t rc_; int32_t count_; int32_t cap_; struct AnyObjectEntry_* entries_; ' + rb + ';' + nl
 		r += 'Any_* Any_objectNew_() ' + lb + ' AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; hexaRegisterLive_((void*)o); return (Any_*)(o); ' + rb + nl
 		r += 'uint8_t Any_objectStringEquals_(String_* a, String_* b) ' + lb + ' if (a == b) return (uint8_t)1; if (a == nullptr || b == nullptr) return (uint8_t)0; if (a->length_ != b->length_) return (uint8_t)0; for (int32_t i = (int32_t)0; i < a->length_; i++) ' + lb + ' if (a->bytes_[i] != b->bytes_[i]) return (uint8_t)0; ' + rb + ' return (uint8_t)1; ' + rb + nl
-		r += 'int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
+		r += 'int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; HEXA_ASSERT(o->count_ <= o->cap_, "Any_objectFind_: count exceeds cap - corrupt bag (entries_ overrun)"); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
 		r += '// Counted-tag registry (precise `Any` ownership): every vtable tag the sweep
 '
 		r += '// may free, plus the box/bag tags. `Any_isCounted_` consults it — bare
@@ -3810,6 +4057,9 @@ class GenCxx {
 		r += '#ifdef __cplusplus' + nl
 		r += 'extern "C++" ' + lb + nl
 		r += 'template <typename T> struct HexaDeferCountedDec_ ' + lb + ' T o_; HexaDeferCountedDec_(T o): o_(o) ' + lb + ' ' + rb + ' ~HexaDeferCountedDec_() ' + lb + ' if (Any_isCounted_((Any_*)(o_))) hexaUnref((void*)o_); ' + rb + ' ' + rb + ';' + nl
+		// Pointer-captured twin (Ident operands): live-value release — see
+		// HexaDeferDecPtr_ in the compile prologue (double-release fix).
+		r += 'struct HexaDeferCountedDecPtr_ ' + lb + ' void** p_; HexaDeferCountedDecPtr_(void** p): p_(p) ' + lb + ' ' + rb + ' ~HexaDeferCountedDecPtr_() ' + lb + ' void* v_ = *p_; if (Any_isCounted_((Any_*)(v_))) hexaUnref(v_); ' + rb + ' ' + rb + ';' + nl
 		r += rb + ' // extern "C++"' + nl
 		r += '#endif' + nl
 		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
@@ -3881,7 +4131,7 @@ class GenCxx {
 		let rb = String.fromCharCode(125)
 		let nl = String.fromCharCode(10)
 		var r = '// Sweep victim-class names (diagnostic, first freed per sweep)' + nl
-		r += 'static const char* hexaTagName_(const void* tag_) ' + lb + nl
+		r += 'HEXA_C const char* hexaTagName_(const void* tag_) ' + lb + nl
 
 		for n in vtableClasses {
 			r += 'if (tag_ == (const void*)(&' + n + '__$)) return "' + n + '";' + nl
@@ -3940,7 +4190,7 @@ class GenCxx {
 			r += rows.join(', ')
 		}
 		r += rb + ';' + nl
-		r += 'static uint8_t hexaTagIsArray_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayTags_)/sizeof(hexaArrayTags_[0]); i_++) ' + lb + ' if (hexaArrayTags_[i_] != nullptr && hexaArrayTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
+		r += 'HEXA_C uint8_t hexaTagIsArray_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayTags_)/sizeof(hexaArrayTags_[0]); i_++) ' + lb + ' if (hexaArrayTags_[i_] != nullptr && hexaArrayTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
 		r += 'void hexaSweep(void) ' + lb + nl
 		r += 'static uint8_t sweeping_ = 0;' + nl
 		r += 'if (sweeping_ != (uint8_t)0) return;' + nl
@@ -4003,6 +4253,13 @@ class GenCxx {
 		var boxes: [String] = []
 
 		for a in args {
+			// F10: interface-based args print a TYPED value (fat members
+			// the boxed pair) — re-box to Any for the argv slot; never
+			// re-derive pair halves from struct slots (may be a bag).
+			if isInterfaceBase(a) {
+				boxes.push(printToAnyConverter(printExpression(a), valueType(a)))
+				continue
+			}
 			// F10.2: object literals into `Any` build real bags (same as
 			// every other `Any`-shaped binding site, see printObjectAs).
 			if let objArg = printObjectAs(project.typer.typeAny, a) {
@@ -4028,6 +4285,7 @@ class GenCxx {
 			refs.push(fargv + '[' + i + ']')
 		}
 		var legacy = 'AnyValue_\{' + ftmp + '\}(' + refs.join(', ') + ')'
+		metaBlock.push('HEXA_ASSERT(!Any_isFatPair_(' + ftmp + ') || ' + fok + ' != 0, "dynamic call: boxed pair without a registered thunk - falls into the legacy proxy (F10.3)")')
 		return '(' + fok + ' ? ' + fres + ' : ' + legacy + ')'
 	}
 
@@ -4286,6 +4544,37 @@ class GenCxx {
 			return '(struct Any_ *) (size_t) ( /*Any*/ ' + string + ') '
 		}
 
+		// F10: inline STRUCT → dynamic shape. A struct's first word is
+		// DATA, so `Any_dynGet_`'s legacy `let_` dispatch would treat field0
+		// as a vtable and JUMP into it (observed: field0 = a String → RIP =
+		// the String vtable +0x0). Materialize an AnyObject bag instead:
+		// keys are the interned declaration names (pointer identity — the
+		// design's linear entries), values convert to `Any`. Nested struct
+		// values recurse; statements hoist to metaBlock (same protocol as
+		// struct/interface literal construction).
+		switch fromType {
+			case Struct(names, fieldTypes):
+				let tid = tempId++
+				let sp = '_$sp' + tid
+				let tmp = '_$sb' + tid
+				metaBlock.push(stringifyType(fromType) + ' ' + sp + ' = ' + string)
+				metaBlock.push('Any_* ' + tmp + ' = Any_objectNew_()')
+
+				for i in names.length {
+					var vstr = printToAnyConverter('(' + sp + '->' + names[i] + '_)', fieldTypes[i])
+
+					if isFatValueType(fieldTypes[i]) {
+						// Struct fat fields are thin single values (Phase 1)
+						// — box as pair with a sentinel env (dynamic calls on
+						// them keep the legacy proxy, as before).
+						vstr = 'Any_boxFatPair_((void(*)())(' + sp + '->' + names[i] + '_), hexaSentinelEnv_)'
+					}
+					metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
+				}
+				return tmp
+			case _:
+		}
+
 		if fromType == project.typer.typeBool {
 			return 'Any_fromBool(' + string + ')'
 		}
@@ -4361,6 +4650,93 @@ class GenCxx {
 		return '%printValueToNullableConverter%'
 	}
 
+	/// F10: `Any` -> struct call site — registers the shape (deduped by the
+	/// generated helper name) and returns the call. `printAnyToStruct`
+	/// emits the decls + bodies into the output.
+	fun anyToStructStr(string: String, names: [String], fieldTypes: [Type]): String {
+		let sname = omitPointer(stringifyType(Type.Struct(names, fieldTypes)))
+		let fn = 'Any_toStruct_' + sname
+
+		if anyToStructNames.get(fn) == null {
+			anyToStructNames.set(fn, names)
+			anyToStructTypes.set(fn, fieldTypes)
+		}
+		return fn + '(' + string + ')'
+	}
+
+	/// F10: emit the registered `Any` -> inline-struct helpers. Decls first
+	/// (bodies may call nested helpers), then bodies. A bag value fills the
+	/// DECL-order fields through the interned keys; any other value passes
+	/// through (legacy raw pointers stay raw); null -> nullptr.
+	fun printAnyToStruct(): String {
+		if anyToStructNames.keys().length == 0 {
+			return ''
+		}
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var keys: [String] = []
+
+		for k in anyToStructNames.keys() {
+			keys.push(k)
+		}
+		var r = ''
+
+		for i in keys.length {
+			let fn = keys[i]
+			let sname = fn.substring(13, fn.length)
+			r += 'HEXA_C ' + sname + '* ' + fn + '(Any_* v_);' + nl
+		}
+
+		for i in keys.length {
+			let fn = keys[i]
+			let sname = fn.substring(13, fn.length)
+			let names = (anyToStructNames.get(fn) as![String])
+			let types = (anyToStructTypes.get(fn) as![Type])
+			r += 'HEXA_C ' + sname + '* ' + fn + '(Any_* v_) ' + lb + nl
+			r += ' if (v_ == nullptr) return nullptr;' + nl
+			r += ' HEXA_ASSERT(((const void**)v_)[0] == (const void*)(&AnyObject__$) || (((const void**)v_)[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)v_)[0])), "Any_toStruct: pass-through got a string/array payload - upstream Any-to-struct conversion gap");' + nl
+			r += ' if (((const void**)(v_))[0] != (const void*)(&AnyObject__$)) return (' + sname + '*)(size_t)(v_);' + nl
+			r += ' ' + sname + '* s_ = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')));' + nl
+
+			for j in names.length {
+				let fieldT = types[j]
+				let anyV = anyDynGetStr('v_', names[j])
+				var ftS = stringifyType(fieldT)
+				var ftBase = fieldT
+
+				switch ftBase {
+					case Nullable(inner): ftBase = inner
+					case _:
+				}
+				var val = ''
+
+				if isFatValueType(fieldT) {
+					// Struct fat fields are thin single values — unbox the
+					// boxed pair (see the struct->bag side).
+					val = '(' + ftS + ')(size_t)(Any_isFatPair_(' + anyV + ') ? ((FatPair_*)(' + anyV + '))->impl_ : nullptr)'
+				} else {
+					switch ftBase {
+						case Struct(_, _):
+							val = printTypeConverter(anyV, project.typer.typeAny, fieldT)
+						case _:
+					}
+
+					if val == '' {
+						if ftS.endsWith('*') {
+							val = '(' + ftS + ')(size_t)(' + anyV + ')'
+						} else {
+							val = printTypeConverter(anyV, project.typer.typeAny, fieldT)
+						}
+					}
+				}
+				r += ' s_->' + names[j] + '_ = ' + val + ';' + nl
+			}
+			r += ' return s_;' + nl + rb + nl
+		}
+		return r
+	}
+
 	fun printNullableToValueConverter(string: String, fromValue: Type, to: Type): String {
 		return '%printNullableToValueConverter%'
 	}
@@ -4429,6 +4805,26 @@ class GenCxx {
 			// (M1 compiles with sentinel env elsewhere; F10 makes it exact)
 			if isFatValueType(to) {
 				return '(' + stringifyType(to) + ')(size_t)(' + string + ') '
+			}
+		}
+
+		// F10: `Any` -> inline struct — inverse of the struct->bag
+		// materialization in printToAnyConverter: reconstruct through the
+		// generated per-struct helper (bag -> DECL-order fields; a non-bag
+		// value passes through for legacy raw pointers; null -> nullptr).
+		// Registered on demand; printAnyToStruct emits decls + bodies.
+		var toStructType = to
+
+		switch toStructType {
+			case Nullable(inner): toStructType = inner
+			case _:
+		}
+
+		if isDynamic(fromValue) or fromValue == project.typer.typeAny {
+			switch toStructType {
+				case Struct(names, fieldTypes):
+					return anyToStructStr(string, names, fieldTypes)
+				case _:
 			}
 		}
 
@@ -5841,8 +6237,53 @@ class GenCxx {
 		return out
 	}
 
+	// Non-ASCII → escapes for wide literals: genC writes the .cpp as UTF-8
+	// but MSVC reads it in the system ANSI codepage (cp1251 here), so a raw
+	// em-dash (E2 80 94) mojibakes into 'вЂ”' in the window title. Rules:
+	// BMP > 159 → \uXXXX (fixed 4 digits, not greedy); surrogate halves →
+	// \xHHHH ALONE in its own L"…" segment (a \u UCN on a surrogate is
+	// C3850, and \x greedily eats following hex digits); 127..159 stay raw
+	// (control-char UCNs are C3850 too, and they compiled raw before).
+	// ASCII passes through byte-identical; the backslash is built at
+	// RUNTIME (edit-tool backslash hazard).
+	fun wideLitEsc(s: String): String {
+		let bs = String.fromCharCode(92)
+		let quote = String.fromCharCode(34)
+		let hex = '0123456789abcdef'
+		var out = ''
+		var i = 0
+
+		while i < s.length {
+			let c = s.charCodeAt(i) ?? 0
+			var step = 1
+			let isHi = c >= 55296 and c <= 56319
+			let isLo = c >= 56320 and c <= 57343
+
+			if isHi and (i + 1) < s.length and (s.charCodeAt(i + 1) ?? 0) >= 56320 and (s.charCodeAt(i + 1) ?? 0) <= 57343 {
+				let c2 = s.charCodeAt(i + 1) ?? 0
+				out = out + quote + ' L' + quote + bs + 'x' + wideHex4(c, hex) + quote + ' L' + quote + bs + 'x' + wideHex4(c2, hex) + quote + ' L' + quote
+				step = 2
+			} else if isHi or isLo {
+				out = out + quote + ' L' + quote + bs + 'x' + wideHex4(c, hex) + quote + ' L' + quote
+			} else if c > 159 {
+				out = out + bs + 'u' + wideHex4(c, hex)
+			} else {
+				out += String.fromCharCode(c)
+			}
+
+			i += step
+		}
+
+		return out
+	}
+
+	// Exactly 4 lowercase hex digits (no backslashes in this source line).
+	fun wideHex4(v: Int, hex: String): String {
+		return hex.charAt((v / 4096) % 16) + hex.charAt((v / 256) % 16) + hex.charAt((v / 16) % 16) + hex.charAt(v % 16)
+	}
+
 	fun registerString(string: String): Int {
-		declarationsOfStrings.push(string)
+		declarationsOfStrings.push(wideLitEsc(string))
 		return declarationsOfStrings.length - 1
 	}
 
@@ -5969,14 +6410,14 @@ class GenCxx {
 	/// other shape keeps the legacy `let_` proxy (observably identical).
 	fun anyDynGetStr(recv: String, name: String): String {
 		let q = String.fromCharCode(34)
-		return 'Any_dynGet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + name + q + '))'
+		return 'Any_dynGet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '))'
 	}
 
 	/// F10.2 dynamic member write: `AnyObject` bags store real fields, every
 	/// other shape keeps the legacy `$set` stub.
 	fun anyDynSetStr(recv: String, name: String, val: String): String {
 		let q = String.fromCharCode(34)
-		return 'Any_dynSet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + name + q + '), ' + val + ')'
+		return 'Any_dynSet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '), ' + val + ')'
 	}
 
 	/// Heap-construct a `Struct_N_*` from an object literal (see printObjectAs).
@@ -6386,6 +6827,14 @@ class GenCxx {
 			case True: return 'true_'
 			case False: return 'false_'
 			case Dot(expr, name):
+				// F10: interface receivers first — bag-or-struct by the
+				// first word (JSON.parse / Any-literal bags vs interface
+				// structs), keyed by interned string pointers. Must run
+				// before the fat-callee/vtable arms (those print raw struct
+				// slots that pun a bag's header).
+				if isInterfaceType(valueType(expr)), not isMethodDot(expr, name) {
+					return printIfaceField(expr, name, getType(e))
+				}
 				// S3b: fat-typed field reads print the PTR half here (static
 				// bases excluded — they stay on the existing static path);
 				// binding sites and fat callees assemble pairs explicitly and
@@ -6505,6 +6954,12 @@ class GenCxx {
 				// S3b: method Dots typed as non-virtual still dispatch via the
 				// vtable (the typer only marks some sites VirtualMethod).
 				var effKind = effCallKind(e, kind)
+				// F10: interface-typed callees dispatch dynamically — the
+				// value may be a bag whose function fields are boxed pairs
+				// (the fat path would read struct slots off it).
+				if isInterfaceBase(e) {
+					return printDynamicCall(e, args, exprCallExpects(callExpectsField, e))
+				}
 				// S3b F1.6: fat pair-held callees (params/locals/globals, field
 				// Dots) call `ptr_(env_, args...)`. Methods stay on the vtable
 				// path (`VirtualMethod` excluded).
