@@ -1113,10 +1113,24 @@ class Performance {
 
 let performance: Performance = new Performance()
 
-// Object static helpers (stubbed; real enumeration over native objects later)
+// Object static helpers — bags (JSON.parse / object literals) enumerate
+// via AnyObject helpers; other shapes return empty (JS parity for now).
 class Object {
-	static fun keys(obj: Any): [String] { return [] }
-	static fun values(obj: Any): [Any] { return [] }
+	static fun keys(obj: Any): [String] {
+		if anyIsObject(obj) { return anyObjectKeys(obj) }
+		return []
+	}
+	static fun values(obj: Any): [Any] {
+		if anyIsObject(obj) {
+			var out [Any] = []
+			let keys = anyObjectKeys(obj)
+			for i in keys.length {
+				if let v = anyObjectGet(obj, keys[i]) { out.push(v) }
+			}
+			return out
+		}
+		return []
+	}
 	static fun assign(target: Any,...sources: Any): Any { return target }
 	static fun freeze(obj: Any): Any { return obj }
 	static fun seal(obj: Any): Any { return obj }
@@ -1124,10 +1138,21 @@ class Object {
 	static fun create(proto: Any?, propertiesObject: Any? = null): Any { return null }
 	static fun defineProperty(obj: Any, prop: String, descriptor: Any): Any { return obj }
 	static fun defineProperties(obj: Any, props: Any): Any { return obj }
-	static fun getOwnPropertyNames(obj: Any): [String] { return [] }
+	static fun getOwnPropertyNames(obj: Any): [String] {
+		if anyIsObject(obj) { return anyObjectKeys(obj) }
+		return []
+	}
 	static fun getPrototypeOf(obj: Any): Any? { return null }
 	static fun setPrototypeOf(obj: Any, proto: Any?): Any { return obj }
-	static fun hasOwn(obj: Any, prop: String): Bool { return false }
+	static fun hasOwn(obj: Any, prop: String): Bool {
+		if anyIsObject(obj) {
+			if anyObjectGet(obj, prop) != null { return true }
+			// Explicit-null values read back as missing (same as stringify
+			// filter) — treat null as absent for now.
+			return false
+		}
+		return false
+	}
 	static fun preventExtensions(obj: Any): Any { return obj }
 	static fun isExtensible(obj: Any): Bool { return false }
 	static fun isFrozen(obj: Any): Bool { return false }
@@ -2250,8 +2275,13 @@ class Console {
 	new () { }
 
 	@nativeVariadic
+	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic (raw C ...).
 	// fun log(str: Any): Void {
 	fun log(any: Any,...args): Void {
+	fun log(...message: Any?): Void {
+		var out = ''
+		for m in message { out = out + anyToString(m) + ' ' }
+		logString(out.trim())
 	}
 
 	fun trace(message: String): Void {
