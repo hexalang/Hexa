@@ -2456,10 +2456,15 @@ class Typer {
 					} else {
 						// TODO same
 						let arg = new FunctionArgument(types.get(v) ?? Type.Unknown({ value: null }))
+						// Untyped `...rest` falls back to `Any` TODO
+						// `@nativeVariadic` may omit types for genuine printf().
+						let arg = new FunctionArgument(types.get(v) ?? typeAny)
 
 						// If types.get(v) is already set, fillFunction already pre-wrapped it, skip to avoid double-wrapping
 						if variadic, i == vars.length - 1, types.get(v) == null {
-							arg.dataType = typeArray.instantiateGeneric([arg.dataType])
+							if arg.dataType != null, not isRest(arg.dataType) {
+								arg.dataType = Type.Rest(arg.dataType, nativeVariadic)
+							}
 						}
 						varTypes.push(arg)
 					}
@@ -2900,9 +2905,9 @@ class Typer {
 							}
 						case Ident(name):
 							// TODO document this logic of `case` param detection by parent
-							fail('Cannot reassign case parameter `\(name)`\n' + positionOf(parent) + '`case \(name)` is defined here', node)
+							fail('Cannot reassign case parameter `\(name)`' + hereIs('`\(name)` is bound by this pattern', parent), node)
 						case Function(name, _):
-							fail('Cannot reassign a function `\(name)`\n' + positionOf(parent) + '`fun \(name)` is defined here', node)
+							fail('Cannot reassign a function `\(name)`' + hereIs('`fun \(name)` is declared here', parent), node)
 						case Class(_):
 							fail('Cannot reassign class\n' + positionOf(parent) + '`class` is defined here', node) // TODO name
 						case Enum(_):
@@ -4300,12 +4305,6 @@ class Typer {
 				var exprBinds = false
 				for cond in econd { switch cond {
 						case Var(_):
-						exprBinds = true
-					}}
-
-					if exprBinds {
-						// Expression if-let: process bindings with scopes
-						var exprDepth = 0
 						for e in econd {
 							switch e {
 								case Var(name, t, expr, const):
@@ -4346,7 +4345,19 @@ class Typer {
 						while exprDepth > 0 {
 							exprDepth--
 							popScope()
+							exprBinds = true
+					} }
+
+				if exprBinds {
+					// Expression if-let: process bindings with scopes
+					var exprDepth = 0
+
+
+
+
+
 						}
+
 					fillExpression(eelse)
 				} else {
 					if econd.length > 1 {
