@@ -29,6 +29,13 @@
 /// Real per-instance envs (heap helper objects + fat values per D1) replace the
 /// global slot inside this pass later, with no generator changes.
 ///
+/// Production pass (F1.3/S3b/S4): free-variable analysis with isolated
+/// nested scopes + creation-order checks (`Var` init/`for-over`/`try` body
+/// see the outer scope first), hoisted fills kept inside their owner (bare
+/// bodies wrap into a `Block`, `Try` bodies stay inside the `Try`, global /
+/// static initializer fills park to `init`), lifted names registered as
+/// globals, strict post-pass verifier (`VERIFY-FAIL`/`FWD-REF`/`THIS-LEAK` /
+/// `VERIFY-ENV-*`; `closureEnv$` never ambient in lifted bodies).
 /// FINDINGS (from closures-trace.log on the Perfide native build, Oct 2026):
 /// 1. FIXED `globals` over-approximation: class/enum members were registered
 /// as globals, so same-named LOCALS were wrongly SKIPped (trace: `state` <-
@@ -37,22 +44,22 @@
 /// classVar:Array, `line` <- classVar:Cursor, `command` <- classVar:RunBuildArgs,
 /// `targetWindow` <- classVar:ToolContext, `first` <- classVar:ArrayByValue).
 /// Members are always Dot-qualified in Nice, never bare idents — members are
-/// no longer registered (type names + module-level + externals stay).
+/// no longer registered (type names + module-level + externals stay; enum
+/// ctors stay out too — `Expression.Enum`, never bare idents).
 /// 2. REFINED nested-capture story: the old UNRENAMED lines for parent locals
 /// (e.g. `rowY` in closure$180) were an instrumentation artifact (stale
 /// `currentDeclared`, fixed by the outer-restore) — the current trace shows
 /// zero UNRENAMED and zero related C2065. What REMAINS is the mutation-sharing
 /// hole: nested captures of parent BODY locals place fills correctly (lexical
-/// scope saves us) but copy into globals, so writes diverge. The new
+/// scope saves us) but copy into globals, so writes diverge. The
 /// VERIFY-FAIL/FWD-REF post-pass decides this mechanically — see its lines.
 /// 3. FIXED `kindOf` probe (was `undefined`): exhaustive `kindOfStmt/kindOfExpr`
 /// tag switches — every future MISS line now names the exact Nice case.
-/// 4. OPEN `This`/`Elvis` rewrite arms added (a live C2355 + a latent C2065
-/// hole); THIS-LEAK in the new verifier proves the `this` half.
-/// IR status: `CallKind.Closure` (F1.2) exists and the lifter tags lifted-call
-/// sites with it (genC-shared-path, no behavior change — canary for tolerant
-/// matching); `Expression.CapturedVar` exists but NOTHING produces it yet
-/// (the verifier asserts zero occurrences).
+/// 4. FIXED `This`/`Elvis` rewrite arms (was a live C2355 + a latent C2065
+/// hole); THIS-LEAK in the verifier proves the `this` half.
+/// IR status: `CallKind.Closure` (F1.2) tags lifted-call sites (genC fat-call);
+/// `Expression.CapturedVar` is reserved and explicitly handled (no producer
+/// yet — any occurrence logs `CAPTUREDVAR-SEEN`).
 @final
 class ClosureLifter {
 	var niceProject: NiceProject // The IR to mutate
@@ -104,6 +111,15 @@ class ClosureLifter {
 	var id Int = 0
 	/// `this` type seen during the current `collect` walk
 	var foundThis: Type = null as!Type
+	// Active lift ids (stack): `UNRENAMED` attributes to the innermost body
+	// being rewritten, not the max id (nested lifts bump `id`).
+	let liftIdStack: [Int] = []
+	// Global/static initializer fills that have no owning statement list.
+	// `processVarList` parks global `closureEnv$N` alloc+fills here; `lift()`
+	// flushes them into `init` (runs before any call) so the env is filled.
+	// Local twins (`closureEnvL$N`) stay dropped (out of scope at init) and
+	// use the recorded global fallback via `droppedClosureEnvs`.
+	let pendingInitFills: [Statement] = []
 
 	new (niceProject: NiceProject) {
 		this.niceProject = niceProject
@@ -148,15 +164,10 @@ class ClosureLifter {
 
 		for e in niceProject.enumsComplex {
 			markGlobal(e.name, 'enum')
-			// NOTE same as classes above (value factories are Expression.Enum,
-			// never bare idents — but keep the ctor names: zero collision
-			// risk either way and they ARE module-level callables)
-
-			for names in e.constructors {
-				for name in names {
-					markGlobal(name, 'enumCtor:' + e.name)
-				}
-			}
+			// NOTE ctors intentionally NOT registered: value factories are
+			// `Expression.Enum`, never bare idents — registering them would
+			// SKIP same-named outer locals that must CAPTURE (same class of
+			// over-approximation as class members, fixed above).
 		}
 
 		// Externals (`declare fun/let`) are not in the Nice lists but are
@@ -179,12 +190,15 @@ class ClosureLifter {
 				c.staticMethods[i] = rewriteFnStmt(c.staticMethods[i])
 			}
 
-			processVarList(c.vars)
-			processVarList(c.staticVars)
+			// Instance field inits are dead without an explicit `new`
+			// (reflect moved live defaults into the ctor body), so their
+			// fills stay dropped. Static/global inits park fills to `init`.
+			processVarList(c.vars, false)
+			processVarList(c.staticVars, true)
 		}
 
 		for e in niceProject.enumsSimple {
-			processVarList(e.staticVars)
+			processVarList(e.staticVars, true)
 
 			for i in e.staticMethods.length {
 				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
@@ -192,14 +206,32 @@ class ClosureLifter {
 		}
 
 		for e in niceProject.enumsComplex {
-			processVarList(e.staticVars)
+			processVarList(e.staticVars, true)
 
 			for i in e.staticMethods.length {
 				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
 			}
 		}
 
-		processVarList(niceProject.globalVars)
+		processVarList(niceProject.globalVars, true)
+
+		// Parked global/static env fills run in `init` (before any call), so
+		// the global slot is filled even though the initializer list has no
+		// owning statement list. Local twins stay dropped (out of scope).
+		if pendingInitFills.length > 0 {
+			if niceProject.init.length == 0 {
+				niceProject.init.push(Statement.Block([]))
+			}
+
+			for f in pendingInitFills {
+				switch niceProject.init[0] {
+					case Block(els):
+						els.push(f)
+					case _:
+						niceProject.init.push(Statement.Block([f]))
+				}
+			}
+		}
 
 		if niceProject.init.length > 0 {
 			let wrapped = processStatementList(niceProject.init)
@@ -244,31 +276,43 @@ class ClosureLifter {
 		}
 	}
 
-	/// Rewrites initializers of `var`/`const` lists in place
-	fun processVarList(list: [Statement]) {
+	// Rewrites initializers of `var`/`const` lists in place. `toInit` parks
+	// global `closureEnv$N` alloc+fills into `pendingInitFills` (flushed to
+	// `init`, runs before any call); instance lists (`toInit=false`) keep the
+	// drop (dead without an explicit `new`). Local twins are never parked
+	// (out of scope at init) — codegen falls back via `droppedClosureEnvs`.
+	fun processVarList(list: [Statement], toInit: Bool) {
 		for i in list.length {
 			let saved = hoisted
 			hoisted = []
 			let old = list[i]
 			list[i] = rewriteStmt(old)
 
-			// TEMPORARY INSTRUMENTATION (tests H3): fills created inside an
-			// initializer have nowhere to go (no owning statement list) and
-			// are dropped here — a closure literal in a field/global/var
-			// initializer silently gets a never-filled env (runtime bug that
-			// compiles clean). Any DROPPED-FILL line is a live instance
 			if hoisted.length > 0 {
-				traceLog('DROPPED-FILL var-init ' + kindOfStmt(old) + ' fills=' + hoisted.length)
-				// S3b: record dropped env globals so codegen falls back to the
-				// global slot (which exists) instead of the per-instance local
-				// twin (which was never emitted).
+				traceLog('DROPPED-FILL var-init ' + kindOfStmt(old) + ' fills=' + hoisted.length + ' parked=' + toInit)
+
 				for h in hoisted { switch h {
 						case Assign(an, _, _): switch an {
+								case Ident(gname, _):
+									if gname.startsWith('closureEnv$') {
+										niceProject.droppedClosureEnvs.set(gname, true)
+										traceLog('DROPPED-ENV      `' + gname + '` (global fallback kept; S3c removes globals)')
+
+										if toInit {
+											pendingInitFills.push(h)
+										}
+									}
 								case Dot(base, _, _): switch base {
 										case Ident(gname, _):
 											if gname.startsWith('closureEnv$') {
 												niceProject.droppedClosureEnvs.set(gname, true)
 												traceLog('DROPPED-ENV      `' + gname + '` (global fallback kept; S3c removes globals)')
+
+												if toInit {
+													pendingInitFills.push(h)
+												}
+											} else if gname.startsWith('closureEnvL$') {
+												traceLog('DROPPED-LOCAL-FILL `' + gname + '` (twin never emitted at init scope)')
 											}
 										case _:
 									}
@@ -277,6 +321,12 @@ class ClosureLifter {
 						case Var(vname, _, _):
 							if vname.startsWith('closureEnvL$') {
 								traceLog('DROPPED-LOCAL    `' + vname + '` (twin never emitted)')
+							} else if vname.startsWith('closureEnv$') {
+								niceProject.droppedClosureEnvs.set(vname, true)
+
+								if toInit {
+									pendingInitFills.push(h)
+								}
 							}
 						case _:
 					} }
@@ -301,7 +351,23 @@ class ClosureLifter {
 				let saved = hoisted
 				hoisted = []
 				let newDefaults = rewriteExprList(defaults)
-				let newBody = rewriteStmt(body)
+				let newBodyRaw = rewriteStmt(body)
+				var newBody = newBodyRaw
+
+				// Bare bodies (`return <closure>`) leave fills in `hoisted`
+				// with no list to own them — keep them inside the function
+				// (prepend into the body) instead of discarding.
+				if hoisted.length > 0 {
+					let els: [Statement] = []
+
+					for h in hoisted {
+						els.push(h)
+					}
+
+					els.push(newBodyRaw)
+					newBody = Statement.Block(els)
+				}
+
 				let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
 				hoisted = saved
 
@@ -333,6 +399,15 @@ class ClosureLifter {
 
 			hoisted = saved
 			out.push(s2)
+
+			// `globalLink` is keyed by the STATEMENT object — rebuilt list
+			// members must inherit their link info (same contract as
+			// `processVarList`/`rewriteFnStmt`).
+			if s2 != s {
+				if let link = niceProject.globalLink.get(s) {
+					niceProject.globalLink.set(s2, link)
+				}
+			}
 		}
 
 		return out
@@ -387,14 +462,18 @@ class ClosureLifter {
 				return Statement.If(rewriteExpr(econd), rewriteStmtHoisted(eif), rewriteStmtHoisted(eelse))
 			case Try(expr, t, v, catches, temp):
 				// NOTE `expr` holds a STATEMENT (the normalizer stores
-				// `nodeToStatement(...)` here) despite the enum typing
+				// `nodeToStatement(...)` here) despite the enum typing.
+				// Keep fills INSIDE the try body (hoisted wrapper) — flushing
+				// them before the `Try` would run env allocs even when an
+				// earlier statement in the body throws before reaching the
+				// closure creation site.
 				let newCatches: [Statement] = []
 
 				for c in catches {
 					newCatches.push(rewriteStmtHoisted(c))
 				}
 
-				return Statement.Try(rewriteStmt(expr), t, v, newCatches, temp)
+				return Statement.Try(rewriteStmtHoisted(expr), t, v, newCatches, temp)
 			case Throw(value):
 				return Statement.Throw(rewriteExpr(value))
 			case Assign(name, value, to):
@@ -506,10 +585,16 @@ class ClosureLifter {
 					return replacement
 				}
 
-				// TEMPORARY INSTRUMENTATION — an ident that survives inside a
-				// lifted body unrenamed is only legal if it is a global/arg
+				// An ident that survives inside a lifted body unrenamed is
+				// only legal if it is a global/arg
 				if insideLift > 0, globals.get(name) == null, currentDeclared.get(name) == null {
-					traceLog('UNRENAMED      closure$' + this.id + ' `' + name + '`')
+					var active = this.id
+
+					if liftIdStack.length > 0 {
+						active = liftIdStack[liftIdStack.length - 1]
+					}
+
+					traceLog('UNRENAMED      closure$' + active + ' `' + name + '`')
 				}
 
 				return e
@@ -574,6 +659,25 @@ class ClosureLifter {
 				return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
 			case NativeOperator(kind, args, name, params, result):
 				return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
+			case CapturedVar(name, dataType):
+				// Reserved F1.2 shape — nothing produces it yet, but handle
+				// like `Ident` so a future producer gets capture renames and
+				// no `REWRITE-MISS` noise.
+				if let replacement = renames.get(name) {
+					return replacement
+				}
+
+				if insideLift > 0, globals.get(name) == null, currentDeclared.get(name) == null {
+					var active = this.id
+
+					if liftIdStack.length > 0 {
+						active = liftIdStack[liftIdStack.length - 1]
+					}
+
+					traceLog('UNRENAMED      closure$' + active + ' `' + name + '` (CapturedVar)')
+				}
+
+				return e
 				// Leaves: nothing to rewrite (silent — no MISS noise)
 			case String(_): return e
 			case Int(_): return e
@@ -832,10 +936,28 @@ class ClosureLifter {
 		let outerDeclared = currentDeclared
 		currentDeclared = declared
 		insideLift = insideLift + 1
+		liftIdStack.push(id)
 		let saved = hoisted
 		hoisted = []
 		let newBodyRaw = rewriteStmt(body)
+		// Bare bodies (`return <closure>`) leave nested fills in `hoisted`
+		// with no list to own them — keep them inside this closure instead
+		// of discarding (same rule as `rewriteFnStmt`).
+		var newBodyRawKept = newBodyRaw
+
+		if hoisted.length > 0 {
+			let els: [Statement] = []
+
+			for h in hoisted {
+				els.push(h)
+			}
+
+			els.push(newBodyRaw)
+			newBodyRawKept = Statement.Block(els)
+		}
+
 		hoisted = saved
+		liftIdStack.pop()
 		insideLift = insideLift - 1
 		renames = outerRenames
 		// NOTE restore the declared-set too — nested lifts overwrite it and
@@ -882,12 +1004,12 @@ class ClosureLifter {
 
 		// S3a: cast `void* $env` to concrete `$envT` at the top of fat bodies
 		// with captures (empty bodies ignore `$env`; no cast needed).
-		var newBody = newBodyRaw
+		var newBody = newBodyRawKept
 
 		if captures.length > 0 {
 			let castInit = Expression.UnsafeBitCast(Expression.Ident('$env', niceProject.typer.typeAny), envInstance as!Type)
 			let castVar = Statement.Var('envT$' + id, castInit, envInstance as!Type)
-			newBody = Statement.Block([castVar, newBodyRaw])
+			newBody = Statement.Block([castVar, newBodyRawKept])
 			traceLog('FAT-IMPL       closure$' + id + ' env-first fields=' + captures.length)
 		} else {
 			traceLog('FAT-IMPL       closure$' + id + ' env-first (empty, env ignored)')
@@ -934,10 +1056,52 @@ class ClosureLifter {
 		let wrapBody = Statement.Block([Statement.Return(wrapCall)])
 		niceProject.globalFuncs.push(Statement.Function(thinName, wrapBody, args, newDefaults, funcType, variadic, isAsync))
 		traceLog('THIN-WRAP      ' + thinName + ' -> `' + fnName + '`')
+		// Lifted names are module-level globals from here on — later
+		// free-variable walks must SKIP them, never CAPTURE them.
+		markGlobal(fnName, 'liftedClosure')
+		markGlobal(thinName, 'thinWrapper')
+		markGlobal(envGlobalName, 'envSlot')
+		markGlobal(envLocalName, 'envLocal')
 		return Expression.Ident(fnName, funcType)
 	}
 
-	/// Records used names (with types) and locally declared names
+	// Copies a scope map (Hexa maps have no clone): nested function scopes
+	// start from the outer set but must not pollute it.
+	fun copyScope(src: [String : Bool]): [String : Bool] {
+		let out: [String : Bool] = [:]
+
+		for k in src.keys() {
+			out.set(k, true)
+		}
+
+		return out
+	}
+
+	// Merges a nested scope's use-map into the enclosing closure's. Names
+	// BOUND by the nested scope (params/locals at any depth) stay local —
+	// the nested closure's own lift fills them at ITS creation site, while
+	// an outer fill would read an identifier that does not exist there
+	// (the C2065 `env->x = x_` wall). Names visible at this level
+	// (`declared`) or free above (`inner` miss) still propagate: enclosing
+	// closures capture them transitively (`out`-style callback captures).
+	fun mergeNestedUses(temp: [String : Type], used: [String : Type], declared: [String : Bool], inner: [String : Bool]) {
+		for n in temp.keys() {
+			if declared.get(n) != null or inner.get(n) == null {
+				if used.get(n) == null {
+					used.set(n, temp.get(n))
+				}
+			} else {
+				// instrumentation: one line per nested-bound name per scope
+				traceLog('SKIP nested   closure$' + this.id + ' `' + n + '`')
+			}
+		}
+	}
+
+	/// Records used names (with types) and locally declared names.
+	// Order rule (matches `verifyStmt`): an initializer/`over`/try-body sees
+	// the OUTER scope — collect it BEFORE binding the new name. Otherwise
+	// `var x = x` (uniquified to `x_2 = x_1` today, same name without it)
+	// would SKIP the outer capture.
 	fun collect(s: Statement, used: [String : Type], declared: [String : Bool]) { switch s {
 			case Statements(els):
 				for el in els { collect(el, used, declared) }
@@ -948,18 +1112,33 @@ class ClosureLifter {
 
 				for arg in args { collectExpr(arg, used, declared) }
 			case Var(name, expr, _):
-				declared.set(name, true)
 				collectExpr(expr, used, declared)
+				declared.set(name, true)
 			case Const(name, expr, _):
-				declared.set(name, true)
 				collectExpr(expr, used, declared)
-			case Function(name, body, args, defaults, _, _, _):
 				declared.set(name, true)
-
-				for a in args { declared.set(a, true) }
-
+			case Function(name, body, args, defaults, _, _, _):
+				// Nested scope: params/locals must not leak into the outer
+				// `declared` set, or an outer use shadowed by an inner param
+				// would be wrongly SKIPped. Free names still propagate —
+				// nested-BOUND uses are filtered by `mergeNestedUses`.
 				for d in defaults { collectExpr(d, used, declared) }
-				collect(body, used, declared)
+				let inner = copyScope(declared)
+
+				if name != null {
+					inner.set(name, true)
+				}
+
+				for a in args { inner.set(a, true) }
+
+				let temp: [String : Type] = [:]
+
+				collect(body, temp, inner)
+				mergeNestedUses(temp, used, declared, inner)
+				// The nested name itself binds in the OUTER scope.
+				if name != null {
+					declared.set(name, true)
+				}
 			case Return(e):
 				collectExpr(e, used, declared)
 			case If(econd, eif, eelse):
@@ -968,9 +1147,10 @@ class ClosureLifter {
 
 				if eelse != null { collect(eelse, used, declared) }
 			case Try(expr, _, v, catches, _):
-				for name in v { declared.set(name, true) }
 				// NOTE `expr` holds a STATEMENT (see `rewriteStmt`)
 				collect(expr, used, declared)
+
+				for name in v { declared.set(name, true) }
 
 				for c in catches { collect(c, used, declared) }
 			case Throw(value):
@@ -982,8 +1162,9 @@ class ClosureLifter {
 				collectExpr(name, used, declared)
 				collectExpr(value, used, declared)
 			case For(name, over, by, _):
-				declared.set(name, true)
+				// Order: `over` sees the OUTER scope, then the var is bound
 				collectExpr(over, used, declared)
+				declared.set(name, true)
 				collect(by, used, declared)
 			case While(econd, e, _):
 				collectExpr(econd, used, declared)
@@ -1177,24 +1358,46 @@ class ClosureLifter {
 				for arg in args { collectExpr(arg, used, declared) }
 			case Function(name, body, args, defaults, _, _):
 				// Nested closure — its free names are captures of THIS closure
-				// (lifted later, with the renames already applied)
-				declared.set(name, true)
-
-				for a in args { declared.set(a, true) }
-
+				// (lifted later, with the renames already applied). Isolated
+				// scope so inner params never SKIP outer captures.
 				for d in defaults { collectExpr(d, used, declared) }
-				collect(body, used, declared)
+				let inner = copyScope(declared)
+
+				if name != null {
+					inner.set(name, true)
+				}
+
+				for a in args { inner.set(a, true) }
+
+				let temp: [String : Type] = [:]
+
+				collect(body, temp, inner)
+				mergeNestedUses(temp, used, declared, inner)
+
+				if name != null {
+					declared.set(name, true)
+				}
 			case Arrow(expr, args, defaults, _, _, _, _):
-				for a in args { declared.set(a, true) }
-
 				for d in defaults { collectExpr(d, used, declared) }
-				collectExpr(expr, used, declared)
+				let innerAr = copyScope(declared)
+
+				for a in args { innerAr.set(a, true) }
+
+				let tempAr: [String : Type] = [:]
+
+				collectExpr(expr, tempAr, innerAr)
+				mergeNestedUses(tempAr, used, declared, innerAr)
+			case CapturedVar(name, dataType):
+				// Reserved shape — treat like `Ident` for capture purposes.
+				if used.get(name) == null {
+					used.set(name, dataType)
+				}
 			case _:
 				// Leaves carry no idents — silence them so MISS stays signal
 				if e != null {
 					let k = kindOfExpr(e)
 
-					if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore' {
+					if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore', k != 'This' {
 						traceLog('COLLECT-MISS expr ' + k)
 					}
 				}
@@ -1218,6 +1421,14 @@ class ClosureLifter {
 		for c in niceProject.classes {
 			collectMethodNames(c.methods)
 			collectMethodNames(c.staticMethods)
+		}
+
+		for e in niceProject.enumsSimple {
+			collectMethodNames(e.staticMethods)
+		}
+
+		for e in niceProject.enumsComplex {
+			collectMethodNames(e.staticMethods)
 		}
 
 		for f in niceProject.globalFuncs { censusTopFn(f) }
@@ -1476,6 +1687,10 @@ class ClosureLifter {
 				if let ename = ename {
 					for c in niceProject.classes {
 						if c.name == ename {
+							if c.api != ClassBinaryInterface.Closure {
+								traceLog('VERIFY-ENV-API ' + ename + ' api != Closure (F10.3 thunk gate)')
+							}
+
 							var fieldCount = 0
 
 							for v in c.vars { switch v {
@@ -1545,18 +1760,49 @@ class ClosureLifter {
 
 	fun verifyLifted() {
 		for f in niceProject.globalFuncs { switch f {
-				case Function(name, body, args, _, _, _, _):
+				case Function(name, body, args, _, funcType, _, _):
 					if name != null, name.startsWith('closure$') {
 						// Existence set (reuse the pass's own walk)
 						let used: [String : Type] = [:]
 						let declaredAll: [String : Bool] = [:]
 
 						for a in args { declaredAll.set(a, true) }
+						// Mirror `liftClosure`: Hexa-rest lowers to
+						// `$nrest`/`$rest`, which are params, not captures.
+						switch funcType {
+							case Function(fargs, _, _):
+								if fargs.length > 0 {
+									switch fargs[fargs.length - 1].dataType {
+										case Rest(_, native):
+											if not native {
+												declaredAll.set('$nrest', true)
+												declaredAll.set('$rest', true)
+											}
+										case _:
+									}
+								}
+							case _:
+						}
 						collect(body, used, declaredAll)
 
 						let soFar: [String : Bool] = [:]
 
 						for a in args { soFar.set(a, true) }
+
+						switch funcType {
+							case Function(fargs, _, _):
+								if fargs.length > 0 {
+									switch fargs[fargs.length - 1].dataType {
+										case Rest(_, native):
+											if not native {
+												soFar.set('$nrest', true)
+												soFar.set('$rest', true)
+											}
+										case _:
+									}
+								}
+							case _:
+						}
 						verifyStmt(body, declaredAll, soFar, name)
 					}
 				case _: { }
@@ -1572,7 +1818,10 @@ class ClosureLifter {
 			return
 		}
 
-		if name.startsWith('closure$') or name.startsWith('closureEnv$') {
+		// Lifted bodies must read captures via `envT$N` (and `$env`), never
+		// via the global slot — allowing `closureEnv$` here would hide a
+		// missed rename. Only the fat impl name itself is ambient.
+		if name.startsWith('closure$') {
 			return
 		}
 
@@ -1601,14 +1850,25 @@ class ClosureLifter {
 				verifyExpr(expr, declaredAll, soFar, fn)
 				soFar.set(name, true)
 			case Function(name, body, args, defaults, _, _, _):
+				// Defaults see the OUTER scope; the body sees outer + name/args
+				// in an isolated scope so inner params never leak outward.
 				for d in defaults { verifyExpr(d, declaredAll, soFar, fn) }
+				let innerSo: [String : Bool] = [:]
+
+				for k in soFar.keys() {
+					innerSo.set(k, true)
+				}
+
+				if name != null {
+					innerSo.set(name, true)
+				}
+
+				for a in args { innerSo.set(a, true) }
+				verifyStmt(body, declaredAll, innerSo, fn)
 
 				if name != null {
 					soFar.set(name, true)
 				}
-
-				for a in args { soFar.set(a, true) }
-				verifyStmt(body, declaredAll, soFar, fn)
 			case Return(e):
 				verifyExpr(e, declaredAll, soFar, fn)
 			case If(econd, eif, eelse):
@@ -1738,21 +1998,44 @@ class ClosureLifter {
 			case Spread(inner):
 				verifyExpr(inner, declaredAll, soFar, fn)
 			case CapturedVar(name, _):
+				// Reserved shape — a producer would resolve these to env
+				// fields; seeing one post-lift means the one-step lowering
+				// missed a capture.
 				traceLog('CAPTUREDVAR-SEEN ' + fn + ' `' + name + '`')
 			case StringConcatenation(l, r):
 				verifyExpr(l, declaredAll, soFar, fn)
 				verifyExpr(r, declaredAll, soFar, fn)
 			case NativeOperator(_, args, _, _, _):
 				for arg in args { verifyExpr(arg, declaredAll, soFar, fn) }
-			case Function(_, body, _, _, _, _):
-				verifyStmt(body, declaredAll, soFar, fn)
-			case Arrow(expr, _, _, _, _, _, _):
-				verifyExpr(expr, declaredAll, soFar, fn)
+			case Function(fname, body, fargs, defaults, _, _):
+				for d in defaults { verifyExpr(d, declaredAll, soFar, fn) }
+				let innerSo: [String : Bool] = [:]
+
+				for k in soFar.keys() {
+					innerSo.set(k, true)
+				}
+
+				if fname != null {
+					innerSo.set(fname, true)
+				}
+
+				for a in fargs { innerSo.set(a, true) }
+				verifyStmt(body, declaredAll, innerSo, fn)
+			case Arrow(expr, fargs, defaults, _, _, _, _):
+				for d in defaults { verifyExpr(d, declaredAll, soFar, fn) }
+				let innerAr: [String : Bool] = [:]
+
+				for k in soFar.keys() {
+					innerAr.set(k, true)
+				}
+
+				for a in fargs { innerAr.set(a, true) }
+				verifyExpr(expr, declaredAll, innerAr, fn)
 			case _:
 				if e != null {
 					let k = kindOfExpr(e)
 
-					if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore' {
+					if k != 'String', k != 'Int', k != 'MetaInt', k != 'Float', k != 'True', k != 'False', k != 'Null', k != 'Underscore', k != 'This' {
 						traceLog('VERIFY-MISS expr ' + k)
 					}
 				}
