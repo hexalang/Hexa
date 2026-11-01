@@ -25,6 +25,7 @@ class Typer {
 	fun fillModules() {
 		// Globals already pre-filled in package loader
 		// so we do not fill them here
+		// Check duplicate module-level names, point at first definition
 		fun checkOverrides(info: Module, name: String, e: Node) {
 			if info.exported.has(name) {
 				fail('Module `\(info.path)` already exports name `\(name)`', e)
@@ -736,6 +737,7 @@ class Typer {
 					classType.kind = classKind
 					classType.external = external
 
+					// Fill generic params, point at class header on duplicate
 					switch t {
 						case ParametricType(name, params):
 							classType.genericParams.push(DataHelper.extractTypeName(params[0]))
@@ -1443,6 +1445,7 @@ class Typer {
 	private var typeBool: Type? = null
 	private var typeArray: ClassType = new ClassType() // Type instantiators
 	private var typeMap: ClassType = null as!ClassType // Type instantiators
+	private var typePromise: ClassType = new ClassType() // F9: async wrapping needs `Promise<T>`
 	private var typeAnyClass: ClassType = new ClassType()
 	private var typeAny: Type = typeAnyClass.instantiate()
 	private var nodeAny: Node? = null
@@ -1503,8 +1506,6 @@ class Typer {
 		if fromValue == typeVoid {
 			fail('Incompatible types `\(Type.stringify(to))` and non-value type `Void`', node)
 		}
-
-		// `Int` is assignable to `Float`
 
 		if to == typeFloat, fromValue == typeInt {
 			return typeFloat
@@ -1604,6 +1605,23 @@ class Typer {
 				typeInt8,
 
 				typeFloat32,
+				typeNumber,
+				typeInt
+			].includes(fromValue) {
+				return to // Larger type
+			}
+
+			if to == typeNumber, [
+				typeUInt32,
+				typeUInt16,
+				typeUInt8,
+
+				typeInt32,
+				typeInt16,
+				typeInt8,
+
+				typeFloat32,
+				typeFloat,
 				typeInt
 			].includes(fromValue) {
 				return to // Larger type
@@ -1984,6 +2002,10 @@ class Typer {
 
 						case Enum(_):
 							registerEnumType(nodeType)
+						case TypeAlias(_, value):
+							// Aliases resolve on demand like classes/enums register on
+							// demand above (order-independent across modules).
+							return toType(value, node)
 						case null:
 							// console.log('toType registerClassType null!', name)
 						case _:
@@ -2744,13 +2766,13 @@ class Typer {
 							}
 						case Ident(name):
 							// TODO document this logic of `case` param detection by parent
-							fail('Cannot reassign case parameter `\(name)`', node)
+							fail('Cannot reassign case parameter `\(name)`\n' + positionOf(parent) + '`\(name)` is defined here', node)
 						case Function(name, _):
-							fail('Cannot reassign a function `\(name)`', node)
+							fail('Cannot reassign a function `\(name)`\n' + positionOf(parent) + '`\(name)` is defined here', node)
 						case Class(_):
-							fail('Cannot reassign class', node)
+							fail('Cannot reassign class\n' + positionOf(parent) + '`class` is defined here', node)
 						case Enum(_):
-							fail('Cannot reassign enum', node)
+							fail('Cannot reassign enum\n' + positionOf(parent) + '`enum` is defined here', node)
 						case For(name, _):
 							fail(
 								'Cannot reassign iterator value `\(name)` of for loop\n'
@@ -3727,10 +3749,12 @@ class Typer {
 							let index = classType.fieldNames.indexOf(n)
 
 							if (index < 0) {
+								failNonFatal('Type `\(classType.name)` is defined here', classType.parent)
 								fail('Class `\(nameOfModuleItem(classType.parent))` has no static field `.\(n)`\nAvailable fields are: ' + classType.fieldNames.join(', '), node)
 							}
 
 							if (classType.fieldStatic[index] != true) {
+								failNonFatal('Type `\(classType.name)` is defined here', classType.parent)
 								fail('Class `\(nameOfModuleItem(classType.parent))` field `.\(n)` is not static', node)
 							}
 
@@ -3749,10 +3773,12 @@ class Typer {
 							let index = enumType.fieldNames.indexOf(n)
 
 							if index < 0 {
+								failNonFatal('Type `\(enumType.name)` is defined here', enumType.parent)
 								fail('Enum `\(enumType.name)` has no field `.\(n)`', node)
 							}
 
 							if not enumType.fieldStatic[index] {
+								failNonFatal('Type `\(enumType.name)` is defined here', enumType.parent)
 								fail('Enum field `.\(n)` is not static', node)
 							}
 
@@ -4007,6 +4033,7 @@ class Typer {
 				switch actualType {
 					case ClassInstance(classType):
 						if classType.constructor == -1 {
+							failNonFatal('Type `\(classType.name)` is defined here', classType.parent)
 							fail('Cannot construct class without `new () \{\}` constructor', node)
 						}
 						classType.useless = false
@@ -4020,7 +4047,8 @@ class Typer {
 			case Object(names, el):
 				for name in names.length {
 					if names.indexOf(names[name]) != name {
-						fail('Field `\(names[name])` already exists', node)
+						let firstAt = names.indexOf(names[name])
+						fail('Field `\(names[name])` already exists\n' + positionOf(el[firstAt]) + '`\(names[name])` is first defined here', node)
 					}
 				}
 
@@ -4076,14 +4104,14 @@ class Typer {
 				types.set(node, types.get(e))
 
 				// `if (econd) eif else eelse`
-				case If(econd, eif, eelse, ternary):
-					if eelse == null {
-						fail('Expression `if` should have an `else` clause', eif)
-					}
+			case If(econd, eif, eelse, ternary):
+				if eelse == null {
+					fail('Expression `if` should have an `else` clause', eif)
+				}
 
-					// Check if it contains if-let bindings
-					var exprBinds = false
-					for cond in econd { switch cond {
+				// Check if it contains if-let bindings
+				var exprBinds = false
+				for cond in econd { switch cond {
 						case Var(_):
 						exprBinds = true
 					}}
@@ -4132,28 +4160,30 @@ class Typer {
 							exprDepth--
 							popScope()
 						}
-						fillExpression(eelse)
-					} else {
-						if econd.length > 1 {
-							fail('More than one condition is not yet supported', econd[1])
-						}
-						fillExpression(econd[0])
-						if ternary == false {
-							switch eif {
-								case Block(_):
-								case _:
-									fail('Ternary `if` should have a `\{ block \}` as a body', eif)
-							}
-							switch eelse {
-								case Block(_):
-								case _:
-									fail('Ternary `else` should have a `\{ block \}` as a body', eelse)
-							}
-						}
-						fillExpression(eif)
-						fillExpression(eelse)
+					fillExpression(eelse)
+				} else {
+					if econd.length > 1 {
+						fail('More than one condition is not yet supported', econd[1])
 					}
-					types.set(node, unify(types.get(eif), types.get(eelse), eelse))
+					fillExpression(econd[0])
+
+					if ternary == false {
+						switch eif {
+							case Block(_):
+							case _:
+								fail('Ternary `if` should have a `\{ block \}` as a body', eif)
+						}
+
+						switch eelse {
+							case Block(_):
+							case _:
+								fail('Ternary `else` should have a `\{ block \}` as a body', eelse)
+						}
+					}
+					fillExpression(eif)
+					fillExpression(eelse)
+				}
+				types.set(node, unify(types.get(eif), types.get(eelse), eelse))
 
 				// Simple nodes
 				// `null`
@@ -4209,12 +4239,14 @@ class Typer {
 				fillExpression(e)
 				types.set(node, types.get(e))
 
-			// `...value`
+				// `...value`
 			case Spread(value):
 				fillExpression(value)
 				let vType = types.get(value)
-				// Spread of Array<T> contributes elements of type T
+				// Spread of Rest<T> or Array<T> contributes elements of type T
 				switch vType {
+					case Rest(element, _):
+						types.set(node, element)
 					case ClassInstance(_, generic):
 						if generic != null, generic.length == 1 {
 							types.set(node, generic[0])
@@ -4263,6 +4295,7 @@ class Typer {
 						switch typeToCreate {
 							case ClassInstance(classType):
 								if classType.constructor == -1 {
+									failNonFatal('Type `\(classType.name)` is defined here', classType.parent)
 									fail('Cannot construct class without `new () \{\}` constructor', node)
 								}
 
@@ -4386,13 +4419,11 @@ class Typer {
 						if provided < expectedAtLeast {
 							// TODO `fun name` and args names too
 							// TODO `fun is defined here`
-							// console.log(args)
 							fail('Not enough function arguments, required \(expectedAtLeast) but got only \(provided)', node)
 						}
 
 						if provided > expectedAtMax {
 							// TODO `fun name` and args names too
-							// console.log(args)
 							fail('Too many function arguments, expected only \(expectedAtMax) but got \(provided)', node)
 						}
 
@@ -4958,6 +4989,9 @@ class Typer {
 					// For now, only `Array[i]` and `Map[k]` supported
 
 				switch eType {
+					case Rest(element, _):
+						// Bounds-checked: `rest[i]` returns nullable element.
+						types.set(node, asNullable(element))
 					case ClassInstance(classType, generic):
 						if eType == typeString {
 							// `"string"[index]` returns `String?`
