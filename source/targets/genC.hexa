@@ -1192,30 +1192,138 @@ class GenCxx {
 					out.push('\treturn (int32_t)' + hnames.length + ' + ' + parent + '_hiddenKeyCount_(self_);' + hnl)
 				} else {
 					out.push('\treturn (int32_t)' + hnames.length + ';' + hnl)
-					out.push(hrb + '\n\n')
-					out.push('void ' + c.name + '_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + hlb + hnl)
-					out.push('\tif (self_ == nullptr || op_ == nullptr) return;' + hnl)
-					out.push('\tswitch (op_->code_) ' + hlb + hnl)
-					out.push('\tcase (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break;' + hnl)
-					out.push('\tcase (int32_t)2: op_->resultStr_ = Hexa_GenericToString_(self_); break;' + hnl)
-					out.push('\tcase (int32_t)3: op_->resultCStr_ = ' + c.name + '_hiddenClassName_(); break;' + hnl)
-					out.push('\tcase (int32_t)4: op_->result_ = ' + c.name + '_hiddenDynGet_(self_, op_->key_); break;' + hnl)
-					out.push('\tcase (int32_t)5: ' + c.name + '_hiddenDynSet_(self_, op_->key_, op_->value_); break;' + hnl)
-					out.push('\tcase (int32_t)6: op_->resultInt_ = (int32_t)' + c.name + '_hiddenHas_(self_, op_->key_); break;' + hnl)
-					out.push('\tcase (int32_t)7: ' + c.name + '_hiddenDelete_(self_, op_->key_); break;' + hnl)
-					out.push('\tcase (int32_t)8: op_->resultStr_ = ' + c.name + '_hiddenKeyAt_(self_, op_->index_); break;' + hnl)
-					out.push('\tcase (int32_t)9: op_->resultInt_ = ' + c.name + '_hiddenKeyCount_(self_); break;' + hnl)
-					out.push('\tdefault: break;' + hnl)
-					out.push('\t' + hrb + hnl)
-					out.push(hrb + '\n\n')
-					let vtHiddenInit = '\{' + hiddenDestroy + ', &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &' + c.name + '_hiddenClassName_, &' + c.name + '_hiddenDynGet_, &' + c.name + '_hiddenDynSet_, &' + c.name + '_hiddenHas_, &' + c.name + '_hiddenDelete_, &' + c.name + '_hiddenKeyAt_, &' + c.name + '_hiddenKeyCount_, &' + c.name + '_hiddenReflect_\}'
-					let vtPublicInit = vtableBind.join(',\n\t')
-					let vtDef = 'struct ' + c.name + '_vt \{ struct HexaReflect_ hidden; struct ' + c.name + '__ public_; \};\n'
-					let vtVal = 'const struct ' + c.name + '_vt ' + c.name + '_vt$ = \{' + vtHiddenInit + ', \{' + vtPublicInit + '\}\};\n'
-					let vtMacro = '#define ' + c.name + '__$ (' + c.name + '_vt$.public_)\n'
-					let vtAssert = '_Static_assert(offsetof(struct ' + c.name + '_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");\n'
-					types.unshift(vtable.join('') + vtDef + vtVal + vtMacro + vtAssert)
 				}
+
+				out.push(hrb + '\n\n')
+
+				// F10 index ops (`obj[i]`, `obj[i] = v`, `obj.length` with Int
+				// keys): the container contract is the class's own 1-arg `get` /
+				// 2-arg `set` (first param a C `int32_t`) plus its `length`
+				// field. Anything else chains to the parent, then no-ops. Bags
+				// never get here (no vtable) — `Any_indexGet_` checks them first.
+				var idxGetBody = ''
+				var idxSetBody = ''
+				var idxCountBody = ''
+
+				for v in c.methods { switch v {
+						case Function(mn, _, margs, _, mfType, _, _):
+							let mt = mfType
+
+							switch mt {
+								case Function(fargs, mret, _):
+									if mn == 'get', margs.length == 1, fargs.length == 1, idxGetBody == '' {
+										if stringifyType(fargs[0].dataType) == 'int32_t', not isFatValueType(mret) {
+											let mbGet = metaBlock.length
+											let boxed = printToAnyConverter('self->_->get_(self, i_)', mret)
+
+											if metaBlock.length == mbGet, boxed.indexOf('%') < 0 {
+												idxGetBody = boxed
+											}
+
+											while metaBlock.length > mbGet {
+												metaBlock.pop()
+											}
+										}
+									}
+
+									if mn == 'set', margs.length == 2, fargs.length == 2, idxSetBody == '' {
+										if stringifyType(fargs[0].dataType) == 'int32_t', not isFatValueType(fargs[1].dataType) {
+											let mbSet = metaBlock.length
+											let conv = printTypeConverter('v_', project.typer.typeAny, fargs[1].dataType)
+
+											if metaBlock.length == mbSet, conv.indexOf('%') < 0 {
+												idxSetBody = 'self->_->set_(self, i_, ' + conv + ')'
+											}
+
+											while metaBlock.length > mbSet {
+												metaBlock.pop()
+											}
+										}
+									}
+								case _:
+							}
+						case _:
+					} }
+
+				for v in c.vars { switch v {
+						case Var(fn, _, ft):
+							if fn == 'length', idxCountBody == '' {
+								if stringifyType(ft) == 'int32_t' {
+									idxCountBody = '(int32_t)(self->length_)'
+								}
+							}
+						case _:
+					} }
+
+				out.push('Any_* ' + c.name + '_hiddenIndexGet_(void* self_, int32_t i_) ' + hlb + hnl)
+				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
+				out.push('\t(void)self_; (void)i_;' + hnl)
+
+				if idxGetBody != '' {
+					out.push('\treturn (Any_*)(' + idxGetBody + ');' + hnl)
+				} else {
+					if let parent = c.extend {
+						out.push('\treturn ' + parent + '_hiddenIndexGet_(self_, i_);' + hnl)
+					} else {
+						out.push('\treturn nullptr;' + hnl)
+					}
+				}
+				out.push(hrb + '\n\n')
+				out.push('void ' + c.name + '_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + hlb + hnl)
+				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
+				out.push('\t(void)self_; (void)i_; (void)v_;' + hnl)
+
+				if idxSetBody != '' {
+					out.push('\t' + idxSetBody + ';' + hnl)
+					out.push('\treturn;' + hnl)
+				} else {
+					if let parent = c.extend {
+						out.push('\t' + parent + '_hiddenIndexSet_(self_, i_, v_);' + hnl)
+					}
+				}
+				out.push(hrb + '\n\n')
+				out.push('int32_t ' + c.name + '_hiddenIndexCount_(void* self_) ' + hlb + hnl)
+				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
+				out.push('\t(void)self_;' + hnl)
+
+				if idxCountBody != '' {
+					out.push('\treturn ' + idxCountBody + ';' + hnl)
+				} else {
+					if let parent = c.extend {
+						out.push('\treturn ' + parent + '_hiddenIndexCount_(self_);' + hnl)
+					} else {
+						out.push('\treturn (int32_t)0;' + hnl)
+					}
+				}
+				out.push(hrb + '\n\n')
+
+				// One `reflect_` slot per class: a universal `code_`-dispatched
+				// op table (no layout change when new ops land — only new codes).
+				out.push('void ' + c.name + '_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + hlb + hnl)
+				out.push('\tif (self_ == nullptr || op_ == nullptr) return;' + hnl)
+				out.push('\tswitch (op_->code_) ' + hlb + hnl)
+				out.push('\tcase (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break;' + hnl)
+				out.push('\tcase (int32_t)2: op_->resultStr_ = Hexa_GenericToString_(self_); break;' + hnl)
+				out.push('\tcase (int32_t)3: op_->resultCStr_ = ' + c.name + '_hiddenClassName_(); break;' + hnl)
+				out.push('\tcase (int32_t)4: op_->result_ = ' + c.name + '_hiddenDynGet_(self_, op_->key_); break;' + hnl)
+				out.push('\tcase (int32_t)5: ' + c.name + '_hiddenDynSet_(self_, op_->key_, op_->value_); break;' + hnl)
+				out.push('\tcase (int32_t)6: op_->resultInt_ = (int32_t)' + c.name + '_hiddenHas_(self_, op_->key_); break;' + hnl)
+				out.push('\tcase (int32_t)7: ' + c.name + '_hiddenDelete_(self_, op_->key_); break;' + hnl)
+				out.push('\tcase (int32_t)8: op_->resultStr_ = ' + c.name + '_hiddenKeyAt_(self_, op_->index_); break;' + hnl)
+				out.push('\tcase (int32_t)9: op_->resultInt_ = (int32_t)' + c.name + '_hiddenKeyCount_(self_); break;' + hnl)
+				out.push('\tcase (int32_t)10: op_->result_ = ' + c.name + '_hiddenIndexGet_(self_, op_->index_); break;' + hnl)
+				out.push('\tcase (int32_t)11: ' + c.name + '_hiddenIndexSet_(self_, op_->index_, op_->value_); break;' + hnl)
+				out.push('\tcase (int32_t)12: op_->resultInt_ = (int32_t)' + c.name + '_hiddenIndexCount_(self_); break;' + hnl)
+				out.push('\tdefault: break;' + hnl)
+				out.push('\t' + hrb + hnl)
+				out.push(hrb + '\n\n')
+				let vtHiddenInit = '\{' + hiddenDestroy + ', &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &' + c.name + '_hiddenClassName_, &' + c.name + '_hiddenDynGet_, &' + c.name + '_hiddenDynSet_, &' + c.name + '_hiddenHas_, &' + c.name + '_hiddenDelete_, &' + c.name + '_hiddenKeyAt_, &' + c.name + '_hiddenKeyCount_, &' + c.name + '_hiddenIndexGet_, &' + c.name + '_hiddenIndexSet_, &' + c.name + '_hiddenIndexCount_, &' + c.name + '_hiddenReflect_\}'
+				let vtPublicInit = vtableBind.join(',\n\t')
+				let vtDef = 'struct ' + c.name + '_vt \{ struct HexaReflect_ hidden; struct ' + c.name + '__ public_; \};\n'
+				let vtVal = 'const struct ' + c.name + '_vt ' + c.name + '_vt$ = \{' + vtHiddenInit + ', \{' + vtPublicInit + '\}\};\n'
+				let vtMacro = '#define ' + c.name + '__$ (' + c.name + '_vt$.public_)\n'
+				let vtAssert = '_Static_assert(offsetof(struct ' + c.name + '_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");\n'
+				types.unshift(vtable.join('') + vtDef + vtVal + vtMacro + vtAssert)
 			}
 			vtableClasses.push(c.name)
 
@@ -4434,7 +4542,7 @@ class GenCxx {
 		r += 'void (*reflect_)(void*, struct HexaReflectOp_*);' + nl
 		r += rb + ';' + nl
 		r += '_Static_assert(sizeof(struct HexaReflectOp_) == (size_t)88, "reflect: HexaReflectOp_ must stay 88");' + nl
-		r += '_Static_assert(sizeof(struct HexaReflect_) == (size_t)88, "reflect: HexaReflect_ must stay 88 for stable negative offsets");' + nl
+		r += '_Static_assert(sizeof(struct HexaReflect_) == (size_t)112, "reflect: HexaReflect_ must stay 112 for stable negative offsets");' + nl
 		r += 'uint8_t Hexa_ToBoolTrue_(void* self);' + nl
 		r += 'uint8_t Hexa_ToBoolTrue_(void* self) ' + lb + ' (void)self; return (uint8_t)1; ' + rb + nl
 		r += 'struct String_* Hexa_GenericToString_(void* self);' + nl
@@ -4499,7 +4607,7 @@ class GenCxx {
 		// dozens of times per second inside ordinary allocation — that is a
 		// multi-second stall, not a saving.
 		r += 'static size_t hexaAllocSinceSweep_ = 0;' + nl
-		r += 'void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)8192) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
+		r += 'void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)65536) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
 		r += 'size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
 		r += 'void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
 		return r
