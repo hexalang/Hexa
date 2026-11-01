@@ -24,7 +24,8 @@ calls `normalize()`, then `generator.perform(normal, target, options)` directly.
 Runtime prologue/epilogue comes from disk:
 
 - `header` = `library/cxx/hexa.c` + `extern "C" {` (`HEXA_NEW/FREE/LINK/MAIN/UNREACHABLE`,
-  `true_/false_`, `Any_` forward, platform includes).
+  `true_/false_`, `Any_` forward, platform includes — no windows.h; own ABI typedefs +
+  C-linkage runtime imports instead).
 - `Defaults` = `library/c/hexa.c` (only `HEXA_UNREACHABLE` body today).
 - `String/Array/Map` ops (`String_$combine_`, `Array_$new_/$from_`, ...) are **assumed**,
   not emitted here.
@@ -110,8 +111,10 @@ Runtime prologue/epilogue comes from disk:
 - `_try/_catch/_throw/$try` stubs in `genC` today are placeholders for this split (F5).
 
 ### D6. Memory manager is deferred ref counting (atomic inc/dec, sweep-on-alloc)
-- The ARC pass inserts **atomic `rc++`/`rc--` only** — it never emits a refcount check (`if rc == 0`)
-  at any use site.
+- The ARC pass inserts **`rc++`/`rc--` only** — it never emits a refcount check (`if rc == 0`)
+  at any use site. (LANDED Nov 2026: non-atomic for now per F11-Q single-thread rule;
+  no explicit null check — null falls inside the immediate range and is skipped like
+  tagged small ints, same test the unboxers already use; no `rc == 0` check anywhere.)
 - Deallocation is deferred: "sometimes", when an allocation happens, the manager traverses its
   linked list of allocated objects and frees the ones observed at `rc == 0`.
 - A `rc--` therefore can never double-free (nothing frees at decrement); conversely a **skipped**
@@ -525,10 +528,31 @@ sentinel defs assumed but absent from `hexa.c`; `EnumTag(null)==-1` special-case
 **Goal.** `arc.hexa` goes from disabled/buggy to the single place that inserts
 `RefInc` + immediately-nearby `DeferRefDec` per D3 — starting behind a flag, with tests.
 
-**Current state.** Disconnected (no caller); `needsARC` over-broad (every `ClassInstance`);
-`getType(Node)` called with `Stmt/Expr`; counter `unique`; missed recursions; `Assignop`
-identity; param shadowing; `Not a block` throw; `For` arity; skipped `globalVars`/field inits;
-missed expression kinds (see Reference + prior Q2 list).
+**Current state.** Connected and inserting (behind `generator.arcEnabled`, on by default for
+native). LANDED Nov 2026: `needsARC` narrowed to vtable-managed classes (excludes
+synthetics incl. `Any`, C scalars, `declare`/FFI mirrors, `@struct`/`@union`, non-emitted
+shapes via a NiceClass-membership check — over-broad retains were heap corruption);
+`pre_stmts` insertion order fixed (was Defer-before-Const, C2065); retains elided for
+escape-proven params, +1 transferred for factory/new/call results, field stores
+(`Dot` over ident chains) and element stores (Array/Map only, pure index) covered;
+`RefInc`+`DeferRefDec` pairs emitted for returns, throws, catches and discarded calls.
+LANDED Dec 2026 (ARC soundness pass): impure-target stores hardened (impure `Dot`/
+impure-`Index` hoist RHS once + retain the temp, leak the old slot — never
+double-evaluate); every `Return`/`Throw` upholds the +1 transfer (non-lvalue +
+non-fresh values hoist to a `temp_ret` + `RefInc`, incl. String literals via a new
+`niceTypeOf` `String`/`This` arm — `return 'NaN'`-style literal returns no longer
+zero interned globals; verified zero `returnUnknown` on the Perfide corpus);
+`Any`-shaped positions own their payloads (new `isAnyLike` predicate: `Any`,
+nullables, erased generics — retained/released through the runtime
+`Any_isCounted_` guard, never blind; covers Any field/element stores, Any
+params/returns, `Map<Any,*>` gets, `FatPair` env boxing); counted guard type
+`HexaDeferCountedDec_` + tag-table `Any_isCounted_` in genC (precise: only
+vtable-tagged heap + box/bag tags count; code pointers/structs/Bool singletons
+leak instead of corrupting); container contracts in the runtime (`Any_objectSet_`
+retains/releases, sweep unrefs bag entries on destroy, pair-boxing retains env);
+identity-unlink in `String.destroy` (unlinks by buffer identity, never by content).
+LANDED Jan 2027 (ownership completion — F3.2 closed): immortal retains for `globalVars` + class/enum `staticVars` (borrowed inits take exactly one `RefInc` in the init block, no `Defer`); instance field defaults lowered in `reflect` to constructor-body `Assign`s (genC `$this_` no longer owns them — also fixes closure `DROPPED-FILL` for field literals); `Throw`/`catch` narrowed to the `needsRefRetain` union gate; null-typed `Return`/`Throw` transfer through an `Any` temp + counted guard (tripwire `returnUnknown` stays lit while safe — 0 on Perfide, 1 guarded on Tests); both-fresh ternary `If`s transfer; `Statements` handled identically to `Block` via a shared-array shell (whole subtrees were silently skipped before); `@weak` fields (`NiceClass.weakFields`, normalizer-recorded): `Dot` stores skip both retain and release (weak links — first consumer is the intern-bucket `next`, whose retained link share made tail-appended interned strings unfreeable). Parser fix in the same turn: `private` (with `static`/`readonly`, any order) is consumed pre-`switch` so field decorators survive (a lone `case KPrivate` ended the iteration and silently dropped them — `@keep`/`@weak` on every `private` field were lost). Census: `wrappedBodies` 989→2 (reflect shells first), `weakStores=3` on both corpora (link, destroy-unlink, ctor-null sites), `returnUnknown=0` Perfide.
+Remaining gaps (all leak-safe): native-call conventions (unknown callees over-retain — needs per-function +1 contracts), `isAnyLike(null)` stays uncounted by design (typeless transfers go through an `Any` temp + counted guard instead); element stores are the norm now (pure `Dot`/`Index`/buffer paths release the old value, impure targets leak it); general field-destroy walks are still missing (freed containers leak their fields' shares). Old notes below are closed: `Assignop` (reflect lowers pure targets first, impure survivors are rare and leak-safe), `For` arity (dead — lowered to `While`), `globalVars`/field/static inits (immortal retains + reflect field lowering), missed expression kinds (all `Nice` expression kinds recurse).
 
 **Steps.**
 - [ ] F3.1 Fix `needsARC`: ARC only for heap-managed (`Normal`, not `@struct`/pointers/`ByValue`?)
@@ -581,8 +605,14 @@ flag off reproduces today's output; `needsARC` unit cases (struct vs class vs nu
 **Goal.** Every `DeferRefDec([o...])` becomes an exception-safe release: normal scope exit
 **and** C++ unwinding both run it. This is what makes D3 sound under D5.
 
-**Current state.** `genC.printStatement` has no `RefInc/DeferRefDec` case (would hit unknown);
-`arc.hexa` header says "implemented in code gen as automatic `defer`" but no lowering exists.
+**Current state.** LANDED Nov 2026: `genC` emits one `HexaDeferDec_<void*>` guard object
+per `DeferRefDec` entry (trivial non-throwing ctor, destructor runs `hexaUnref`);
+pure-C targets keep the inline best-effort form (F4.4). Guards live in the same block,
+LIFO by construction; abrupt exits need no extra code (C++ destructors run).
+EXTENDED Dec 2026: `Any`-shaped positions use a counted guard
+(`HexaDeferCountedDec_`, destructor checks `Any_isCounted_` first) and guarded
+`hexaRef` — immediates/Bool singletons/null skip instead of corrupting headers
+(dynamic `Any` may hold non-countable payloads like code pointers).
 
 **Steps.**
 - [ ] F4.1 Choose the RAII shape: e.g. `struct DeferDec_N { Any_* o_; ~DeferDec_N(){ dec(o_); } } deferVar_N(o_);`
@@ -777,7 +807,10 @@ with location; multi-catch order respected.
   N unused. Allocation picks an available chunk from the unused roots; when a group runs dry it
   scans the in-use roots, checks `rc == 0`, and **migrates** those entries to the unused roots
   (that scan is the "sometimes" sweep).
-- [ ] F11.1 Define allocator interface + refcount header layout (where does `rc` live?).
+- [x] F11.1 (header half, Nov 2026): `int32_t rc_` lives right after the vtable tag in
+  every vtable-managed struct (genC class printer injects it; `$new_` inits 1; `HexaHeader_`
+  mirrors it in `library/cxx/hexa.c`). Box structs (`AnyInt_`/`AnyFloat_`/`AnyObject_`/
+  `FatPair_`) carry it too. Remaining: the sweep-side `link` field + roots.
 - [ ] F11.2 Route `HEXA_NEW`, closure/env allocs, `String`/`Array`/`Map`/interned `BigInt` through it.
 - LANDED Dec 2026 (sweep v1, side-table): `hexaSweep()` emitted post-Types (after
   `AnyObject_`), driven from Hexa `timerPump()` (first pump + every 600th, next to the
