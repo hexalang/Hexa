@@ -42,6 +42,19 @@ fun hexaRuntimeAllocate(bytesAlignedBy8: UInt64): RuntimeAllocated
 }
 #end
 
+// #4: zeroed native allocation as a NORMAL FFI call (not a genC string hack).
+// `HEXA_NEW` is a function-like macro (`HEXA_NEW(bytes)` → zeroed alloc, plus
+// per-`__LINE__` tracking under the watchdog build in `library/cxx/hexa.c`),
+// so renaming a declare to it emits a macro invocation that stays valid in
+// every build flavor (plain `malloc` / `HeapAlloc` / `HexaTrackAlloc`).
+// Lowering target: `reflectPost` struct/interface literal construction should
+// emit `Call(Ident('hexaNewBytes'), [sizeOf<T>()])` + field `Assign`s instead
+// of genC splicing `(T*)(HEXA_NEW(sizeof(T)))` raw strings — same macro,
+// but built from typed Nice nodes ARC can see. `calloc` below stays the
+// precedent for count×size shapes (arrays); this is the single-block shape
+// (structs, interfaces, bags).
+@rename('HEXA_NEW') declare fun hexaNewBytes(bytes: UInt64): RuntimeAllocated
+
 /// Fields are the same as in `String` class, bit-to-bit
 @struct class StringStructure {
 	// TODO `@keepFieldsOrder` on String
