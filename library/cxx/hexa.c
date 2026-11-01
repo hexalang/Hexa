@@ -272,12 +272,19 @@ static inline T* hexaItems(A... a) {
 // env, so suspension is use-after-free safe by construction (leaks only).
 #include <coroutine>
 #include <vector>
-// Common prefix of every generated `Promise<T>` struct (vtable first, then
-// `state/value/reason` — verified uniform incl. `Promise<void>` whose value
-// is still `Any?*`). `operator co_await` (emitted per Promise by genC)
+// Common prefix of every generated `Promise<T>` struct (vtable first, then the
+// ARC header genC injects into EVERY vtable-managed struct, then
+// `state/value/reason`). `operator co_await` (emitted per Promise by genC)
 // reinterprets to this; no layout change to Hexa structs.
+// NOTE `rc_` MUST stay here: it sits between the vtable and `state_` in the
+// emitted struct, so without it `await_ready` read `rc_` instead of `state_`
+// and `await_resume` returned `state_` (a small int) as an `Any_*` — a
+// suspended-forever frame (or a garbage payload) depending on whether
+// HEXA_NEW handed out zeroed memory. That was "the app never finishes
+// booting": every `await` on a settled promise parked instead of continuing.
 struct HexaPromiseBase {
 	const void* _;
+	int32_t rc_;
 	int32_t state_;
 	struct Any_* value_;
 	struct Any_* reason_;
@@ -346,7 +353,7 @@ extern "C" inline void hexaPumpResumes() noexcept {
 // void `co_return;` is emitted as `co_return (Any_*)nullptr` by genC).
 // `operator co_await(S&)` takes a class-type reference (C2803 rejects `S*`
 // pointer params); genC emits `co_await (*p)` (deref).
-#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } std::suspend_never final_suspend() noexcept { return {}; } void unhandled_exception() noexcept { ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
+#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; HexaPromiseBase* pb_ = (HexaPromiseBase*)mem; pb_->rc_ = 1; pb_->state_ = 0; pb_->value_ = nullptr; pb_->reason_ = nullptr; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } std::suspend_never final_suspend() noexcept { return {}; } void unhandled_exception() noexcept { ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
 #endif
 /*
 #ifdef __cplusplus
@@ -499,7 +506,40 @@ inline Any_* AnyValue_::operator->() const {
 // deallocation is the sweep's job (F11), never the decrement site's.
 // Immediates (tagged small ints, incl. 0/null — same test as the unboxers)
 // carry no header and are skipped.
+// HEXA_ASSERT(cond, reason): reflection/runtime invariant check (F10) —
+// prints file:line, function name and reason to stderr and CONTINUES (a red
+// assert must never take the app down; smoke runs capture stderr). The
+// counter is `static` per expansion site, so a hot loop prints at most 16
+// lines per site before going quiet. Call-site reasons must stay free of
+// braces/backslashes (they live inside Hexa emitter strings).
+#define HEXA_ASSERT(cond, reason) do { static int _ha_hits_ = 0; if (!(cond)) { if (_ha_hits_ < 16) { _ha_hits_++; fprintf(stderr, "HEXA_ASSERT %s:%d in %s: %s\n", __FILE__, __LINE__, __func__, (reason)); fflush(stderr); } } } while (0)
+// Emitted later by the sweep section (C linkage so the earlier dynGet/
+// dynSet asserts below can use it — was `static`, which would clash here).
+HEXA_C uint8_t hexaTagIsArray_(const void* tag_);
 struct HexaHeader_ { const void* _; int32_t rc_; };
+// Instrumentation (rc triage): host-provided rc==0 reporter — the sweep frees
+// rc==0 entries, so a LIVE object reaching 0 names the missing-retain site.
+// Perfide's main-hexa.cpp provides it; other hosts can stub it.
+HEXA_C void Perfide_OnUnrefZero(void* p, void* caller);
+// Batch-1 double-release pin: fires on rc<0 with the release-site return
+// address (the guard dtor or direct caller). Perfide symbolizes + filters;
+// every other host falls back to the raw-pointer default below via
+// /alternatename (no link requirement beyond this TU).
+HEXA_C void Perfide_OnUnrefNeg(void* p, void* caller);
+HEXA_C void Perfide_OnUnrefNeg_Default(void* p, void* caller) {
+	static int n_ = 0;
+	if (n_ >= 32) return;
+	n_++;
+	fprintf(stderr, "HEXA_RCNEG %p caller=%p (link Perfide host for symbols)\n", p, caller);
+	fflush(stderr);
+}
+#ifdef _MSC_VER
+#pragma comment(linker, "/alternatename:Perfide_OnUnrefNeg=Perfide_OnUnrefNeg_Default")
+#endif
+#ifdef _MSC_VER
+	#include <intrin.h>
+	#pragma intrinsic(_ReturnAddress)
+#endif
 HEXA_C void hexaRef(void* p) {
 	int64_t v_ = (int64_t)(p);
 	if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return;
@@ -509,6 +549,21 @@ HEXA_C void hexaUnref(void* p) {
 	int64_t v_ = (int64_t)(p);
 	if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return;
 	((struct HexaHeader_*)(p))->rc_--;
+	HEXA_ASSERT(((struct HexaHeader_*)(p))->rc_ >= 0, "rc went negative: double release (stale value-captured guard or unbalanced transfer)");
+	if (((struct HexaHeader_*)(p))->rc_ < (int32_t)0) {
+#ifdef _MSC_VER
+		Perfide_OnUnrefNeg(p, _ReturnAddress());
+#else
+		Perfide_OnUnrefNeg(p, (void*)0);
+#endif
+	}
+	if (((struct HexaHeader_*)(p))->rc_ == 0) {
+#ifdef _MSC_VER
+		Perfide_OnUnrefZero(p, _ReturnAddress());
+#else
+		Perfide_OnUnrefZero(p, (void*)0);
+#endif
+	}
 }
 // D4 scope guard: `DeferRefDec` lowers to one of these per retained value
 // (constructed where ArcInserter put the Defer, destructs at block exit —
@@ -518,6 +573,14 @@ HEXA_C void hexaUnref(void* p) {
 #ifdef __cplusplus
 template <typename T>
 struct HexaDeferDec_ { T o_; HexaDeferDec_(T o): o_(o) {} ~HexaDeferDec_() { hexaUnref((void*)o_); } };
+// Pointer-captured guard (genC prints it for plain Ident operands): releases
+// the value the VARIABLE holds at scope exit, not the construction snapshot.
+// ARC pairs a declaration guard with per-assignment temp guards (`x = e`
+// already releases the old share at block end), so a snapshot guard would
+// double-release the FIRST value (rc drains toward 0 → the sweep frees live
+// objects) while the LAST value leaked. Fields/exps keep the snapshot form
+// (an overwritten field's old share is what must die).
+struct HexaDeferDecPtr_ { void** p_; HexaDeferDecPtr_(void** p): p_(p) {} ~HexaDeferDecPtr_() { hexaUnref(*p_); } };
 #endif
 
 // COM interop DEL
