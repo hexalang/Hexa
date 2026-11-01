@@ -127,6 +127,7 @@ class ReflectPostLowerer {
 		traceLog('REFLECT-POST scalarToString sites=' + scalarSites + ' lowered=' + scalarLowered)
 		traceLog('REFLECT-POST objectToBag sites=' + bagSites + ' lowered=' + bagLowered)
 		traceLog('REFLECT-POST-ARC-CENSUS tempReassign=' + arcWarnTempReassign + ' constReassign=' + arcWarnConstReassign + ' dotOnTemp=' + arcWarnDotOnTemp)
+		traceLog('REFLECT-POST sigCacheMisses=' + sigCacheMisses)
 		Fs.writeFileSync('reflect-post-trace.log', trace.join('\n'))
 	}
 
@@ -591,9 +592,12 @@ class ReflectPostLowerer {
 		}
 	}
 
-	/// Object-literal head: field types are derived per value (mirrors
-	/// genC `getType` via `carriedTypeOf` — pass rebuilds drop the map
-	/// entries behind the `Struct` type).
+	/// Shared field pass: nested struct values lower first (their build
+	/// hoists before the outer sets that consume the inner bag temp);
+	/// a nested failure keeps the whole outer object on the fallback
+	/// (an inline nested literal would bypass materialization).
+	/// Plain leaves pass through for the set-call conversion.
+	/// Returns null when the outer object must stay on the fallback.
 	fun lowerObjectFields(names: [String], vals: [Expression]): Expression? {
 		bagSites++
 
@@ -602,34 +606,64 @@ class ReflectPostLowerer {
 			return null
 		}
 
-		var ftypes: [Type] = []
+		var newVals: [Expression] = []
 
 		for i in vals.length {
-			let ft = baseTypeOf(vals[i])
-
-			if not isPlainBagField(ft) {
-				var typeName = 'null'
-
-				if ft != null {
-					typeName = Type.stringify(ft)
-				}
-
-				traceLog('REFLECT-POST-KEPT object field[' + i + '] kind=' + kindOfExpr(vals[i]) + ' type=' + typeName)
+			if let fv = lowerFieldValue(vals[i], i) {
+				newVals.push(fv)
+			} else {
 				return null
 			}
-
-			ftypes.push(ft as!Type)
 		}
 
-		return buildBag(names, vals, ftypes)
+		return buildBag(names, newVals)
 	}
 
-	/// Struct-expression head: spill the value once, read fields back.
+	/// One field: nested struct shapes lower recursively, leaves take
+	/// the plain gate (scalars/pointers convert identically in the set
+	/// call and in the fallback). Null keeps the outer object.
+	fun lowerFieldValue(fv: Expression, index: Int): Expression? {
+		var nested = false
+
+		switch fv {
+			case Object(_, _, _):
+				nested = true
+			case _:
+				nested = isStructShape(baseTypeOf(fv))
+		}
+
+		if nested {
+			if let inner = tryLowerStructValue(fv, true) {
+				return inner
+			}
+
+			traceLog('REFLECT-POST-KEPT object nested field[' + index + '] kept')
+			return null
+		}
+
+		let ft = baseTypeOf(fv)
+
+		if not isPlainBagField(ft) {
+			var typeName = 'null'
+
+			if ft != null {
+				typeName = Type.stringify(ft)
+			}
+
+			traceLog('REFLECT-POST-KEPT object field[' + index + '] kind=' + kindOfExpr(fv) + ' type=' + typeName)
+			return null
+		}
+
+		return fv
+	}
+
+	/// Struct-expression head: spill the value once, then share the field
+	/// pass (nested struct reads lower recursively off the spill temp).
 	fun lowerStructExpr(e: Expression, structT: Type, snames: [String], sfts: [Type]): Expression? {
 		bagSites++
 
 		for ft in sfts {
-			if not isPlainBagField(ft) {
+			if not isPlainBagField(ft) and not isStructShape(ft) {
 				var typeName = 'null'
 
 				if ft != null {
@@ -646,22 +680,39 @@ class ReflectPostLowerer {
 			return null
 		}
 
-		let anyT = niceProject.typer.typeAny
 		let sp = '$psp' + tempId
 		tempId++
 		hoisted.push(Statement.Var(sp, e, structT))
 		let spIdent = Expression.Ident(sp, structT)
-		var vals: [Expression] = []
+		var rawVals: [Expression] = []
 
 		for i in snames.length {
-			vals.push(Expression.Dot(spIdent, snames[i], sfts[i]))
+			rawVals.push(Expression.Dot(spIdent, snames[i], sfts[i]))
 		}
 
-		return buildBag(snames, vals, sfts)
+		var newVals: [Expression] = []
+
+		for i in rawVals.length {
+			if let fv = lowerFieldValue(rawVals[i], i) {
+				newVals.push(fv)
+			} else {
+				return null
+			}
+		}
+
+		return buildBag(snames, newVals)
 	}
 
+	/// True for inline-struct shapes (nested bags recurse through them).
+	fun isStructShape(t: Type?): Bool { switch t {
+			case Struct(_, _):
+				return true
+			case _:
+				return false
+		} }
+
 	/// Shared tail: `Var($psbN, Any_objectNew_())` + per-field sets.
-	fun buildBag(names: [String], vals: [Expression], ftypes: [Type]): Expression? {
+	fun buildBag(names: [String], vals: [Expression]): Expression? {
 		if not hoistable {
 			traceLog('REFLECT-POST-KEPT object no-hoist position')
 			return null
@@ -690,7 +741,10 @@ class ReflectPostLowerer {
 
 	/// Trial lowering on a call argument: struct value into an `Any`
 	/// parameter becomes the bag temp (built by `tryLowerStructValue`).
-	fun lowerCallObjectArg(arg: Expression, expects: [Type]?, index: Int): Expression {
+	/// Explicit `expects` hit the fast path; empty/missing `expects`
+	/// consult the callee signature read-only (`paramIsAny`) — the
+	/// lowering itself does the conversion, no IR `expects` are written.
+	fun lowerCallObjectArg(arg: Expression, expects: [Type]?, index: Int, callee: Expression, kind: CallKind): Expression {
 		if let ex = expects {
 			if index < ex.length {
 				if isAnyType(ex[index]) {
@@ -698,10 +752,180 @@ class ReflectPostLowerer {
 						return bag
 					}
 				}
+
+				return arg
+			}
+		}
+
+		if paramIsAny(callee, kind, index) {
+			traceLog('REFLECT-POST call-arg via signature ' + index)
+
+			if let bag = tryLowerStructValue(arg, true) {
+				return bag
 			}
 		}
 
 		return arg
+	}
+
+	/// Read-only signature probe for empty-`expects` calls: is parameter
+	/// `index` exactly `Any`? Resolves plain globals via `globalFuncs`
+	/// and methods via the receiver class (walking `extend`); everything
+	/// else (declares with no body to read, dynamics, IIFEs, unknown
+	/// arity, `Closure` kind owned by the fat machinery) returns false
+	/// and keeps the genC fallback. Never mutates IR.
+	fun paramIsAny(callee: Expression, kind: CallKind, index: Int): Bool {
+		if kind == CallKind.Closure {
+			return false
+		}
+
+		switch callee {
+			case Ident(name, _):
+				if let params = globalParamTypes(name) {
+					if index < params.length {
+						return isAnyType(params[index])
+					}
+				}
+
+				return false
+			case Dot(base, name, _):
+				if let params = methodParamTypes(base, name) {
+					if index < params.length {
+						return isAnyType(params[index])
+					}
+				}
+
+				return false
+			case Parenthesis(inner):
+				return paramIsAny(inner, kind, index)
+			case _:
+				return false
+		}
+	}
+
+	/// Memoized callee signatures (`name` / `Class_$method` keys).
+	let sigCache: [String : [Type]] = [:]
+	var sigCacheMisses Int = 0
+
+	/// Param dataTypes of a plain global (Hexa-implemented or not — the
+	/// read is type-only; calls into it still print as before).
+	fun globalParamTypes(name: String): [Type]? {
+		if let hit = sigCache.get(name) {
+			return hit
+		}
+
+		for g in niceProject.globalFuncs { switch g {
+				case Function(gname, _, _, _, gfuncType, _, _):
+					if gname == name { switch gfuncType {
+							case Function(fargs, _, _):
+								var out: [Type] = []
+
+								for fa in fargs {
+									out.push(fa.dataType)
+								}
+
+								sigCache.set(name, out)
+								return out
+							case _:
+						} }
+				case _:
+			} }
+
+		return null
+	}
+
+	/// Param dataTypes of `base.name` through the receiver's class
+	/// (following `extend`, like ARC's method resolution). Static bases
+	/// (`Uppercase`) resolve through `staticMethods`; anything
+	/// unresolvable returns null and keeps the fallback.
+	fun methodParamTypes(base: Expression, name: String): [Type]? {
+		let bt = baseTypeOf(base)
+
+		if bt == null {
+			return null
+		}
+
+		var clsName String? = null
+
+		switch bt {
+			case ClassInstance(c, _):
+				clsName = c.name
+			case Class(c):
+				clsName = c.name
+			case _:
+				return null
+		}
+
+		if clsName == null {
+			return null
+		}
+
+		let key = clsName + '_$' + name
+
+		if let hit = sigCache.get(key) {
+			return hit
+		}
+
+		sigCacheMisses++
+		var cur String? = clsName
+		var depth = 0
+
+		while cur != null and depth < 64 {
+			depth++
+
+			if let nc = findPostClass(cur as!String) {
+				for m in nc.methods { switch m {
+						case Function(mname, _, _, _, ftype, _, _):
+							if mname == name { switch ftype {
+									case Function(fargs, _, _):
+										var out: [Type] = []
+
+										for fa in fargs {
+											out.push(fa.dataType)
+										}
+
+										sigCache.set(key, out)
+										return out
+									case _:
+								} }
+						case _:
+					} }
+
+				for m in nc.staticMethods { switch m {
+						case Function(mname, _, _, _, ftype, _, _):
+							if mname == name { switch ftype {
+									case Function(fargs, _, _):
+										var out: [Type] = []
+
+										for fa in fargs {
+											out.push(fa.dataType)
+										}
+
+										sigCache.set(key, out)
+										return out
+									case _:
+								} }
+						case _:
+					} }
+
+				cur = nc.extend
+			} else {
+				cur = null
+			}
+		}
+
+		return null
+	}
+
+	/// Finds a NiceClass by (possibly renamed) name.
+	fun findPostClass(name: String): NiceClass? {
+		for c in niceProject.classes {
+			if c.name == name {
+				return c
+			}
+		}
+
+		return null
 	}
 
 	/// Trial lowering: `recv.toString()` on a scalar receiver becomes
@@ -770,7 +994,7 @@ class ReflectPostLowerer {
 						} }
 				}
 
-				let loweredArgs = lowerCallObjectArgs(na, expects)
+				let loweredArgs = lowerCallObjectArgs(na, expects, nc, kind)
 				return Statement.Call(nc, loweredArgs, expects, kind)
 			case Var(name, expr, dataType):
 				let ne = rewriteExpr(expr)
@@ -990,17 +1214,13 @@ class ReflectPostLowerer {
 		return kept
 	}
 
-	/// Trial lowering helper (see `tryLowerObjectValue`): lowers object
-	/// args at `Any` parameter positions, preserving order.
-	fun lowerCallObjectArgs(args: [Expression], expects: [Type]?): [Expression] {
-		if expects == null {
-			return args
-		}
-
+	/// Trial lowering helper (see `tryLowerStructValue`): lowers struct args
+	/// at `Any` parameter positions, preserving order.
+	fun lowerCallObjectArgs(args: [Expression], expects: [Type]?, callee: Expression, kind: CallKind): [Expression] {
 		let out: [Expression] = []
 
 		for i in args.length {
-			out.push(lowerCallObjectArg(args[i], expects, i))
+			out.push(lowerCallObjectArg(args[i], expects, i, callee, kind))
 		}
 
 		return out
@@ -1017,7 +1237,7 @@ class ReflectPostLowerer {
 				return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
 			case Call(callee, args, result, kind, expects):
 				let nc = rewriteExpr(callee)
-				let na = lowerCallObjectArgs(rewriteExprList(args), expects)
+				let na = lowerCallObjectArgs(rewriteExprList(args), expects, nc, kind)
 
 				if let lowered = lowerScalarToString(nc, na, result) {
 					return lowered
