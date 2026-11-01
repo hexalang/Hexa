@@ -1179,3 +1179,47 @@ with location; multi-catch order respected.
   own 72-byte struct, no SDK headers) + live-string census (`strLive`/
   `strBytes`/`strMax`/`strBig`). Host watchdog mirrors the exit numbers
   (main-hexa.cpp only).
+- Reflection ABI is 14 slots / 112 bytes (Nov 2026): `destroy/toBool/toString/
+  className/dyn_get/dyn_set/has/delete/keyAt/keyCount/index_get/index_set/
+  index_count/reflect`; `reflect` stays last so `HexaReflectOp_` `code_`s
+  (1-9 dyn/has/key, 10-12 index) extend without a layout change. Host mirrors
+  (`main-hexa.cpp Perfide_ReflectTag_`) must use the same slot count.
+- Inheriting classes get their own `X_vt` (hidden chain + own public slots):
+  the emitter used to keep the vt struct inside the "no parent" branch, which
+  left subclasses with an unclosed `hiddenKeyCount_` and no `X__$` tag.
+- Hexa properties (`var x: T { get { … } set(v) { … } }`) are lowered for the
+  C target in `normalizing/reflect.hexa` (`ReflectLowerer`): access → `get_x()`
+  call, assign → `set_x(v)` call, `op=` on pure receivers →
+  `set_x(get_x() op v)`. genJs already emits native accessors, so both targets
+  share one declaration. Census: `REFLECT property reads/writes/skipped` in
+  `reflect-trace.log` (Perfide: 2/145/0).
+- Typer: `a = b` is accepted when the enclosing parent node is a `Property`
+  (previously `` `=` not implemented for: [object Object] ``) — property
+  setter bodies are typed like ordinary method bodies.
+- Host event loop: `timerPump_()` is called by `main-hexa.cpp` on EVERY loop
+  iteration (the c.hexa contract), not only from `nativeOnDraw` — timer-driven
+  work (multi-window stagger, session restore, polls) must not require a
+  rendered frame. Frames are a consequence of the pump, never its precondition.
+- Scalar `is` on an `Any` receiver lowers to the emitted shape predicates
+  (`Any_isInt_`/`Any_isNumber_`/`Any_isString_`, bool singletons by identity)
+  instead of truthiness; `Any_isInt_` excludes float boxes.
+- Subclasses keep `hidden.destroy_ = nullptr /*INHERIT-DESTROY*/`: inheritance
+  has no field layout yet (`IntArray_` is `{vtable, rc}`), so chaining a
+  parent destructor would free the wrong shape. Grep-able marker per class.
+- `HexaPromiseBase` (library/cxx/hexa.c) MUST mirror the emitted Promise
+  layout exactly: `{vtable, rc_, state_, value_, reason_}`. Omitting the ARC
+  header made `await_ready`/`await_resume` read the wrong slots, so settled
+  awaits either suspended forever or returned a small int as `Any_*`.
+  `get_return_object` also initialises `{rc_=1, state=0}` (the heap object is
+  never registered, so garbage `rc_` used to feed `hexaRef`/`hexaUnref`).
+- Conditions on `Any` use `Any_toBool_` (D7 JS truthiness: null/`false`/0/''/
+  NaN falsy, objects truthy). C pointer-non-null made every `Any` flag truthy —
+  `_false` is a non-null address.
+- Sweep: interned `String`s are retired, never freed, in every `HEXA_SWEEP_MODE`
+  (D2 immorality enforced operationally) — shared-literal shares are still
+  under-counted, and freeing them corrupts later readers. Other tags keep the
+  mode-selected behaviour.
+- An `async fun` that returns an object literal gets a `Promise<Struct_N_>`
+  signature; if a caller boxes that value into `Any`, the field reads go
+  through the caller's minted `Struct_N_`. Returning an explicit
+  `anyObjectNew()` bag (typed `: Any`) avoids the whole class of mismatches.
