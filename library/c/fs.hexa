@@ -863,28 +863,33 @@ fun fsReadFd(fd: Int, buffer: Any, offset: Int, length: Int, position: Int?): In
 			if position != null {
 				if let p = position {
 					// Save pointer, seek, read, restore (positional I/O is offset-neutral).
-				var curBox ArrayByValue<UInt8, 8> = [0]
-				for c in 8 { curBox[c] = 0 }
-				setFilePointerExWin(handle, 0 as!Int64, curBox as!ArrayPointer<UInt8>, fileCurrentMoveMethod)
-				let saved = readU64LE(curBox as!ArrayPointer<UInt8>, 0)
-				fsSeekFd(handle, p)
-				let n = fsReadFd(fd, buf, offset, length, null)
-				setFilePointerExWin(handle, saved as!Int64, null, fileBeginMoveMethod)
-				return n
+					var curBox ArrayByValue<UInt8, 8> = [0]
+
+					for c in 8 { curBox[c] = 0 }
+					setFilePointerExWin(handle, 0 as!Int64, curBox as!ArrayPointer<UInt8>, fileCurrentMoveMethod)
+					let saved = readU64LE(curBox as!ArrayPointer<UInt8>, 0)
+					fsSeekFd(handle, p)
+					let n = fsReadFd(fd, buf, offset, length, null)
+					setFilePointerExWin(handle, saved as!Int64, null, fileBeginMoveMethod)
+					return n
 				}
 			}
-		var gotBox ArrayByValue<DWORD, 1> = [0]
-		var off = offset
-		if off < 0 { off = 0 }
-		var n = length
-		if n > buf.length - off { n = buf.length - off }
-		if n <= 0 { return 0 }
-		var tmp = Buffer.alloc(n)
-		let ok = readFileWin(handle, tmp.bytes, n as!UInt32, gotBox as!LPDWORD, null)
-		if ok == 0 { return 0 }
-		let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
-		for k in got { buf.bytes[off + k] = tmp.bytes[k] }
-		return got
+			var gotBox ArrayByValue<DWORD, 1> = [0]
+			var off = offset
+
+			if off < 0 { off = 0 }
+			var n = length
+
+			if n > buf.length - off { n = buf.length - off }
+
+			if n <= 0 { return 0 }
+			var tmp = Buffer.alloc(n)
+			let ok = readFileWin(handle, tmp.bytes, n as!UInt32, gotBox as!LPDWORD, null)
+
+			if ok == 0 { return 0 }
+			let got = (gotBox as!ArrayPointer<DWORD>)[0] as!Int
+			for k in got { buf.bytes[off + k] = tmp.bytes[k] }
+			return got
 		}
 	}
 	return 0
