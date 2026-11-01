@@ -2917,6 +2917,20 @@ class Typer {
 								'Cannot reassign iterator value `\(name)` of for loop\n'
 								+ positionOf(parent) + '`for \(name) in ...` is defined here',
 								node)
+						case Property(f, _, _):
+							// `var x: T { get … set(v) … }` — setter bodies are typed
+							// like ordinary method bodies, so `a = b` inside one is a
+							// plain assignment (the member type was filled above).
+							let propAssignType = types.get(a)
+
+							switch a {
+								case Ident(_): // Ok
+								case Dot(_): // Ok
+								case Index(_): // Ok
+									inferNullType(types.get(b), propAssignType)
+								case _:
+									fail('Cannot reassign `\(Node.stringify(a))`', a)
+							}
 						case Super:
 							fail('Cannot reassign `super`', node)
 						case _:
@@ -4336,8 +4350,16 @@ class Typer {
 					for e in econd {
 						switch e {
 							case Var(name, t, expr, const):
+								if not const {
+									fail('Only `if let` bindings supported, not `if var`', node)
+								}
 
+								if t != null {
+									fail('Do not specify a type `: T` in `if let` bindings', node)
+								}
 
+								if expr == null {
+								}
 								exprDepth++
 								pushScope()
 								pushScope()
@@ -4345,11 +4367,22 @@ class Typer {
 								popScope()
 
 								switch types.get(expr) as!Type {
+									case Nullable(t): types.set(e, t)
 									case UnknownNullable(handle):
+										if let t = handle.value {
+											types.set(e, t)
+										} else {
+											fail('`if let` cannot bind not fully known nullable type', node)
+									case _: types.set(e, types.get(expr))
+								}
+								addScope(name, e)
 							case _:
 								fillExpression(e)
 								let exprType = types.get(e)
 
+								if exprType != typeBool, exprType != typeAny, exprType != null {
+									fail('`if value` expects `value` only of type `Bool`, but got `' + Type.stringify(exprType) + '`', e)
+								}
 						}
 					}
 					fillExpression(eif)
