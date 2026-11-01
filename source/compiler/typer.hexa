@@ -28,13 +28,20 @@ class Typer {
 		// Check duplicate module-level names, point at first definition
 		fun checkOverrides(info: Module, name: String, e: Node) {
 			if info.exported.has(name) {
-				fail('Module `\(info.path)` already exports name `\(name)`', e)
-				// TODO where?
+				if let prev = info.exported.get(name) {
+					// TODO report via failNonFatal (as a warning)
+					fail('Module `\(info.path)` already exports name `\(name)`\n' + positionOf(prev) + '`\(name)` is first defined here', e)
+				} else {
+					fail('Module `\(info.path)` already exports name `\(name)`', e)
+				}
 			}
 
 			if info.imported.has(name) {
-				fail('Module `\(info.path)` already imports name `\(name)`', e)
-				// TODO where?
+				if let prev = info.imported.get(name) {
+					fail('Module `\(info.path)` already imports name `\(name)`\n' + positionOf(prev) + '`\(name)` is first defined here', e)
+				} else {
+					fail('Module `\(info.path)` already imports name `\(name)`', e)
+				}
 			}
 		}
 
@@ -191,7 +198,7 @@ class Typer {
 									pushFuncParamsIfRequired(node)
 									types.set(
 										node,
-										Type.Function(varTypes(vars, variadic: variadic), toType(rettype, node), variadic)
+										Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(node)), toType(rettype, node), variadic)
 									)
 									popFuncParamsIfRequired(node)
 								}
@@ -748,6 +755,7 @@ class Typer {
 
 								if names.includes(name) {
 									fail('Parameter `\(name)` already exists in `<T, ...>`', node)
+									// TODO where
 								}
 								names.push(name)
 							}
@@ -791,7 +799,12 @@ class Typer {
 						switch field {
 							case Function(name, _):
 								if classType.fieldNames.includes(name) {
-									fail('Field `\(name)` already exists', field)
+									// TODO failNonFatal for pos + better logic than lurking scopes
+									if let prev = scopes[scopes.length - 1].get(name) {
+										fail('Field `\(name)` already exists\n' + positionOf(prev) + '`\(name)` is first defined here', field)
+									} else {
+										fail('Field `\(name)` already exists', field)
+									}
 								}
 								classType.fieldNames.push(name)
 
@@ -808,7 +821,11 @@ class Typer {
 								}
 							case Var(name, t, e, _):
 								if classType.fieldNames.includes(name) {
-									fail('Field `\(name)` already exists', field)
+									if let prev = scopes[scopes.length - 1].get(name) {
+										fail('Field `\(name)` already exists\n' + positionOf(prev) + '`\(name)` is first defined here', field)
+									} else {
+										fail('Field `\(name)` already exists', field)
+									}
 								}
 								classType.fieldNames.push(name)
 								classType.fieldInitialized[classType.fieldNames.length - 1] = false
@@ -850,7 +867,7 @@ class Typer {
 								if let rettype = rettype {
 									types.set(
 										field,
-										Type.Function(varTypes(vars, variadic: variadic), toType(rettype, field), variadic)
+										Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(field)), toType(rettype, field), variadic)
 									)
 								}
 
@@ -859,7 +876,7 @@ class Typer {
 								if name == 'new-TODO#' {
 									types.set(
 										field,
-										Type.Function(varTypes(vars, variadic: variadic), toType(t, field), variadic)
+										Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(field)), toType(t, field), variadic)
 									)
 								}
 
@@ -921,7 +938,7 @@ class Typer {
 									types.set(
 										field,
 										Type.Function(
-											varTypes(vars, variadic: variadic),
+											varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(field)),
 											// TODO is `rettype == null` valid for externals?
 											rettype != null? toType(rettype, field) : typeVoid,
 											variadic
@@ -1264,9 +1281,9 @@ class Typer {
 								// if function called within self
 
 								if let rettype = rettype {
-									types.set(field, Type.Function(varTypes(vars, variadic: variadic), toType(rettype, field), variadic))
+									types.set(field, Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(field)), toType(rettype, field), variadic))
 								} else {
-									types.set(field, Type.Function(varTypes(vars, variadic: variadic), typeVoid, variadic))
+									types.set(field, Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(field)), typeVoid, variadic))
 								}
 
 								fillFunction(field, expr, vars, rettype)
@@ -1343,7 +1360,7 @@ class Typer {
 		let data = project.data.get(node)
 		as!NodeData // TODO
 		if data == null {
-			return "[Unknown]: "
+			return "[hexa.hexa]: "
 		}
 		return "[" + data.fileName + ":" + data.line + ":" + data.column + "]: "
 	}
@@ -1443,9 +1460,9 @@ class Typer {
 	private var typeIntClass: ClassType = new ClassType()
 	private var typeInt: Type = typeIntClass.instantiate()
 	private var typeBool: Type? = null
-	private var typeArray: ClassType = new ClassType() // Type instantiators
-	private var typeMap: ClassType = null as!ClassType // Type instantiators
-	private var typePromise: ClassType = new ClassType() // F9: async wrapping needs `Promise<T>`
+	private var typeArray: ClassType = new ClassType() // Type instantiator `Array<T>`
+	private var typeMap: ClassType = null as!ClassType // Type instantiator `Map<K, V>`
+	private var typePromise: ClassType = new ClassType() // Type instantiator `Promise<T>`
 	private var typeAnyClass: ClassType = new ClassType()
 	private var typeAny: Type = typeAnyClass.instantiate()
 	private var nodeAny: Node? = null
@@ -2332,7 +2349,7 @@ class Typer {
 	}
 
 	// Used only for function arguments
-	fun varTypes(vars: [Node], variadic: Bool = false): [FunctionArgument] {
+	fun varTypes(vars: [Node], variadic: Bool = false, nativeVariadic: Bool = false): [FunctionArgument] {
 		let varTypes: [FunctionArgument] = []
 		// var pushedScope = false
 		// params: [NodeType]? = null
@@ -2356,7 +2373,6 @@ class Typer {
 				case Var(name, t, expr):
 					// TODO different logic, cause does `types.get(v)`
 					if let t = t {
-						// console.log('<--before')
 						// TODO optional etc
 						let arg = new FunctionArgument(types.get(v) ?? toType(t, v))
 						arg.optional = expr != null
@@ -2367,7 +2383,6 @@ class Typer {
 							arg.dataType = typeArray.instantiateGeneric([arg.dataType])
 						}
 						varTypes.push(arg)
-						// console.log('<--after')
 					} else {
 						// TODO same
 						let arg = new FunctionArgument(types.get(v) ?? Type.Unknown({ value: null }))
@@ -2427,11 +2442,13 @@ class Typer {
 		let _insideTry = insideTry
 
 		var variadic = false
+		var nativeVariadic = false
 		var constructor = false
 		switch node {
 			// TODO `(variadic, ...)`
 			case Function(name, _, _, _, _, isVariadic):
 				variadic = isVariadic
+				nativeVariadic = isNativeVariadic(node)
 				constructor = name == 'new'
 				// var x: [] = [] // TODO invalid!!!
 
@@ -2766,13 +2783,13 @@ class Typer {
 							}
 						case Ident(name):
 							// TODO document this logic of `case` param detection by parent
-							fail('Cannot reassign case parameter `\(name)`\n' + positionOf(parent) + '`\(name)` is defined here', node)
+							fail('Cannot reassign case parameter `\(name)`\n' + positionOf(parent) + '`case \(name)` is defined here', node)
 						case Function(name, _):
-							fail('Cannot reassign a function `\(name)`\n' + positionOf(parent) + '`\(name)` is defined here', node)
+							fail('Cannot reassign a function `\(name)`\n' + positionOf(parent) + '`fun \(name)` is defined here', node)
 						case Class(_):
-							fail('Cannot reassign class\n' + positionOf(parent) + '`class` is defined here', node)
+							fail('Cannot reassign class\n' + positionOf(parent) + '`class` is defined here', node) // TODO name
 						case Enum(_):
-							fail('Cannot reassign enum\n' + positionOf(parent) + '`enum` is defined here', node)
+							fail('Cannot reassign enum\n' + positionOf(parent) + '`enum` is defined here', node) // TODO name
 						case For(name, _):
 							fail(
 								'Cannot reassign iterator value `\(name)` of for loop\n'
@@ -3602,6 +3619,7 @@ class Typer {
 
 				if let etype = types.get(e) as!Type? { switch etype {
 						case Rest(element, native):
+							// Hexa rest exposes only `.length` (count). TODO make it an actual std type
 							// `for/in` and `[i]` go through typer directly.
 							if n == 'length' {
 								types.set(node, typeInt)
@@ -3754,6 +3772,7 @@ class Typer {
 							}
 
 							if (classType.fieldStatic[index] != true) {
+								// TODO report field position itself
 								failNonFatal('Type `\(classType.name)` is defined here', classType.parent)
 								fail('Class `\(nameOfModuleItem(classType.parent))` field `.\(n)` is not static', node)
 							}
@@ -3773,6 +3792,7 @@ class Typer {
 							let index = enumType.fieldNames.indexOf(n)
 
 							if index < 0 {
+								// TODO print list of available fields (+the trim and logic of `did you mean?`)
 								failNonFatal('Type `\(enumType.name)` is defined here', enumType.parent)
 								fail('Enum `\(enumType.name)` has no field `.\(n)`', node)
 							}
@@ -4163,6 +4183,7 @@ class Typer {
 					fillExpression(eelse)
 				} else {
 					if econd.length > 1 {
+						// TODO
 						fail('More than one condition is not yet supported', econd[1])
 					}
 					fillExpression(econd[0])
@@ -4373,9 +4394,9 @@ class Typer {
 							pushFuncParamsIfRequired(node)
 
 							if let rettype = rettype {
-								types.set(node, Type.Function(varTypes(vars, variadic: variadic), toType(rettype, node), variadic))
+								types.set(node, Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(node)), toType(rettype, node), variadic))
 							} else {
-								types.set(node, Type.Function(varTypes(vars, variadic: variadic), Type.Unknown({ handle: null }), variadic))
+								types.set(node, Type.Function(varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(node)), Type.Unknown({ handle: null }), variadic))
 							}
 							popFuncParamsIfRequired(node)
 					}
@@ -4435,6 +4456,8 @@ class Typer {
 							if variadic, i == args.length - 1 {
 								// Unwrap array type [T] to element type T for variadic argument checking
 								switch arg.dataType {
+									case Rest(element, _):
+										expectedTypes.push(element)
 									case ClassInstance(_, generic) if generic.length == 1:
 										expectedTypes.push(generic[0])
 									case _:
@@ -4473,11 +4496,15 @@ class Typer {
 
 						if el.length < enumType.tagBindVars[tag].length {
 							fail('Not enough enum parameters, required `\(name)` parameters are: `' + enumType.tagBindVarsNames[tag].join('`, `') + '`', node)
+							// TODO where tag
+							fail('Not enough enum parameters, required `\(name)` parameters are: `' + enumType.tagBindVarsNames[tag].join('`, `') + '`\n' + positionOf(enumType.parent) + 'Enum `\(enumType.name)` is defined here', node)
 						}
 
 						if el.length > enumType.tagBindVars[tag].length {
 							// TODO also print argument types (in short form) for clarity
 							fail('Too many enum parameters, required `\(name)` parameters are: `' + enumType.tagBindVarsNames[tag].join('`, `') + '`', node)
+							// TODO where tag
+							fail('Too many enum parameters, required `\(name)` parameters are: `' + enumType.tagBindVarsNames[tag].join('`, `') + '`\n' + positionOf(enumType.parent) + 'Enum `\(enumType.name)` is defined here', node)
 						}
 
 						// Don't allow `A.B()` syntax, require `A.B(a, b, c)` or just `A.B`
@@ -4897,7 +4924,7 @@ class Typer {
 						}
 					case Function(name, _):
 						let prefix = project.mapStatic.get(parent) == true ? 'static ' : ''
-						fail('Cannot `\(Token.stringify(op))` a function `\(prefix)fun \(name)`', node)
+						fail('Cannot `\(Token.stringify(op))` a function `\(prefix)fun \(name)`\n' + positionOf(parent) + '`\(prefix)fun \(name)` is defined here', node) // TODO unify prefix logic
 					case For(name, _):
 						fail(
 							'Cannot change iterator value `\(name)` of for loop\n'
@@ -5053,7 +5080,7 @@ class Typer {
 								node)
 						}
 					case Function(name, _):
-						fail('Cannot reassign a function `\(name)`', node)
+						fail('Cannot reassign a function `\(name)`\n' + positionOf(parent) + '`fun \(name)` is defined here', node) // TODO prefix
 					case For(name, _):
 						fail(
 							'Cannot change iterator value `\(name)` of for loop\n'
@@ -5320,15 +5347,18 @@ class Typer {
 
 				// var matched: [String] = [] TODO
 				var tags: [String] = []
+				// Track first occurrence Node for duplicate-tag `defined here` notes
+				var tagNodes: [Node] = []
 				var i = 0
 
 				// Avoid repeating tags `case Tag:` and values `case 123:`
 				fun tagCheck(currentTag: String, e: Node) {
 					if tags.includes(currentTag) {
-						fail('Tag `\(currentTag)` already matched', e)
-						// TODO .. at line (new and old)
+						let firstAt = tags.indexOf(currentTag)
+						fail('Tag `\(currentTag)` already matched\n' + positionOf(tagNodes[firstAt]) + 'Tag `\(currentTag)` is first matched here', e)
 					} else {
 						tags.push(currentTag)
+						tagNodes.push(e)
 					}
 				}
 
@@ -5357,10 +5387,10 @@ class Typer {
 										fail('Use `case \(currentTag)` instead of `case \(enumType.name).\(currentTag)`', e)
 
 										if tags.includes(currentTag) {
-											fail('Tag `\(currentTag)` already matched', e)
-											// TODO .. at line
+											fail('Tag `\(currentTag)` already matched\n' + positionOf(tagNodes[tags.indexOf(currentTag)]) + 'Tag `\(currentTag)` is first matched here', e)
 										} else {
 											tags.push(currentTag)
+											tagNodes.push(e)
 										}
 								}
 							case Parenthesis(e): { fill(e) }
@@ -5456,7 +5486,7 @@ class Typer {
 													let binds = enumType.tagBindVarsNames[i],
 													binds.length <= currentTagBind
 												{
-													fail('Too many bindings ignored with `_` for `F` tag, use `...` syntax to ignore all future bindings', e)
+													fail('Too many bindings ignored with `_` for `F` tag, use `...` syntax to ignore all future bindings\n' + positionOf(enumType.parent) + 'Enum `\(enumType.name)` is defined here', e) // TODO where tag
 												}
 
 												currentTagBind++
@@ -5478,10 +5508,10 @@ class Typer {
 												currentTag = name
 
 												if tags.includes(currentTag) {
-													fail('Tag `\(currentTag)` already matched', e)
-													// TODO .. at line
+													fail('Tag `\(currentTag)` already matched\n' + positionOf(tagNodes[tags.indexOf(currentTag)]) + 'Tag `\(currentTag)` is first matched here', e)
 												} else {
 													tags.push(currentTag)
+													tagNodes.push(e)
 												}
 											} else {
 												fail('The `\(name)` is not an enum constructor of `\(enumType.name)`', e)
@@ -5526,9 +5556,9 @@ class Typer {
 												let available = currentType.tagBindVarsNames[indexOf].join(', ')
 
 												if available.length == 0 {
-													fail('No bindings available for `.' + currentTag + '`', e)
+													fail('No bindings available for `.' + currentTag + '`\n' + positionOf(currentType.parent) + 'Enum `\(currentType.name)` is defined here', e) // TODO where tag
 												}
-												fail('Too many bindings requested for `\(currentTag)`, available are: ' + available, e)
+												fail('Too many bindings requested for `\(currentTag)`, available are: ' + available + '\n' + positionOf(currentType.parent) + 'Enum `\(currentType.name)` is defined here', e) // TODO where tag
 											}
 
 											if bindType != null {
