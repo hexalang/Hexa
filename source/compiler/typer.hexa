@@ -4305,10 +4305,6 @@ class Typer {
 				var exprBinds = false
 				for cond in econd { switch cond {
 						case Var(_):
-						for e in econd {
-							switch e {
-								case Var(name, t, expr, const):
-									if not const {
 										fail('Only `if let` bindings supported, not `if var`', node)
 									}
 									if t != null {
@@ -4317,14 +4313,7 @@ class Typer {
 									if expr == null {
 										fail('`if let` binding should have a value `\(name) = value', node)
 									}
-									exprDepth++
-									pushScope()
-									pushScope()
-									fillExpression(expr)
-									popScope()
-									switch types.get(expr) as!Type {
 										case Nullable(t): types.set(e, t)
-										case UnknownNullable(handle):
 											if let t = handle.value {
 												types.set(e, t)
 											} else {
@@ -4333,18 +4322,10 @@ class Typer {
 										case _: types.set(e, types.get(expr))
 									}
 									addScope(name, e)
-								case _:
-									fillExpression(e)
-									let exprType = types.get(e)
 									if exprType != typeBool, exprType != typeAny, exprType != null {
 										fail('`if value` expects `value` only of type `Bool`, but got `' + Type.stringify(exprType) + '`', e)
 									}
 							}
-						}
-						fillExpression(eif)
-						while exprDepth > 0 {
-							exprDepth--
-							popScope()
 							exprBinds = true
 					} }
 
@@ -4352,12 +4333,31 @@ class Typer {
 					// Expression if-let: process bindings with scopes
 					var exprDepth = 0
 
+					for e in econd {
+						switch e {
+							case Var(name, t, expr, const):
 
 
+								exprDepth++
+								pushScope()
+								pushScope()
+								fillExpression(expr)
+								popScope()
 
+								switch types.get(expr) as!Type {
+									case UnknownNullable(handle):
+							case _:
+								fillExpression(e)
+								let exprType = types.get(e)
 
 						}
+					}
+					fillExpression(eif)
 
+					while exprDepth > 0 {
+						exprDepth--
+						popScope()
+					}
 					fillExpression(eelse)
 				} else {
 					if econd.length > 1 {
