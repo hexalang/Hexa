@@ -38,8 +38,10 @@ class ParsedPath {
 // Native current directory (GetCurrentDirectoryW over a stack buffer)
 fun nativeCwd(): String {
 	var buf ArrayByValue<ClangWideChar, 512> = [0]
+
 	for i in 512 { buf[i] = 0 }
 	let n = getCurrentDirectoryW(512u32, buf as!ArrayPointer<ClangWideChar>)
+
 	if n == 0u32 { return '.' }
 	return String.fromUTF16zUpTo(buf as!ConstArrayPointer<UInt16>, n as!Int)
 }
@@ -48,7 +50,9 @@ fun nativeCwd(): String {
 fun nativeExeDir(): String {
 	let p = winExePath()
 	let idx = p.lastIndexOf('\\')
+
 	if idx < 0 { return '.' }
+
 	if idx == 0 { return '\\' }
 	return p.substring(0, idx)
 }
@@ -59,17 +63,20 @@ class Path {
 	static fun normalize(path: String): String {
 		if path.length == 0 { return '.' }
 		let flat = path.replaceAll('/', '\\')
-		// Root: UNC \\srv\share | drive X:\ / X: | rooted \ | none
+		// Root: UNC \\srv\share | drive X:\\ / X: | rooted \\ | none
 		var root = ''
 		var rest = flat
+
 		if rest.length >= 2 {
 			if let c0 = rest.charCodeAt(0) {
 				if c0 == 92 {
 					if let c1 = rest.charCodeAt(1) {
 						if c1 == 92 {
 							let s1 = rest.indexOf('\\', 2)
+
 							if s1 < 0 { return rest }
 							let s2 = rest.indexOf('\\', s1 + 1)
+
 							if s2 < 0 {
 								root = rest
 								rest = ''
@@ -87,6 +94,7 @@ class Path {
 						if c1 == 58 {
 							root = rest.substring(0, 2)
 							rest = rest.substring(2)
+
 							if rest.length > 0 {
 								if let c2 = rest.charCodeAt(0) {
 									if c2 == 92 {
@@ -103,9 +111,12 @@ class Path {
 		var stack [String] = []
 		var depth = 0
 		let parts = rest.split('\\')
+
 		for i in parts.length {
 			let part = parts[i]
+
 			if part.length == 0 or part == '.' { continue }
+
 			if part == '..' {
 				if depth > 0 {
 					depth--
@@ -121,11 +132,14 @@ class Path {
 		}
 		stack.length = depth
 		let joined = stack.join('\\')
+
 		if root.length == 0 {
 			if joined.length == 0 { return '.' }
 			return joined
 		}
+
 		if root.endsWith('\\') { return root + joined }
+
 		if joined.length == 0 { return root }
 		// Drive-relative 'C:' joins without a separator
 		if root.length == 2 { return root + joined }
@@ -134,8 +148,10 @@ class Path {
 	static fun dirname(path: String): String {
 		if path.length == 0 { return '.' }
 		var p = normalize(path)
+
 		while p.length > 1 and p.endsWith('\\') { p = p.substring(0, p.length - 1) }
 		let idx = p.lastIndexOf('\\')
+
 		if idx < 0 {
 			if p.length >= 2 {
 				if let c1 = p.charCodeAt(1) {
@@ -144,17 +160,22 @@ class Path {
 			}
 			return '.'
 		}
+
 		if idx == 0 { return '\\' }
 		let dir = p.substring(0, idx)
+
 		if dir.endsWith(':') { return dir + '\\' }
 		return dir
 	}
 	static fun basename(path: String, ext: String? = null): String {
 		var p = path.replaceAll('/', '\\')
+
 		while p.length > 1 and p.endsWith('\\') { p = p.substring(0, p.length - 1) }
 		let idx = p.lastIndexOf('\\')
 		var base = p
+
 		if idx >= 0 { base = p.substring(idx + 1) }
+
 		if let e = ext {
 			if e.length > 0 and base.endsWith(e) and base != e { base = base.substring(0, base.length - e.length) }
 		}
@@ -163,6 +184,7 @@ class Path {
 	static fun extname(path: String): String {
 		let b = basename(path)
 		let idx = b.lastIndexOf('.')
+
 		if idx <= 0 { return '' }
 		return b.substring(idx)
 	}
@@ -176,22 +198,27 @@ class Path {
 		let aa = a.split('\\')
 		let bb = b.split('\\')
 		var i = 0
+
 		while i < aa.length and i < bb.length {
 			if aa[i].toLowerCase() != bb[i].toLowerCase() { break }
 			i++
 		}
+
 		if i == 0 { return b }
 		var out [String] = []
 		var k = i
+
 		while k < aa.length {
 			out.push('..')
 			k++
 		}
 		k = i
+
 		while k < bb.length {
 			out.push(bb[k])
 			k++
 		}
+
 		if out.length == 0 { return '' }
 		return out.join('\\')
 	}
@@ -200,18 +227,22 @@ class Path {
 		p.dir = dirname(path)
 		p.base = basename(path)
 		p.ext = extname(path)
+
 		if p.ext.length > 0 { p.name = p.base.substring(0, p.base.length - p.ext.length) } else { p.name = p.base }
 		// Root recompute (mirrors normalize: UNC / drive / rooted / none)
 		let flat = path.replaceAll('/', '\\')
 		p.root = ''
+
 		if flat.length >= 2 {
 			if let c0 = flat.charCodeAt(0) {
 				if c0 == 92 {
 					if let c1 = flat.charCodeAt(1) {
 						if c1 == 92 {
 							let s1 = flat.indexOf('\\', 2)
+
 							if s1 >= 0 {
 								let s2 = flat.indexOf('\\', s1 + 1)
+
 								if s2 < 0 { p.root = flat } else { p.root = flat.substring(0, s2) }
 							} else { p.root = flat }
 						} else { p.root = '\\' }
@@ -220,6 +251,7 @@ class Path {
 					if let c1 = flat.charCodeAt(1) {
 						if c1 == 58 {
 							p.root = flat.substring(0, 2)
+
 							if flat.length > 2 {
 								if let c2 = flat.charCodeAt(2) {
 									if c2 == 92 { p.root = p.root + '\\' }
@@ -243,16 +275,20 @@ class Path {
 		for i in path.length {
 			if let p = path[i] {
 				if p.length == 0 { continue }
+
 				if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
 			}
 		}
+
 		if acc.length == 0 { return '.' }
 		return normalize(acc)
 	}
 	static fun isAbsolute(path: String): Bool {
 		if path.length == 0 { return false }
+
 		if let c0 = path.charCodeAt(0) {
 			if c0 == 92 or c0 == 47 { return true }
+
 			if path.length >= 3 {
 				if let c1 = path.charCodeAt(1) {
 					if c1 == 58 {
@@ -271,9 +307,11 @@ class Fs {
 	// Full-file read via Win32 (64 KiB streaming chunks, close on every path)
 	static fun readFileSync(path: String): Buffer {
 		let h = hexaCreateFileRead(path.utf16())
+
 		if winHandleFailed(h as!HANDLE) { return Buffer.alloc(0) }
 		var chunks [Buffer] = []
 		var total = 0
+
 		while true {
 			let piece = Buffer.alloc(65536)
 			var gotBox ArrayByValue<DWORD, 1> = [0]
@@ -283,6 +321,7 @@ class Fs {
 			piece.length = got
 			chunks.push(piece)
 			total = total + got
+
 			if got < 65536 { break }
 		}
 		closeHandleWin(h as!HANDLE)
@@ -290,6 +329,7 @@ class Fs {
 	}
 	static fun readFileTextSync(path: String, encoding: String? = 'utf8'): String {
 		var enc = 'utf8'
+
 		if let e = encoding { enc = e }
 		let buf = readFileSync(path)
 		return buf.toString(enc, 0, buf.length)
@@ -298,25 +338,31 @@ class Fs {
 	static fun writeHandleText(handle: HANDLE, data: String): Void {
 		let bytes = utf8EncodeString(data)
 		var at = 0
+
 		while at < bytes.length {
 			var n = bytes.length - at
+
 			if n > 65536 { n = 65536 }
 			let piece = Buffer.alloc(n)
+
 			for k in n { piece.bytes[k] = bytes[at + k] as!UInt8 }
 			var doneBox ArrayByValue<DWORD, 1> = [0]
 			let ok = writeFileWin(handle, piece.bytes, n as!UInt32, doneBox as!LPDWORD, null)
+
 			if ok == 0 { break }
 			at = at + ((doneBox as!ArrayPointer<DWORD>)[0] as!Int)
 		}
 	}
 	static fun writeFileSync(path: String, data: String, encoding: String? = null): Void {
 		let h = hexaCreateFileWrite(path.utf16())
+
 		if winHandleFailed(h as!HANDLE) { return }
 		writeHandleText(h as!HANDLE, data)
 		closeHandleWin(h as!HANDLE)
 	}
 	static fun appendFileSync(path: String, data: String, encoding: String? = null): Void {
 		let h = hexaCreateFileAppend(path.utf16())
+
 		if winHandleFailed(h as!HANDLE) { return }
 		writeHandleText(h as!HANDLE, data)
 		closeHandleWin(h as!HANDLE)
@@ -325,12 +371,15 @@ class Fs {
 	// Progressive prefix creation (recursive-by-construction; errors ignored)
 	static fun mkdirSync(path: String, options: Any? = null): Void {
 		let norm = Path.normalize(path)
+
 		for i in norm.length {
 			if i < 3 { continue }
+
 			if let c = norm.charCodeAt(i) {
 				if c == 92 { createDirectoryW(norm.substring(0, i).utf16(), null) }
 			}
 		}
+
 		if norm.length > 0 { createDirectoryW(norm.utf16(), null) }
 	}
 	// FindFirstFileW iteration (skips . and .., like Node)
@@ -338,13 +387,18 @@ class Fs {
 		var out [String] = []
 		let pattern = Path.normalize(path) + '\\*'
 		var nameBuf ArrayByValue<ClangWideChar, 260> = [0]
+
 		for i in 260 { nameBuf[i] = 0 }
 		var dirBox ArrayByValue<Int32, 1> = [0]
 		let h = hexaFindFirst(pattern.utf16(), nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>)
+
 		if winHandleFailed(h as!HANDLE) { return out }
+
 		while true {
 			let name = String.fromUTF16z(nameBuf as!ConstArrayPointer<UInt16>)
+
 			if name != '.' and name != '..' { out.push(name) }
+
 			if hexaFindNext(h, nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>) == 0 { break }
 		}
 		hexaFindClose(h)
@@ -355,13 +409,18 @@ class Fs {
 		var out [FsDirentInfo] = []
 		let pattern = Path.normalize(path) + '\\*'
 		var nameBuf ArrayByValue<ClangWideChar, 260> = [0]
+
 		for i in 260 { nameBuf[i] = 0 }
 		var dirBox ArrayByValue<Int32, 1> = [0]
 		let h = hexaFindFirst(pattern.utf16(), nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>)
+
 		if winHandleFailed(h as!HANDLE) { return out }
+
 		while true {
 			let name = String.fromUTF16z(nameBuf as!ConstArrayPointer<UInt16>)
+
 			if name != '.' and name != '..' { out.push(FsDirentInfo(name, (dirBox as!ArrayPointer<Int32>)[0] != 0)) }
+
 			if hexaFindNext(h, nameBuf as!ArrayPointer<ClangWideChar>, dirBox as!ArrayPointer<Int32>) == 0 { break }
 		}
 		hexaFindClose(h)
@@ -371,7 +430,9 @@ class Fs {
 	// Depth-first remove (files + dirs; missing paths are no-ops)
 	static fun rmSync(path: String, options: Any? = null): Void {
 		let attrs = getFileAttributesW(path.utf16())
+
 		if attrs == invalidFileAttributes { return }
+
 		if (attrs & fileAttributeDirectory) != 0u32 {
 			for e in readdirSync(path) { rmSync(path + '\\' + e, options) }
 			removeDirectoryW(path.utf16())
@@ -384,22 +445,29 @@ class Fs {
 	static fun statInfoSync(path: String): FsStatInfo {
 		let info = FsStatInfo()
 		let attrs = getFileAttributesW(path.utf16())
+
 		if attrs == invalidFileAttributes { return info }
 		info.exists = true
 		info.isDirectory = (attrs and fileAttributeDirectory) != 0u32
 		info.isFile = not info.isDirectory
+
 		if info.isFile {
 			let h = hexaCreateFileRead(path.utf16())
+
 			if not winHandleFailed(h as!HANDLE) {
 				var highBox ArrayByValue<DWORD, 1> = [0]
 				let lo = getFileSizeWin(h as!HANDLE, highBox as!LPDWORD)
+
 				if lo != invalidFileSize or getLastErrorWin() == 0u32 {
 					info.size = (lo as!Float) + ((highBox as!ArrayPointer<DWORD>)[0] as!Float) * 4294967296.0
 				}
 				var writeBox ArrayByValue<UInt8, 8> = [0]
+
 				for i in 8 { writeBox[i] = 0 }
+
 				if getFileTimeWin(h as!HANDLE, null, null, writeBox as!LPFILETIME) != 0 {
 					let ticks = readU64LE(writeBox as!ArrayPointer<UInt8>, 0)
+
 					if ticks >= 116444736000000000u64 {
 						info.mtimeMs = ((ticks - 116444736000000000u64) as!Float) / 10000.0
 					}
@@ -415,8 +483,10 @@ class Fs {
 	// Stream factory — encoding travels on the stream (default utf-8).
 	static fun createReadStream(path: String, options: Any? = null): FsReadStream {
 		let stream = FsReadStream(path)
+
 		try {
 			let enc = (options as Any).encoding
+
 			if enc != null { stream.encoding = enc as String }
 		} catch e Error { }
 		return stream
@@ -492,7 +562,9 @@ class FsReadStream {
 	}
 	fun removeAllListeners(event: String = ''): Void {
 		if event == '' or event == 'data' { dataListeners = [] }
+
 		if event == '' or event == 'end' { endListeners = [] }
+
 		if event == '' or event == 'error' { errorListeners = [] }
 	}
 	fun destroy(): Void { closed = true }
@@ -518,22 +590,28 @@ class FsReadStream {
 	}
 	fun pumpOneSlice(): Bool {
 		if closed or not flowing { return closed }
+
 		if content == null {
 			for l in errorListeners { l(Error('read failed: ' + path)) }
+
 			for l in endListeners { l() }
 			return true
 		}
+
 		if let buf = content {
 			if pos >= buf.length {
 				for l in endListeners { l() }
 				return true
 			}
 			var n = buf.length - pos
+
 			if n > 65536 { n = 65536 }
 			let slice = buf.subarray(pos, pos + n)
 			pos = pos + n
 			bytesRead = pos
+
 			for l in dataListeners { l(slice) }
+
 			if lineReader != null {
 				if let rl = lineReader { rl.feedText(slice.toString(encoding, 0, slice.length)) }
 			}
@@ -546,18 +624,22 @@ class FsReadStream {
 var liveStreams [FsReadStream] = []
 fun pumpStreams(): Void {
 	var i = 0
+
 	while i < liveStreams.length {
 		let stream = liveStreams[i]
+
 		if stream.closed {
 			liveStreams.splice(i, 1)
 			continue
 		}
+
 		if stream.pumpOneSlice() {
 			liveStreams.splice(i, 1)
 			continue
 		}
 		i++
 	}
+
 	for s in liveStreams {
 		if not s.closed {
 			queueMicrotask(fun () Void { pumpStreams() })
@@ -595,6 +677,7 @@ class FsModule {
 	}
 	fun readdirSync(path: String, options: Any? = null): [Any] {
 		var out [Any] = []
+
 		for n in Fs.readdirSync(path) { out.push(n) }
 		return out
 	}
@@ -608,9 +691,12 @@ class FsModule {
 	fun readdir(path: String, options: Any? = null, callback: Any? = null): Any {
 		// Non-null Any local: `Any?` is not callable, Any is (dynamic call).
 		var cb Any = callback
+
 		if cb == null { cb = options }
 		var entries [Any] = []
+
 		for e in Fs.readdirTypesSync(path) { entries.push(e) }
+
 		if cb != null { cb(null, entries) }
 		return null
 	}
@@ -648,12 +734,15 @@ class PathModule {
 	// an empty loop on native — length/index lower via $nrest/$rest.
 	fun join(...path: String): String {
 		var acc = ''
+
 		for i in path.length {
 			if let p = path[i] {
 				if p.length == 0 { continue }
+
 				if acc.length == 0 { acc = p } else { acc = acc + '\\' + p }
 			}
 		}
+
 		if acc.length == 0 { return '.' }
 		return Path.normalize(acc)
 	}
@@ -662,9 +751,11 @@ class PathModule {
 	// and resolve(absOrRel). Index loop — see join above.
 	fun resolve(...path: String): String {
 		var acc = ''
+
 		for i in path.length {
 			if let p = path[i] {
 				if p.length == 0 { continue }
+
 				if acc.length == 0 or Path.isAbsolute(p) { acc = p } else { acc = acc + '\\' + p }
 			}
 		}
@@ -697,6 +788,7 @@ class FsStatInfo {
 var fdTable [HANDLE] = []
 fun fsFdHandle(fd: Int): UInt64 {
 	if fd < 0 or fd >= fdTable.length { return 0u64 }
+
 	if let h = fdTable[fd] { return h as!UInt64 }
 	return 0u64
 }
@@ -712,6 +804,7 @@ fun fsAllocFd(handle: HANDLE): Int {
 }
 fun fsFreeFd(fd: Int): UInt64 {
 	let h = fsFdHandle(fd)
+
 	if h != 0u64 { fdTable[fd] = null }
 	return h
 }
@@ -721,6 +814,7 @@ fun fsFreeFd(fd: Int): UInt64 {
 fun fsOpenFd(path: String, flags: String): Int {
 	var access = genericRead
 	var disposition = openExisting
+
 	if flags == 'r' {
 		access = genericRead
 		disposition = openExisting
@@ -747,11 +841,13 @@ fun fsOpenFd(path: String, flags: String): Int {
 		disposition = openExisting
 	}
 	let h = createFileWin(path.utf16(), access, fileShareRead + fileShareWrite, null, disposition, fileAttributeNormal, null)
+
 	if winHandleFailed(h) { return -1 }
 	return fsAllocFd(h)
 }
 fun fsCloseFd(fd: Int): Void {
 	let h = fsFreeFd(fd)
+
 	if h != 0u64 { closeHandleWin(h as!HANDLE) }
 }
 fun fsSeekFd(handle: HANDLE, position: Int): Bool {
@@ -759,6 +855,7 @@ fun fsSeekFd(handle: HANDLE, position: Int): Bool {
 }
 fun fsReadFd(fd: Int, buffer: Any, offset: Int, length: Int, position: Int?): Int {
 	let h64 = fsFdHandle(fd)
+
 	if h64 == 0u64 { return 0 }
 	let handle = h64 as!HANDLE
 	if buffer is Buffer {
@@ -794,10 +891,12 @@ fun fsReadFd(fd: Int, buffer: Any, offset: Int, length: Int, position: Int?): In
 }
 fun fsWriteFd(fd: Int, buffer: Any, offset: Int?, length: Int?, position: Int?): Int {
 	let h64 = fsFdHandle(fd)
+
 	if h64 == 0u64 { return 0 }
 	let handle = h64 as!HANDLE
 	var bytes ArrayPointer<UInt8> = Buffer.alloc(0).bytes
 	var total = 0
+
 	if buffer is Buffer {
 		if let buf = buffer as!Buffer {
 			bytes = buf.bytes
@@ -813,20 +912,25 @@ fun fsWriteFd(fd: Int, buffer: Any, offset: Int?, length: Int?, position: Int?):
 		return 0
 	}
 	var start = 0
+
 	if let o = offset { start = o }
 	var n = total - start
+
 	if length != null {
 		if let l = length {
 			if l < n { n = l }
 		}
 	}
+
 	if start < 0 { start = 0 }
+
 	if n <= 0 or start >= total { return 0 }
 	var restoreTo: UInt64? = null
 	if position != null {
 		if let p = position {
 			// Save pointer, seek, write, restore (positional I/O is offset-neutral).
 			var curBox ArrayByValue<UInt8, 8> = [0]
+
 			for c in 8 { curBox[c] = 0 }
 			setFilePointerExWin(handle, 0 as!Int64, curBox as!ArrayPointer<UInt8>, fileCurrentMoveMethod)
 			restoreTo = readU64LE(curBox as!ArrayPointer<UInt8>, 0)
@@ -835,29 +939,36 @@ fun fsWriteFd(fd: Int, buffer: Any, offset: Int?, length: Int?, position: Int?):
 	}
 	var doneBox ArrayByValue<DWORD, 1> = [0]
 	var chunk = Buffer.alloc(n)
+
 	for k in n { chunk.bytes[k] = bytes[start + k] }
 	let ok = writeFileWin(handle, chunk.bytes, n as!UInt32, doneBox as!LPDWORD, null)
 	let written = (doneBox as!ArrayPointer<DWORD>)[0] as!Int
 	if let r = restoreTo { setFilePointerExWin(handle, r as!Int64, null, fileBeginMoveMethod) }
+
 	if ok == 0 { return 0 }
 	return written
 }
 fun fsFstatFd(fd: Int): FsStatInfo {
 	let info = FsStatInfo()
 	let h64 = fsFdHandle(fd)
+
 	if h64 == 0u64 { return info }
 	let handle = h64 as!HANDLE
 	info.exists = true
 	info.isFile = true
 	var highBox ArrayByValue<DWORD, 1> = [0]
 	let lo = getFileSizeWin(handle, highBox as!LPDWORD)
+
 	if lo != invalidFileSize or getLastErrorWin() == 0u32 {
 		info.size = (lo as!Float) + ((highBox as!ArrayPointer<DWORD>)[0] as!Float) * 4294967296.0
 	}
 	var writeBox ArrayByValue<UInt8, 8> = [0]
+
 	for i in 8 { writeBox[i] = 0 }
+
 	if getFileTimeWin(handle, null, null, writeBox as!LPFILETIME) != 0 {
 		let ticks = readU64LE(writeBox as!ArrayPointer<UInt8>, 0)
+
 		if ticks >= 116444736000000000u64 {
 			info.mtimeMs = ((ticks - 116444736000000000u64) as!Float) / 10000.0
 		}
