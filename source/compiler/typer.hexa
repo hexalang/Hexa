@@ -787,6 +787,8 @@ class Typer {
 					}
 
 					// Fill scopes
+					// Nodes of first field declarations — for `Field already exists` cross-refs
+					let declaredFields: [String : Node] = [:]
 
 					for field in f {
 						switch field {
@@ -800,6 +802,7 @@ class Typer {
 									}
 								}
 								classType.fieldNames.push(name)
+								declaredFields.set(name, field)
 
 								if name == 'new' {
 									classType.constructor = classType.fieldNames.length - 1
@@ -821,6 +824,7 @@ class Typer {
 									}
 								}
 								classType.fieldNames.push(name)
+								declaredFields.set(name, field)
 								classType.fieldInitialized[classType.fieldNames.length - 1] = false
 								classType.fieldRenames[classType.fieldNames.length - 1] = getRename(field, name, classDecorators)
 								// S3b: register Variable fields (methods register below
@@ -836,9 +840,10 @@ class Typer {
 								switch field {
 									case Var(name, _):
 										if classType.fieldNames.includes(name) {
-											fail('Field `\(name)` already exists', field)
+											fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredFields.get(name)), field)
 										}
 										classType.fieldNames.push(name)
+										declaredFields.set(name, field)
 										addScope(name, field)
 									case _:
 										fail('Field unrecognized', field)
@@ -1089,6 +1094,9 @@ class Typer {
 					let numbers: [Int] = []
 					let strings: [String] = []
 					let names: [String] = []
+					// Nodes of first tag declarations — for `already exists`/`already defined` cross-refs
+					let declaredEnumFields: [String : Node] = [:] // TODO this is slow and should use other method as a rare case
+					let tagValueNodes: [String : Node] = [:]
 
 					for field in f {
 						switch field {
@@ -1097,9 +1105,10 @@ class Typer {
 									case Type(name):
 										if (enumType.fieldNames.includes(name)) {
 											// TODO `throw fail` makes no sense and must error on throwing `Void`
-											throw fail('Field `\(name)` already exists', node)
+											throw fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredEnumFields.get(name)), node)
 										}
 										enumType.fieldNames.push(name)
+										declaredEnumFields.set(name, field)
 										// TODO refactor `length - 1`
 										// TODO combine arrays into single `[class EnumConstructorField]`
 										enumType.fieldEnumConstructor[enumType.fieldNames.length - 1] = true
@@ -1121,9 +1130,10 @@ class Typer {
 									case NodeTypeValue(t): switch t {
 											case Type(name):
 												if enumType.fieldNames.includes(name) {
-													throw fail('Field `\(name)` already exists', e)
+													throw fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredEnumFields.get(name)), e)
 												}
 												enumType.fieldNames.push(name)
+												declaredEnumFields.set(name, field)
 												enumType.fieldEnumConstructor[enumType.fieldNames.length - 1] = true
 												enumType.fieldType[enumType.fieldNames.length - 1] = Type.EnumConstructor(enumType, enumType.fieldNames.length - 1)
 												// TODO disallow just `= []`
@@ -1152,7 +1162,8 @@ class Typer {
 													// tagBindVarsTypes[i] = toType(nodeType, args[i])
 
 													if tagBindVarsNames.includes(argNames[i]) {
-														fail('Enum constructor argument `\(argNames[i])` already exists', args[i])
+														let at = tagBindVarsNames.indexOf(argNames[i])
+														fail('Enum constructor argument `\(argNames[i])` already exists' + hereIs('`\(argNames[i])` is declared here', args[at]), args[i])
 													}
 
 													tagBindVarsNames[i] = argNames[i]
@@ -1194,9 +1205,10 @@ class Typer {
 									case NodeTypeValue(t): switch t {
 											case Type(name):
 												if enumType.fieldNames.includes(name) {
-													fail('Field `\(name)` already exists', a)
+													fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredEnumFields.get(name)), a)
 												}
 												enumType.fieldNames.push(name)
+												declaredEnumFields.set(name, field)
 												enumType.fieldEnumConstructor[enumType.fieldNames.length - 1] = true
 												switch b {
 													case NodeTypeValue(t): switch t {
@@ -1204,7 +1216,7 @@ class Typer {
 																let at = names.indexOf(name)
 
 																if at == -1 {
-																	fail('Value with name `\(name)` not found above current value', b)
+																	fail('Value with name `\(name)` not found above current value\n' + proposeSimilar(names, name, 'values'), b)
 																}
 
 																// Ok
@@ -1276,9 +1288,10 @@ class Typer {
 								// `enum E { static fun ... }` or `enum E { static var ... }`
 							case Function(name, _):
 								if enumType.fieldNames.includes(name) {
-									fail('Field `\(name)` already exists', node)
+									fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredEnumFields.get(name)), node)
 								}
 								enumType.fieldNames.push(name)
+								declaredEnumFields.set(name, field)
 
 								if project.mapStatic.get(field) == true {
 									enumType.fieldStatic[enumType.fieldNames.length - 1] = true
@@ -1286,9 +1299,10 @@ class Typer {
 								addScope(name, field)
 							case Var(name, _, _, _):
 								if enumType.fieldNames.includes(name) {
-									fail('Field `\(name)` already exists', node)
+									fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredEnumFields.get(name)), node)
 								}
 								enumType.fieldNames.push(name)
+								declaredEnumFields.set(name, field)
 
 								if project.mapStatic.get(field) == true {
 									enumType.fieldStatic[enumType.fieldNames.length - 1] = true
@@ -2084,7 +2098,7 @@ class Typer {
 				switch actualType {
 					case Class(classType):
 						if (classType.genericParams.length > 0) {
-							fail('The type `\(classType.name)` requires `<\(classType.genericParams)>` generic parameters', node)
+							fail('The type `\(classType.name)` requires `<\(classType.genericParams)>` generic parameters' + hereIs('type `\(classType.name)` is declared here', classType.parent), node)
 						}
 						return classType.instantiate()
 					case Enum(enumType):
@@ -2151,11 +2165,11 @@ class Typer {
 				switch actualType {
 					case Class(classType):
 						if classType.genericParams.length == 0 {
-							fail('The type `\(classType.name)` requires zero generic parameters', node)
+							fail('The type `\(classType.name)` requires zero generic parameters' + hereIs('type `\(classType.name)` is declared here', classType.parent), node)
 						}
 
 						if classType.genericParams.length != params.length {
-							fail('The type `\(classType.name)` requires `<\(classType.genericParams)>` generic parameters', node)
+							fail('The type `\(classType.name)` requires `<\(classType.genericParams)>` generic parameters' + hereIs('type `\(classType.name)` is declared here', classType.parent), node)
 						}
 
 						let instanceParams = [for p in params toType(p, node)]
@@ -2434,9 +2448,9 @@ class Typer {
 						arg.optional = expr != null
 						arg.name = name
 
-						// If types.get(v) is already set, fillFunction already pre-wrapped it, skip to avoid double-wrapping
+						// Hexa rest `...x: T` is `Type.Rest`, not `Array<T>`.
 						if variadic, i == vars.length - 1, types.get(v) == null {
-							arg.dataType = typeArray.instantiateGeneric([arg.dataType])
+							arg.dataType = Type.Rest(arg.dataType, nativeVariadic)
 						}
 						varTypes.push(arg)
 					} else {
@@ -2533,7 +2547,8 @@ class Typer {
 			switch v {
 				case Var(vname, t, e, const):
 					if argNames.includes(vname) {
-						fail('Argument `\(vname)` defined multiple times', v)
+						let at = argNames.indexOf(vname)
+						fail('Argument `\(vname)` defined multiple times' + hereIs('`\(vname)` is declared here', vars[at]), v)
 					}
 					argNames.push(vname)
 
@@ -2545,14 +2560,18 @@ class Typer {
 						var varType = toType(t, v)
 
 						if variadic, i == vars.length - 1 {
-							varType = typeArray.instantiateGeneric([varType])
+							varType = Type.Rest(varType, nativeVariadic)
 						}
 						types.set(v, varType)
 					} else {
 						var varType = expectedArrow[i]
 
 						if variadic, i == vars.length - 1, varType != null {
-							varType = typeArray.instantiateGeneric([varType])
+							varType = Type.Rest(varType, nativeVariadic)
+						}
+						// Untyped `...rest` falls back to `Any` (lead decision).
+						if variadic, i == vars.length - 1, varType == null {
+							varType = Type.Rest(typeAny, nativeVariadic)
 						}
 						types.set(v, varType)
 					}
@@ -2669,7 +2688,7 @@ class Typer {
 
 		// Set function type
 		// varTypes(vars)
-		types.set(node, Type.Function(args: varTypes(vars, variadic: variadic), returns: ret, variadic))
+		types.set(node, Type.Function(args: varTypes(vars, variadic: variadic, nativeVariadic: isNativeVariadic(node)), returns: finalRet, variadic))
 		// types.set(node, Type.Function(args: [for v in vars new FunctionArgument(types.get(v))], returns: ret))
 	}
 
@@ -3856,7 +3875,13 @@ class Typer {
 											if extractedType == null {
 												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', classType.fieldInitialized[classType.fieldNames.indexOf(n)])
 												fail('Type for this field cannot be inferred, try to specify types manually: `' + n + '`', field)
+												types.set(node, typeAny)
+											} else {
+												// V1: substitute the receiver's concrete class args into the
+												// member type (same fixup the constructor path applies).
+												types.set(node, genericFixup(extractedType, generic))
 											}
+											parents.set(node, field)
 										}
 									}
 								case _:
@@ -4670,17 +4695,18 @@ class Typer {
 							}
 
 							if variadic, i == args.length - 1 {
-								// Unwrap array type [T] to element type T for variadic argument checking
-								switch arg.dataType {
+								// Hexa rest `...x: T` checks element type `T`
+								// TODO Legacy `Array<T>` unwrap kept for safety
+								switch argType {
 									case Rest(element, _):
 										expectedTypes.push(element)
 									case ClassInstance(_, generic) if generic.length == 1:
 										expectedTypes.push(generic[0])
 									case _:
-										expectedTypes.push(arg.dataType)
+										expectedTypes.push(argType)
 								}
 							} else {
-								expectedTypes.push(arg.dataType)
+								expectedTypes.push(argType)
 							}
 						}
 						evaluateArguments(el, expectedTypes)
