@@ -52,6 +52,17 @@ class GenCxx {
 	var declarationsOfStrings: [String] = []
 	// F10: inline STRUCT <-> Any bridges — registered on demand by
 	// `anyToStructStr`, emitted once by `printAnyToStruct` (bag -> fields).
+	// DIRECTION MAP (#6 — read this before touching either side):
+	// - struct→bag (VALUE LOSES static shape): `printToAnyConverter` Struct arm
+	// + `printAnyObjectLit`, now owned in Nice by `reflectPost`
+	// (`tryLowerStructValue`: Var/Const/Assign/Return/call-arg/If `Any`
+	// positions → explicit `Any_objectNew_` + `Any_objectSet_` builds).
+	// - Any→struct (DYNAMIC REGAINS static shape): below — a runtime `Any`
+	// payload (bag, legacy pointer, null) reconstructs a typed inline
+	// struct through the generated `Any_toStruct_Struct_N_*` helpers.
+	// Still genC-owned (no Nice lowering yet). FUTURE (Nice classes for Any
+	// stuff): represent `Any`/bags as Nice classes so BOTH directions lower
+	// in `reflectPost` (bag reads become field reads, helpers disappear).
 	var anyToStructNames: [String : [String]] = [:]
 	var anyToStructTypes: [String : [Type]] = [:]
 	/// Function-type signature -> typedef name (`_$N`) so repeated
@@ -76,6 +87,10 @@ class GenCxx {
 	/// (deduped) — after Types, emit per-`X` `operator co_await` + `promise_type`
 	/// + `coroutine_traits` in one inner `extern "C++"` block (needs complete
 	/// structs for `sizeof`, and must precede async funs using them).
+	/// REDESIGN NOTE (#7, as-is for now): the whole `co_await`/`co_return` /
+	/// `promise_type` machinery is C++ coroutines. The planned redesign drops
+	/// C++ coroutines entirely (explicit state machines / frame-pump resumes
+	/// in lowering instead) — until then this block stays untouched.
 	var promiseStructs: [String] = []
 	/// F10.3: Nice names (`closure$N`) of lifted closures whose `$call_`
 	/// thunks were emitted (dead code until dynamic calls wire them) — after
@@ -233,6 +248,7 @@ class GenCxx {
 		// Typed `Any` so pair assembly bridges via `(size_t)` (void* value).
 		globalDecls.set('hexaSentinelEnv', project.typer.typeAny)
 		buildVoidFuncs()
+		forward.push(printReflectABI())
 
 		// Types
 		// TODO use _HEX16GUID_ClassName_ instead of _mangledNameSpace_ClassName_!
@@ -588,6 +604,18 @@ class GenCxx {
 			}
 			let vtableValue = ['const struct ' + c.name + '__ ' + c.name + '__$ = \{\n\t']
 			let vtableBind = []
+
+			if not isStruct, c.api != ClassBinaryInterface.StructureNoVirtual {
+				vtable.push('int32_t (*QueryInterface_)(void*, void*, void**);')
+				vtable.push('\n\t')
+				vtable.push('uint32_t (*AddRef_)(void*);')
+				vtable.push('\n\t')
+				vtable.push('uint32_t (*Release_)(void*);')
+				vtable.push('\n\t')
+				vtableBind.push('&Hexa_QI_')
+				vtableBind.push('&Hexa_AddRef_')
+				vtableBind.push('&Hexa_Release_')
+			}
 			// ARC destroy-table row (F11 sweep reads it): vtable identity,
 			// destroy fn (the `@destructor` method), instance size.
 			if let dd = c.destructor {
@@ -995,9 +1023,183 @@ class GenCxx {
 				types.push('#pragma pack()\n')
 			}
 			vtable.push('\n\};\n')
-			vtableValue.push(vtableBind.join(',\n\t'))
-			vtable.push(vtableValue.join('') + '\n\};\n')
-			types.unshift(vtable.join(''))
+
+			if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
+				vtableValue.push(vtableBind.join(',\n\t'))
+				vtable.push(vtableValue.join('') + '\n\};\n')
+				types.unshift(vtable.join(''))
+			} else {
+				var hnames: [String] = []
+				var htypes: [Type] = []
+
+				for v in c.vars { switch v {
+						case Var(n, _, t):
+							hnames.push(n)
+							htypes.push(t)
+						case Const(n, _, t):
+							hnames.push(n)
+							htypes.push(t)
+						case _:
+					} }
+				let hlb = String.fromCharCode(123)
+				let hrb = String.fromCharCode(125)
+				let hnl = String.fromCharCode(10)
+				let hq = String.fromCharCode(34)
+				var hiddenDestroy = 'nullptr'
+
+				if let dd = c.destructor {
+					hiddenDestroy = '(void(*)(void*))&' + c.name + '_$' + dd + '_'
+				} else {
+					if c.destroyKind == 1 or c.destroyKind == 2 or c.destroyKind == 3 {
+						hiddenDestroy = '(void(*)(void*))&' + c.name + '_$destroyARC_'
+					}
+				}
+				forwardFunctions.push('const char* ' + c.name + '_hiddenClassName_(void)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('Any_* ' + c.name + '_hiddenDynGet_(void*, String_*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('void ' + c.name + '_hiddenDynSet_(void*, String_*, Any_*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('uint8_t ' + c.name + '_hiddenHas_(void*, String_*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('void ' + c.name + '_hiddenDelete_(void*, String_*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('String_* ' + c.name + '_hiddenKeyAt_(void*, int32_t)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('int32_t ' + c.name + '_hiddenKeyCount_(void*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('void ' + c.name + '_hiddenReflect_(void*, HexaReflectOp_*)')
+				forwardFunctions.push(';\n')
+				out.push('const char* ' + c.name + '_hiddenClassName_(void) ' + hlb + hnl)
+				out.push('\treturn "' + c.name + '";' + hnl)
+				out.push(hrb + '\n\n')
+				out.push('Any_* ' + c.name + '_hiddenDynGet_(void* self_, String_* k_) ' + hlb + hnl)
+				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
+				out.push('\tif (self == nullptr || k_ == nullptr) return nullptr;' + hnl)
+
+				for i in hnames.length {
+					let fn = hnames[i]
+					let ft = htypes[i]
+					var boxed = ''
+					let mb0 = metaBlock.length
+
+					if isFatValueType(ft) {
+						boxed = 'Any_boxFatPair_((void(*)())(self->' + fn + '$f_), self->' + fn + '$e_)'
+					} else {
+						boxed = printToAnyConverter('self->' + fn + '_', ft)
+					}
+
+					if metaBlock.length != mb0 {
+						while metaBlock.length > mb0 {
+							metaBlock.pop()
+						}
+						continue
+					}
+					out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' return ' + boxed + '; ' + hrb + hnl)
+				}
+
+				if let parent = c.extend {
+					out.push('\treturn ' + parent + '_hiddenDynGet_(self_, k_);' + hnl)
+				} else {
+					out.push('\treturn nullptr;' + hnl)
+				}
+				out.push(hrb + '\n\n')
+				out.push('void ' + c.name + '_hiddenDynSet_(void* self_, String_* k_, Any_* v_) ' + hlb + hnl)
+				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
+				out.push('\tif (self == nullptr || k_ == nullptr) return;' + hnl)
+
+				for i in hnames.length {
+					let fn = hnames[i]
+					let ft = htypes[i]
+
+					if isFatValueType(ft) {
+						out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' if (v_ == nullptr) return; FatPair_* fp = (FatPair_*)v_; self->' + fn + '$f_ = reinterpret_cast<' + stringifyType(ft) + '>((size_t)(fp->impl_)); self->' + fn + '$e_ = fp->env_; return; ' + hrb + hnl)
+					} else {
+						let mb1 = metaBlock.length
+						let conv = printTypeConverter('v_', project.typer.typeAny, ft)
+
+						if metaBlock.length != mb1 {
+							while metaBlock.length > mb1 {
+								metaBlock.pop()
+							}
+							continue
+						}
+						out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' self->' + fn + '_ = ' + conv + '; return; ' + hrb + hnl)
+					}
+				}
+
+				if let parent = c.extend {
+					out.push('\t' + parent + '_hiddenDynSet_(self_, k_, v_);' + hnl)
+				}
+				out.push(hrb + '\n\n')
+				out.push('uint8_t ' + c.name + '_hiddenHas_(void* self_, String_* k_) ' + hlb + hnl)
+				out.push('\t(void)self_;' + hnl)
+				out.push('\tif (k_ == nullptr) return (uint8_t)0;' + hnl)
+
+				for i in hnames.length {
+					let fn = hnames[i]
+					out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) return (uint8_t)1;' + hnl)
+				}
+
+				if let parent = c.extend {
+					out.push('\treturn ' + parent + '_hiddenHas_(self_, k_);' + hnl)
+				} else {
+					out.push('\treturn (uint8_t)0;' + hnl)
+				}
+				out.push(hrb + '\n\n')
+				out.push('void ' + c.name + '_hiddenDelete_(void* self_, String_* k_) ' + hlb + hnl)
+				out.push('\t(void)self_; (void)k_;' + hnl)
+
+				if let parent = c.extend {
+					out.push('\t' + parent + '_hiddenDelete_(self_, k_);' + hnl)
+				}
+				out.push(hrb + '\n\n')
+				out.push('String_* ' + c.name + '_hiddenKeyAt_(void* self_, int32_t i_) ' + hlb + hnl)
+				out.push('\t(void)self_;' + hnl)
+				out.push('\tif (i_ < (int32_t)0) return nullptr;' + hnl)
+
+				for i in hnames.length {
+					let fn = hnames[i]
+					out.push('\tif (i_ == (int32_t)' + i + ') return String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + ');' + hnl)
+				}
+
+				if let parent = c.extend {
+					out.push('\tif (i_ >= (int32_t)' + hnames.length + ') return ' + parent + '_hiddenKeyAt_(self_, i_ - (int32_t)' + hnames.length + ');' + hnl)
+				}
+				out.push('\treturn nullptr;' + hnl)
+				out.push(hrb + '\n\n')
+				out.push('int32_t ' + c.name + '_hiddenKeyCount_(void* self_) ' + hlb + hnl)
+				out.push('\t(void)self_;' + hnl)
+
+				if let parent = c.extend {
+					out.push('\treturn (int32_t)' + hnames.length + ' + ' + parent + '_hiddenKeyCount_(self_);' + hnl)
+				} else {
+					out.push('\treturn (int32_t)' + hnames.length + ';' + hnl)
+					out.push(hrb + '\n\n')
+					out.push('void ' + c.name + '_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + hlb + hnl)
+					out.push('\tif (self_ == nullptr || op_ == nullptr) return;' + hnl)
+					out.push('\tswitch (op_->code_) ' + hlb + hnl)
+					out.push('\tcase (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break;' + hnl)
+					out.push('\tcase (int32_t)2: op_->resultStr_ = Hexa_GenericToString_(self_); break;' + hnl)
+					out.push('\tcase (int32_t)3: op_->resultCStr_ = ' + c.name + '_hiddenClassName_(); break;' + hnl)
+					out.push('\tcase (int32_t)4: op_->result_ = ' + c.name + '_hiddenDynGet_(self_, op_->key_); break;' + hnl)
+					out.push('\tcase (int32_t)5: ' + c.name + '_hiddenDynSet_(self_, op_->key_, op_->value_); break;' + hnl)
+					out.push('\tcase (int32_t)6: op_->resultInt_ = (int32_t)' + c.name + '_hiddenHas_(self_, op_->key_); break;' + hnl)
+					out.push('\tcase (int32_t)7: ' + c.name + '_hiddenDelete_(self_, op_->key_); break;' + hnl)
+					out.push('\tcase (int32_t)8: op_->resultStr_ = ' + c.name + '_hiddenKeyAt_(self_, op_->index_); break;' + hnl)
+					out.push('\tcase (int32_t)9: op_->resultInt_ = ' + c.name + '_hiddenKeyCount_(self_); break;' + hnl)
+					out.push('\tdefault: break;' + hnl)
+					out.push('\t' + hrb + hnl)
+					out.push(hrb + '\n\n')
+					let vtHiddenInit = '\{' + hiddenDestroy + ', &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &' + c.name + '_hiddenClassName_, &' + c.name + '_hiddenDynGet_, &' + c.name + '_hiddenDynSet_, &' + c.name + '_hiddenHas_, &' + c.name + '_hiddenDelete_, &' + c.name + '_hiddenKeyAt_, &' + c.name + '_hiddenKeyCount_, &' + c.name + '_hiddenReflect_\}'
+					let vtPublicInit = vtableBind.join(',\n\t')
+					let vtDef = 'struct ' + c.name + '_vt \{ struct HexaReflect_ hidden; struct ' + c.name + '__ public_; \};\n'
+					let vtVal = 'const struct ' + c.name + '_vt ' + c.name + '_vt$ = \{' + vtHiddenInit + ', \{' + vtPublicInit + '\}\};\n'
+					let vtMacro = '#define ' + c.name + '__$ (' + c.name + '_vt$.public_)\n'
+					let vtAssert = '_Static_assert(offsetof(struct ' + c.name + '_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");\n'
+					types.unshift(vtable.join('') + vtDef + vtVal + vtMacro + vtAssert)
+				}
+			}
 			vtableClasses.push(c.name)
 
 			for v in c.staticMethods { switch v {
@@ -1754,7 +1956,9 @@ class GenCxx {
 	// For `return value` conversions (like Bool to Any)
 	var currentReturnType: Type? = null
 	/// Set while printing an `async fun` body — makes `return` print as the
-	/// C++ coroutine keyword `co_return` (see `printFunctionBody`)
+	/// C++ coroutine keyword `co_return` (see `printFunctionBody`).
+	/// REDESIGN NOTE (#7, as-is for now): slated for removal with the C++
+	/// coroutine redesign (explicit state machines instead of `co_*`).
 	var insideAsyncFunction = false
 	/// Set while printing a `catch` body — C++ forbids `co_await` inside a
 	/// handler (C2304), so `await` there falls back to the settled `.value`
@@ -1769,6 +1973,10 @@ class GenCxx {
 	/// Reflect pre-lowering pass (dynamics to explicit reflection calls) —
 	/// see `normalizing/reflect.hexa`. Runs before ClosureLifter.
 	var reflectEnabled = true
+	/// Reflect post-lowering pass (genC hacks to plain static calls) —
+	/// see `normalizing/reflectPost.hexa`. Runs after ClosureLifter,
+	/// before ArcInserter.
+	var reflectPostEnabled = true
 
 	// Surrounds with { brackets } single statement
 	// TODO rename to printAsBlock
@@ -2084,6 +2292,8 @@ class GenCxx {
 				// null via `return_value`; single `return_value` only —
 				// C3782 forbids `return_value` + `return_void` together).
 				// Outside async, plain `return` (unchanged).
+				// REDESIGN NOTE (#7, as-is for now): `co_return` goes away
+				// with C++ coroutines (explicit settle + state return).
 				if insideAsyncFunction {
 					if e == null {
 						return 'co_return (Any_*)nullptr'
@@ -2363,10 +2573,57 @@ class GenCxx {
 						}
 					case Index(expr, index):
 						// `Any` (or untyped) receivers index DYNAMICALLY —
-						// `obj[i] = v` becomes the `set` reflection stub call
+						// String keys on bags are FIELD stores (Any_objectSet),
+						// not `Map.set` method calls — bags have no `set`.
+						// Any-typed keys (e.g. `vscKey: Any` holding String)
+						// discriminate at runtime via `Any_isObject_`.
 						let exprType = getType(expr)
 
 						if isDynamic(exprType) {
+							let idxT = getType(index)
+							var isStrKey = false
+							if idxT == project.typer.typeString {
+								isStrKey = true
+							} else {
+								if Type.unwrapNullable(idxT) == project.typer.typeString {
+									isStrKey = true
+								}
+							}
+
+							if isStrKey {
+								var dynVal = printToAnyConverter(printExpression(v), getType(v))
+
+								if let objLit = printObjectAs(project.typer.typeAny, v) {
+									dynVal = objLit
+								} else if isBoxableFat(v) {
+									dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+								}
+								return 'Any_dynSet_((Any_*)(' + printExpression(expr) + '), ' + printExpression(index) + ', ' + dynVal + ')'
+							}
+
+							if isPureIsReceiver(expr) {
+								var dynVal2 = printToAnyConverter(printExpression(v), getType(v))
+
+								if let objLit2 = printObjectAs(project.typer.typeAny, v) {
+									dynVal2 = objLit2
+								} else if isBoxableFat(v) {
+									dynVal2 = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+								}
+								let recvS = printExpression(expr)
+								let idxS = printExpression(index)
+								let directW = 'Any_dynSet_((Any_*)(' + recvS + '), (String_*)(' + idxS + '), ' + dynVal2 + ')'
+								let legacyW = printExpression(Expression.Call(
+										Expression.Dot(expr, 'set', null),
+										[index, v],
+										project.typer.typeVoid,
+										CallKind.Function,
+										[]
+									))
+								let cb2 = String.fromCharCode(123)
+								let cc2 = String.fromCharCode(125)
+								metaBlock.push('if (Any_isObject_((Any_*)(' + recvS + ')) ' + cb2 + ' ' + directW + '; ' + cc2 + ' else ' + cb2 + ' ' + legacyW + '; ' + cc2)
+								return '(void)0'
+							}
 							return printExpression(Expression.Call(
 									Expression.Dot(expr, 'set', null /*TODO*/),
 									[index, v],
@@ -2984,8 +3241,10 @@ class GenCxx {
 				// (impl + env survive; the dynamic call slot unpacks it).
 				// Previously only the ptr half survived. Leaf shapes only
 				// (composites have no addressable pair — see isBoxableFat).
+				// Single funnel: `boxFatPair` (see #5).
 				if i < exp.length, isBoxableFat(args[i]), stringifyType(exp[i]) == 'Any_*' {
 					results.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(args[i]) + '), ' + fatEnvStr(args[i]) + ')')
+					results.push(boxFatPair(args[i]))
 					continue
 				}
 
@@ -3369,6 +3628,26 @@ class GenCxx {
 				return false
 		} }
 
+	/// #5 single funnel for leaf fat values into `Any` slots (impl + env
+	/// survive; the dynamic call slot unpacks the pair). All `Any`-boxing
+	/// sites (object-lit fields, array elements, inits, call args) route
+	/// here so pair shape never diverges. Composites have no addressable
+	/// halves and keep the legacy drop (see `isBoxableFat`).
+	fun boxFatPair(e: Expression): String {
+		return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(e) + '), ' + fatEnvStr(e) + ')'
+	}
+
+	/// #5 `Any` boxing for one element/value: pair when the leaf fat shape
+	/// applies, otherwise the standard `Any` conversion. Replaces the four
+	/// inline `isBoxableFat ? pair : converter` copies.
+	fun anyBox(e: Expression): String {
+		if isBoxableFat(e) {
+			return boxFatPair(e)
+		}
+
+		return printToAnyConverter(printExpression(e), valueType(e))
+	}
+
 	/// F10 (target-c.md): TypeScript-like interface semantics — the value
 	/// behind an interface-typed expression may be an `AnyObject` bag
 	/// (Any-typed literals, JSON.parse materialization) OR a DECL-ordered
@@ -3418,17 +3697,19 @@ class GenCxx {
 	/// re-printing it is free, re-printing the base expression is not).
 	fun printIfaceFieldOn(recv: String, name: String, memberT: Type?): String {
 		let bag = anyDynGetStr(recv, name)
-		var slot = '(((' + recv + '))->' + name + '_)'
+		let q = String.fromCharCode(34)
+		let hiddenGet = 'HexaReflectFor_(((const void**)(' + recv + '))[0])->dyn_get_((void*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '))'
+		var oldSlot = '(((' + recv + '))->' + name + '_)'
 
 		if isFatValueType(memberT) {
-			// Pair-held member: box the two halves — one Any for every
-			// consumer (dynamic call slot, fatPtrStr/fatEnvStr casts).
-			slot = 'Any_boxFatPair_((void(*)())((' + recv + ')->' + name + '$f_), ((' + recv + ')->' + name + '$e_))'
-			let pairExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + slot + ')'
+			let oldPair = 'Any_boxFatPair_((void(*)())((' + recv + ')->' + name + '$f_), ((' + recv + ')->' + name + '$e_))'
+			let structChoice = '(HexaHasReflect_(((const void**)(' + recv + '))[0]) ? ' + hiddenGet + ' : ' + oldPair + ')'
+			let pairExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + structChoice + ')'
 			return '(' + pairExpr + ')'
 		}
-		let boxed = printToAnyConverter(slot, memberT)
-		let anyExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + boxed + ')'
+		let oldBoxed = printToAnyConverter(oldSlot, memberT)
+		let structChoice = '(HexaHasReflect_(((const void**)(' + recv + '))[0]) ? ' + hiddenGet + ' : ' + oldBoxed + ')'
+		let anyExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + structChoice + ')'
 
 		// Outer parens: the result is spliced into `(...) ->field` /
 		// `(...) = v` contexts — without them the postfix/cast precedence
@@ -3449,9 +3730,9 @@ class GenCxx {
 		let iat = tempId++
 		let btmp = '_$ia' + iat
 		let vtmp = '_$iv' + iat
-		let ftmp = '_$if' + iat
 		let cb = String.fromCharCode(123)
 		let cc = String.fromCharCode(125)
+		let q = String.fromCharCode(34)
 		var ifaceVal = printToAnyConverter(printExpression(v), getType(v))
 
 		if let objLit = printObjectAs(project.typer.typeAny, v) {
@@ -3461,15 +3742,18 @@ class GenCxx {
 		}
 		metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(expr))
 		metaBlock.push('Any_* ' + vtmp + ' = ' + ifaceVal)
-		var structStore = ''
+		let hiddenSet = 'HexaReflectFor_(((const void**)(' + btmp + '))[0])->dyn_set_((void*)(' + btmp + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '), ' + vtmp + ')'
+		var oldStore = ''
 
 		if isFatValueType(memberT) {
+			let ftmp = '_$if' + iat
 			metaBlock.push('FatPair_* ' + ftmp + ' = (FatPair_*)(' + vtmp + ')')
-			structStore = '(((' + rT + ')(' + btmp + '))->' + name + '$f_ = ' + ftmp + '->impl_)' + '; ' + '(((' + rT + ')(' + btmp + '))->' + name + '$e_ = ' + ftmp + '->env_)'
+			oldStore = '(((' + rT + ')(' + btmp + '))->' + name + '$f_ = ' + ftmp + '->impl_)' + '; ' + '(((' + rT + ')(' + btmp + '))->' + name + '$e_ = ' + ftmp + '->env_)'
 		} else {
-			structStore = '(((' + rT + ')(' + btmp + '))->' + name + '_ = ' + printTypeConverter(vtmp, project.typer.typeAny, memberT) + ')'
+			oldStore = '(((' + rT + ')(' + btmp + '))->' + name + '_ = ' + printTypeConverter(vtmp, project.typer.typeAny, memberT) + ')'
 		}
-		metaBlock.push('if (' + btmp + ' != nullptr && ((const void**)(' + btmp + '))[0] == (const void*)(&AnyObject__$)) ' + cb + ' ' + anyDynSetStr('(Any_*)(' + btmp + ')', name, vtmp) + '; ' + cc + ' else ' + cb + ' ' + structStore + '; ' + cc)
+		let structElse = 'if (HexaHasReflect_(((const void**)(' + btmp + '))[0])) ' + cb + ' ' + hiddenSet + '; ' + cc + ' else ' + cb + ' ' + oldStore + '; ' + cc
+		metaBlock.push('if (' + btmp + ' != nullptr && ((const void**)(' + btmp + '))[0] == (const void*)(&AnyObject__$)) ' + cb + ' ' + anyDynSetStr('(Any_*)(' + btmp + ')', name, vtmp) + '; ' + cc + ' else ' + cb + ' ' + structElse + ' ' + cc)
 		return '(void)0'
 	}
 
@@ -4062,13 +4346,69 @@ class GenCxx {
 		r += 'struct HexaDeferCountedDecPtr_ ' + lb + ' void** p_; HexaDeferCountedDecPtr_(void** p): p_(p) ' + lb + ' ' + rb + ' ~HexaDeferCountedDecPtr_() ' + lb + ' void* v_ = *p_; if (Any_isCounted_((Any_*)(v_))) hexaUnref(v_); ' + rb + ' ' + rb + ';' + nl
 		r += rb + ' // extern "C++"' + nl
 		r += '#endif' + nl
-		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
+		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
 		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return nullptr; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return nullptr; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return nullptr; ' + rb + nl
 		r += 'uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
 		r += 'int32_t Any_objectCount_(Any_* p) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return (int32_t)0; return ((AnyObject_*)(p))->count_; ' + rb + nl
 		r += 'String_* Any_objectKeyAt_(Any_* p, int32_t i) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return nullptr; AnyObject_* o = (AnyObject_*)(p); if (i < (int32_t)0 || i >= o->count_) return nullptr; return o->entries_[i].k_; ' + rb + nl
-		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr) return nullptr; if (Any_isObject_(p)) return Any_objectGet_(p, k); return (Any_*)(((Any_*)(p))->let_(k)); ' + rb + nl
-		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; if (Any_isObject_(p)) ' + lb + ' Any_objectSet_(p, k, v); return; ' + rb + ' ((Any_*)(p))->$set(k, v); ' + rb + nl
+		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr) return nullptr; if (Any_isObject_(p)) return Any_objectGet_(p, k); const void* tag_ = ((const void**)(p))[0]; if (HexaHasReflect_(tag_)) return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); HEXA_ASSERT(((const void**)(p))[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)p)[0]), "Any_dynGet_: legacy let_ on a non-dynamic payload (string/array receiver) - convert at the Any boundary (printToAnyConverter/printIfaceField)"); return (Any_*)(((Any_*)(p))->let_(k)); ' + rb + nl
+		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; if (Any_isObject_(p)) ' + lb + ' Any_objectSet_(p, k, v); return; ' + rb + ' const void* tag_ = ((const void**)(p))[0]; if (HexaHasReflect_(tag_)) ' + lb + ' HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); return; ' + rb + ' HEXA_ASSERT(((const void**)(p))[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)p)[0]), "Any_dynSet_: $set on a non-dynamic payload (string/array receiver) - the write is silently lost"); ((Any_*)(p))->$set(k, v); ' + rb + nl
+		return r
+	}
+
+	/// Reflection ABI (hidden+public, COM-compatible, stable negative offsets).
+	/// Hidden part lives at negative offset from the public vtable pointer:
+	/// instance `_->` points at `Foo_vt.public_`, reflection via
+	/// `HexaReflectFor_(tag)->dyn_get_` etc. All impl under vtables, no
+	/// direct RTTI reads. Future-proofing is one universal `reflect_` slot
+	/// taking `HexaReflectOp_*` (code + args + result placement) — new ops
+	/// need no vtable layout change, only new `code_` values.
+	/// Public part starts with IUnknown (QI/AddRef/Release) for COM.
+	fun printReflectABI(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// Reflection ABI (hidden+public, COM-compatible, stable)' + nl
+		r += 'struct String_;' + nl
+		r += 'struct Any_;' + nl
+		r += 'struct HexaReflectOp_ ' + lb + nl
+		r += 'int32_t code_;' + nl
+		r += 'int32_t index_;' + nl
+		r += 'struct String_* key_;' + nl
+		r += 'struct Any_* value_;' + nl
+		r += 'struct Any_* result_;' + nl
+		r += 'int32_t resultInt_;' + nl
+		r += 'const char* resultCStr_;' + nl
+		r += 'struct String_* resultStr_;' + nl
+		r += 'void* reserved_[4];' + nl
+		r += rb + ';' + nl
+		r += 'struct HexaReflect_ ' + lb + nl
+		r += 'void (*destroy_)(void*);' + nl
+		r += 'uint8_t (*toBool_)(void*);' + nl
+		r += 'struct String_* (*toString_)(void*);' + nl
+		r += 'const char* (*className_)(void);' + nl
+		r += 'struct Any_* (*dyn_get_)(void*, struct String_*);' + nl
+		r += 'void (*dyn_set_)(void*, struct String_*, struct Any_*);' + nl
+		r += 'uint8_t (*has_)(void*, struct String_*);' + nl
+		r += 'void (*delete_)(void*, struct String_*);' + nl
+		r += 'struct String_* (*keyAt_)(void*, int32_t);' + nl
+		r += 'int32_t (*keyCount_)(void*);' + nl
+		r += 'void (*reflect_)(void*, struct HexaReflectOp_*);' + nl
+		r += rb + ';' + nl
+		r += '_Static_assert(sizeof(struct HexaReflectOp_) == (size_t)88, "reflect: HexaReflectOp_ must stay 88");' + nl
+		r += '_Static_assert(sizeof(struct HexaReflect_) == (size_t)88, "reflect: HexaReflect_ must stay 88 for stable negative offsets");' + nl
+		r += 'uint8_t Hexa_ToBoolTrue_(void* self);' + nl
+		r += 'uint8_t Hexa_ToBoolTrue_(void* self) ' + lb + ' (void)self; return (uint8_t)1; ' + rb + nl
+		r += 'struct String_* Hexa_GenericToString_(void* self);' + nl
+		r += 'struct String_* Hexa_GenericToString_(void* self) ' + lb + ' (void)self; return nullptr; ' + rb + nl
+		r += 'uint8_t HexaHasReflect_(const void* tag_);' + nl
+		r += 'int32_t Hexa_QI_(void* self, void* riid, void** out);' + nl
+		r += 'uint32_t Hexa_AddRef_(void* self);' + nl
+		r += 'uint32_t Hexa_Release_(void* self);' + nl
+		r += 'int32_t Hexa_QI_(void* self, void* riid, void** out) ' + lb + ' if (out != nullptr) ' + lb + ' *out = self; Hexa_AddRef_(self); return (int32_t)0; ' + rb + ' return (int32_t)1; ' + rb + nl
+		r += 'uint32_t Hexa_AddRef_(void* self) ' + lb + ' if (self == nullptr) return (uint32_t)0; hexaRef(self); return (uint32_t)(((struct HexaHeader_*)(self))->rc_); ' + rb + nl
+		r += 'uint32_t Hexa_Release_(void* self) ' + lb + ' if (self == nullptr) return (uint32_t)0; uint32_t rc = (uint32_t)(((struct HexaHeader_*)(self))->rc_); hexaUnref(self); return rc > (uint32_t)0 ? rc - (uint32_t)1 : (uint32_t)0; ' + rb + nl
+		r += 'static inline struct HexaReflect_* HexaReflectFor_(const void* tag) ' + lb + ' return (struct HexaReflect_*)((char*)tag - sizeof(struct HexaReflect_)); ' + rb + nl
 		return r
 	}
 
@@ -4137,6 +4477,13 @@ class GenCxx {
 			r += 'if (tag_ == (const void*)(&' + n + '__$)) return "' + n + '";' + nl
 		}
 		r += 'return "?";' + nl
+		r += rb + nl
+		r += 'uint8_t HexaHasReflect_(const void* tag_) ' + lb + nl
+
+		for n in vtableClasses {
+			r += 'if (tag_ == (const void*)(&' + n + '__$)) return (uint8_t)1;' + nl
+		}
+		r += 'return (uint8_t)0;' + nl
 		r += rb + nl
 		return r
 	}
@@ -4216,9 +4563,15 @@ class GenCxx {
 		r += 'if (mode_ == 4) ' + lb + ' i_++; continue; ' + rb + nl
 		r += 'if (mode_ == 1 && tag_ == (const void*)(&String__$)) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
 		r += 'if (mode_ == 2 && hexaTagIsArray_(tag_)) ' + lb + ' i_++; continue; ' + rb + nl
-		r += 'if (mode_ == 3) ' + lb + ' void (*dd_)(void*) = HexaDestroyLookup_(tag_); if (dd_ != nullptr) ' + lb + ' i_++; continue; ' + rb + ' ' + rb + nl
-		r += 'if (victims_ < 64) ' + lb + ' victims_++; FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", hexaTagName_(tag_), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d head=", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, "%04x ", (unsigned)(s_->bytes_[k_])); int32_t bi_ = (int32_t)(s_->bytesHash_ % 65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; uint8_t inb_ = (uint8_t)0; uint8_t ishead_ = (uint8_t)0; String_* cur_ = stringBuckets_[bi_]; if (cur_ == s_) ishead_ = (uint8_t)1; int32_t guard_ = (int32_t)0; while (cur_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (cur_ == s_) ' + lb + ' inb_ = (uint8_t)1; break; ' + rb + ' cur_ = cur_->next_; guard_++; ' + rb + ' fprintf(vf_, " inbucket=%d ishead=%d", (int)inb_, (int)ishead_); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + nl
-		r += 'if (tag_ == (const void*)(&AnyObject__$)) ' + lb + ' AnyObject_* o_ = (AnyObject_*)(p_); if (o_->entries_ != nullptr) ' + lb + ' for (size_t j_ = (size_t)0; j_ < (size_t)o_->count_; j_++) ' + lb + ' if (Any_isCounted_((Any_*)(o_->entries_[j_].k_))) hexaUnref((void*)(o_->entries_[j_].k_)); if (Any_isCounted_(o_->entries_[j_].v_)) hexaUnref((void*)(o_->entries_[j_].v_)); ' + rb + ' HEXA_FREE(o_->entries_, 0); ' + rb + ' ' + rb + ' else if (tag_ == (const void*)(&FatPair__$)) ' + lb + ' FatPair_* fp_ = (FatPair_*)(p_); if (fp_->env_ != nullptr && !((int64_t)(fp_->env_) >= (int64_t)-65535 && (int64_t)(fp_->env_) <= (int64_t)65535)) hexaUnref(fp_->env_); ' + rb + ' else ' + lb + ' void (*d_)(void*) = HexaDestroyLookup_(tag_); if (d_ != nullptr) d_(p_); ' + rb + nl
+		r += 'if (mode_ == 3) ' + lb + ' void (*dd_)(void*) = HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->destroy_ : HexaDestroyLookup_(tag_); if (dd_ != nullptr) ' + lb + ' i_++; continue; ' + rb + ' ' + rb + nl
+		r += 'if (victims_ < 64) ' + lb + ' victims_++; FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", (HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->className_() : hexaTagName_(tag_)), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d head=", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, "%04x ", (unsigned)(s_->bytes_[k_])); int32_t bi_ = (int32_t)(s_->bytesHash_ % 65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; uint8_t inb_ = (uint8_t)0; uint8_t ishead_ = (uint8_t)0; String_* cur_ = stringBuckets_[bi_]; if (cur_ == s_) ishead_ = (uint8_t)1; int32_t guard_ = (int32_t)0; while (cur_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (cur_ == s_) ' + lb + ' inb_ = (uint8_t)1; break; ' + rb + ' cur_ = cur_->next_; guard_++; ' + rb + ' fprintf(vf_, " inbucket=%d ishead=%d", (int)inb_, (int)ishead_); HEXA_ASSERT(inb_ == (uint8_t)0, "sweep: freeing an interned String still linked in stringBuckets_ - unlink the weak intern link before free (D6)"); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + nl
+		r += 'if (tag_ == (const void*)(&AnyObject__$)) ' + lb + ' AnyObject_* o_ = (AnyObject_*)(p_); if (o_->entries_ != nullptr) ' + lb + ' for (size_t j_ = (size_t)0; j_ < (size_t)o_->count_; j_++) ' + lb + ' if (Any_isCounted_((Any_*)(o_->entries_[j_].k_))) hexaUnref((void*)(o_->entries_[j_].k_)); if (Any_isCounted_(o_->entries_[j_].v_)) hexaUnref((void*)(o_->entries_[j_].v_)); ' + rb + ' HEXA_FREE(o_->entries_, 0); ' + rb + ' ' + rb + ' else if (tag_ == (const void*)(&FatPair__$)) ' + lb + ' FatPair_* fp_ = (FatPair_*)(p_); if (fp_->env_ != nullptr && !((int64_t)(fp_->env_) >= (int64_t)-65535 && (int64_t)(fp_->env_) <= (int64_t)65535)) hexaUnref(fp_->env_); ' + rb + ' else ' + lb + ' void (*d_)(void*) = HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->destroy_ : HexaDestroyLookup_(tag_); if (d_ != nullptr) d_(p_); ' + rb + nl
+		// D6 unlink (Batch-1 leak/corruption fix): a freed interned String must
+		// leave `stringBuckets_` BEFORE `HEXA_FREE` — string identity is the
+		// pointer, so a freed-but-linked bucket head corrupts every later
+		// intern (the victim-block `HEXA_ASSERT(inb_ == 0)` above stays as the
+		// tripwire proving the unlink ran: it checks pre-unlink state).
+		r += 'if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); int32_t bi_ = (int32_t)(s_->bytesHash_ % (int32_t)65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; String_** link_ = &stringBuckets_[bi_]; int32_t guard_ = (int32_t)0; while (*link_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (*link_ == s_) ' + lb + ' *link_ = s_->next_; break; ' + rb + ' link_ = &((*link_)->next_); guard_++; ' + rb + ' ' + rb + nl
 		r += 'HEXA_FREE(p_, 0);' + nl
 		r += 'hexaLiveNum_--;' + nl
 		r += 'if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_];' + nl
@@ -4341,8 +4694,10 @@ class GenCxx {
 				// (impl + env survive; the dynamic call slot unpacks it).
 				// Previously only the ptr half survived. Leaf shapes only
 				// (composites have no addressable pair — see isBoxableFat).
+				// Single funnel: `boxFatPair` (see #5).
 				if i < exp.length, isBoxableFat(args[i]), stringifyType(exp[i]) == 'Any_*' {
 					results.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(args[i]) + '), ' + fatEnvStr(args[i]) + ')')
+					results.push(boxFatPair(args[i]))
 					continue
 				}
 
@@ -4400,6 +4755,8 @@ class GenCxx {
 	/// calling C sync (via outer-C protos) and C calling C++ async (via C++
 	/// forwards) are both legal. No host changes (host only calls C entry
 	/// points: `HEXA_MAIN`, sync `__onNative*`).
+	/// REDESIGN NOTE (#7, as-is for now): when C++ coroutines go, async funs
+	/// become plain `HEXA_C` functions again and this prefix collapses.
 	fun linkagePrefix(isAsync: Bool): String {
 		if isAsync { return 'HEXA_CPP ' }
 		return 'HEXA_C '
@@ -4414,6 +4771,8 @@ class GenCxx {
 	/// minted (their generic instances never fill, hence C2027/C2065).
 	/// Idempotent: already-`Promise` passes through (typer now wraps async
 	/// returns, so `printAsyncReturnType` sees `Promise<T>` directly).
+	/// REDESIGN NOTE (#7, as-is for now): return type becomes whatever the
+	/// state-machine lowering needs — not a coroutine `Promise*`.
 	fun promiseOf(t: Type): Type {
 		switch t {
 			case ClassInstance(c, g):
@@ -4472,7 +4831,12 @@ class GenCxx {
 	/// dispatch (`int->_->toString_`) is invalid C — emit the matching
 	/// `String_$from*` conversion helper instead (radix args are dropped:
 	/// decimal only in Phase 1). Returns null for non-scalar receivers so
-	/// the normal vtable path applies
+	/// the normal vtable path applies.
+	/// DELETION CANDIDATE (retain until the next implementor re-verifies
+	/// on green MSVC smoke): `reflectPost` owns zero-arg + radix-10 scalar
+	/// `.toString` (hoist-free, so it covers globals/defaults/arrow bodies
+	/// too); keep this for non-10 radix, untyped/dynamic/`Any` receivers
+	/// and missing `String` class.
 	fun scalarToString(receiverPrinted: String, receiverShape: String): String? {
 		if receiverShape == 'int32_t' {
 			return 'String_$fromInt32_(' + receiverPrinted + ')'
@@ -4482,7 +4846,7 @@ class GenCxx {
 			return 'String_$fromInt64_(' + receiverPrinted + ')'
 		}
 
-		if receiverShape == 'uint64_t' {
+		if receiverShape == 'uint64_t' or receiverShape == 'uint32_t' {
 			return 'String_$fromUInt64_(' + receiverPrinted + ')'
 		}
 
@@ -4494,10 +4858,11 @@ class GenCxx {
 			return 'String_$fromBool_(' + receiverPrinted + ')'
 		}
 
-		// Narrow ints/floats widen to the helper widths
+		// Narrow ints widen to the helper widths (`uint32_t` handled above
+		// via `fromUInt64` — `fromInt32` would go negative over 2^31, same
+		// as `printTypeConverter`'s `UInt32 -> String` arm).
 		if receiverShape == 'int8_t' or receiverShape == 'int16_t'
-			or receiverShape == 'uint8_t' or receiverShape == 'uint16_t'
-			or receiverShape == 'uint32_t' {
+			or receiverShape == 'uint8_t' or receiverShape == 'uint16_t' {
 			return 'String_$fromInt32_((int32_t)(' + receiverPrinted + '))'
 		}
 
@@ -4552,6 +4917,14 @@ class GenCxx {
 		// design's linear entries), values convert to `Any`. Nested struct
 		// values recurse; statements hoist to metaBlock (same protocol as
 		// struct/interface literal construction).
+		// DELETION CANDIDATE (retain until the next implementor re-verifies
+		// on green MSVC smoke): `reflectPost` now owns struct→bag at
+		// Var/Const/Assign/Return/call-arg/If `Any` positions (incl.
+		// nesting + spills + Nullable-plain fields); keep this arm ONLY for
+		// non-hoist positions (globals/defaults/arrow bodies/while-conds/
+		// switch-cases/guards/`&&`/`||` RHS), fat/`Any`/nullable-struct/
+		// untyped fields, `If`-`Elsevis` unlowered shapes and empty-`expects`
+		// calls the signature probe misses.
 		switch fromType {
 			case Struct(names, fieldTypes):
 				let tid = tempId++
@@ -4643,7 +5016,12 @@ class GenCxx {
 		}
 
 		// Truly exotic scalars keep the legacy bridge (same as before).
-		return '(struct Any_ *) (size_t) (' + string + ')'
+		// Tagged `/*EXOTIC*/` for triage (see #1): every hit is a shape
+		// that should gain an explicit `Any_box*` arm or a Nice-side
+		// lowering instead of crossing as a raw `size_t` placeholder.
+		// Unboxers read small ints as values, so placeholders must stay
+		// real boxes — if this fires on a scalar, add the box arm.
+		return '(struct Any_ */*EXOTIC*/)(size_t)(' + string + ')'
 	}
 
 	fun printValueToNullableConverter(string: String, fromValue: Type, to: Type): String {
@@ -4664,10 +5042,14 @@ class GenCxx {
 		return fn + '(' + string + ')'
 	}
 
-	/// F10: emit the registered `Any` -> inline-struct helpers. Decls first
-	/// (bodies may call nested helpers), then bodies. A bag value fills the
-	/// DECL-order fields through the interned keys; any other value passes
-	/// through (legacy raw pointers stay raw); null -> nullptr.
+	/// F10: emit the registered `Any` -> inline-struct helpers (#6: DYNAMIC
+	/// REGAINS static shape). Decls first (bodies may call nested helpers),
+	/// then bodies. A bag value fills the DECL-order fields through the
+	/// interned keys; any other value passes through (legacy raw pointers
+	/// stay raw — see `/*PASS-THROUGH*/`); null -> nullptr. FUTURE (Nice
+	/// classes for Any stuff): replace with `reflectPost` lowering once
+	/// `Any`/bags are Nice classes — bag reads become field reads, helpers
+	/// disappear, and the `HEXA_ASSERT` tripwire retires with them.
 	fun printAnyToStruct(): String {
 		if anyToStructNames.keys().length == 0 {
 			return ''
@@ -4696,7 +5078,7 @@ class GenCxx {
 			r += 'HEXA_C ' + sname + '* ' + fn + '(Any_* v_) ' + lb + nl
 			r += ' if (v_ == nullptr) return nullptr;' + nl
 			r += ' HEXA_ASSERT(((const void**)v_)[0] == (const void*)(&AnyObject__$) || (((const void**)v_)[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)v_)[0])), "Any_toStruct: pass-through got a string/array payload - upstream Any-to-struct conversion gap");' + nl
-			r += ' if (((const void**)(v_))[0] != (const void*)(&AnyObject__$)) return (' + sname + '*)(size_t)(v_);' + nl
+			r += ' if (((const void**)(v_))[0] != (const void*)(&AnyObject__$)) return /*PASS-THROUGH (#6: non-bag stays raw — a future reflectPost Any->struct lowering should make this unreachable except legacy pointers)*/ (' + sname + '*)(size_t)(v_);' + nl
 			r += ' ' + sname + '* s_ = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')));' + nl
 
 			for j in names.length {
@@ -4809,10 +5191,14 @@ class GenCxx {
 		}
 
 		// F10: `Any` -> inline struct — inverse of the struct->bag
-		// materialization in printToAnyConverter: reconstruct through the
-		// generated per-struct helper (bag -> DECL-order fields; a non-bag
-		// value passes through for legacy raw pointers; null -> nullptr).
-		// Registered on demand; printAnyToStruct emits decls + bodies.
+		// materialization in printToAnyConverter (#6: DYNAMIC REGAINS static
+		// shape — a runtime `Any` payload reconstructs a typed struct through
+		// the generated per-struct helper: bag -> DECL-order fields read via
+		// interned keys; a non-bag value passes through for legacy raw
+		// pointers; null -> nullptr). Registered on demand; printAnyToStruct
+		// emits decls + bodies. FUTURE (Nice classes for Any stuff): lower in
+		// `reflectPost` once `Any`/bags are Nice classes (bag reads become
+		// field reads, helpers disappear) — until then this arm stays.
 		var toStructType = to
 
 		switch toStructType {
@@ -6304,6 +6690,121 @@ class GenCxx {
 		return '(' + toName + ')(' + converted + ')'
 	}
 
+	/// True for inline-struct shapes (headerless C structs: no vtable, no
+	/// `rc_` — ARC guards must never touch them).
+	fun isInlineStruct(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		switch t {
+			case Struct(_, _):
+				return true
+			case _:
+				return false
+		}
+	}
+
+	/// True when a declared container-element type needs an ARC header
+	/// (counted class/interface, or `Any` which takes bags). Inline structs
+	/// need none (same headerless family the literal already builds).
+	fun declaredNeedsHeader(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		if t == project.typer.typeAny {
+			return true
+		}
+
+		switch t {
+			case ClassInstance(_, _):
+				return true
+			case Class(_):
+				return true
+			case Nullable(inner):
+				return declaredNeedsHeader(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// One container element toward its DECLARED type: struct/interface/Any
+	/// literals construct (headered via `printObjectAs`), fat values into
+	/// `Any` box as pairs, everything else prints raw (existing behavior
+	/// for already-correct shapes).
+	fun printContainerElement(declaredT: Type, v: Expression): String {
+		if isBoxableFat(v), stringifyType(declaredT) == 'Any_*' {
+			return boxFatPair(v)
+		}
+
+		if let s = printObjectAs(declaredT, v) {
+			return s
+		}
+
+		return printExpression(v)
+	}
+
+	/// Rebuild a map literal with DECLARED key/value types (see the
+	/// `printObjectAs` container arms). Mirrors the `Map` expression printer
+	/// exactly, except element construction keys off the declared types.
+	/// Callers flush `metaBlock` before the owning assignment (same protocol
+	/// as struct/bag construction — per-element builds hoist there).
+	fun printMapAs(keyT: Type, valT: Type, keys: [Expression], values: [Expression], toType: Type): String {
+		let typeName = omitPointer(stringifyType(toType))
+
+		if keys.length == 0 {
+			return typeName + '$new_()'
+		}
+
+		let kType = stringifyType(keyT)
+		let vType = stringifyType(valT)
+		var keyStrs: [String] = []
+		var valStrs: [String] = []
+
+		for i in keys.length {
+			keyStrs.push(printContainerElement(keyT, keys[i]))
+		}
+
+		for i in values.length {
+			valStrs.push(printContainerElement(valT, values[i]))
+		}
+
+		let keyItems = keyStrs.join(', ')
+		let valueItems = valStrs.join(', ')
+
+		if cpp {
+			return '\(typeName)$from_(\(typeName)$new_(), \(keys.length), hexaItems<\(kType)>(\(keyItems)), hexaItems<\(vType)>(\(valueItems)))'
+		}
+
+		return '\(typeName)$from_(\(typeName)$new_(), \(keys.length), (\(kType)[])\{' + keyItems + '\}, (\(vType)[])\{' + valueItems + '\})'
+	}
+
+	/// Rebuild an array literal with the DECLARED element type (same contract
+	/// as `printMapAs`). Mirrors the `Array` expression printer.
+	fun printArrayAs(elemT: Type, vals: [Expression], toType: Type): String {
+		let typeName = omitPointer(stringifyType(toType))
+
+		if vals.length == 0 {
+			return typeName + '$new_(0)'
+		}
+
+		let elType = stringifyType(elemT)
+		var elStrs: [String] = []
+
+		for a in vals {
+			elStrs.push(printContainerElement(elemT, a))
+		}
+
+		let items = elStrs.join(', ')
+
+		if cpp {
+			return '\(typeName)$from_(\(typeName)$new_(\(vals.length)), hexaItems<\(elType)>(\(items)))'
+		}
+
+		return '\(typeName)$from_(\(typeName)$new_(\(vals.length)), (\(elType)[])\{' + items + '\})'
+	}
+
 	/// Struct-typed object literal → real heap construction, or null when the
 	/// shape doesn't apply (non-struct target or non-literal value). Central
 	/// decision point for every binding site that knows the target type
@@ -6354,7 +6855,7 @@ class GenCxx {
 						return printStructObject(names, fieldTypes, onames, oels)
 					case _:
 				}
-			case ClassInstance(kind, _):
+			case ClassInstance(kind, generics):
 				// Named interfaces mint real C structs but have no $new_ — an
 				// object literal IS the construction (structural typing).
 				// Same heap construction as anonymous structs, with field
@@ -6364,6 +6865,50 @@ class GenCxx {
 						case Object(onames, oels):
 							return printInterfaceObject(kind.name, onames, oels)
 						case _:
+					}
+				}
+				// Batch-1 UAF fix (headerless struct values in counted slots —
+				// the updateBlinkStates `rc went negative` burst): a container
+				// literal whose INFERRED element is a headerless inline struct
+				// while the DECLARED element needs an ARC header (structural
+				// typing erases the interface: `Map<String,BlinkState> =
+				// {'a': {...}}` infers `Map<String,Struct_34>`, builds
+				// headerless values, and `forcedCast` bridges the whole pointer).
+				// ARC guards then count/scribble data words as `rc_` (use →
+				// sweep frees live → guard on garbage → negative). Rebuild the
+				// elements with the DECLARED types (interface values mint
+				// headered `Name_*` via `printInterfaceObject`, `rc_=1`).
+				if kind.name == 'Map' {
+					if let g = generics {
+						if g.length == 2 {
+							switch e {
+								case Map(keys, values, _, inferredV, _):
+									if isInlineStruct(inferredV), declaredNeedsHeader(g[1]) {
+										return printMapAs(g[0], g[1], keys, values, t)
+									}
+								case _:
+							}
+						}
+					}
+				}
+
+				if kind.name == 'Array' {
+					if let g = generics {
+						if g.length == 1 {
+							switch e {
+								case Array(vals, arrayType):
+									switch arrayType {
+										case ClassInstance(_, agenerics):
+											if let ag = agenerics {
+												if ag.length > 0, isInlineStruct(ag[0]), declaredNeedsHeader(g[0]) {
+													return printArrayAs(g[0], vals, t)
+												}
+											}
+										case _:
+									}
+								case _:
+							}
+						}
 					}
 				}
 			case Class(kind):
@@ -6387,6 +6932,13 @@ class GenCxx {
 	/// interned string literals. Emitted as a metaBlock temp + stores — the
 	/// caller flushes metaBlock before the owning assignment (same protocol
 	/// as struct construction and VirtualMethod spills).
+	/// DELETION CANDIDATE (retain until the next implementor re-verifies
+	/// on green MSVC smoke): `reflectPost` owns the same shapes in Nice
+	/// (incl. nesting/spills/If/empty-`expects` calls + Nullable-plain
+	/// fields); keep this ONLY for non-hoist positions (globals/defaults/
+	/// arrow bodies/while-conds/switch-cases/guards/`&&`/`||` RHS),
+	/// fat/`Any`/nullable-struct/untyped fields and shapes the trace
+	/// marks KEPT.
 	fun printAnyObjectLit(names: [String], els: [Expression]): String {
 		let tid = tempId++
 		let tmp = '_$obj' + tid
@@ -6398,6 +6950,7 @@ class GenCxx {
 			if isBoxableFat(els[i]) {
 				vstr = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(els[i]) + '), ' + fatEnvStr(els[i]) + ')'
 			}
+			var vstr = anyBox(els[i])
 			metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 		}
 		return tmp
@@ -6426,6 +6979,11 @@ class GenCxx {
 	/// stay zero (`HEXA_NEW` zeroes). Emitted as a metaBlock temp + field
 	/// stores (C-shaped, no lambdas) — callers flush metaBlock before the
 	/// owning assignment (existing protocol, same as VirtualMethod spills).
+	/// #4 LOWERING TARGET: same shape via normal calls — `hexaNewBytes`
+	/// (`library/c/runtime.hexa`, `@rename('HEXA_NEW')`) + field `Assign`s
+	/// emitted from `reflectPost` (typed Nice nodes ARC can see, no raw
+	/// `HEXA_NEW(sizeof(...))` strings here). Blocked on encoding generic
+	/// `sizeOf<T>()` calls in Nice IR — needs a normalizer probe first.
 	fun printStructObject(names: [String], fieldTypes: [Type], onames: [String], oels: [Expression]): String {
 		let sname = omitPointer(stringifyType(Type.Struct(names, fieldTypes)))
 		let tid = tempId++
@@ -6447,6 +7005,10 @@ class GenCxx {
 	/// (matched by name — literal order may differ); missing fields stay
 	/// zero. The vtable slot stays null (interfaces carry no bodies) —
 	/// virtual dispatch on such values is F10 territory.
+	/// #4 LOWERING TARGET: same as `printStructObject` — `hexaNewBytes` +
+	/// field `Assign`s from `reflectPost` (plus the `rc_=1` /
+	/// `hexaRegisterLive_` birth-count as explicit Nice calls); blocked on
+	/// the same `sizeOf<T>()`-in-Nice probe.
 	fun printInterfaceObject(className: String, onames: [String], oels: [Expression]): String {
 		var names: [String] = []
 		var ftypes: [Type] = []
@@ -6532,10 +7094,10 @@ class GenCxx {
 		// F7: `var x Int = cond ? a : b` where a branch is `Int?` (nullable
 		// int64 sentinel, e.g. `tc.index`) — convert each branch toward the
 		// DECLARED type (not the If's own box-both `Any` result), else the
-		// outer `forcedCast` truncates a pointer (C4311). Concrete branches
-		// convert via the normal converter (`(int32_t)(int64)` narrows the
-		// non-null small indices without warning; the `!= undefined` guard
-		// keeps null out of the hot path). Only `Int` binds hit this today.
+		// outer `forcedCast` truncates a pointer (C4311). Hoistable statement
+		// positions now lower in `reflectPost.tryLowerIntIf` (temp + per-branch
+		// Assigns through the normal path); this arm stays ONLY for non-hoist
+		// inits (fields/globals/defaults) that never reach that lowering.
 		if ofType == project.typer.typeInt {
 			switch v {
 				case If(econd, eif, eelse):
@@ -6564,6 +7126,11 @@ class GenCxx {
 		// F10.3: array literal into an `Any`-shaped slot builds `Array<Any>`
 		// directly so fat elements box as pairs (the literal's inferred
 		// `Array<Fn>` storage is single-slot and would drop envs).
+		// Hoistable positions now lower in `reflectPost.tryLowerArrayAny`
+		// (`new Array<Any>(0)` + `push` per element through the normal
+		// call-arg conversion); this arm stays ONLY for non-hoist inits
+		// (fields/globals/defaults) plus `If`-branch arrays the whole-`If`
+		// lowering leaves inline.
 		if stringifyType(ofType) == 'Array_$Any_*' or stringifyType(ofType) == 'Any_*' {
 			switch v {
 				case Array(el, _):
@@ -6575,6 +7142,7 @@ class GenCxx {
 					for a in el {
 						if isBoxableFat(a) {
 							parts.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')')
+							parts.push(boxFatPair(a))
 						} else {
 							parts.push(printTypeConverter(printExpression(a), valueType(a), project.typer.typeAny))
 						}
@@ -6588,8 +7156,10 @@ class GenCxx {
 		// `assign`/field/global inits (which all route here) — call args
 		// have their own funnel in `printCallArguments`. Leaf shapes only
 		// (composites have no addressable pair — see isBoxableFat).
+		// Single funnel: `boxFatPair` (see #5).
 		if isBoxableFat(v), stringifyType(ofType) == 'Any_*' {
 			return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+			return boxFatPair(v)
 		}
 
 		switch ofType {
@@ -6896,6 +7466,12 @@ class GenCxx {
 						// Static
 						// TODO better detect
 						if id.charAt(0) == id.charAt(0).toUpperCase(), not id.startsWith('_') {
+						// Static (TitleCase base). `$`-leading ABI temps
+						// (`$nrest`/`$rest`/`$env`/`$psp`/`$psb`) are never
+						// statics — same guard as `dotFieldKind`, which
+						// already excludes them (a `$x_$f_` print is always
+						// a C2065, never a valid static access).
+						if id.charAt(0) == id.charAt(0).toUpperCase(), not id.startsWith('_'), not id.startsWith('$') {
 							return id + '_$' + name + '_'
 						}
 						// Dynamic
@@ -7177,7 +7753,10 @@ class GenCxx {
 						for a in el {
 							if let s = printObjectAs(generic[0], a) { elStrs.push(s) }
 							// F10.3: fat elements into `Any` slots box pairs.
-							else if isFatValueType(valueType(a)), stringifyType(generic[0]) == 'Any_*' { elStrs.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')') }
+							// Narrowed to `isBoxableFat` (see #5): composites have
+							// no addressable halves — boxing them emitted null
+							// pairs, worse than the legacy drop.
+							else if isBoxableFat(a), stringifyType(generic[0]) == 'Any_*' { elStrs.push(boxFatPair(a)) }
 							else { elStrs.push(printExpression(a)) }
 						}
 						let items = elStrs.join(', ')
@@ -7480,9 +8059,38 @@ class GenCxx {
 			case Index(expr, index):
 				let exprType = getType(expr)
 
-				// `Any` (or untyped) receivers index DYNAMICALLY — the raw
-				// `expr[i]` form would index a struct object, not a storage
+				// `Any` (or untyped) receivers index via `Any_indexGet_` —
+				// Any key with runtime type-check (String fast-path, Int →
+				// index_get, else to-string). String-static keys take the
+				// direct `Any_dynGet` fast-path (no helper, no boxing).
 				if isDynamic(exprType) {
+					let idxT = getType(index)
+					var isStrKey = false
+					if idxT == project.typer.typeString {
+						isStrKey = true
+					} else {
+						if Type.unwrapNullable(idxT) == project.typer.typeString {
+							isStrKey = true
+						}
+					}
+
+					if isStrKey {
+						return 'Any_dynGet_((Any_*)(' + printExpression(expr) + '), ' + printExpression(index) + ')'
+					}
+
+					if isPureIsReceiver(expr) {
+						let recvS = printExpression(expr)
+						let idxS = printExpression(index)
+						let direct = 'Any_dynGet_((Any_*)(' + recvS + '), (String_*)(' + idxS + '))'
+						let legacy = printExpression(Expression.Call(
+								Expression.Dot(expr, 'get', null),
+								[index],
+								project.typer.typeAny,
+								CallKind.Function,
+								[]
+							))
+						return '(Any_isObject_((Any_*)(' + recvS + ')) ? ' + direct + ' : ' + legacy + ')'
+					}
 					return printExpression(Expression.Call(
 							Expression.Dot(expr, 'get', null /*TODO*/),
 							[index],
@@ -7724,6 +8332,8 @@ class GenCxx {
 				// (`hexaPumpResumes`, zero host edits). Outside async (or
 				// non-Promise) keeps the pass-through (M1 safe).
 					// C++ forbids `co_await` inside `catch` (C2304) — fall back
+				// REDESIGN NOTE (#7, as-is for now): `co_await` goes away
+				// with C++ coroutines (explicit pending-check + pump re-arm).
 			case Await(e):
 				// C++ forbids `co_await` inside `catch` (C2304) — fall back
 				// to the settled `.value` read below (no suspension).
