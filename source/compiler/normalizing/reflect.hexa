@@ -187,6 +187,40 @@ class ReflectLowerer {
 		}
 	}
 
+	/// Clone pure dup shapes so one IR object never has two parents.
+	/// Only called on already-checked pure nodes; throws otherwise.
+	fun clonePureExpr(e: Expression): Expression { switch e {
+			case Ident(n, t): return Expression.Ident(n, t)
+			case This(t): return Expression.This(t)
+			case String(s): return Expression.String(s)
+			case Int(v): return Expression.Int(v)
+			case MetaInt(v, k, t): return Expression.MetaInt(v, k, t)
+			case Float(v): return Expression.Float(v)
+			case True: return Expression.True
+			case False: return Expression.False
+			case Null(t): return Expression.Null(t)
+			case Underscore: return Expression.Underscore
+			case Parenthesis(inner): return Expression.Parenthesis(clonePureExpr(inner))
+			case Dot(b, n, r): return Expression.Dot(clonePureExpr(b), n, r)
+			case Binop(a, op, b, r): return Expression.Binop(clonePureExpr(a), op, clonePureExpr(b), r)
+			case _: throw 'clonePureExpr: impure dup'
+		} }
+
+	/// Pure index can be spelled twice; mirrors Arc.isPureIndex.
+	fun isPureRestIndex(e: Expression): Bool { switch e {
+			case Int(_): return true
+			case String(_): return true
+			case Float(_): return true
+			case True | False: return true
+			case Null(_): return true
+			case Ident(_, _): return true
+			case This(_): return true
+			case Dot(b, _, _): return isPureRestIndex(b)
+			case Binop(a, _, b, _): return isPureRestIndex(a) and isPureRestIndex(b)
+			case Parenthesis(i): return isPureRestIndex(i)
+			case _: return false
+		} }
+
 	/// Target-shape helper for skip triage, flat switch.
 	fun describeTarget(e: Expression): String {
 		switch e {
@@ -222,7 +256,8 @@ class ReflectLowerer {
 				return null
 			}
 
-			let sum = Expression.Binop(nt, op, nv, tt)
+			// Clone target for load so one object never has two parents.
+			let sum = Expression.Binop(clonePureExpr(nt), op, nv, tt)
 			return Statement.Assign(nt, sum, null)
 		}
 
@@ -245,7 +280,7 @@ class ReflectLowerer {
 				return null
 			}
 
-			let sum = Expression.Binop(nt, op, nv, tt)
+			let sum = Expression.Binop(clonePureExpr(nt), op, nv, tt)
 			return Expression.Binop(nt, Token.Assign, sum, tt)
 		}
 
@@ -463,6 +498,12 @@ class ReflectLowerer {
 				// Hexa rest detection: last arg is `Rest(element, native:false)`.
 				var savedName String? = restName
 				var savedElem Type? = restElem
+				// Defaults run at call-site with no rest scope; never lower them.
+				restName = null
+				restElem = null
+				let newDefaults = rewriteExprList(defaults)
+				restName = savedName
+				restElem = savedElem
 
 				if let ft = funcType { switch ft {
 						case Function(fargs, _, _):
@@ -476,7 +517,6 @@ class ReflectLowerer {
 								}
 							}
 					} }
-				let newDefaults = rewriteExprList(defaults)
 				let newBody = rewriteStmt(body)
 				let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
 				restName = savedName
@@ -682,6 +722,12 @@ class ReflectLowerer {
 	fun rewriteFnValue(body: Statement, args: [String], defaults: [Expression], funcType: Type, variadic: VariadicKind, isAsync: Bool, selfName: String? = null): Expression {
 		var savedName String? = restName
 		var savedElem Type? = restElem
+		// Defaults never see inner rest (call-site scope).
+		restName = null
+		restElem = null
+		let earlyDefaults = rewriteExprList(defaults)
+		restName = savedName
+		restElem = savedElem
 
 		if let ft = funcType { switch ft {
 				case Function(fargs, _, _):
@@ -695,7 +741,7 @@ class ReflectLowerer {
 						}
 					}
 			} }
-		let fn = Expression.Function(selfName, rewriteStmt(body), args, rewriteExprList(defaults), funcType, isAsync)
+		let fn = Expression.Function(selfName, rewriteStmt(body), args, earlyDefaults, funcType, isAsync)
 		restName = savedName
 		restElem = savedElem
 		return fn
@@ -744,7 +790,8 @@ class ReflectLowerer {
 			} }
 
 		if let rt = resT, let lt = lhsT {
-			if isFatFunctionType(lt), isFatFunctionType(rt) {
+			// Pairs cannot ride ternary; match genC `or` guard.
+			if isFatFunctionType(lt) or isFatFunctionType(rt) {
 				return Expression.Elvis(na as!Node, nb as!Node)
 			}
 			let boolT = niceProject.typer.typeBool
@@ -752,7 +799,8 @@ class ReflectLowerer {
 			// Both branches convert toward the result (reuses the tested
 			// converter arms, incl. Nullable unwrap + Any boxing) so the
 			// ternary is well-formed without relying on If's own rescue
-			let thenB = Expression.UnsafeBitCast(na, rt)
+			// Clone lhs for then-branch so one object never has two parents.
+			let thenB = Expression.UnsafeBitCast(clonePureExpr(na), rt)
 			let elseB = Expression.UnsafeBitCast(nb, rt)
 			return Expression.If(cond, thenB, elseB, rt)
 		}
@@ -841,7 +889,14 @@ class ReflectLowerer {
 
 	/// Rewrites expressions, counting dynamic shapes for the census
 	fun rewriteExpr(e: Expression): Expression { switch e {
-			case Ident(_, _):
+			case Ident(n, _):
+				// Bare rest survives only when no lowering consumed it.
+				// Consuming sites discard the base without rewriting it.
+				if let rn = restName {
+					if n == rn {
+						throw 'Rest bare use is not lowered (use for/in, length, index)'
+					}
+				}
 				return e
 			case Dot(expr, name, result):
 				// Hexa rest `.length` is `$nrest` (count).
@@ -866,10 +921,15 @@ class ReflectLowerer {
 						case Ident(oname, _):
 							if oname == rn {
 								let newIdx = rewriteExpr(index)
+								// Single-eval: pure index can be spelled twice (cloned),
+								// impure would run user code twice — fail loud.
+								if not isPureRestIndex(newIdx) {
+									throw 'Rest impure index needs temp hoisting (use pure index or for/in)'
+								}
 								let countIdent = Expression.Ident('$nrest', niceProject.typer.typeInt)
 								let ptrIdent = Expression.Ident('$rest', Type.Rest(elem, false))
 								let cond = Expression.Binop(newIdx, Token.Less, countIdent, niceProject.typer.typeBool)
-								let direct = Expression.Index(ptrIdent, newIdx, elem)
+								let direct = Expression.Index(ptrIdent, clonePureExpr(newIdx), elem)
 								let nullExpr = Expression.Null(Type.Nullable(elem))
 								return Expression.If(cond, direct, nullExpr, Type.Nullable(elem))
 							}
@@ -980,8 +1040,14 @@ class ReflectLowerer {
 				// carry the same Hexa-rest ABI as named fns — set the rest
 				// context around the body or `args.length`/`args[i]` never lower
 				// to `$nrest`/`$rest` (M1 `args_` undeclared).
+				// Defaults run at call-site; rewrite them with no rest scope.
 				var savedFnName String? = restName
 				var savedFnElem Type? = restElem
+				restName = null
+				restElem = null
+				let earlyFnDefaults = rewriteExprList(defaults)
+				restName = savedFnName
+				restElem = savedFnElem
 
 				if let ft = funcType { switch ft {
 						case Function(fargs, _, _):
@@ -997,14 +1063,19 @@ class ReflectLowerer {
 							}
 					} }
 				let newFnBody = rewriteStmt(body)
-				let newFnDefaults = rewriteExprList(defaults)
 				restName = savedFnName
 				restElem = savedFnElem
-				return Expression.Function(name, newFnBody, args, newFnDefaults, funcType, isAsync)
+				return Expression.Function(name, newFnBody, args, earlyFnDefaults, funcType, isAsync)
 			case Arrow(expr, args, defaults, types, returns, funcType, isAsync):
 				// Same rest context for `=>` arrows (see above).
+				// Defaults never see rest scope.
 				var savedArName String? = restName
 				var savedArElem Type? = restElem
+				restName = null
+				restElem = null
+				let earlyArDefaults = rewriteExprList(defaults)
+				restName = savedArName
+				restElem = savedArElem
 
 				if let ft = funcType { switch ft {
 						case Function(fargs, _, _):
@@ -1020,10 +1091,9 @@ class ReflectLowerer {
 							}
 					} }
 				let newArBody = rewriteExpr(expr)
-				let newArDefaults = rewriteExprList(defaults)
 				restName = savedArName
 				restElem = savedArElem
-				return Expression.Arrow(newArBody, args, newArDefaults, types, returns, funcType, isAsync)
+				return Expression.Arrow(newArBody, args, earlyArDefaults, types, returns, funcType, isAsync)
 			case _:
 				if e != null, kindOfExpr(e) != 'UnknownExpr' {
 					traceLog('REFLECT-MISS expr ' + kindOfExpr(e))
