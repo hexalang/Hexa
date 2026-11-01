@@ -1,0 +1,1103 @@
+// The Hexa Compiler
+// SPDX-FileCopyrightText: 2026 Oleh Petrenko
+// SPDX-License-Identifier: MPL-2.0
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+
+/// Post-closure lowering (PoC), runs AFTER ClosureLifter and BEFORE
+/// ArcInserter (see `source/main.hexa` order). Generators stay thin: this
+/// pass rewrites genC-flavored Nice into plainer Nice that calls explicit
+/// static helpers, so genC converges toward a pure C AST printer.
+///
+/// PoC scope: scalar `.toString()` only. `x.toString()` on a scalar
+/// receiver (`Int`/`Int64`/`UInt64`/`Float`/`Bool`/narrow ints) has no
+/// vtable — genC's `scalarToString` emits `String_$from*` helpers instead
+/// of `int->_->toString_` (invalid C). This pass lowers the same shape in
+/// Nice: `Call(Dot(scalar, 'toString'), [])` becomes an explicit
+/// `Call(Dot(String, 'fromInt32'/'fromFloat'/...), [scalar])` with
+/// `CallKind.Static`, reusing the tested static-call printer verbatim.
+/// genC keeps its `scalarToString` branches untouched as fallback for every
+/// shape this pass skips (dynamic, `Any`, nullable-unknown, missing
+/// `String` class, non-empty args), so output stays green while the new
+/// shape proves itself.
+///
+/// Bundle 2: object-literal → `Any` bag. `{ k: v, ... }` in an `Any`
+/// position (`Var`/`Const`/`Assign`/`Return`/call args with `Any` target)
+/// becomes explicit `Any_objectNew_()` + per-field `Any_objectSet_()`
+/// statements hoisted into the owning list (closures pattern), with the
+/// owner rewritten to use the bag temp. Field exprs are evaluated once,
+/// in order, before the owner. Fat fields, missing declares, untyped and
+/// non-hoistable positions keep the genC fallback untouched.
+///
+/// Ordering note: after ClosureLifter on purpose. Receivers may contain
+/// lifted closures (`closure$N` values, `Env$N` fills) and `$nrest`/`$rest`
+/// params — lowering here sees the final lifted bodies, while ARC still
+/// sees the lowered explicit calls and counts them via its standard
+/// `hexaMethodReturns` (+1 transfer for `String.from*`) path. Bag temps
+/// take the standard retaining path (balanced, leak-free).
+@final
+class ReflectPostLowerer {
+	var niceProject: NiceProject // The IR to mutate
+	/// Lean trace: census + LOWERED/KEPT + REFLECT-POST-MISS + summary.
+	let trace: [String] = []
+	var scalarSites Int = 0
+	var scalarLowered Int = 0
+	var bagSites Int = 0
+	var bagLowered Int = 0
+	// Problem-1 triage census (report-only, never mutates): ARC double
+	// releases come from guards releasing what the assignment path already
+	// released. Compiler temps (`temp_*`) are single-assignment transfer
+	// slots by construction, and `Const` bindings never rebind — any
+	// violation logged here is a candidate root (or a rule-out when zero).
+	var arcWarnTempReassign Int = 0
+	var arcWarnConstReassign Int = 0
+	var arcWarnDotOnTemp Int = 0
+	/// Const-scope stack for the census (innermost first). `Var` shadows
+	/// as non-const so inner rebinding never misfires on outer consts.
+	let constStack: [[String : Bool]] = []
+	/// Enclosing function key for census lines (mirrors the escape census
+	/// `Class_$method` scheme loosely — `?` outside functions).
+	var currentFuncName String = '?'
+	/// Hoisted bag-build statements for the statement being rewritten.
+	/// Drained by `processStatementList` / `rewriteStmtHoisted` / function
+	/// bodies (closures pattern) — never held across statements.
+	let hoisted: [Statement] = []
+	var tempId Int = 0
+	/// False in positions with no owning list (global/static/instance
+	/// inits, default values): lowering bails to the genC fallback there.
+	var hoistable Bool = true
+	/// Declared return type of the function being rewritten (for the
+	/// `Return` lowering site). Null outside functions.
+	var currentReturn Type? = null
+
+	new (niceProject: NiceProject) {
+		this.niceProject = niceProject
+	}
+
+	/// TEMPORARY INSTRUMENTATION helper
+	fun traceLog(line: String) {
+		trace.push(line)
+	}
+
+	/// Main entry, same coverage shape as ClosureLifter lift
+	fun lower() {
+		for i in niceProject.globalFuncs.length {
+			niceProject.globalFuncs[i] = rewriteFnStmt(niceProject.globalFuncs[i])
+		}
+
+		for c in niceProject.classes {
+			for i in c.methods.length {
+				c.methods[i] = rewriteFnStmt(c.methods[i])
+			}
+
+			for i in c.staticMethods.length {
+				c.staticMethods[i] = rewriteFnStmt(c.staticMethods[i])
+			}
+
+			processVarList(c.vars)
+			processVarList(c.staticVars)
+		}
+
+		for e in niceProject.enumsSimple {
+			processVarList(e.staticVars)
+
+			for i in e.staticMethods.length {
+				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
+			}
+		}
+
+		for e in niceProject.enumsComplex {
+			processVarList(e.staticVars)
+
+			for i in e.staticMethods.length {
+				e.staticMethods[i] = rewriteFnStmt(e.staticMethods[i])
+			}
+		}
+
+		processVarList(niceProject.globalVars)
+
+		if niceProject.init.length > 0 {
+			let wrapped = processStatementList(niceProject.init)
+			niceProject.init.splice(0, niceProject.init.length)
+
+			for s in wrapped {
+				niceProject.init.push(s)
+			}
+		}
+
+		traceLog('REFLECT-POST scalarToString sites=' + scalarSites + ' lowered=' + scalarLowered)
+		traceLog('REFLECT-POST objectToBag sites=' + bagSites + ' lowered=' + bagLowered)
+		traceLog('REFLECT-POST-ARC-CENSUS tempReassign=' + arcWarnTempReassign + ' constReassign=' + arcWarnConstReassign + ' dotOnTemp=' + arcWarnDotOnTemp)
+		Fs.writeFileSync('reflect-post-trace.log', trace.join('\n'))
+	}
+
+	/// Census scope push (fresh map per function/list + func key for lines).
+	fun pushScopeFor(name: String?): String {
+		let prev = currentFuncName
+
+		if name != null {
+			currentFuncName = name
+		} else {
+			currentFuncName = '?'
+		}
+
+		let m: [String : Bool] = [:]
+		constStack.push(m)
+		return prev
+	}
+
+	/// Census scope pop (restores the enclosing map + func key).
+	fun popScopeFor(prev: String) {
+		if constStack.length > 0 {
+			constStack.pop()
+		}
+
+		currentFuncName = prev
+	}
+
+	/// Records a `Var`/`Const` binding in the innermost census scope.
+	fun scopeBind(name: String, isConst: Bool) {
+		if constStack.length > 0 {
+			constStack[constStack.length - 1].set(name, isConst)
+		}
+	}
+
+	/// Innermost-first const lookup (inner `Var` shadows outer `Const`).
+	fun scopeLookupConst(name: String): Bool? {
+		var i = constStack.length - 1
+
+		while i >= 0 {
+			if let v = constStack[i].get(name) {
+				return v
+			}
+
+			i--
+		}
+
+		return null
+	}
+
+	/// Report-only audit of an assign target for problem-1 shapes:
+	/// reassigned compiler temps (single-assignment transfer slots),
+	/// rebound `Const` names, and stores through temp-held bases.
+	fun auditAssignTarget(t: Expression) { switch t {
+			case Ident(name, _):
+				if name.startsWith('temp_') {
+					arcWarnTempReassign++
+					traceLog('REFLECT-POST-ARC-WARN reassign-temp ' + name + ' in ' + currentFuncName)
+				}
+
+				if scopeLookupConst(name) == true {
+					arcWarnConstReassign++
+					traceLog('REFLECT-POST-ARC-WARN assign-const ' + name + ' in ' + currentFuncName)
+				}
+			case Dot(base, _, _): switch base {
+					case Ident(bname, _):
+						if bname.startsWith('temp_') {
+							arcWarnDotOnTemp++
+							traceLog('REFLECT-POST-ARC-WARN dot-on-temp ' + bname + ' in ' + currentFuncName)
+						}
+					case _:
+				}
+			case _:
+		} }
+
+	/// Rewrites initializers of var and const lists in place. No owning
+	/// list exists here (globals/statics/instance fields), so hoisting is
+	/// off: bag lowering bails to the genC fallback in these positions.
+	/// Runs under its own census scope (rebinds across lists are invisible
+	/// to each other — documented limitation, log-only either way).
+	fun processVarList(list: [Statement]) {
+		let savedHoistable = hoistable
+		hoistable = false
+		let prevFunc = pushScopeFor(null)
+
+		for i in list.length {
+			let old = list[i]
+			list[i] = rewriteVarInit(old)
+
+			if list[i] != old {
+				if let link = niceProject.globalLink.get(old) {
+					niceProject.globalLink.set(list[i], link)
+				}
+			}
+		}
+
+		popScopeFor(prevFunc)
+		hoistable = savedHoistable
+	}
+
+	/// Rewrites one var or const initializer expression
+	fun rewriteVarInit(s: Statement): Statement { switch s {
+			case Var(name, expr, dataType):
+				return Statement.Var(name, rewriteExpr(expr), dataType)
+			case Const(name, expr, dataType):
+				return Statement.Const(name, rewriteExpr(expr), dataType)
+			case _:
+				return s
+		} }
+
+	/// Rewrites the body of a top-level function or method statement.
+	/// Owns the hoisting scope and the census scope: bag builds drain
+	/// into the body, `Var`/`Const` bindings are visible to the assign
+	/// audit below.
+	fun rewriteFnStmt(s: Statement): Statement { switch s {
+			case Function(name, body, args, defaults, funcType, variadic, isAsync):
+				let savedHoisted = drainHoisted()
+				let savedHoistable = hoistable
+				let savedReturn = currentReturn
+				let prevFunc = pushScopeFor(name)
+				hoistable = true
+				currentReturn = returnTypeOf(funcType)
+				hoistable = false
+				let newDefaults = rewriteExprList(defaults)
+				hoistable = true
+				let newBody = rewriteStmt(body)
+				let drained = drainHoisted()
+				let kept = prependHoisted(newBody, drained)
+				hoistable = savedHoistable
+				currentReturn = savedReturn
+				restoreHoisted(savedHoisted)
+				popScopeFor(prevFunc)
+				let result = Statement.Function(name, kept, args, newDefaults, funcType, variadic, isAsync)
+
+				if let link = niceProject.globalLink.get(s) {
+					niceProject.globalLink.set(result, link)
+				}
+
+				return result
+			case _:
+				return s
+		} }
+
+	/// Declared return type behind a function type (for the `Return`
+	/// lowering site). Null when untyped — caller keeps the fallback.
+	fun returnTypeOf(funcType: Type?): Type? { switch funcType {
+			case Function(_, returns, _):
+				return returns
+			case _:
+				return null
+		} }
+
+	/// Takes the pending hoisted statements, leaving the slot empty.
+	fun drainHoisted(): [Statement] {
+		let out: [Statement] = []
+
+		for h in hoisted {
+			out.push(h)
+		}
+
+		hoisted.splice(0, hoisted.length)
+		return out
+	}
+
+	/// Restores a previously drained hoisted list (nesting save/restore).
+	fun restoreHoisted(saved: [Statement]) {
+		for s in saved {
+			hoisted.push(s)
+		}
+	}
+
+	/// Prepends hoisted statements to a function body: existing `Block`
+	/// grows in place, anything else wraps (same rule as closures).
+	fun prependHoisted(body: Statement, drained: [Statement]): Statement {
+		if drained.length == 0 {
+			return body
+		}
+
+		switch body {
+			case Block(els):
+				var k = drained.length
+
+				while k > 0 {
+					k = k - 1
+					els.unshift(drained[k])
+				}
+
+				return Statement.Block(els)
+			case _:
+				let nel: [Statement] = []
+
+				for d in drained {
+					nel.push(d)
+				}
+
+				nel.push(body)
+				return Statement.Block(nel)
+		}
+	}
+
+	/// Result type carried by a `Dot` callee (`recv.toString` claims
+	/// `String`), used as the lowered static-call result in statement
+	/// position (which carries no result of its own).
+	fun dotResultOf(callee: Expression): Type? { switch callee {
+			case Dot(_, _, result):
+				return result
+			case _:
+				return null
+		} }
+
+	/// Rewrites a statement list, draining hoisted bag-builds before
+	/// their owner (closures pattern — single eval, source order kept).
+	fun processStatementList(els: [Statement]): [Statement] {
+		let out: [Statement] = []
+
+		for s in els {
+			let saved = drainHoisted()
+			let savedHoistable = hoistable
+			hoistable = true
+			let r = rewriteStmt(s)
+			let drained = drainHoisted()
+			hoistable = savedHoistable
+			restoreHoisted(saved)
+
+			for h in drained {
+				out.push(h)
+			}
+
+			out.push(r)
+
+			if r != s {
+				if let link = niceProject.globalLink.get(s) {
+					niceProject.globalLink.set(r, link)
+				}
+			}
+		}
+
+		return out
+	}
+
+	/// Rewrites a single-statement child (branches, loop bodies, catches):
+	/// hoisted bag-builds wrap into a block with their owner.
+	fun rewriteStmtHoisted(s: Statement): Statement {
+		let saved = drainHoisted()
+		let savedHoistable = hoistable
+		hoistable = true
+		let r = rewriteStmt(s)
+		let drained = drainHoisted()
+		hoistable = savedHoistable
+		restoreHoisted(saved)
+
+		if drained.length == 0 {
+			return r
+		}
+
+		return prependHoisted(r, drained)
+	}
+
+	/// Scalar receiver -> explicit `String.from*` static name, mirroring
+	/// genC `scalarToString` (decimal only, radix dropped in Phase 1).
+	/// Null for every non-scalar shape (genC fallback owns those).
+	fun scalarStaticFor(t: Type?): String? {
+		if t == null {
+			return null
+		}
+
+		switch t {
+			case Nullable(inner):
+				return scalarStaticFor(inner)
+			case UnknownNullable(inner):
+				return scalarStaticFor(inner)
+			case Unknown(inner):
+				return scalarStaticFor(inner.value)
+			case ClassInstance(c, _):
+				return scalarStaticForName(c.name)
+			case Class(c):
+				return scalarStaticForName(c.name)
+			case _:
+				return null
+		}
+	}
+
+	/// Name-level mapping (both `Class` and `ClassInstance` shapes).
+	fun scalarStaticForName(name: String?): String? {
+		if name == 'Int' or name == 'Int8' or name == 'Int16' or name == 'Int32' {
+			return 'fromInt32'
+		}
+
+		if name == 'UInt8' or name == 'UInt16' or name == 'UInt32' {
+			return 'fromInt32'
+		}
+
+		if name == 'Int64' {
+			return 'fromInt64'
+		}
+
+		if name == 'UInt64' {
+			return 'fromUInt64'
+		}
+
+		if name == 'Float' or name == 'Float32' or name == 'Number' {
+			return 'fromFloat'
+		}
+
+		if name == 'Bool' {
+			return 'fromBool'
+		}
+
+		return null
+	}
+
+	/// The `String` class type for the explicit static callee base.
+	/// Null when unresolvable (caller keeps the genC fallback).
+	fun stringClassType(): Type? {
+		for c in niceProject.classes {
+			if c.name == 'String' {
+				return c.classType
+			}
+		}
+
+		return null
+	}
+
+	/// Carried type behind an expression (fallback when the
+	/// `expressionType` map entry was dropped by a pass rebuild).
+	/// Literal arms mirror genC `getType` (shape-typed, never null).
+	fun carriedTypeOf(e: Expression): Type? { switch e {
+			case Ident(_, dataType):
+				return dataType
+			case This(me):
+				return me
+			case Dot(_, _, result):
+				return result
+			case Call(_, _, result, _, _):
+				return result
+			case New(_, _, result):
+				return result
+			case Binop(_, _, _, result):
+				return result
+			case Index(_, _, result):
+				return result
+			case StringIndex(_, _, result):
+				return result
+			case If(_, _, _, result):
+				return result
+			case Parenthesis(inner):
+				return carriedTypeOf(inner)
+			case UnsafeBitCast(_, to):
+				return to
+			case RemoveNullability(_, result):
+				return result
+			case Unop(op, postfix, inner):
+				// Mirrors genC `getType`: `!x` is always `Bool`, else recurse.
+				if not postfix, op == Token.KNot or op == Token.Exclamation {
+					return niceProject.typer.typeBool
+				}
+
+				return carriedTypeOf(inner)
+			case Array(_, arrayType):
+				return arrayType
+			case Int(_):
+				return niceProject.typer.typeInt
+			case Float(_):
+				return niceProject.typer.typeFloat
+			case String(_):
+				return niceProject.typer.typeString
+			case True:
+				return niceProject.typer.typeBool
+			case False:
+				return niceProject.typer.typeBool
+			case _:
+				return null
+		} }
+
+	/// Receiver type: map first (survives for literals like `5`/`true`
+	/// that carry no payload type), carried payload as fallback.
+	fun baseTypeOf(e: Expression): Type? {
+		if let t = niceProject.expressionType.get(e) {
+			return t
+		}
+
+		return carriedTypeOf(e)
+	}
+
+	/// True for the dynamic `Any` shape that genC routes via reflection.
+	fun isAnyType(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		return t == niceProject.typer.typeAny
+	}
+
+	/// Callee for the explicit bag construction. Uses the C name with the
+	/// `native` flag, exactly like the normalizer-built call Idents for
+	/// `@rename` declares (`malloc(...)` precedent prints raw). No
+	/// existence check needed: genC emits the definition unconditionally.
+	fun bagNewCallee(): Expression {
+		let id = Expression.Ident('Any_objectNew_', null)
+		niceProject.native.set(id, true)
+		return id
+	}
+
+	/// Callee for the explicit field stores (same convention as above).
+	fun bagSetCallee(): Expression {
+		let id = Expression.Ident('Any_objectSet_', null)
+		niceProject.native.set(id, true)
+		return id
+	}
+
+	/// True for plain bag fields: scalars and object pointers bridge to
+	/// `Any` identically in the lowered `Any_objectSet` call and in the
+	/// genC fallback, so no conversion can diverge. Everything else
+	/// (`Any` itself excluded as dynamic, `Function` needs pair boxing,
+	/// nullables/generics/erased shapes need type-directed conversion)
+	/// keeps the fallback.
+	fun isPlainBagField(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		switch t {
+			case ClassInstance(c, _):
+				return c.name != 'Any'
+			case Class(c):
+				return c.name != 'Any'
+			case _:
+				return false
+		}
+	}
+
+	/// Trial lowering: struct value in an `Any` position becomes an
+	/// explicit bag build. Two heads share one tail:
+	/// - object literal: field exprs (already rewritten) go straight into
+	///   the per-field sets (no intermediate struct — fewer allocs than
+	///   the genC shape, same order, same single eval);
+	/// - any other struct-typed expression (`Ident`/`Dot`/`Call` result):
+	///   hoists `Var($pspN, expr, structT)` once (single eval for
+	///   side-effecting exprs), field reads are `Dot($pspN, f)` temps.
+	/// Then: `Var($psbN, Any_objectNew_())` plus one
+	/// `Any_objectSet_($psbN, "field", fieldExpr)` per field, returning
+	/// the bag temp. Skips (genC fallback owns): non-hoistable positions,
+	/// non-plain fields, untyped fields, length mismatches, non-struct
+	/// shapes. Fat-typed fields can never pass the plain-field gate, so
+	/// pair boxing stays in the fallback exactly as today.
+	fun tryLowerStructValue(e: Expression, targetIsAny: Bool): Expression? {
+		if not targetIsAny {
+			return null
+		}
+
+		switch e {
+			case Object(names, vals, _):
+				return lowerObjectFields(names, vals)
+			case _:
+				let st = baseTypeOf(e)
+
+				switch st {
+					case Struct(snames, sfts):
+						return lowerStructExpr(e, st, snames, sfts)
+					case _:
+						return null
+				}
+		}
+	}
+
+	/// Object-literal head: field types are derived per value (mirrors
+	/// genC `getType` via `carriedTypeOf` — pass rebuilds drop the map
+	/// entries behind the `Struct` type).
+	fun lowerObjectFields(names: [String], vals: [Expression]): Expression? {
+		bagSites++
+
+		if names.length != vals.length {
+			traceLog('REFLECT-POST-KEPT object length mismatch')
+			return null
+		}
+
+		var ftypes: [Type] = []
+
+		for i in vals.length {
+			let ft = baseTypeOf(vals[i])
+
+			if not isPlainBagField(ft) {
+				var typeName = 'null'
+
+				if ft != null {
+					typeName = Type.stringify(ft)
+				}
+
+				traceLog('REFLECT-POST-KEPT object field[' + i + '] kind=' + kindOfExpr(vals[i]) + ' type=' + typeName)
+				return null
+			}
+
+			ftypes.push(ft as!Type)
+		}
+
+		return buildBag(names, vals, ftypes)
+	}
+
+	/// Struct-expression head: spill the value once, read fields back.
+	fun lowerStructExpr(e: Expression, structT: Type, snames: [String], sfts: [Type]): Expression? {
+		bagSites++
+
+		for ft in sfts {
+			if not isPlainBagField(ft) {
+				var typeName = 'null'
+
+				if ft != null {
+					typeName = Type.stringify(ft)
+				}
+
+				traceLog('REFLECT-POST-KEPT struct field type=' + typeName)
+				return null
+			}
+		}
+
+		if not hoistable {
+			traceLog('REFLECT-POST-KEPT struct no-hoist position')
+			return null
+		}
+
+		let anyT = niceProject.typer.typeAny
+		let sp = '$psp' + tempId
+		tempId++
+		hoisted.push(Statement.Var(sp, e, structT))
+		let spIdent = Expression.Ident(sp, structT)
+		var vals: [Expression] = []
+
+		for i in snames.length {
+			vals.push(Expression.Dot(spIdent, snames[i], sfts[i]))
+		}
+
+		return buildBag(snames, vals, sfts)
+	}
+
+	/// Shared tail: `Var($psbN, Any_objectNew_())` + per-field sets.
+	fun buildBag(names: [String], vals: [Expression], ftypes: [Type]): Expression? {
+		if not hoistable {
+			traceLog('REFLECT-POST-KEPT object no-hoist position')
+			return null
+		}
+
+		let anyT = niceProject.typer.typeAny
+		let bag = '$psb' + tempId
+		tempId++
+		let bagIdent = Expression.Ident(bag, anyT)
+		hoisted.push(Statement.Var(bag, Expression.Call(bagNewCallee(), [], anyT, CallKind.Function, []), anyT))
+
+		// Explicit expects: the value converts to `Any` exactly like the
+		// genC fallback's per-field conversion (scalars box, pointers
+		// bridge). Reuses the tested call-argument printer.
+		let setExpects = [anyT, niceProject.typer.typeString, anyT]
+
+		for i in names.length {
+			let key = Expression.String(names[i])
+			hoisted.push(Statement.Call(bagSetCallee(), [bagIdent, key, vals[i]], setExpects, CallKind.Function))
+		}
+
+		bagLowered++
+		traceLog('REFLECT-POST-LOWERED object->bag fields=' + names.length)
+		return bagIdent
+	}
+
+	/// Trial lowering on a call argument: struct value into an `Any`
+	/// parameter becomes the bag temp (built by `tryLowerStructValue`).
+	fun lowerCallObjectArg(arg: Expression, expects: [Type]?, index: Int): Expression {
+		if let ex = expects {
+			if index < ex.length {
+				if isAnyType(ex[index]) {
+					if let bag = tryLowerStructValue(arg, true) {
+						return bag
+					}
+				}
+			}
+		}
+
+		return arg
+	}
+
+	/// Trial lowering: `recv.toString()` on a scalar receiver becomes
+	/// `String.from*(recv)`. Static call, zero-arg guard (radix dropped),
+	/// `String`-typed receivers excluded by construction (not scalar).
+	/// Returns null when not applicable (genC fallback owns it).
+	fun lowerScalarToString(callee: Expression, args: [Expression], result: Type): Expression? { switch callee {
+			case Dot(base, name, _):
+				if name != 'toString' {
+					return null
+				}
+
+				if args.length != 0 {
+					return null
+				}
+
+				scalarSites++
+
+				let st = baseTypeOf(base)
+				let staticName = scalarStaticFor(st)
+
+				if staticName == null {
+					var typeName = 'null'
+
+					if st != null {
+						typeName = Type.stringify(st)
+					}
+
+					traceLog('REFLECT-POST-KEPT toString over ' + kindOfExpr(base) + ' type=' + typeName)
+					return null
+				}
+
+				let sc = stringClassType()
+
+				if sc == null {
+					traceLog('REFLECT-POST-KEPT toString (no String class)')
+					return null
+				}
+
+				let newCallee = Expression.Dot(Expression.Ident('String', sc), staticName, result)
+				scalarLowered++
+				traceLog('REFLECT-POST-LOWERED toString -> String.' + staticName)
+				return Expression.Call(newCallee, [base], result, CallKind.Static, [])
+			case _:
+				return null
+		} }
+
+	/// Rewrites statements, recursing everywhere Calls can hide.
+	/// Single-statement children go through `rewriteStmtHoisted` so bag
+	/// builds wrap with their owner instead of leaking out of the scope.
+	fun rewriteStmt(s: Statement): Statement { switch s {
+			case Statements(els):
+				return Statement.Statements(processStatementList(els))
+			case Block(els):
+				return Statement.Block(processStatementList(els))
+			case Call(e, args, expects, kind):
+				let nc = rewriteExpr(e)
+				var na = rewriteExprList(args)
+
+				if let rt = dotResultOf(nc) {
+					if let lowered = lowerScalarToString(nc, na, rt) { switch lowered {
+							case Call(nc2, na2, _, _, _):
+								return Statement.Call(nc2, na2, expects, CallKind.Static)
+							case _:
+								return Statement.Call(nc, na, expects, kind)
+						} }
+				}
+
+				let loweredArgs = lowerCallObjectArgs(na, expects)
+				return Statement.Call(nc, loweredArgs, expects, kind)
+			case Var(name, expr, dataType):
+				let ne = rewriteExpr(expr)
+				scopeBind(name, false)
+
+				if let bag = tryLowerStructValue(ne, isAnyType(dataType)) {
+					return Statement.Var(name, bag, dataType)
+				}
+
+				return Statement.Var(name, ne, dataType)
+			case Const(name, expr, dataType):
+				let ne = rewriteExpr(expr)
+				scopeBind(name, true)
+
+				if let bag = tryLowerStructValue(ne, isAnyType(dataType)) {
+					return Statement.Const(name, bag, dataType)
+				}
+
+				return Statement.Const(name, ne, dataType)
+			case Function(name, body, args, defaults, funcType, variadic, isAsync):
+				return Statement.Function(name, rewriteNestedBody(body, args, funcType, name), args, rewriteExprList(defaults), funcType, variadic, isAsync)
+			case Return(e):
+				let ne = rewriteExpr(e)
+
+				if currentReturn != null, isAnyType(currentReturn) {
+					if let bag = tryLowerStructValue(ne, true) {
+						return Statement.Return(bag)
+					}
+				}
+
+				return Statement.Return(ne)
+			case If(econd, eif, eelse):
+				return Statement.If(rewriteExpr(econd), rewriteStmtHoisted(eif), rewriteStmtHoisted(eelse))
+			case Try(expr, t, v, catches, temp):
+				let newCatches: [Statement] = []
+
+				for c in catches {
+					newCatches.push(rewriteStmtHoisted(c))
+				}
+
+				return Statement.Try(rewriteStmtHoisted(expr), t, v, newCatches, temp)
+			case Throw(value):
+				return Statement.Throw(rewriteExpr(value))
+			case Assign(name, value, to):
+				let nn = rewriteExpr(name)
+				let nv = rewriteExpr(value)
+				auditAssignTarget(nn)
+
+				if let bag = tryLowerStructValue(nv, isAnyType(baseTypeOf(nn))) {
+					return Statement.Assign(nn, bag, to)
+				}
+
+				return Statement.Assign(nn, nv, to)
+			case Assignop(name, op, value):
+				return Statement.Assignop(rewriteExpr(name), op, rewriteExpr(value))
+			case For(name, over, by, reverse):
+				return Statement.For(name, rewriteExpr(over), rewriteStmtHoisted(by), reverse)
+			case While(econd, e, pre):
+				return Statement.While(rewriteExpr(econd), rewriteStmtHoisted(e), pre)
+			case Increment(e):
+				return Statement.Increment(rewriteExpr(e))
+			case Decrement(e):
+				return Statement.Decrement(rewriteExpr(e))
+			case PatternSwitch(expr, cases, statements, guards, binds):
+				let newCases: [[Expression]] = []
+
+				for case_ in cases {
+					newCases.push(rewriteExprList(case_))
+				}
+
+				let newGuards: [Expression] = []
+
+				for g in guards {
+					newGuards.push(rewriteExpr(g))
+				}
+
+				let newStatements: [Statement] = []
+
+				for st in statements {
+					newStatements.push(rewriteStmtHoisted(st))
+				}
+
+				let newBinds: [[Statement]] = []
+
+				for b in binds {
+					newBinds.push(processStatementList(b))
+				}
+
+				return Statement.PatternSwitch(rewriteExpr(expr), newCases, newStatements, newGuards, newBinds)
+			case PlainSwitch(expr, cases, statements):
+				let newCases: [[Expression]] = []
+
+				for case_ in cases {
+					newCases.push(rewriteExprList(case_))
+				}
+
+				let newStatements: [Statement] = []
+
+				for st in statements {
+					newStatements.push(rewriteStmtHoisted(st))
+				}
+
+				return Statement.PlainSwitch(rewriteExpr(expr), newCases, newStatements)
+			case SuperConstructor(args):
+				return Statement.SuperConstructor(rewriteExprList(args))
+			case RefInc(name):
+				return Statement.RefInc(rewriteExprList(name))
+			case DeferRefDec(name):
+				return Statement.DeferRefDec(rewriteExprList(name))
+			case Continue | Break:
+				return s
+			case _:
+				if s != null, kindOfStmt(s) != 'UnknownStmt' {
+					traceLog('REFLECT-POST-MISS stmt ' + kindOfStmt(s))
+				}
+
+				return s
+		} }
+
+	/// TEMPORARY INSTRUMENTATION, exact case tags mirroring ClosureLifter
+	fun kindOfStmt(s: Statement): String { switch s {
+			case Statements(_): return 'Statements'
+			case Block(_): return 'Block'
+			case Call(_, _, _, _): return 'Call'
+			case Var(_, _, _): return 'Var'
+			case Const(_, _, _): return 'Const'
+			case Function(_, _, _, _, _, _, _): return 'Function'
+			case Return(_): return 'Return'
+			case If(_, _, _): return 'If'
+			case Try(_, _, _, _, _): return 'Try'
+			case Throw(_): return 'Throw'
+			case Assign(_, _, _): return 'Assign'
+			case Assignop(_, _, _): return 'Assignop'
+			case For(_, _, _, _): return 'For'
+			case While(_, _, _): return 'While'
+			case Increment(_): return 'Increment'
+			case Decrement(_): return 'Decrement'
+			case PatternSwitch(_, _, _, _, _): return 'PatternSwitch'
+			case PlainSwitch(_, _, _): return 'PlainSwitch'
+			case Continue: return 'Continue'
+			case Break: return 'Break'
+			case SuperConstructor(_): return 'SuperConstructor'
+			case RefInc(_): return 'RefInc'
+			case DeferRefDec(_): return 'DeferRefDec'
+			case _: return 'UnknownStmt'
+		} }
+
+	/// TEMPORARY INSTRUMENTATION, exact case tags mirroring ClosureLifter
+	fun kindOfExpr(e: Expression): String { switch e {
+			case String(_): return 'String'
+			case Int(_): return 'Int'
+			case MetaInt(_, _, _): return 'MetaInt'
+			case Float(_): return 'Float'
+			case True: return 'True'
+			case False: return 'False'
+			case Ident(_, _): return 'Ident'
+			case Null(_): return 'Null'
+			case This(_): return 'This'
+			case Dot(_, _, _): return 'Dot'
+			case Call(_, _, _, _, _): return 'Call'
+			case New(_, _, _): return 'New'
+			case Binop(_, _, _, _): return 'Binop'
+			case Function(_, _, _, _, _, _): return 'Function'
+			case Arrow(_, _, _, _, _, _, _): return 'Arrow'
+			case Parenthesis(_): return 'Parenthesis'
+			case Object(_, _, _): return 'Object'
+			case Array(_, _): return 'Array'
+			case Map(_, _, _, _, _): return 'Map'
+			case Unop(_, _, _): return 'Unop'
+			case Await(_): return 'Await'
+			case Elvis(_, _): return 'Elvis'
+			case If(_, _, _, _): return 'If'
+			case Index(_, _, _): return 'Index'
+			case UnsafeBitCast(_, _): return 'UnsafeBitCast'
+			case Is(_, _): return 'Is'
+			case RemoveNullability(_, _): return 'RemoveNullability'
+			case Assignop(_, _, _): return 'Assignop'
+			case EnumTag(_): return 'EnumTag'
+			case Enum(_, _, _, _): return 'Enum'
+			case EnumParameter(_, _): return 'EnumParameter'
+			case Underscore: return 'Underscore'
+			case Spread(_): return 'Spread'
+			case CapturedVar(_, _): return 'CapturedVar'
+			case StringConcatenation(_, _): return 'StringConcatenation'
+			case StringIndex(_, _, _): return 'StringIndex'
+			case NativeOperator(_, _, _, _, _): return 'NativeOperator'
+			case _: return 'UnknownExpr'
+		} }
+
+	fun rewriteExprList(list: [Expression]): [Expression] {
+		let out: [Expression] = []
+
+		for e in list {
+			out.push(rewriteExpr(e))
+		}
+
+		return out
+	}
+
+	/// Rewrites a nested function body with its own hoisting scope,
+	/// return-type context and census scope (same contract as
+	/// `rewriteFnStmt`).
+	fun rewriteNestedBody(body: Statement, args: [String], funcType: Type, name: String?): Statement {
+		let savedHoisted = drainHoisted()
+		let savedHoistable = hoistable
+		let savedReturn = currentReturn
+		let prevFunc = pushScopeFor(name)
+		hoistable = true
+		currentReturn = returnTypeOf(funcType)
+		let newBody = rewriteStmt(body)
+		let drained = drainHoisted()
+		let kept = prependHoisted(newBody, drained)
+		hoistable = savedHoistable
+		currentReturn = savedReturn
+		restoreHoisted(savedHoisted)
+		popScopeFor(prevFunc)
+		return kept
+	}
+
+	/// Trial lowering helper (see `tryLowerObjectValue`): lowers object
+	/// args at `Any` parameter positions, preserving order.
+	fun lowerCallObjectArgs(args: [Expression], expects: [Type]?): [Expression] {
+		if expects == null {
+			return args
+		}
+
+		let out: [Expression] = []
+
+		for i in args.length {
+			out.push(lowerCallObjectArg(args[i], expects, i))
+		}
+
+		return out
+	}
+
+	/// Rewrites expressions, lowering scalar `.toString()` calls
+	fun rewriteExpr(e: Expression): Expression { switch e {
+			case Ident(_, _): return e
+			case Dot(expr, name, result):
+				return Expression.Dot(rewriteExpr(expr), name, result)
+			case Index(expr, index, result):
+				return Expression.Index(rewriteExpr(expr), rewriteExpr(index), result)
+			case StringIndex(expr, index, result):
+				return Expression.StringIndex(rewriteExpr(expr), rewriteExpr(index), result)
+			case Call(callee, args, result, kind, expects):
+				let nc = rewriteExpr(callee)
+				let na = lowerCallObjectArgs(rewriteExprList(args), expects)
+
+				if let lowered = lowerScalarToString(nc, na, result) {
+					return lowered
+				}
+
+				return Expression.Call(nc, na, result, kind, expects)
+			case New(callee, args, result):
+				return Expression.New(rewriteExpr(callee), rewriteExprList(args), result)
+			case Binop(a, op, b, result):
+				return Expression.Binop(rewriteExpr(a), op, rewriteExpr(b), result)
+			case Unop(op, postfix, inner):
+				return Expression.Unop(op, postfix, rewriteExpr(inner))
+			case Parenthesis(inner):
+				return Expression.Parenthesis(rewriteExpr(inner))
+			case Array(values, arrayType):
+				return Expression.Array(rewriteExprList(values), arrayType)
+			case Object(names, el, types):
+				return Expression.Object(names, rewriteExprList(el), types)
+			case Map(keys, values, keyType, valueType, mapType):
+				return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
+			case If(econd, eif, eelse, result):
+				return Expression.If(rewriteExpr(econd), rewriteExpr(eif), rewriteExpr(eelse), result)
+			case Elvis(a, b):
+				return Expression.Elvis(rewriteExpr(a as!Expression), rewriteExpr(b as!Expression))
+			case This(_):
+				return e
+			case Await(inner):
+				return Expression.Await(rewriteExpr(inner))
+			case UnsafeBitCast(inner, to):
+				return Expression.UnsafeBitCast(rewriteExpr(inner), to)
+			case Is(inner, of):
+				return Expression.Is(rewriteExpr(inner), of)
+			case RemoveNullability(inner, result):
+				return Expression.RemoveNullability(rewriteExpr(inner), result)
+			case Assignop(name, op, value):
+				return Expression.Assignop(rewriteExpr(name), op, rewriteExpr(value))
+			case EnumTag(inner):
+				return Expression.EnumTag(rewriteExpr(inner))
+			case Enum(enumType, tagName, tag, args):
+				return Expression.Enum(enumType, tagName, rewriteExpr(tag), rewriteExprList(args))
+			case EnumParameter(inner, index):
+				return Expression.EnumParameter(rewriteExpr(inner), index)
+			case Spread(inner):
+				return Expression.Spread(rewriteExpr(inner))
+			case StringConcatenation(leftString, rightString):
+				return Expression.StringConcatenation(rewriteExpr(leftString), rewriteExpr(rightString))
+			case NativeOperator(kind, args, name, params, result):
+				return Expression.NativeOperator(kind, rewriteExprList(args), name, params, result)
+			case String(_): return e
+			case Int(_): return e
+			case Float(_): return e
+			case Null(_): return e
+			case Underscore: return e
+			case True: return e
+			case False: return e
+			case MetaInt(_, _, _): return e
+			case Function(name, body, args, defaults, funcType, isAsync):
+				let savedHoistable = hoistable
+				hoistable = false
+				let newDefaults = rewriteExprList(defaults)
+				hoistable = savedHoistable
+				return Expression.Function(name, rewriteNestedBody(body, args, funcType, name), args, newDefaults, funcType, isAsync)
+			case Arrow(expr, args, defaults, types, returns, funcType, isAsync):
+				// Arrow bodies are single expressions with no statement slot:
+				// bag builds cannot hoist out of them (that would evaluate
+				// per-call fields once at creation), so hoisting stays off
+				// here and those shapes keep the genC fallback. Nested
+				// function values re-enable their own scope via
+				// `rewriteNestedBody`.
+				let savedHoistable = hoistable
+				hoistable = false
+				let newDefaults = rewriteExprList(defaults)
+				let newBody = rewriteExpr(expr)
+				hoistable = savedHoistable
+				return Expression.Arrow(newBody, args, newDefaults, types, returns, funcType, isAsync)
+			case _:
+				if e != null, kindOfExpr(e) != 'UnknownExpr' {
+					traceLog('REFLECT-POST-MISS expr ' + kindOfExpr(e))
+				}
+
+				return e
+		} }
+}
