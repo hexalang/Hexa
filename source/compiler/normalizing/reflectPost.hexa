@@ -28,6 +28,23 @@
 /// in order, before the owner. Fat fields, missing declares, untyped and
 /// non-hoistable positions keep the genC fallback untouched.
 ///
+/// Direction map (#6): this pass owns struct→bag (static shape→dynamic).
+/// The reverse — Any→struct (dynamic payload→static shape, genC
+/// `printAnyToStruct` helpers) — has NO lowering yet; it stays in genC
+/// until `Any`/bags become Nice classes (then bag reads become field
+/// reads and the helpers disappear). Same dependency gates #4 (struct /
+/// interface literal construction via `hexaNewBytes` + field `Assign`s —
+/// blocked on encoding generic `sizeOf<T>()` calls in Nice IR).
+///
+/// Bundle 3: `Var(x, Null)` + conditional-`Assign` fusion. The `if let` /
+/// `guard let` state machine emits `Var(temp_N, Null)` + `If(c){x=v;…}`
+/// (single-assignment transfer slots rewritten — the proven source of the
+/// `reassign-temp` census hits, problem-1 double-release candidates).
+/// Adjacent pairs with pure conditions and hoist-free branches fuse into
+/// `Var(x, If(c, v, Null))` (single assignment; the `If` stays with the
+/// remaining branch statements). Scalarish/untyped temps keep the fallback
+/// (harmless for ARC). Single eval, source order kept.
+///
 /// Ordering note: after ClosureLifter on purpose. Receivers may contain
 /// lifted closures (`closure$N` values, `Env$N` fills) and `$nrest`/`$rest`
 /// params — lowering here sees the final lifted bodies, while ARC still
@@ -43,6 +60,12 @@ class ReflectPostLowerer {
 	var scalarLowered Int = 0
 	var bagSites Int = 0
 	var bagLowered Int = 0
+	var intIfSites Int = 0
+	var intIfLowered Int = 0
+	var arrayAnySites Int = 0
+	var arrayAnyLowered Int = 0
+	var voidSites Int = 0
+	var voidLowered Int = 0
 	// Problem-1 triage census (report-only, never mutates): ARC double
 	// releases come from guards releasing what the assignment path already
 	// released. Compiler temps (`temp_*`) are single-assignment transfer
@@ -54,6 +77,10 @@ class ReflectPostLowerer {
 	/// Const-scope stack for the census (innermost first). `Var` shadows
 	/// as non-const so inner rebinding never misfires on outer consts.
 	let constStack: [[String : Bool]] = []
+	/// Parallel stack recording each binding's declared type (for the
+	/// `reassign-temp` WARN lines — problem-1 triage needs the temp's type
+	/// to tell scalar slots from ARC-managed ones). Report-only.
+	let typeStack: [[String : Type?]] = []
 	/// Enclosing function key for census lines (mirrors the escape census
 	/// `Class_$method` scheme loosely — `?` outside functions).
 	var currentFuncName String = '?'
@@ -126,6 +153,9 @@ class ReflectPostLowerer {
 
 		traceLog('REFLECT-POST scalarToString sites=' + scalarSites + ' lowered=' + scalarLowered)
 		traceLog('REFLECT-POST objectToBag sites=' + bagSites + ' lowered=' + bagLowered)
+		traceLog('REFLECT-POST intIf sites=' + intIfSites + ' lowered=' + intIfLowered)
+		traceLog('REFLECT-POST arrayAny sites=' + arrayAnySites + ' lowered=' + arrayAnyLowered)
+		traceLog('REFLECT-POST void sites=' + voidSites + ' lowered=' + voidLowered)
 		traceLog('REFLECT-POST-ARC-CENSUS tempReassign=' + arcWarnTempReassign + ' constReassign=' + arcWarnConstReassign + ' dotOnTemp=' + arcWarnDotOnTemp)
 		traceLog('REFLECT-POST sigCacheMisses=' + sigCacheMisses)
 		Fs.writeFileSync('reflect-post-trace.log', trace.join('\n'))
@@ -143,6 +173,8 @@ class ReflectPostLowerer {
 
 		let m: [String : Bool] = [:]
 		constStack.push(m)
+		let tm: [String : Type?] = [:]
+		typeStack.push(tm)
 		return prev
 	}
 
@@ -152,13 +184,21 @@ class ReflectPostLowerer {
 			constStack.pop()
 		}
 
+		if typeStack.length > 0 {
+			typeStack.pop()
+		}
+
 		currentFuncName = prev
 	}
 
 	/// Records a `Var`/`Const` binding in the innermost census scope.
-	fun scopeBind(name: String, isConst: Bool) {
+	fun scopeBind(name: String, isConst: Bool, dataType: Type?) {
 		if constStack.length > 0 {
 			constStack[constStack.length - 1].set(name, isConst)
+		}
+
+		if typeStack.length > 0 {
+			typeStack[typeStack.length - 1].set(name, dataType)
 		}
 	}
 
@@ -177,14 +217,37 @@ class ReflectPostLowerer {
 		return null
 	}
 
+	/// Innermost-first type lookup (mirrors `scopeLookupConst`).
+	fun scopeLookupType(name: String): Type? {
+		var i = typeStack.length - 1
+
+		while i >= 0 {
+			if let v = typeStack[i].get(name) {
+				return v
+			}
+
+			i--
+		}
+
+		return null
+	}
+
 	/// Report-only audit of an assign target for problem-1 shapes:
 	/// reassigned compiler temps (single-assignment transfer slots),
 	/// rebound `Const` names, and stores through temp-held bases.
+	/// WARN lines carry the target's declared type (scalar vs
+	/// ARC-managed) for triage.
 	fun auditAssignTarget(t: Expression) { switch t {
 			case Ident(name, _):
 				if name.startsWith('temp_') {
 					arcWarnTempReassign++
-					traceLog('REFLECT-POST-ARC-WARN reassign-temp ' + name + ' in ' + currentFuncName)
+					var tname = 'null'
+
+					if let tt = scopeLookupType(name) {
+						tname = Type.stringify(tt)
+					}
+
+					traceLog('REFLECT-POST-ARC-WARN reassign-temp ' + name + ' type=' + tname + ' in ' + currentFuncName)
 				}
 
 				if scopeLookupConst(name) == true {
@@ -337,12 +400,489 @@ class ReflectPostLowerer {
 				return null
 		} }
 
+	/// Occurrence check for the null-var fusion below: does `e` name `x`
+	/// anywhere (reads, writes, captures)? Conservative — unknown shapes
+	/// count as hits so fusion only fires on fully-understood pairs.
+	fun exprMentions(e: Expression, x: String): Bool { switch e {
+			case Ident(name, _): return name == x
+			case Dot(inner, _, _): return exprMentions(inner, x)
+			case This(_): return false
+			case Null(_): return false
+			case String(_): return false
+			case Int(_): return false
+			case Float(_): return false
+			case True: return false
+			case False: return false
+			case MetaInt(_, _, _): return false
+			case Underscore: return false
+			case Parenthesis(inner): return exprMentions(inner, x)
+			case Binop(a, _, b, _): return exprMentions(a, x) or exprMentions(b, x)
+			case Unop(_, _, inner): return exprMentions(inner, x)
+			case RemoveNullability(inner, _): return exprMentions(inner, x)
+			case Is(inner, _): return exprMentions(inner, x)
+			case Index(a, b, _): return exprMentions(a, x) or exprMentions(b, x)
+			case StringIndex(a, b, _): return exprMentions(a, x) or exprMentions(b, x)
+			case Call(callee, args, _, _, _):
+				if exprMentions(callee, x) { return true }
+
+				for a in args {
+					if exprMentions(a, x) { return true }
+				}
+
+				return false
+			case New(callee, args, _):
+				if exprMentions(callee, x) { return true }
+
+				for a in args {
+					if exprMentions(a, x) { return true }
+				}
+
+				return false
+			case Array(vals, _):
+				for v in vals {
+					if exprMentions(v, x) { return true }
+				}
+
+				return false
+			case Object(_, vals, _):
+				for v in vals {
+					if exprMentions(v, x) { return true }
+				}
+
+				return false
+			case Map(ks, vs, _, _, _):
+				for k in ks {
+					if exprMentions(k, x) { return true }
+				}
+
+				for v in vs {
+					if exprMentions(v, x) { return true }
+				}
+
+				return false
+			case If(c, a, b, _):
+				if exprMentions(c, x) or exprMentions(a, x) { return true }
+
+				if b != null, exprMentions(b, x) { return true }
+
+				return false
+			case Elvis(a, b): return exprMentions(a as!Expression, x) or exprMentions(b as!Expression, x)
+			case Await(inner): return exprMentions(inner, x)
+			case UnsafeBitCast(inner, _): return exprMentions(inner, x)
+			case Assignop(n, _, v): return exprMentions(n, x) or exprMentions(v, x)
+			case Spread(inner): return exprMentions(inner, x)
+			case CapturedVar(name, _): return name == x
+			case EnumTag(inner): return exprMentions(inner, x)
+			case Enum(_, _, tag, args):
+				if exprMentions(tag, x) { return true }
+
+				for a in args {
+					if exprMentions(a, x) { return true }
+				}
+
+				return false
+			case EnumParameter(inner, _): return exprMentions(inner, x)
+			case StringConcatenation(l, r): return exprMentions(l, x) or exprMentions(r, x)
+			case NativeOperator(_, args, _, _, _):
+				for a in args {
+					if exprMentions(a, x) { return true }
+				}
+
+				return false
+			case Function(_, _, _, _, _, _): return true
+			case Arrow(_, _, _, _, _, _, _): return true
+			case _: return true
+		} }
+
+	/// Statement-level occurrence check (same contract as `exprMentions`).
+	/// `Function`/`Arrow` count as hits (capture timing would change).
+	fun stmtMentions(s: Statement, x: String): Bool { switch s {
+			case Statements(els):
+				for e in els {
+					if stmtMentions(e, x) { return true }
+				}
+
+				return false
+			case Block(els):
+				for e in els {
+					if stmtMentions(e, x) { return true }
+				}
+
+				return false
+			case Call(e, args, _, _):
+				if exprMentions(e, x) { return true }
+
+				for a in args {
+					if exprMentions(a, x) { return true }
+				}
+
+				return false
+			case Var(name, expr, _):
+				if name == x { return true }
+
+				return exprMentions(expr, x)
+			case Const(name, expr, _):
+				if name == x { return true }
+
+				return exprMentions(expr, x)
+			case Function(_, _, _, _, _, _, _): return true
+			case Return(e): return exprMentions(e, x)
+			case Throw(v): return exprMentions(v, x)
+			case If(c, a, b):
+				if exprMentions(c, x) or stmtMentions(a, x) { return true }
+
+				if b != null, stmtMentions(b, x) { return true }
+
+				return false
+			case Try(expr, _, _, catches, temp):
+				if temp == x { return true }
+
+				if stmtMentions(expr, x) { return true }
+
+				for c in catches {
+					if stmtMentions(c, x) { return true }
+				}
+
+				return false
+			case Assign(n, v, _): return exprMentions(n, x) or exprMentions(v, x)
+			case Assignop(n, _, v): return exprMentions(n, x) or exprMentions(v, x)
+			case For(name, over, by, _):
+				if name == x { return true }
+
+				return exprMentions(over, x) or stmtMentions(by, x)
+			case While(c, e, _): return exprMentions(c, x) or stmtMentions(e, x)
+			case Increment(e): return exprMentions(e, x)
+			case Decrement(e): return exprMentions(e, x)
+			case PatternSwitch(expr, cases, statements, guards, binds):
+				if exprMentions(expr, x) { return true }
+
+				for c in cases {
+					for e in c {
+						if exprMentions(e, x) { return true }
+					}
+				}
+
+				for st in statements {
+					if stmtMentions(st, x) { return true }
+				}
+
+				for g in guards {
+					if exprMentions(g, x) { return true }
+				}
+
+				for b in binds {
+					for st in b {
+						if stmtMentions(st, x) { return true }
+					}
+				}
+
+				return false
+			case PlainSwitch(expr, cases, statements):
+				if exprMentions(expr, x) { return true }
+
+				for c in cases {
+					for e in c {
+						if exprMentions(e, x) { return true }
+					}
+				}
+
+				for st in statements {
+					if stmtMentions(st, x) { return true }
+				}
+
+				return false
+			case SuperConstructor(args):
+				for a in args {
+					if exprMentions(a, x) { return true }
+				}
+
+				return false
+			case RefInc(es):
+				for e in es {
+					if exprMentions(e, x) { return true }
+				}
+
+				return false
+			case DeferRefDec(es):
+				for e in es {
+					if exprMentions(e, x) { return true }
+				}
+
+				return false
+			case Continue: return false
+			case Break: return false
+			case _: return true
+		} }
+
+	/// Clone for the purity-whitelisted condition shapes (never share one IR
+	/// object between parents — the fused `Var` init and the kept `If` each
+	/// need their own condition object).
+	fun clonePureCond(e: Expression): Expression? { switch e {
+			case Ident(name, t): return Expression.Ident(name, t)
+			case This(me): return Expression.This(me)
+			case Dot(inner, name, res):
+				if let c = clonePureCond(inner) {
+					return Expression.Dot(c, name, res)
+				}
+
+				return null
+			case Parenthesis(inner):
+				if let c = clonePureCond(inner) {
+					return Expression.Parenthesis(c)
+				}
+
+				return null
+			case Binop(a, op, b, res):
+				if let na = clonePureCond(a) {
+					if let nb = clonePureCond(b) {
+						return Expression.Binop(na, op, nb, res)
+					}
+				}
+
+				return null
+			case Unop(op, post, inner):
+				if let c = clonePureCond(inner) {
+					return Expression.Unop(op, post, c)
+				}
+
+				return null
+			case RemoveNullability(inner, res):
+				if let c = clonePureCond(inner) {
+					return Expression.RemoveNullability(c, res)
+				}
+
+				return null
+			case Is(inner, of):
+				if let c = clonePureCond(inner) {
+					return Expression.Is(c, of)
+				}
+
+				return null
+			case Null(t): return Expression.Null(t)
+			case Int(v): return Expression.Int(v)
+			case Float(v): return Expression.Float(v)
+			case String(s): return Expression.String(s)
+			case True: return Expression.True
+			case False: return Expression.False
+			case MetaInt(v, k, t): return Expression.MetaInt(v, k, t)
+			case _: return null
+		} }
+
+	/// Purity gate for the fusion: the condition is duplicated (once in the
+	/// fused `Var` init, once in the kept `If`), so it must be side-effect
+	/// free. The `if let` machine builds `step==k && last!=null` from pure
+	/// reads, which passes; anything effectful keeps the two-statement form.
+	fun isPureMachineCond(e: Expression): Bool {
+		return clonePureCond(e) != null
+	}
+
+	/// True for scalar (non-ARC) value types: fusing their null-var pairs
+	/// has no ARC payoff (`Int` would even ping-pong with `tryLowerIntIf`),
+	/// so they keep the fallback and the census stays focused on managed
+	/// slots. Mirrors `scalarStaticForName` plus tri-state/bool shapes.
+	fun isScalarishForFusion(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		switch t {
+			case Nullable(inner): return isScalarishForFusion(inner)
+			case UnknownNullable(handle):
+				if handle.value != null {
+					return isScalarishForFusion(handle.value)
+				}
+
+				return false
+			case Unknown(handle):
+				if handle.value != null {
+					return isScalarishForFusion(handle.value)
+				}
+
+				return false
+			case ClassInstance(c, _): return isScalarishName(c.name)
+			case Class(c): return isScalarishName(c.name)
+			case Enum(_): return true
+			case EnumInstance(_, _): return true
+			case _: return false
+		}
+	}
+
+	/// Scalar class names (value types with no ARC traffic).
+	fun isScalarishName(n: String?): Bool {
+		if n == null {
+			return false
+		}
+
+		return ['Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'Float', 'Float32', 'Number', 'Bool', 'Bool8', 'Bool32', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'].includes(n)
+	}
+
+	/// Fuses `Var(x, Null(T))` + following `If(c, then, else)` into
+	/// single-assignment `Var(x, If(c, v, Null(T)))` when `then` assigns `x`
+	/// exactly once as its FIRST statement (hoist-free by construction —
+	/// anything already-hoisted for `v` would precede the assign and fail
+	/// the shape check, so no use-before-def can strand) and nothing else
+	/// mentions `x`. The `if let`/`guard let` state machine
+	/// (`Var(temp_N, Null)` + conditional `Assign`) is the proven source of
+	/// the `reassign-temp` census hits (problem-1 double-release
+	/// candidates); this is its fix. Keeps the `If` with the remaining
+	/// branch statements (e.g. the `step` advance), drops it when nothing
+	/// remains. `Int`/scalarish and untyped temps keep the fallback.
+	/// Returns the replacement statements, or null when the pair must stay.
+	fun tryFuseNullVar(first: Statement, second: Statement): [Statement]? { switch first {
+			case Var(name, init, dataType):
+				switch init {
+					case Null(_):
+						if dataType == null { return null }
+
+						if isScalarishForFusion(dataType) { return null }
+
+						switch second {
+							case If(cond, thenB, elseB):
+								if not isPureMachineCond(cond) { return null }
+
+								var list: [Statement] = []
+
+								switch thenB {
+									case Block(els):
+										for s in els { list.push(s) }
+									case Statements(els):
+										for s in els { list.push(s) }
+									case _: list.push(thenB)
+								}
+
+								if list.length == 0 { return null }
+
+								var val: Expression? = null
+
+								switch list[0] {
+									case Assign(t, v, _):
+										switch t {
+											case Ident(n, _):
+												if n != name { return null }
+
+												val = v
+											case _: return null
+										}
+									case _: return null
+								}
+
+								if let vv = val {
+									for k in list.length - 1 {
+										if stmtMentions(list[k + 1], name) { return null }
+									}
+
+									if elseB != null, stmtMentions(elseB, name) { return null }
+
+									let fused = Statement.Var(name, Expression.If(cond, vv, Expression.Null(dataType), dataType), dataType)
+									var rest: [Statement] = []
+
+									for k in list.length - 1 { rest.push(list[k + 1]) }
+
+									if rest.length == 0 and elseB == null {
+										return [fused]
+									}
+
+									if let cond2 = clonePureCond(cond) {
+										return [fused, Statement.If(cond2, Statement.Block(rest), elseB)]
+									}
+
+									return null
+								}
+
+								return null
+							case _: return null
+						}
+					case _: return null
+				}
+			case _: return null
+		} }
+
+	/// Post-pass over a rewritten statement list: fuses adjacent
+	/// `Var(x, Null)` + conditional-`Assign` pairs into single-assignment
+	/// form (see `tryFuseNullVar`). Preserves `globalLink` entries.
+	fun fuseNullVarAssigns(stmts: [Statement]): [Statement] {
+		let out: [Statement] = []
+		var i = 0
+
+		while i < stmts.length {
+			if i + 1 < stmts.length {
+				if let fused = tryFuseNullVar(stmts[i], stmts[i + 1]) {
+					if let link = niceProject.globalLink.get(stmts[i]) {
+						niceProject.globalLink.set(fused[0], link)
+					}
+
+					if fused.length > 1 {
+						if let link2 = niceProject.globalLink.get(stmts[i + 1]) {
+							niceProject.globalLink.set(fused[1], link2)
+						}
+					}
+
+					for f in fused { out.push(f) }
+
+					// The pre-fusion `reassign-temp` WARN above fired for this
+					// pair during rewriting — this line marks it eliminated
+					// (single assignment, no transfer-slot reassign for ARC).
+					traceLog('REFLECT-POST-ARC-FUSED ' + currentFuncName)
+					i += 2
+					continue
+				}
+			}
+
+			out.push(stmts[i])
+			i++
+		}
+
+		return out
+	}
+
+	/// Raw pre-pass over an unrewritten statement list: fuses adjacent
+	/// `Var(x, Null)` + conditional-`Assign` pairs BEFORE rewriting, so the
+	/// fused `Var(x, If(c, v, Null))` flows through the normal value
+	/// lowering (`tryLowerStructValue` whole-`If`, `tryLowerIntIf`,
+	/// `tryLowerArrayAny`) with proper per-branch hoisting. This is what
+	/// handles hoisted values (bag builds) that the post-pass must refuse
+	/// (use-before-def). Consumed assigns never reach the rewrite audit, so
+	/// the `reassign-temp` WARN only fires for pairs that survive both
+	/// passes. Preserves `globalLink` entries.
+	fun prefuseNullVarAssigns(els: [Statement]): [Statement] {
+		let out: [Statement] = []
+		var i = 0
+
+		while i < els.length {
+			if i + 1 < els.length {
+				if let fused = tryFuseNullVar(els[i], els[i + 1]) {
+					if let link = niceProject.globalLink.get(els[i]) {
+						niceProject.globalLink.set(fused[0], link)
+					}
+
+					if fused.length > 1 {
+						if let link2 = niceProject.globalLink.get(els[i + 1]) {
+							niceProject.globalLink.set(fused[1], link2)
+						}
+					}
+
+					for f in fused { out.push(f) }
+
+					traceLog('REFLECT-POST-ARC-PREFUSED ' + currentFuncName)
+					i += 2
+					continue
+				}
+			}
+
+			out.push(els[i])
+			i++
+		}
+
+		return out
+	}
+
 	/// Rewrites a statement list, draining hoisted bag-builds before
 	/// their owner (closures pattern — single eval, source order kept).
 	fun processStatementList(els: [Statement]): [Statement] {
+		let pre = prefuseNullVarAssigns(els)
 		let out: [Statement] = []
 
-		for s in els {
+		for s in pre {
 			let saved = drainHoisted()
 			let savedHoistable = hoistable
 			hoistable = true
@@ -364,7 +904,7 @@ class ReflectPostLowerer {
 			}
 		}
 
-		return out
+		return fuseNullVarAssigns(out)
 	}
 
 	/// Rewrites a single-statement child (branches, loop bodies, catches):
@@ -410,13 +950,20 @@ class ReflectPostLowerer {
 	}
 
 	/// Name-level mapping (both `Class` and `ClassInstance` shapes).
+	/// Mirrors genC `scalarToString` + `printTypeConverter` (`UInt32`
+	/// formats via `fromUInt64` — `fromInt32` would go negative over
+	/// 2^31, same as the converter's `UInt32 -> String` arm).
 	fun scalarStaticForName(name: String?): String? {
 		if name == 'Int' or name == 'Int8' or name == 'Int16' or name == 'Int32' {
 			return 'fromInt32'
 		}
 
-		if name == 'UInt8' or name == 'UInt16' or name == 'UInt32' {
+		if name == 'UInt8' or name == 'UInt16' {
 			return 'fromInt32'
+		}
+
+		if name == 'UInt32' {
+			return 'fromUInt64'
 		}
 
 		if name == 'Int64' {
@@ -539,16 +1086,30 @@ class ReflectPostLowerer {
 
 	/// True for plain bag fields: scalars and object pointers bridge to
 	/// `Any` identically in the lowered `Any_objectSet` call and in the
-	/// genC fallback, so no conversion can diverge. Everything else
-	/// (`Any` itself excluded as dynamic, `Function` needs pair boxing,
-	/// nullables/generics/erased shapes need type-directed conversion)
-	/// keeps the fallback.
+	/// genC fallback, so no conversion can diverge. Nullable wrappers
+	/// around plain shapes lower too (the set-call printer applies the
+	/// same `Nullable -> Any` bridge the fallback uses; null flows as
+	/// nullptr). Everything else (`Any` itself excluded as dynamic,
+	/// `Function` needs pair boxing, `Struct`/generics/erased shapes need
+	/// type-directed conversion) keeps the fallback.
 	fun isPlainBagField(t: Type?): Bool {
 		if t == null {
 			return false
 		}
 
 		switch t {
+			case Nullable(inner):
+				return isPlainBagField(inner)
+			case UnknownNullable(handle):
+				if handle.value != null {
+					return isPlainBagField(handle.value)
+				}
+				return false
+			case Unknown(handle):
+				if handle.value != null {
+					return isPlainBagField(handle.value)
+				}
+				return false
 			case ClassInstance(c, _):
 				return c.name != 'Any'
 			case Class(c):
@@ -935,6 +1496,9 @@ class ReflectPostLowerer {
 	/// (bridge/box/nullptr — exactly what the fallback emits there).
 	/// Object literals and struct values need materialization, fat
 	/// values need pair boxing, untyped values keep the fallback.
+	/// Nullable wrappers unwrap first: `String?` is as safe as `String`,
+	/// but `Nullable(Struct)` / `Nullable(Function)` still need their
+	/// own lowering/boxing and return false here.
 	fun inlineSafeAsAny(v: Expression): Bool {
 		switch v {
 			case Object(_, _, _):
@@ -952,7 +1516,27 @@ class ReflectPostLowerer {
 					return false
 				}
 
-				switch ft {
+				var unwrapped = ft
+
+				switch unwrapped {
+					case Nullable(inner):
+						unwrapped = inner
+					case UnknownNullable(handle):
+						if handle.value != null {
+							unwrapped = handle.value
+						} else {
+							return false
+						}
+					case Unknown(handle):
+						if handle.value != null {
+							unwrapped = handle.value
+						} else {
+							return false
+						}
+					case _:
+				}
+
+				switch unwrapped {
 					case Struct(_, _):
 						return false
 					case _:
@@ -991,16 +1575,22 @@ class ReflectPostLowerer {
 	}
 
 	/// Trial lowering on a call argument: struct value into an `Any`
-	/// parameter becomes the bag temp (built by `tryLowerStructValue`).
-	/// Explicit `expects` hit the fast path; empty/missing `expects`
-	/// consult the callee signature read-only (`paramIsAny`) — the
-	/// lowering itself does the conversion, no IR `expects` are written.
+	/// parameter becomes the bag temp (built by `tryLowerStructValue`);
+	/// array literal into an `Any` parameter becomes the `Array<Any>` temp
+	/// (built by `tryLowerArrayAny` — fixes env loss the raw pointer bridge
+	/// would cause). Explicit `expects` hit the fast path; empty/missing
+	/// `expects` consult the callee signature read-only (`paramIsAny`) —
+	/// the lowering itself does the conversion, no IR `expects` are written.
 	fun lowerCallObjectArg(arg: Expression, expects: [Type]?, index: Int, callee: Expression, kind: CallKind): Expression {
 		if let ex = expects {
 			if index < ex.length {
 				if isAnyType(ex[index]) {
 					if let bag = tryLowerStructValue(arg, true) {
 						return bag
+					}
+
+					if let arr = tryLowerArrayAny(arg, true) {
+						return arr
 					}
 				}
 
@@ -1013,6 +1603,10 @@ class ReflectPostLowerer {
 
 			if let bag = tryLowerStructValue(arg, true) {
 				return bag
+			}
+
+			if let arr = tryLowerArrayAny(arg, true) {
+				return arr
 			}
 		}
 
@@ -1180,7 +1774,8 @@ class ReflectPostLowerer {
 	}
 
 	/// Trial lowering: `recv.toString()` on a scalar receiver becomes
-	/// `String.from*(recv)`. Static call, zero-arg guard (radix dropped),
+	/// `String.from*(recv)`. Static call, zero-arg plus decimal-radix-10
+	/// guard (radix dropped — decimal only in Phase 1, same as genC),
 	/// `String`-typed receivers excluded by construction (not scalar).
 	/// Returns null when not applicable (genC fallback owns it).
 	fun lowerScalarToString(callee: Expression, args: [Expression], result: Type): Expression? { switch callee {
@@ -1189,7 +1784,16 @@ class ReflectPostLowerer {
 					return null
 				}
 
-				if args.length != 0 {
+				if args.length == 1 {
+					switch args[0] {
+						case Int(v):
+							if v != 10 {
+								return null
+							}
+						case _:
+							return null
+					}
+				} else if args.length != 0 {
 					return null
 				}
 
@@ -1224,6 +1828,136 @@ class ReflectPostLowerer {
 				return null
 		} }
 
+	/// True for the `Int` declared target (the only scalar `printInitializer`
+	/// special-cases: `var x Int = cond ? a : b` where a branch is `Int?`).
+	fun isIntTarget(t: Type?): Bool {
+		if t == null {
+			return false
+		}
+
+		return t == niceProject.typer.typeInt
+	}
+
+	/// Trial lowering (#2): `Var/Const/Assign/Return` with `Int` target and
+	/// an `If` value becomes a hoisted temp + `If` statement with per-branch
+	/// `Assign`s. Each branch then converts toward `Int` through the normal
+	/// `Assign` path instead of the outer `forcedCast` truncating a pointer
+	/// (`C4311`). Mirrors `lowerIfStruct` but for scalars: no field gates,
+	/// any branch type works (same converter the fallback applies).
+	/// Non-hoistable positions keep the genC `printInitializer` fallback.
+	fun tryLowerIntIf(e: Expression, targetIsInt: Bool): Expression? {
+		if not targetIsInt {
+			return null
+		}
+
+		switch e {
+			case If(cond, eif, eelse, _):
+				intIfSites++
+
+				if not hoistable {
+					traceLog('REFLECT-POST-KEPT intIf no-hoist position')
+					return null
+				}
+
+				let intT = niceProject.typer.typeInt
+				let pst = '$pst' + tempId
+				tempId++
+				hoisted.push(Statement.Var(pst, Expression.Int(0), intT))
+				let savedA = drainHoisted()
+				var blockA: [Statement] = []
+
+				for h in drainHoisted() {
+					blockA.push(h)
+				}
+
+				restoreHoisted(savedA)
+				blockA.push(Statement.Assign(Expression.Ident(pst, intT), eif, null))
+				let savedB = drainHoisted()
+				var blockB: [Statement] = []
+
+				for h in drainHoisted() {
+					blockB.push(h)
+				}
+
+				restoreHoisted(savedB)
+				blockB.push(Statement.Assign(Expression.Ident(pst, intT), eelse, null))
+				hoisted.push(Statement.If(cond, Statement.Block(blockA), Statement.Block(blockB)))
+				intIfLowered++
+				traceLog('REFLECT-POST-LOWERED intIf->temp')
+				return Expression.Ident(pst, intT)
+			case _:
+				return null
+		}
+	}
+
+	/// The `Array<Any>` element type for #3 (found by name; null when the
+	/// class is missing — caller keeps the genC `hexaItems` fallback).
+	fun arrayAnyType(): Type? {
+		for c in niceProject.classes {
+			if c.name == 'Array' {
+				switch c.classType {
+					case Class(ct):
+						return Type.ClassInstance(ct, [niceProject.typer.typeAny])
+					case ClassInstance(ct, _):
+						return Type.ClassInstance(ct, [niceProject.typer.typeAny])
+					case _:
+				}
+			}
+		}
+
+		return null
+	}
+
+	/// Trial lowering (#3): array literal into an `Any` slot becomes a
+	/// hoisted `new Array<Any>(0)` plus per-element `push` calls. Each
+	/// element then converts toward `Any` through the normal `push` call-arg
+	/// path (scalars box, fat leaves pair-box via `boxFatPair`) instead of
+	/// the single-shot `hexaItems` buffer (which built `Array<Fn>` storage
+	/// and dropped envs). Single eval, source order. Non-hoistable positions
+	/// and missing `Array` keep the genC fallback.
+	fun tryLowerArrayAny(e: Expression, targetIsAny: Bool): Expression? {
+		switch e {
+			case Array(vals, _):
+				if not targetIsAny {
+					return null
+				}
+
+				arrayAnySites++
+
+				if not hoistable {
+					traceLog('REFLECT-POST-KEPT arrayAny no-hoist position')
+					return null
+				}
+
+				let arrT = arrayAnyType()
+
+				if arrT == null {
+					traceLog('REFLECT-POST-KEPT arrayAny (no Array class)')
+					return null
+				}
+
+				let tmp = '$arr' + tempId
+				tempId++
+				hoisted.push(Statement.Var(tmp, Expression.New(Expression.Ident('Array', null), [Expression.Int(vals.length)], arrT), arrT))
+				// Explicit `[Any]` expects (not the `[]`-derive precedent):
+				// `callExpects` cannot resolve the `Dot` callee, so empty
+				// expects would print elements raw (`String_*` into `Any_*`
+				// param → C2664). With `Any` the normal call-arg conversion
+				// boxes/bridges each element (scalars box, fat pairs).
+				let pushExpects = [niceProject.typer.typeAny]
+
+				for v in vals {
+					hoisted.push(Statement.Call(Expression.Dot(Expression.Ident(tmp, arrT), 'push', null), [v], pushExpects, CallKind.VirtualMethod))
+				}
+
+				arrayAnyLowered++
+				traceLog('REFLECT-POST-LOWERED arrayAny len=' + vals.length)
+				return Expression.Ident(tmp, arrT)
+			case _:
+				return null
+		}
+	}
+
 	/// Rewrites statements, recursing everywhere Calls can hide.
 	/// Single-statement children go through `rewriteStmtHoisted` so bag
 	/// builds wrap with their owner instead of leaking out of the scope.
@@ -1249,19 +1983,35 @@ class ReflectPostLowerer {
 				return Statement.Call(nc, loweredArgs, expects, kind)
 			case Var(name, expr, dataType):
 				let ne = rewriteExpr(expr)
-				scopeBind(name, false)
+				scopeBind(name, false, dataType)
 
 				if let bag = tryLowerStructValue(ne, isAnyType(dataType)) {
 					return Statement.Var(name, bag, dataType)
 				}
 
+				if let arr = tryLowerArrayAny(ne, isAnyType(dataType)) {
+					return Statement.Var(name, arr, dataType)
+				}
+
+				if let tmp = tryLowerIntIf(ne, isIntTarget(dataType)) {
+					return Statement.Var(name, tmp, dataType)
+				}
+
 				return Statement.Var(name, ne, dataType)
 			case Const(name, expr, dataType):
 				let ne = rewriteExpr(expr)
-				scopeBind(name, true)
+				scopeBind(name, true, dataType)
 
 				if let bag = tryLowerStructValue(ne, isAnyType(dataType)) {
 					return Statement.Const(name, bag, dataType)
+				}
+
+				if let arr = tryLowerArrayAny(ne, isAnyType(dataType)) {
+					return Statement.Const(name, arr, dataType)
+				}
+
+				if let tmp = tryLowerIntIf(ne, isIntTarget(dataType)) {
+					return Statement.Const(name, tmp, dataType)
 				}
 
 				return Statement.Const(name, ne, dataType)
@@ -1279,6 +2029,16 @@ class ReflectPostLowerer {
 				if currentReturn != null, isAnyType(currentReturn) {
 					if let bag = tryLowerStructValue(ne, true) {
 						return Statement.Return(bag)
+					}
+
+					if let arr = tryLowerArrayAny(ne, true) {
+						return Statement.Return(arr)
+					}
+				}
+
+				if currentReturn != null, isIntTarget(currentReturn) {
+					if let tmp = tryLowerIntIf(ne, true) {
+						return Statement.Return(tmp)
 					}
 				}
 
@@ -1304,6 +2064,19 @@ class ReflectPostLowerer {
 					return Statement.Assign(nn, bag, to)
 				}
 
+				if let arr = tryLowerArrayAny(nv, isAnyType(baseTypeOf(nn))) {
+					return Statement.Assign(nn, arr, to)
+				}
+
+				if let tmp = tryLowerIntIf(nv, isIntTarget(baseTypeOf(nn))) {
+					return Statement.Assign(nn, tmp, to)
+				}
+
+				if baseTypeOf(nn) == null {
+					if canLowerValue(nv, 'assign-untyped') {
+						traceLog('REFLECT-POST-KEPT assign untyped struct in ' + currentFuncName + ' target=' + kindOfExpr(nn))
+					}
+				}
 				return Statement.Assign(nn, nv, to)
 			case Assignop(name, op, value):
 				return Statement.Assignop(rewriteExpr(name), op, rewriteExpr(value))
