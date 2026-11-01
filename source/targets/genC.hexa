@@ -1052,6 +1052,17 @@ class GenCxx {
 				} else {
 					if c.destroyKind == 1 or c.destroyKind == 2 or c.destroyKind == 3 {
 						hiddenDestroy = '(void(*)(void*))&' + c.name + '_$destroyARC_'
+					} else {
+						if c.extend != null {
+							// F6: inheritance has NO layout yet — `IntArray_` is
+							// `{ vtable, rc }`, it does not inline the `Array`
+							// fields. Chaining the parent's destructor here would
+							// run a parent-shaped free on a child-shaped object
+							// (corruption). Keep nullptr — the sweep then SKIPS
+							// (leak, safe) — and mark the site so the inheritance
+							// pass can fill it in one place.
+							hiddenDestroy = 'nullptr /*INHERIT-DESTROY*/'
+						}
 					}
 				}
 				forwardFunctions.push('const char* ' + c.name + '_hiddenClassName_(void)')
@@ -1067,6 +1078,12 @@ class GenCxx {
 				forwardFunctions.push('String_* ' + c.name + '_hiddenKeyAt_(void*, int32_t)')
 				forwardFunctions.push(';\n')
 				forwardFunctions.push('int32_t ' + c.name + '_hiddenKeyCount_(void*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('Any_* ' + c.name + '_hiddenIndexGet_(void*, int32_t)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('void ' + c.name + '_hiddenIndexSet_(void*, int32_t, Any_*)')
+				forwardFunctions.push(';\n')
+				forwardFunctions.push('int32_t ' + c.name + '_hiddenIndexCount_(void*)')
 				forwardFunctions.push(';\n')
 				forwardFunctions.push('void ' + c.name + '_hiddenReflect_(void*, HexaReflectOp_*)')
 				forwardFunctions.push(';\n')
@@ -2318,7 +2335,7 @@ class GenCxx {
 				return keyword + ' ' + forcedCast(currentReturnType, printTypeConverter(printExpression(e), valueType(e), currentReturnType))
 
 			case If(econd, eif, eelse):
-				var r = '\n\(tabs)if (' + printExpression(econd) + ') ' + printBlock(eif)
+				var r = '\n\(tabs)if (' + printCondition(econd) + ') ' + printBlock(eif)
 
 				if eelse != null {
 					r += ' else ' + printStatement(eelse)
@@ -2713,9 +2730,9 @@ class GenCxx {
 			case While(econd, e, pre):
 				// TODO ^ separate WhileDo DoWhile
 				if pre {
-					return '\n\(tabs)while (' + printExpression(econd) + ') ' + printStatement(e)
+					return '\n\(tabs)while (' + printCondition(econd) + ') ' + printStatement(e)
 				}
-				return '\n\(tabs)do \{' + printStatement(e) /*block*/ + '\} while (' + printExpression(econd) + ')'
+				return '\n\(tabs)do \{' + printStatement(e) /*block*/ + '\} while (' + printCondition(econd) + ')'
 
 			case Assignop(a, op, value):
 				// TODO rename to AssignOp
@@ -4349,6 +4366,24 @@ class GenCxx {
 		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
 		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return nullptr; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return nullptr; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return nullptr; ' + rb + nl
 		r += 'uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
+		// D7 scalar/string shape predicates (F10 index dispatch): `true`/`false`
+		// singletons and boxed scalars are values, never keys.
+		r += 'uint8_t Any_isString_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&String__$)) ? 1 : 0); ' + rb + nl
+		r += 'uint8_t Any_isInt_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)1; const void* t_ = ((const void**)(p))[0]; if (t_ == (const void*)(&AnyInt__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
+		r += 'uint8_t Any_isNumber_(Any_* p) ' + lb + ' if (Any_isInt_(p)) return (uint8_t)1; if (p == nullptr) return (uint8_t)0; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
+		// D7 JS truthiness for `Any` conditions (`if state.flag`, `x == false`,
+		// `!any`): null/`false`/0/''/NaN are FALSY, everything else (incl.
+		// objects/arrays) is truthy. Reading the raw pointer was wrong — the
+		// `_false` singleton is a non-null address, so every `Any` flag read as
+		// true and e.g. the find widget recomputed with an unset match list.
+		r += 'uint8_t Any_toBool_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true)) return (uint8_t)1; if (p == (Any_*)(&_false)) return (uint8_t)0; int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (uint8_t)(v_ != (int64_t)0); const void* t_ = ((const void**)(p))[0]; if (t_ == (const void*)(&String__$)) return (uint8_t)(((String_*)(p))->length_ != (int32_t)0); if (t_ == (const void*)(&AnyInt__$)) return (uint8_t)(((AnyInt_*)(p))->v_ != (int64_t)0); if (t_ == (const void*)(&AnyFloat__$)) return (uint8_t)(((AnyFloat_*)(p))->v_ != 0.0); return (uint8_t)1; ' + rb + nl
+		// F10 central `obj[key]` dispatch — one copy for the whole program (no
+		// per-site ternaries): bags field-dispatch on the string form of the
+		// key, reflect-capable shapes split Int keys to `index_*` (container
+		// semantics) and everything else to `dyn_*` (field semantics). The
+		// receiver/key hoist at the call site, so both are single-eval.
+		r += 'Any_* Any_indexGet_(Any_* o, Any_* k) ' + lb + ' if (o == nullptr || k == nullptr) return nullptr; if (Any_isObject_(o)) ' + lb + ' String_* ks_ = Any_unboxString_(k); return ks_ != nullptr ? Any_objectGet_(o, ks_) : nullptr; ' + rb + ' const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return nullptr; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) return rf_->index_get_ != nullptr ? rf_->index_get_((void*)o, Any_unboxInt_(k)) : nullptr; if (Any_isString_(k)) return rf_->dyn_get_ != nullptr ? rf_->dyn_get_((void*)o, (String_*)(k)) : nullptr; String_* ks2_ = Any_unboxString_(k); return (ks2_ != nullptr && rf_->dyn_get_ != nullptr) ? rf_->dyn_get_((void*)o, ks2_) : nullptr; ' + rb + nl
+		r += 'void Any_indexSet_(Any_* o, Any_* k, Any_* v) ' + lb + ' if (o == nullptr || k == nullptr) return; if (Any_isObject_(o)) ' + lb + ' String_* ks_ = Any_unboxString_(k); if (ks_ != nullptr) Any_objectSet_(o, ks_, v); return; ' + rb + ' const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) ' + lb + ' if (rf_->index_set_ != nullptr) rf_->index_set_((void*)o, Any_unboxInt_(k), v); return; ' + rb + ' if (Any_isString_(k)) ' + lb + ' if (rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, (String_*)(k), v); return; ' + rb + ' String_* ks2_ = Any_unboxString_(k); if (ks2_ != nullptr && rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, ks2_, v); ' + rb + nl
 		r += 'int32_t Any_objectCount_(Any_* p) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return (int32_t)0; return ((AnyObject_*)(p))->count_; ' + rb + nl
 		r += 'String_* Any_objectKeyAt_(Any_* p, int32_t i) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return nullptr; AnyObject_* o = (AnyObject_*)(p); if (i < (int32_t)0 || i >= o->count_) return nullptr; return o->entries_[i].k_; ' + rb + nl
 		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr) return nullptr; if (Any_isObject_(p)) return Any_objectGet_(p, k); const void* tag_ = ((const void**)(p))[0]; if (HexaHasReflect_(tag_)) return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); HEXA_ASSERT(((const void**)(p))[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)p)[0]), "Any_dynGet_: legacy let_ on a non-dynamic payload (string/array receiver) - convert at the Any boundary (printToAnyConverter/printIfaceField)"); return (Any_*)(((Any_*)(p))->let_(k)); ' + rb + nl
@@ -4393,6 +4428,9 @@ class GenCxx {
 		r += 'void (*delete_)(void*, struct String_*);' + nl
 		r += 'struct String_* (*keyAt_)(void*, int32_t);' + nl
 		r += 'int32_t (*keyCount_)(void*);' + nl
+		r += 'struct Any_* (*index_get_)(void*, int32_t);' + nl
+		r += 'void (*index_set_)(void*, int32_t, struct Any_*);' + nl
+		r += 'int32_t (*index_count_)(void*);' + nl
 		r += 'void (*reflect_)(void*, struct HexaReflectOp_*);' + nl
 		r += rb + ';' + nl
 		r += '_Static_assert(sizeof(struct HexaReflectOp_) == (size_t)88, "reflect: HexaReflectOp_ must stay 88");' + nl
@@ -4455,6 +4493,11 @@ class GenCxx {
 		// @destructors that allocate) safe no-ops. Mode 4 (off) still pays
 		// a scan per interval — acceptable for a manual triage mode.
 		r += 'void hexaSweep(void);' + nl
+		r += 'static uint8_t hexaSweepVerbose_ = (uint8_t)0;' + nl
+		// Pressure trigger: 65536 births (was 8192). Each sweep is O(live list)
+		// and the live list reaches ~400k, so a tight trigger means sweeps run
+		// dozens of times per second inside ordinary allocation — that is a
+		// multi-second stall, not a saving.
 		r += 'static size_t hexaAllocSinceSweep_ = 0;' + nl
 		r += 'void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)8192) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
 		r += 'size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
@@ -4545,6 +4588,12 @@ class GenCxx {
 		r += 'static int mode_ = -1;' + nl
 		r += 'if (mode_ < 0) ' + lb + ' mode_ = 0; const char* e_ = getenv("HEXA_SWEEP_MODE"); if (e_ != nullptr) mode_ = atoi(e_); ' + rb + nl
 		r += 'static int victims_ = 0; victims_ = 0;' + nl
+		// Victim logging is DIAGNOSTIC and costs a fopen/fprintf/fclose per
+		// victim (up to 64) — with ~40 sweeps/second over a 400k-object live
+		// list that dominated the runtime and froze the message loop
+		// ("Not Responding" + 45 s stalls inside a JSON.parse). Opt in with
+		// HEXA_SWEEP_VERBOSE=1.
+		r += 'hexaSweepVerbose_ = (getenv("HEXA_SWEEP_VERBOSE") != nullptr) ? (uint8_t)1 : (uint8_t)0;' + nl
 		r += 'size_t freed_ = (size_t)0;' + nl
 		r += 'size_t strLive_ = (size_t)0;' + nl
 		r += 'size_t strBytes_ = (size_t)0;' + nl
@@ -6374,6 +6423,19 @@ class GenCxx {
 		return getType(e) != null and isDynamic(getType(e))
 	}
 
+	/// D7 truthiness for a CONDITION (`if`/`while`/ternary/`&&`/`||`): an
+	/// `Any`-shaped value goes through `Any_toBool_` (JS: null/`false`/0/''
+	/// falsy), never C pointer-non-null. `Bool_`/scalar shapes print as-is.
+	fun printCondition(e: Expression): String {
+		if cShape(e) == 'Any_*' {
+			// `(size_t)` bridge: the use node can claim `Any` while the printed
+			// value is already a scalar `Bool_` (callback flags) — the cast
+			// keeps both shapes compiling and is harmless for a real `Any_*`.
+			return 'Any_toBool_((Any_*)(size_t)(' + printExpression(e) + '))'
+		}
+		return printExpression(e)
+	}
+
 	/// The C shape of an expression's VALUE. For identifiers the DECLARED
 	/// type wins over the Nice type of the use node: the typer may coerce an
 	/// `Any` variable's use to `Int` (the use node then lies about the C
@@ -6440,6 +6502,31 @@ class GenCxx {
 			case Parenthesis(inner): return isPureIsReceiver(inner)
 			case _: return false
 		} }
+
+	/// F10.1 scalar half: `x is Int` / `is String` / `is Bool` / `is Float` on an
+	/// `Any` payload is a REAL runtime shape test (was "non-null", so every
+	/// scalar probe read true). Predicates live in the emitted `Any_is*_`
+	/// helpers; null when the name isn't a builtin scalar.
+	fun scalarIsPredicate(className: String, recv: String): String? {
+		let any = '(Any_*)(' + recv + ')'
+
+		if className == 'String' {
+			return 'Any_isString_(' + any + ')'
+		}
+
+		if className == 'Bool' or className == 'Bool8' or className == 'Bool32' {
+			return '(' + any + ' == (Any_*)(&_true) || ' + any + ' == (Any_*)(&_false))'
+		}
+
+		if ['Float', 'Float32', 'Number'].includes(className) {
+			return 'Any_isNumber_(' + any + ')'
+		}
+
+		if ['Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'BigInt', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'].includes(className) {
+			return 'Any_isInt_(' + any + ')'
+		}
+		return null
+	}
 
 	/// F10.1 first consumer: `x is T` for `Any`-shaped receivers via vtable-tag
 	/// comparison. Every vtable-bearing heap object stores its vtable first
