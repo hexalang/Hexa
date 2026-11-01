@@ -817,11 +817,7 @@ class Typer {
 								}
 							case Var(name, t, e, _):
 								if classType.fieldNames.includes(name) {
-									if let prev = scopes[scopes.length - 1].get(name) {
-										fail('Field `\(name)` already exists\n' + positionOf(prev) + '`\(name)` is first defined here', field)
-									} else {
-										fail('Field `\(name)` already exists', field)
-									}
+									fail('Field `\(name)` already exists' + hereIs('`\(name)` is declared here', declaredFields.get(name)), field)
 								}
 								classType.fieldNames.push(name)
 								declaredFields.set(name, field)
@@ -1235,12 +1231,13 @@ class Typer {
 
 														if let at = strings.indexOf('' + number), at != -1 {
 															let named = names[at]
-															fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
+															fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value' + hereIs('`\(named) = \(number)` is defined here', tagValueNodes.get(named)), b)
 														}
 
 														// NOTE string is used here, cause BigInt not fit into Int
 														strings.push('' + number)
 														names.push(name)
+														tagValueNodes.set(name, field)
 
 													case Int(number):
 														// TODO infer i32/etc from constant
@@ -1251,11 +1248,12 @@ class Typer {
 
 														if let at = numbers.indexOf(number), at != -1 {
 															let named = names[at]
-															fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
+															fail('Combination `\(name) = \(number)` already defined as `\(named) = \(number)`, try to assign same value as `\(name) = \(named)` or set new unique value' + hereIs('`\(named) = \(number)` is defined here', tagValueNodes.get(named)), b)
 														}
 
 														numbers.push(number)
 														names.push(name)
+														tagValueNodes.set(name, field)
 
 													case String(string):
 														if enumType.fieldsTypeSimple != typeString {
@@ -1266,11 +1264,12 @@ class Typer {
 
 														if let at = strings.indexOf(string), at != -1 {
 															let named = names[at]
-															fail('Combination `\(name) = \(string)` already defined as `\(named) = \(string)`, try to assign same value as `\(name) = \(named)` or set new unique value', b)
+															fail('Combination `\(name) = \(string)` already defined as `\(named) = \(string)`, try to assign same value as `\(name) = \(named)` or set new unique value' + hereIs('`\(named) = \(string)` is defined here', tagValueNodes.get(named)), b)
 														}
 
 														strings.push(string)
 														names.push(name)
+														tagValueNodes.set(name, field)
 
 													case _:
 														fail('Wrong enum constructor format, should be `Name = value`', b)
@@ -2449,6 +2448,7 @@ class Typer {
 						arg.name = name
 
 						// Hexa rest `...x: T` is `Type.Rest`, not `Array<T>`.
+						// TODO Missing type falls back to `Any`
 						if variadic, i == vars.length - 1, types.get(v) == null {
 							arg.dataType = Type.Rest(arg.dataType, nativeVariadic)
 						}
@@ -3875,6 +3875,8 @@ class Typer {
 											if extractedType == null {
 												console.log(positionOf(node) + 'Note: field fieldInitialized[\(n)] =', classType.fieldInitialized[classType.fieldNames.indexOf(n)])
 												fail('Type for this field cannot be inferred, try to specify types manually: `' + n + '`', field)
+												// TODO (temporary) fall back to Any
+												// instead of failing the whole build on an uninferrable member type.
 												types.set(node, typeAny)
 											} else {
 												// V1: substitute the receiver's concrete class args into the
@@ -4502,7 +4504,15 @@ class Typer {
 											case Function(args, returns, variadic):
 												// TODO better idea
 												if returns == typeVoid {
+													// Body-less `new` (declare classes): the value is the instance type
 													constructor = Type.Function(args, typeToCreate, variadic)
+												} else {
+													// NOTE the `new` of a real class is inferred inside the class
+													// scope, so its return holds the class's own generic stubs
+													// (`Foo<<T at 0>>`); map the constructor signature onto the
+													// actual `<...>` of `typeToCreate` or call-form construction
+													// (`Foo<Int>()`) poisons every later use of the value
+													constructor = genericFixup(Type.Function(args, returns, variadic), actualParams)
 												}
 										}
 										//
@@ -4630,13 +4640,12 @@ class Typer {
 
 						if provided < expectedAtLeast {
 							// TODO `fun name` and args names too
-							// TODO `fun is defined here`
-							fail('Not enough function arguments, required \(expectedAtLeast) but got only \(provided)', node)
+							fail('Not enough function arguments, required \(expectedAtLeast) but got only \(provided)' + hereIs('function is declared here', calleeHint), node)
 						}
 
 						if provided > expectedAtMax {
 							// TODO `fun name` and args names too
-							fail('Too many function arguments, expected only \(expectedAtMax) but got \(provided)', node)
+							fail('Too many function arguments, expected only \(expectedAtMax) but got \(provided)' + hereIs('function is declared here', calleeHint), node)
 						}
 
 						let expectedTypes: [Type] = []
@@ -5156,6 +5165,7 @@ class Typer {
 				// TODO if e is Promise<T>, return T
 				// If e is Promise<T>, return T
 				let eType = types.get(e)
+
 				switch eType {
 					case ClassInstance(classType, generic):
 						if generic != null, generic.length == 1, classType.name == 'Promise' {
@@ -5342,6 +5352,8 @@ class Typer {
 						fail('Cannot index `\(Node.stringify(e))` because `\(Type.stringify(eType))` is not indexable', e)
 					case null:
 						fail('Cannot index `\(Node.stringify(e))` because its type cannot be inferred', e)
+						// TODO `[index]` fallback (temporary)
+						types.set(node, typeAny)
 				}
 
 				// `a op= b`
