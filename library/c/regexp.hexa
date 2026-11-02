@@ -9,39 +9,976 @@
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 //
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
 //
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
-// regexp.hexa — native regular expressions (dedicated std file, see W6 in
-// Perfide/docs/port-to-cpp-plan.md). `RegExp`/`RegExpMatch` live here (moved
-// out of library/c/c.hexa); `String`'s match/search/replaceRegExp delegate
-// here. Stubs until the backtracking engine lands (same doc).
+// regexp.hexa — native regular expressions, byte-poking build (Batch 10).
+// Strings are always interned, so `==` is by identity and safe. The old
+// build spawned a String per pattern char (`peek()` via `fromCharCode`) plus
+// O(n^2) `members = members + ...` concats during class compilation —
+// thousands of interns per line per frame through `getTokens`, which stalled
+// the frame loop and starved the editor of colors (all white) and the file
+// tree of seti glyphs. This build never materializes a String until it must:
+// the compiler walks `src.charCodeAt` codes (raw `bytes[]` pokes, no alloc),
+// class members accumulate in a local `[Int]` and convert ONCE via a single
+// `malloc` + `fromUTF16z`, replacement expansion collects codes the same way.
+// Matcher hot paths (`tryPc`, `rxClass`) poke `charCodeAt` only; `substring`
+// runs solely for real captures/results.
+//
+// Program opcodes (flat VM): literals, `.`, `[...]` (ranges, negation,
+// `\d \w \s` inside), `\d \D \w \W \s \S \n \r \t \f \v \0` + identity
+// escapes, `\b`/`\B`, `^`/`$` (`m` makes them line anchors), `(...)`
+// capturing, `(?:...)` non-capturing, `|`, `* + ? {n} {n,} {n,m}` greedy AND
+// lazy (`*?` etc.), backreferences `\1`..`\9`, flags `g i m`.
+// Unsupported (unused by the app): lookahead/lookbehind, named groups,
+// unicode property classes. Backtracking is recursive with a depth fuse;
+// `rxSave` restores its own slot on failure, so no per-SPLIT capture copy.
 
-// Regular expressions — `/pattern/flags` literals lower to `RegExp(pattern, flags)`
-class RegExp {
-	var global: Bool = false
-	var ignoreCase: Bool = false
-	var multiline: Bool = false
-	var source: String = ''
-	var lastIndex: Int = 0
-	new (pattern: String, flags: String?) {
-		this.source = pattern
+let rxMatch Int = 0
+let rxChar Int = 1
+let rxAny Int = 2
+let rxClass Int = 3
+let rxSplit Int = 4
+let rxJmp Int = 5
+let rxSave Int = 6
+let rxAssertStart Int = 7
+let rxAssertEnd Int = 8
+let rxAssertWord Int = 9
+let rxBackref Int = 10
+let rxMaxDepth Int = 30000
+
+// One-shot buffer: codes -> interned String via a single malloc + copy.
+// All class-member and replacement building funnels here (never per-char `+`).
+fun rxStringFromCodes(codes [Int]): String {
+	if codes.length == 0 { return '' }
+	let buf = malloc((codes.length * 2 + 2) as!UInt64) as!ArrayPointer<UInt16>
+	for i in codes.length {
+		var c = codes[i]
+
+		if c < 0 { c = 0 }
+
+		if c > 65535 { c = 65535 }
+		buf[i] = c as!UInt16
 	}
-	fun exec(str: String): RegExpMatch? { return null }
-	fun test(str: String): Bool { return false }
-	fun toString(): String { return '' }
+	buf[codes.length] = 0
+	let s = String.fromUTF16z(buf as!ConstArrayPointer<UInt16>)
+	free(buf as!RuntimeAllocated)
+	return s
 }
 
-// Single match result (`index`/`input` + captured groups as fields over time)
+class RegexFragment {
+	var ops [Int] = []
+	var argA [Int] = []
+	var argB [Int] = []
+	var sets [String] = []
+	new () { }
+	fun emit(op Int, a Int = 0, b Int = 0): Int {
+		this.ops.push(op)
+		this.argA.push(a)
+		this.argB.push(b)
+		this.sets.push('')
+		return this.ops.length - 1
+	}
+	fun emitClass(neg Int, members String): Int {
+		this.ops.push(rxClass)
+		this.argA.push(neg)
+		this.argB.push(0)
+		this.sets.push(members)
+		return this.ops.length - 1
+	}
+	fun patch(pc Int, a Int, b Int): Void {
+		this.argA[pc] = a
+		this.argB[pc] = b
+	}
+	// Append `other` shifting ONLY jump targets (SPLIT/JMP). Every other
+	// argA/argB is a value (char code, save slot, group index, neg flag) and
+	// must survive verbatim — the old build added `off` to all of them,
+	// corrupting every multi-atom pattern (`ab` compiled to `ac`).
+	fun append(other RegexFragment): Void {
+		let off = this.ops.length
+
+		for i in other.ops.length {
+			let op = other.ops[i]
+			this.ops.push(op)
+
+			if op == rxSplit or op == rxJmp {
+				this.argA.push(other.argA[i] + off)
+				this.argB.push(other.argB[i] + off)
+			} else {
+				this.argA.push(other.argA[i])
+				this.argB.push(other.argB[i])
+			}
+			this.sets.push(other.sets[i])
+		}
+	}
+}
+
+class RegexGroupCounter {
+	var groups Int = 0
+	new () { }
+}
+
+class RegexProgram {
+	var ops [Int] = []
+	var argA [Int] = []
+	var argB [Int] = []
+	var sets [String] = []
+	var groups Int = 0
+	new () { }
+}
+
+var regexProgramCache = Map<String, RegexProgram>()
+
+fun regexCacheKey(source String, flags String): String {
+	return flags + '|' + source
+}
+
+class RegexCompiler {
+	var src String = ''
+	var srcLen Int = 0
+	var pos Int = 0
+	var counter RegexGroupCounter
+	new (source String, groups RegexGroupCounter) {
+		this.src = source
+		this.srcLen = source.length
+		this.pos = 0
+		this.counter = groups
+	}
+	fun atEnd(): Bool {
+		return this.pos >= this.srcLen
+	}
+	fun peekCode(): Int {
+		if this.pos >= this.srcLen { return -1 }
+		let c = this.src.charCodeAt(this.pos)
+
+		if c == null { return -1 }
+		return c !
+	}
+	fun bumpCode(): Int {
+		let c = this.peekCode()
+
+		if c >= 0 { this.pos++ }
+		return c
+	}
+	fun compileAll(): RegexFragment {
+		let body = this.compileAlternation()
+		body.emit(rxMatch)
+		return body
+	}
+	fun compileAlternation(): RegexFragment {
+		var branches [RegexFragment] = []
+		branches.push(this.compileSequence())
+
+		while this.peekCode() == 124 {
+			this.pos++
+			branches.push(this.compileSequence())
+		}
+
+		if branches.length == 1 { return branches[0] }
+		var out RegexFragment = RegexFragment()
+		var jmps [Int] = []
+
+		for i in branches.length {
+			if i + 1 < branches.length {
+				let split = out.emit(rxSplit, 0, 0)
+				out.argA[split] = out.ops.length
+				out.append(branches[i])
+				jmps.push(out.emit(rxJmp, 0, 0))
+				out.argB[split] = out.ops.length
+			} else {
+				out.append(branches[i])
+			}
+		}
+		let end = out.ops.length
+
+		for j in jmps {
+			out.patch(j, end, 0)
+		}
+		return out
+	}
+	fun compileSequence(): RegexFragment {
+		var out RegexFragment = RegexFragment()
+
+		while not this.atEnd() {
+			let c = this.peekCode()
+
+			if c == 124 or c == 41 { break }
+			let atom = this.compileAtom()
+
+			if atom == null { break }
+			out.append(this.applyQuantifier(atom !))
+		}
+		return out
+	}
+	fun compileAtom(): RegexFragment? {
+		let c = this.bumpCode()
+
+		if c < 0 { return null }
+		var out RegexFragment = RegexFragment()
+
+		if c == 40 {
+			var capture = true
+			if this.peekCode() == 63 {
+				this.pos++
+				let kind = this.bumpCode()
+
+				if kind == 58 { capture = false } else { capture = false }
+			}
+			var slotStart = -1
+			var slotEnd = -1
+
+			if capture {
+				let gi = this.counter.groups
+				this.counter.groups++
+				slotStart = gi * 2
+				slotEnd = gi * 2 + 1
+				out.emit(rxSave, slotStart, 0)
+			}
+			out.append(this.compileAlternation())
+
+			if this.peekCode() == 41 { this.pos++ }
+
+			if capture { out.emit(rxSave, slotEnd, 0) }
+			return out
+		}
+
+		if c == 91 { return this.compileClass() }
+
+		if c == 46 {
+			out.emit(rxAny)
+			return out
+		}
+
+		if c == 94 {
+			out.emit(rxAssertStart)
+			return out
+		}
+
+		if c == 36 {
+			out.emit(rxAssertEnd)
+			return out
+		}
+
+		if c == 92 {
+			let e = this.bumpCode()
+
+			if e < 0 {
+				out.emit(rxChar, 92)
+				return out
+			}
+
+			if e == 100 {
+				out.emitClass(0, '0123456789')
+				return out
+			}
+
+			if e == 119 {
+				out.emitClass(0, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
+				return out
+			}
+
+			if e == 115 {
+				out.emitClass(0, ' \t\n\r\f\v')
+				return out
+			}
+
+			if e == 68 {
+				out.emitClass(1, '0123456789')
+				return out
+			}
+
+			if e == 87 {
+				out.emitClass(1, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
+				return out
+			}
+
+			if e == 83 {
+				out.emitClass(1, ' \t\n\r\f\v')
+				return out
+			}
+
+			if e == 98 {
+				out.emit(rxAssertWord, 0, 0)
+				return out
+			}
+
+			if e == 66 {
+				out.emit(rxAssertWord, 1, 0)
+				return out
+			}
+
+			if e == 110 {
+				out.emit(rxChar, 10)
+				return out
+			}
+
+			if e == 114 {
+				out.emit(rxChar, 13)
+				return out
+			}
+
+			if e == 116 {
+				out.emit(rxChar, 9)
+				return out
+			}
+
+			if e == 102 {
+				out.emit(rxChar, 12)
+				return out
+			}
+
+			if e == 118 {
+				out.emit(rxChar, 11)
+				return out
+			}
+
+			if e == 48 {
+				out.emit(rxChar, 0)
+				return out
+			}
+			let digit = rxDigitVal(e)
+
+			if digit >= 0 {
+				if digit > 0 and digit <= this.counter.groups {
+					out.emit(rxBackref, digit - 1, 0)
+					return out
+				}
+				out.emit(rxChar, e)
+				return out
+			}
+			out.emit(rxChar, e)
+			return out
+		}
+		out.emit(rxChar, c)
+		return out
+	}
+	fun compileClass(): RegexFragment {
+		var negated = 0
+
+		if this.peekCode() == 94 {
+			this.pos++
+			negated = 1
+		}
+		var mCodes [Int] = []
+		var first = true
+		while not this.atEnd() {
+			let c = this.bumpCode()
+
+			if c < 0 { break }
+
+			if c == 93 and not first { break }
+			first = false
+			if c == 92 {
+				let e = this.bumpCode()
+
+				if e == 100 {
+					for k in 10 { mCodes.push(48 + k) }
+					continue
+				}
+
+				if e == 119 {
+					for k in 26 { mCodes.push(97 + k) }
+
+					for k in 26 { mCodes.push(65 + k) }
+
+					for k in 10 { mCodes.push(48 + k) }
+					mCodes.push(95)
+					continue
+				}
+
+				if e == 115 {
+					mCodes.push(32)
+					mCodes.push(9)
+					mCodes.push(10)
+					mCodes.push(13)
+					mCodes.push(12)
+					mCodes.push(11)
+					continue
+				}
+
+				if e == 110 {
+					mCodes.push(10)
+					continue
+				}
+
+				if e == 114 {
+					mCodes.push(13)
+					continue
+				}
+
+				if e == 116 {
+					mCodes.push(9)
+					continue
+				}
+				mCodes.push(e)
+				continue
+			}
+
+			if this.pos + 1 < this.srcLen and this.peekCode() == 45 {
+				let nextPos = this.pos + 1
+
+				if nextPos < this.srcLen {
+					let hiO = this.src.charCodeAt(nextPos)
+
+					if hiO != null {
+						let hi = hiO !
+						if hi != 93 {
+							this.pos += 2
+
+							if c <= hi {
+								var code = c
+
+								while code <= hi and code < 65536 {
+									mCodes.push(code)
+									code++
+								}
+							} else {
+								mCodes.push(c)
+								mCodes.push(45)
+								mCodes.push(hi)
+							}
+							continue
+						}
+					}
+				}
+				mCodes.push(c)
+				continue
+			}
+			mCodes.push(c)
+		}
+		var out RegexFragment = RegexFragment()
+		out.emitClass(negated, rxStringFromCodes(mCodes))
+		return out
+	}
+	fun applyQuantifier(atom RegexFragment): RegexFragment {
+		var min = -1
+		var max = -1
+		var c = this.peekCode()
+
+		if c == 42 {
+			this.pos++
+			min = 0
+			max = -1
+		} else if c == 43 {
+			this.pos++
+			min = 1
+			max = -1
+		} else if c == 63 {
+			this.pos++
+			min = 0
+			max = 1
+		} else if c == 123 {
+			var p = this.pos + 1
+			var loVal = 0
+			var loDigits = 0
+
+			while p < this.srcLen {
+				let ccO = this.src.charCodeAt(p)
+
+				if ccO == null { break }
+				let v = ccO !
+				if v >= 48 and v <= 57 {
+					loVal = loVal * 10 + (v - 48)
+					loDigits++
+					p++
+				} else { break }
+			}
+
+			if loDigits > 0 and p < this.srcLen {
+				let cc2O = this.src.charCodeAt(p)
+
+				if cc2O != null {
+					let v2 = cc2O !
+					if v2 == 125 {
+						min = loVal
+						max = loVal
+						this.pos = p + 1
+					} else if v2 == 44 {
+						p++
+						var hiVal = 0
+						var hiDigits = 0
+
+						while p < this.srcLen {
+							let cc3O = this.src.charCodeAt(p)
+
+							if cc3O == null { break }
+							let v3 = cc3O !
+							if v3 >= 48 and v3 <= 57 {
+								hiVal = hiVal * 10 + (v3 - 48)
+								hiDigits++
+								p++
+							} else { break }
+						}
+
+						if p < this.srcLen {
+							let cc4O = this.src.charCodeAt(p)
+
+							if cc4O != null and cc4O ! == 125 {
+								if hiDigits == 0 {
+									min = loVal
+									max = -1
+									this.pos = p + 1
+								} else if hiVal >= loVal {
+									min = loVal
+									max = hiVal
+									this.pos = p + 1
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if min < 0 { return atom }
+		var lazy = false
+		if this.peekCode() == 63 {
+			this.pos++
+			lazy = true
+		}
+		return this.buildRepeat(atom, min, max, lazy)
+	}
+	fun buildRepeat(atom RegexFragment, min Int, max Int, lazy Bool): RegexFragment {
+		var out RegexFragment = RegexFragment()
+
+		for i in min {
+			out.append(atom)
+		}
+
+		if max < 0 {
+			let loop = out.ops.length
+			let split = out.emit(rxSplit, 0, 0)
+			let bodyStart = out.ops.length
+			out.append(atom)
+			out.emit(rxJmp, loop, 0)
+			let after = out.ops.length
+
+			if lazy {
+				out.argA[split] = after
+				out.argB[split] = bodyStart
+			} else {
+				out.argA[split] = bodyStart
+				out.argB[split] = after
+			}
+			return out
+		}
+
+		for i in (max - min) {
+			let split = out.emit(rxSplit, 0, 0)
+			let bodyStart = out.ops.length
+			out.append(atom)
+			let after = out.ops.length
+
+			if lazy {
+				out.argA[split] = after
+				out.argB[split] = bodyStart
+			} else {
+				out.argA[split] = bodyStart
+				out.argB[split] = after
+			}
+		}
+		return out
+	}
+}
+
+fun rxDigitVal(code Int): Int {
+	if code >= 48 and code <= 57 { return code - 48 }
+	return -1
+}
+
+fun rxIsWordCode(code Int): Bool {
+	if code >= 48 and code <= 57 { return true }
+
+	if code >= 65 and code <= 90 { return true }
+
+	if code >= 97 and code <= 122 { return true }
+
+	if code == 95 { return true }
+	return false
+}
+
+fun rxFold(code Int): Int {
+	if code >= 65 and code <= 90 { return code + 32 }
+	return code
+}
+
+class RegExp {
+	var global Bool = false
+	var ignoreCase Bool = false
+	var multiline Bool = false
+	var source String = ''
+	var lastIndex Int = 0
+	var groupCount Int = 0
+	var ops [Int] = []
+	var argA [Int] = []
+	var argB [Int] = []
+	var sets [String] = []
+	var compiled Bool = false
+	var flagText String = ''
+	new (pattern String, flags String?) {
+		this.source = pattern
+
+		if let f = flags {
+			this.flagText = f
+			var i = 0
+
+			while i < f.length {
+				let ch = f.charCodeAt(i)
+
+				if ch != null {
+					let code = ch !
+					if code == 103 { this.global = true }
+
+					if code == 105 { this.ignoreCase = true }
+
+					if code == 109 { this.multiline = true }
+				}
+				i++
+			}
+		}
+	}
+	fun ensureCompiled(): Void {
+		if this.compiled { return }
+		this.compiled = true
+		let key = regexCacheKey(this.source, this.flagText)
+
+		if let cached = regexProgramCache.get(key) {
+			this.ops = cached.ops
+			this.argA = cached.argA
+			this.argB = cached.argB
+			this.sets = cached.sets
+			this.groupCount = cached.groups
+			return
+		}
+		let counter = RegexGroupCounter()
+		let compiler = RegexCompiler(this.source, counter)
+		let frag = compiler.compileAll()
+		let prog = RegexProgram()
+		prog.ops = frag.ops
+		prog.argA = frag.argA
+		prog.argB = frag.argB
+		prog.sets = frag.sets
+		prog.groups = counter.groups
+		regexProgramCache.set(key, prog)
+		this.ops = prog.ops
+		this.argA = prog.argA
+		this.argB = prog.argB
+		this.sets = prog.sets
+		this.groupCount = prog.groups
+	}
+	fun exec(str String): RegExpMatch? {
+		this.ensureCompiled()
+		var start = 0
+
+		if this.global {
+			start = this.lastIndex
+
+			if start < 0 { start = 0 }
+
+			if start > str.length { return null }
+		}
+		var caps [Int] = []
+
+		for i in (this.groupCount + 1) * 2 { caps.push(-1) }
+
+		while start <= str.length {
+			for i in caps.length { caps[i] = -1 }
+			let end = this.tryPc(0, str, start, caps, 0)
+
+			if end >= 0 {
+				if this.global {
+					this.lastIndex = end
+
+					if end == start { this.lastIndex = start + 1 }
+				}
+				return RegExpMatch(this, str, start, end, caps)
+			}
+			start++
+		}
+		return null
+	}
+	fun test(str String): Bool {
+		let saved = this.lastIndex
+		let m = this.exec(str)
+
+		if not this.global { this.lastIndex = saved }
+		return m != null
+	}
+	fun toString(): String {
+		return '/' + this.source + '/'
+	}
+	fun tryPc(pc Int, str String, pos Int, caps [Int], depth Int): Int {
+		if depth > rxMaxDepth { return -1 }
+
+		if pc < 0 or pc >= this.ops.length { return -1 }
+		let op = this.ops[pc]
+
+		if op == rxMatch { return pos }
+
+		if op == rxChar {
+			if pos >= str.length { return -1 }
+			let code = str.charCodeAt(pos)
+
+			if code == null { return -1 }
+			var c = code !
+			var want = this.argA[pc]
+
+			if this.ignoreCase {
+				c = rxFold(c)
+				want = rxFold(want)
+			}
+
+			if c != want { return -1 }
+			return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1)
+		}
+
+		if op == rxAny {
+			if pos >= str.length { return -1 }
+			let code = str.charCodeAt(pos)
+
+			if code == null { return -1 }
+
+			if code ! == 10 and code ! == 13 { return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1) }
+			return -1
+		}
+
+		if op == rxClass {
+			if pos >= str.length { return -1 }
+			let code = str.charCodeAt(pos)
+
+			if code == null { return -1 }
+			var c = code !
+			if this.ignoreCase { c = rxFold(c) }
+			var members = this.sets[pc]
+			var found = false
+			for i in members.length {
+				let mc = members.charCodeAt(i)
+
+				if mc != null {
+					var m = mc !
+					if this.ignoreCase { m = rxFold(m) }
+
+					if m == c {
+						found = true
+						break
+					}
+				}
+			}
+
+			if this.argA[pc] == 1 { found = not found }
+
+			if not found { return -1 }
+			return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1)
+		}
+
+		if op == rxSplit {
+			let first = this.tryPc(this.argA[pc], str, pos, caps, depth + 1)
+
+			if first >= 0 { return first }
+			return this.tryPc(this.argB[pc], str, pos, caps, depth + 1)
+		}
+
+		if op == rxJmp {
+			return this.tryPc(this.argA[pc], str, pos, caps, depth + 1)
+		}
+
+		if op == rxSave {
+			let slot = this.argA[pc]
+			var previous = -1
+
+			if slot < caps.length {
+				previous = caps[slot]
+				caps[slot] = pos
+			}
+			let r = this.tryPc(pc + 1, str, pos, caps, depth + 1)
+
+			if r < 0 and slot < caps.length { caps[slot] = previous }
+			return r
+		}
+
+		if op == rxAssertStart {
+			let okStart = pos == 0 or (this.multiline and rxCharBeforeIsNewline(str, pos))
+
+			if not okStart { return -1 }
+			return this.tryPc(pc + 1, str, pos, caps, depth + 1)
+		}
+
+		if op == rxAssertEnd {
+			let okEnd = pos == str.length or (this.multiline and rxCharAtIsNewline(str, pos))
+
+			if not okEnd { return -1 }
+			return this.tryPc(pc + 1, str, pos, caps, depth + 1)
+		}
+
+		if op == rxAssertWord {
+			var before = false
+			var after = false
+			if pos > 0 {
+				let b = str.charCodeAt(pos - 1)
+
+				if b != null { before = rxIsWordCode(b !) }
+			}
+
+			if pos < str.length {
+				let a = str.charCodeAt(pos)
+
+				if a != null { after = rxIsWordCode(a !) }
+			}
+			var boundary = before != after
+
+			if this.argA[pc] == 1 { boundary = not boundary }
+
+			if not boundary { return -1 }
+			return this.tryPc(pc + 1, str, pos, caps, depth + 1)
+		}
+
+		if op == rxBackref {
+			let gi = this.argA[pc]
+			let startSlot = gi * 2
+			let endSlot = gi * 2 + 1
+
+			if startSlot >= caps.length or endSlot >= caps.length { return -1 }
+			let capturedStart = caps[startSlot]
+			let capturedEnd = caps[endSlot]
+
+			if capturedStart < 0 or capturedEnd < capturedStart { return -1 }
+			let text = str.substring(capturedStart, capturedEnd)
+
+			if text.length == 0 { return this.tryPc(pc + 1, str, pos, caps, depth + 1) }
+
+			if pos + text.length > str.length { return -1 }
+			var i = 0
+
+			while i < text.length {
+				let a = str.charCodeAt(pos + i)
+				let b = text.charCodeAt(i)
+
+				if a == null or b == null { return -1 }
+				var ac = a !
+				var bc = b !
+				if this.ignoreCase {
+					ac = rxFold(ac)
+					bc = rxFold(bc)
+				}
+
+				if ac != bc { return -1 }
+				i++
+			}
+			return this.tryPc(pc + 1, str, pos + text.length, caps, depth + 1)
+		}
+		return -1
+	}
+}
+
+fun rxCharBeforeIsNewline(str String, pos Int): Bool {
+	if pos <= 0 { return true }
+	let c = str.charCodeAt(pos - 1)
+
+	if c == null { return false }
+	return c ! == 10
+}
+
+fun rxCharAtIsNewline(str String, pos Int): Bool {
+	let c = str.charCodeAt(pos)
+
+	if c == null { return false }
+	return c ! == 10
+}
+
 class RegExpMatch {
-	var index: Int = 0
-	var input: String = ''
+	var index Int = 0
+	var input String = ''
+	var length Int = 0
+	var groups [String] = []
+	var source RegExp? = null
+	new (re RegExp, text String, start Int, end Int, caps [Int]) {
+		this.source = re
+		this.input = text
+		this.index = start
+		this.groups = [text.substring(start, end)]
+
+		for g in re.groupCount {
+			let a = caps[g * 2]
+			let b = caps[g * 2 + 1]
+
+			if a >= 0 and b >= a {
+				this.groups.push(text.substring(a, b))
+			} else {
+				this.groups.push('')
+			}
+		}
+		this.length = this.groups.length
+	}
+	fun get(i Int): String {
+		if i < 0 or i >= this.groups.length { return '' }
+		return this.groups[i]
+	}
+	fun at(i Int): String? {
+		if i < 0 or i >= this.groups.length { return null }
+		return this.groups[i]
+	}
+}
+
+fun rxReplaceOne(text String, m RegExpMatch, replacement String): String {
+	let whole = m.get(0)
+	return text.substring(0, m.index) + rxExpandReplacement(m, replacement) + text.substring(m.index + whole.length, text.length)
+}
+
+fun rxExpandReplacement(m RegExpMatch, replacement String): String {
+	var outCodes [Int] = []
+	var i = 0
+
+	while i < replacement.length {
+		let codeO = replacement.charCodeAt(i)
+
+		if codeO == null { break }
+		let code = codeO !
+		if code == 36 and i + 1 < replacement.length {
+			let nextO = replacement.charCodeAt(i + 1)
+
+			if nextO != null {
+				let next = nextO !
+				if next == 38 {
+					let whole = m.get(0)
+
+					for k in whole.length {
+						let cc = whole.charCodeAt(k)
+
+						if cc != null { outCodes.push(cc !) }
+					}
+					i += 2
+					continue
+				}
+
+				if next == 36 {
+					outCodes.push(36)
+					i += 2
+					continue
+				}
+
+				if next >= 49 and next <= 57 {
+					let g = m.get(next - 48)
+
+					for k in g.length {
+						let cc = g.charCodeAt(k)
+
+						if cc != null { outCodes.push(cc !) }
+					}
+					i += 2
+					continue
+				}
+			}
+		}
+		outCodes.push(code)
+		i++
+	}
+	return rxStringFromCodes(outCodes)
 }
