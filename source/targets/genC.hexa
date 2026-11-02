@@ -2748,6 +2748,10 @@ class GenCxx {
 								let cc2 = String.fromCharCode(125)
 								metaBlock.push('if (Any_isObject_((Any_*)(' + recvS + ')) ' + cb2 + ' ' + directW + '; ' + cc2 + ' else ' + cb2 + ' ' + legacyW + '; ' + cc2)
 								return '(void)0'
+							if let objLit2 = printObjectAs(project.typer.typeAny, v) {
+								dynVal2 = objLit2
+							} else if isBoxableFat(v) {
+								dynVal2 = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
 							}
 							return printExpression(Expression.Call(
 									Expression.Dot(expr, 'set', null /*TODO*/),
@@ -2756,6 +2760,7 @@ class GenCxx {
 									CallKind.Function,
 									[]
 								))
+							return 'Any_indexSet_((Any_*)(' + printExpression(expr) + '), (Any_*)(' + printExpression(index) + '), ' + dynVal2 + ')'
 						}
 
 						switch Type.unwrapNullable(exprType) {
@@ -3337,6 +3342,8 @@ class GenCxx {
 					continue
 				}
 
+				// NOTE: the pre-existing duplicate of this arm was removed
+				// (#5 dedup — the second copy could never fire).
 				if i < exp.length, isFatValueType(exp[i]), (isFatArg(args[i]) or isDynamic(valueType(args[i]))) {
 					// S3b: cast the ptr half when the value's signature differs
 					// from the expected one (restores the pre-S3b mismatched
@@ -4718,10 +4725,19 @@ class GenCxx {
 		r += 'if (tag_ == nullptr) ' + lb + ' i_++; continue; ' + rb + nl
 		r += 'if (((const struct HexaHeader_*)(p_))->rc_ != (int32_t)0) ' + lb + ' i_++; continue; ' + rb + nl
 		r += 'if (mode_ == 4) ' + lb + ' i_++; continue; ' + rb + nl
-		r += 'if (mode_ == 1 && tag_ == (const void*)(&String__$)) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
+		// D2 "interned globals are immortal", enforced operationally: `String`
+		// objects are RETIRED from the live set (never destroyed/freed) in
+		// every mode. Proof that freeing them is still unsound: with strings
+		// freed, the shared empty literal reaches `rc=-207` (under-counted
+		// shares — the missing-retain family in `String_$combine_` /
+		// `fromFloat` / `toLowerCase` / `jsonIndent` / `path.basename` guards)
+		// and later readers AV on the freed header. Cost: interned strings
+		// leak until the allocator can count shared ownership (tracked in
+		// docs/target-c.md F11).
+		r += 'if (tag_ == (const void*)(&String__$)) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
 		r += 'if (mode_ == 2 && hexaTagIsArray_(tag_)) ' + lb + ' i_++; continue; ' + rb + nl
 		r += 'if (mode_ == 3) ' + lb + ' void (*dd_)(void*) = HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->destroy_ : HexaDestroyLookup_(tag_); if (dd_ != nullptr) ' + lb + ' i_++; continue; ' + rb + ' ' + rb + nl
-		r += 'if (victims_ < 64) ' + lb + ' victims_++; FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", (HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->className_() : hexaTagName_(tag_)), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d head=", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, "%04x ", (unsigned)(s_->bytes_[k_])); int32_t bi_ = (int32_t)(s_->bytesHash_ % 65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; uint8_t inb_ = (uint8_t)0; uint8_t ishead_ = (uint8_t)0; String_* cur_ = stringBuckets_[bi_]; if (cur_ == s_) ishead_ = (uint8_t)1; int32_t guard_ = (int32_t)0; while (cur_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (cur_ == s_) ' + lb + ' inb_ = (uint8_t)1; break; ' + rb + ' cur_ = cur_->next_; guard_++; ' + rb + ' fprintf(vf_, " inbucket=%d ishead=%d", (int)inb_, (int)ishead_); HEXA_ASSERT(inb_ == (uint8_t)0, "sweep: freeing an interned String still linked in stringBuckets_ - unlink the weak intern link before free (D6)"); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + nl
+		r += 'if (victims_ < 64) ' + lb + ' victims_++; if (hexaSweepVerbose_ != (uint8_t)0) ' + lb + ' FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", (HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->className_() : hexaTagName_(tag_)), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d head=", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, "%04x ", (unsigned)(s_->bytes_[k_])); int32_t bi_ = (int32_t)(s_->bytesHash_ % 65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; uint8_t inb_ = (uint8_t)0; uint8_t ishead_ = (uint8_t)0; String_* cur_ = stringBuckets_[bi_]; if (cur_ == s_) ishead_ = (uint8_t)1; int32_t guard_ = (int32_t)0; while (cur_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (cur_ == s_) ' + lb + ' inb_ = (uint8_t)1; break; ' + rb + ' cur_ = cur_->next_; guard_++; ' + rb + ' fprintf(vf_, " inbucket=%d ishead=%d", (int)inb_, (int)ishead_); HEXA_ASSERT(inb_ == (uint8_t)0, "sweep: freeing an interned String still linked in stringBuckets_ - unlink the weak intern link before free (D6)"); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + ' ' + rb + nl
 		r += 'if (tag_ == (const void*)(&AnyObject__$)) ' + lb + ' AnyObject_* o_ = (AnyObject_*)(p_); if (o_->entries_ != nullptr) ' + lb + ' for (size_t j_ = (size_t)0; j_ < (size_t)o_->count_; j_++) ' + lb + ' if (Any_isCounted_((Any_*)(o_->entries_[j_].k_))) hexaUnref((void*)(o_->entries_[j_].k_)); if (Any_isCounted_(o_->entries_[j_].v_)) hexaUnref((void*)(o_->entries_[j_].v_)); ' + rb + ' HEXA_FREE(o_->entries_, 0); ' + rb + ' ' + rb + ' else if (tag_ == (const void*)(&FatPair__$)) ' + lb + ' FatPair_* fp_ = (FatPair_*)(p_); if (fp_->env_ != nullptr && !((int64_t)(fp_->env_) >= (int64_t)-65535 && (int64_t)(fp_->env_) <= (int64_t)65535)) hexaUnref(fp_->env_); ' + rb + ' else ' + lb + ' void (*d_)(void*) = HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->destroy_ : HexaDestroyLookup_(tag_); if (d_ != nullptr) d_(p_); ' + rb + nl
 		// D6 unlink (Batch-1 leak/corruption fix): a freed interned String must
 		// leave `stringBuckets_` BEFORE `HEXA_FREE` — string identity is the
@@ -6663,15 +6679,17 @@ class GenCxx {
 				else { return null }
 			case _:
 		}
-		// Scalar targets have no heap vtable (scalars box to null `Any`).
+		// Builtin scalars: shape test through the `Any_is*_` runtime helpers.
+		let recvS = printExpression(receiver)
+
 		switch t {
 			case ClassInstance(c, _):
-				if ['Bool', 'Bool8', 'Bool32', 'Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'BigInt', 'Float', 'Float32', 'Number', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'].includes(c.name) {
-					return null
+				if let pred = scalarIsPredicate(c.name, recvS) {
+					return pred
 				}
 			case Class(c):
-				if ['Bool', 'Bool8', 'Bool32', 'Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'BigInt', 'Float', 'Float32', 'Number', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'].includes(c.name) {
-					return null
+				if let pred = scalarIsPredicate(c.name, recvS) {
+					return pred
 				}
 			case _:
 				return null
@@ -8258,6 +8276,11 @@ class GenCxx {
 				// Any key with runtime type-check (String fast-path, Int →
 				// index_get, else to-string). String-static keys take the
 				// direct `Any_dynGet` fast-path (no helper, no boxing).
+				// `Any` (or untyped) receivers index through the single runtime
+				// `Any_indexGet_` dispatcher (F10): bags field-dispatch on the
+				// string form of the key, reflect shapes split Int keys to
+				// `index_*` and everything else to `dyn_*`. Static `String` keys
+				// keep the direct `Any_dynGet` fast path (no key conversion).
 				if isDynamic(exprType) {
 					let idxT = getType(index)
 					var isStrKey = false
@@ -8295,6 +8318,7 @@ class GenCxx {
 							CallKind.Function,
 							[]
 						))
+					return 'Any_indexGet_((Any_*)(' + printExpression(expr) + '), (Any_*)(' + printExpression(index) + '))'
 				}
 
 				switch Type.unwrapNullable(exprType) {
