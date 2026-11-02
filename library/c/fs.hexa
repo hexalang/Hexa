@@ -523,7 +523,22 @@ class FsPromisesImpl {
 		Fs.renameSync(oldPath, newPath)
 		return Promise<Void>(fun (resolve) { resolve(null) })
 	}
-	fun readdir(path: String, options: Any? = null): Promise<[FsDirentInfo]> { return Promise.resolve(Fs.readdirTypesSync(path)) }
+	fun readdir(path: String, options: Any? = null): Promise<[FsDirentInfo]> {
+		let out = Fs.readdirTypesSync(path)
+		// Deferred settlement (native only — this file is the C target's fs):
+		// the Win32 walk runs now (sync, fast per dir), but the promise
+		// settles on the next timer pump, so every `await readdir` suspends
+		// at least once. The host loop then pumps frames/input/sweep between
+		// hydration levels instead of walking a big root (include/node,
+		// 100+ chats dirs) synchronously for seconds with no message-loop
+		// turn (Windows "Not Responding" + watchdog kill mid-tree). Node's
+		// readdir is truly async, so this is parity — and Perfide code is
+		// untouched (all 20+ `await`/`.then` call sites already handle it).
+		let result = new Promise<[FsDirentInfo]>(fun (resolve, reject) { })
+		let captured = out
+		setTimeout(fun () Void { result.settleResolve(captured) }, 0)
+		return result
+	}
 	fun mkdir(path: String, options: Any? = null): Promise<Void> {
 		Fs.mkdirSync(path, options)
 		return Promise<Void>(fun (resolve) { resolve(null) })
