@@ -525,6 +525,21 @@ class FsPromisesImpl {
 	}
 	fun readdir(path: String, options: Any? = null): Promise<[FsDirentInfo]> {
 		let out = Fs.readdirTypesSync(path)
+	fun readdir(path: String, options: Any? = null): Promise<[Any]> {
+		var withTypes = false
+		if options != null {
+			let o Any = options as Any
+			if o.withFileTypes != null {
+				if (o.withFileTypes as Bool) == true { withTypes = true }
+			}
+		}
+		var out [Any] = []
+
+		if withTypes {
+			for e in Fs.readdirTypesSync(path) { out.push(e) }
+		} else {
+			for n in Fs.readdirSync(path) { out.push(n) }
+		}
 		// Deferred settlement (native only — this file is the C target's fs):
 		// the Win32 walk runs now (sync, fast per dir), but the promise
 		// settles on the next timer pump, so every `await readdir` suspends
@@ -535,6 +550,7 @@ class FsPromisesImpl {
 		// readdir is truly async, so this is parity — and Perfide code is
 		// untouched (all 20+ `await`/`.then` call sites already handle it).
 		let result = new Promise<[FsDirentInfo]>(fun (resolve, reject) { })
+		let result = new Promise<[Any]>(fun (resolve, reject) { })
 		let captured = out
 		setTimeout(fun () Void { result.settleResolve(captured) }, 0)
 		return result
@@ -708,9 +724,22 @@ class FsModule {
 		var cb Any = callback
 
 		if cb == null { cb = options }
+		var withTypes = false
+
+		if callback != null and options != null {
+			let o Any = options as Any
+
+			if o.withFileTypes != null {
+				if (o.withFileTypes as Bool) == true { withTypes = true }
+			}
+		}
 		var entries [Any] = []
 
-		for e in Fs.readdirTypesSync(path) { entries.push(e) }
+		if withTypes {
+			for e in Fs.readdirTypesSync(path) { entries.push(e) }
+		} else {
+			for n in Fs.readdirSync(path) { entries.push(n) }
+		}
 
 		if cb != null { cb(null, entries) }
 		return null
