@@ -57,7 +57,8 @@ class Array<T> {
 			}
 
 			let newData = malloc(sizeOfPreferPointer<T>() * newCapacity) as!ArrayPointer<T>
-			// TODO realloc
+			let newData = calloc(newCapacity as!UInt64, sizeOfPreferPointer<T>() as!UInt64) as!ArrayPointer<T>
+			// TODO realloc (calloc zeroes so slots beyond `length` read as null)
 
 			for i in length {
 				newData[i] = data[i]
@@ -78,7 +79,7 @@ class Array<T> {
 	fun concat(a: [T]): [T] { return[] }
 
 	fun join(sep String) String {
-		// TODO optimize
+		// TODO optimize (single alloc via length pre-pass)
 		var result = ''
 		var separate = false
 
@@ -383,11 +384,11 @@ class Array<T> {
 			}
 		}
 
-		//for element in this { // TODO
 		//	if f(element) {
 		//		result.push(element)
 		//	}
-		//}
+		// for element in this { // TODO
+		// }
 
 		return result
 	}
@@ -414,6 +415,9 @@ class Array<T> {
 		// TODO `T.class.sizeOfPreferPointer * capacity`
 		// TODO `T.type.sizeOfPreferPointer * capacity`
 		data = malloc(sizeOfPreferPointer<T>() * capacity) as!ArrayPointer<T>
+		// Container slots beyond `length` must read as null (calloc zeroes) —
+		// ARC releases the overwritten slot on every store, including appends.
+		data = calloc(capacity as!UInt64, sizeOfPreferPointer<T>() as!UInt64) as!ArrayPointer<T>
 	}
 	// TODO fix ... in parser
 	// private fun get(index: Int): T {return null}
