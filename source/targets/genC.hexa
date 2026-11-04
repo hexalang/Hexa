@@ -96,6 +96,24 @@ class GenCxx {
 	/// thunks were emitted (dead code until dynamic calls wire them) — after
 	/// Types, emit the `{impl, call}` registry the pair dispatch looks up.
 	var fatPairImpls: [String] = []
+	// F10.3: bare GLOBAL functions boxed into `Any` (see `anyBox`) — name
+	// (mangled, no trailing `_`) + signature, so `printFatPairs` can emit a
+	// no-env thunk for each. Filled lazily while the bodies print, exactly
+	// like `fatPairImpls`.
+	var fatPairGlobalNames: [String] = []
+	var fatPairGlobalTypes: [Type] = []
+	/// F10.4: instance METHODS boxed as callable `Any` values — a dynamic
+	/// read of a method name (`anyString.split`, `anyArray.forEach`) returns
+	/// the boxed `{impl, self}` pair the F10.3 dispatch already understands.
+	/// Filled while the per-class hidden `dyn_get` bodies print; the thunk
+	/// bodies (env-first, so the receiver rides in `env_`) are emitted next
+	/// to the global ones, and the impl names join `fatPairImpls` so the
+	/// registry lookup finds them.
+	var fatPairMethodNames: [String] = []
+	var fatPairMethodTypes: [Type] = []
+	/// F10.4: C receiver type per boxed method (`Name_`), so the thunk casts
+	/// the `void* env_` back to the typed `$this` slot.
+	var fatPairMethodSelf: [String] = []
 	/// Declared type per LOCAL/param base name of the function being printed
 	/// (cleared at each function signature — see `printFunctionArguments`)
 	var localDecls: [String : Type] = [:]
@@ -113,6 +131,83 @@ class GenCxx {
 			case _:
 				return false
 		} }
+
+	/// F10.4: the F10.3 thunk ABI can unbox pointers, plain scalars and `Any`
+	/// out of `argv_` — anything else (a foreign `@rename`d pointer typedef
+	/// such as `HANDLE`, a bitfield) has no argv form, so such a method stays
+	/// unboxed and a dynamic read keeps returning null exactly as before.
+	fun isThunkSafeType(t: Type): Bool {
+		switch t {
+			case Nullable(inner):
+				return isThunkSafeType(inner)
+			case Function(_, _):
+				// Fat callback param: the thunk unpacks the boxed pair.
+				return true
+			case _:
+		}
+		let s = stringifyType(t)
+
+		if s == 'void' {
+			return true
+		}
+
+		if s.endsWith('*') {
+			return true
+		}
+
+		if s == 'int32_t' or s == 'int64_t' or s == 'uint32_t' or s == 'uint64_t' {
+			return true
+		}
+
+		if s == 'int16_t' or s == 'int8_t' or s == 'uint16_t' or s == 'uint8_t' {
+			return true
+		}
+
+		if s == 'double' or s == 'float' or s == 'Bool_' {
+			return true
+		}
+
+		return false
+	}
+
+	/// F10.4: can this instance method be boxed as a callable `Any` value?
+	/// Constructors (`new`) have no `self` slot to ride in `env_`; `async`
+	/// methods return a coroutine promise the thunk ABI cannot carry; and a
+	/// signature with a non-argv-mappable type would not compile. Everything
+	/// else is a normal env-first fat value, so the existing F10.3 thunk
+	/// dispatcher handles it.
+	fun isBoxableMethod(mname: String?, funcType: Type, isAsync: Bool): Bool {
+		if mname == null {
+			return false
+		}
+
+		if mname == 'new' {
+			return false
+		}
+
+		if isAsync {
+			return false
+		}
+
+		switch funcType {
+			case Function(args, returns):
+				// A fat (function-typed) return uses the out-param ABI the
+				// thunk does not model — leave those unboxed.
+				if isFatValueType(returns) {
+					return false
+				}
+				// The receiver is not part of `funcType` — the C signature
+				// prepends it (see `skipFirst`), so any arity binds.
+				for a in args {
+					if not isThunkSafeType(a.dataType) {
+						return false
+					}
+				}
+				return isThunkSafeType(returns)
+			case _:
+				return false
+		}
+	}
 	/// Fill `voidFuncs` once per emit (globals + methods, bare + qualified)
 	fun buildVoidFuncs() {
 		if voidFuncsBuilt {
@@ -128,6 +223,14 @@ class GenCxx {
 			} }
 
 		for c in project.classes {
+			// Templates emit no C functions (only their instances do) and
+			// their returns are still unresolved generics — `stringifyType`
+			// cannot classify those, so a template's method never
+			// contributes to `voidFuncs`.
+			if c.template {
+				continue
+			}
+
 			for m in c.methods { switch m {
 					case Function(mname, _, _, _, funcType, _, _):
 						if isVoidReturnType(funcType) {
@@ -142,6 +245,60 @@ class GenCxx {
 						if isVoidReturnType(funcType) {
 							voidFuncs.set(mname, true)
 							voidFuncs.set(c.name + '_$' + mname, true)
+						}
+					case _:
+				} }
+		}
+
+		// Pass 2 — BARE method names. `isVoidCallee` only sees `Dot(_, name)`
+		// (the receiver's static class is not resolved there), so a bare entry
+		// is consulted for EVERY `x.name(...)`. Recording one unconditionally
+		// let a single void method poison same-named value-returning ones:
+		// `Array.pop` (generic `T?`) came out `void`, so every `.pop()` call
+		// site discarded its result through the `Void → T` comma bridge and
+		// Perfide's icon scan read a null extension for every PNG (0 icons).
+		// Only names that are void in EVERY declaring class stay bare.
+		var nonVoidNames: [String : Bool] = [:]
+
+		for c in project.classes {
+			if c.template {
+				continue
+			}
+
+			for m in c.methods { switch m {
+					case Function(mname, _, _, _, funcType, _, _):
+						if not isVoidReturnType(funcType) {
+							nonVoidNames.set(mname, true)
+						}
+					case _:
+				} }
+
+			for m in c.staticMethods { switch m {
+					case Function(mname, _, _, _, funcType, _, _):
+						if not isVoidReturnType(funcType) {
+							nonVoidNames.set(mname, true)
+						}
+					case _:
+				} }
+		}
+
+		for c in project.classes {
+			if c.template {
+				continue
+			}
+
+			for m in c.methods { switch m {
+					case Function(mname, _, _, _, funcType, _, _):
+						if isVoidReturnType(funcType), nonVoidNames.get(mname) == null {
+							voidFuncs.set(mname, true)
+						}
+					case _:
+				} }
+
+			for m in c.staticMethods { switch m {
+					case Function(mname, _, _, _, funcType, _, _):
+						if isVoidReturnType(funcType), nonVoidNames.get(mname) == null {
+							voidFuncs.set(mname, true)
 						}
 					case _:
 				} }
@@ -177,6 +334,9 @@ class GenCxx {
 	// sweep bisect: `hexaArrayTags_` lets `HEXA_SWEEP_MODE=2` skip exactly
 	// the array-element unref cascade while freeing everything else.
 	let arrayDestroyTags: [String] = []
+	// D2: `ArrayByValue<T?, N>` globals whose BSS zero-fill is not `null` —
+	// each entry is one `hexaFillNone_` statement for the boot prologue.
+	let noneSlotInitLines: [String] = []
 	let types: [String] = []
 	let dllExports: [String] = []
 	// TODO Docs
@@ -249,6 +409,7 @@ class GenCxx {
 		globalDecls.set('hexaSentinelEnv', project.typer.typeAny)
 		buildVoidFuncs()
 		forward.push(printReflectABI())
+		forward.push(printNullSentinel())
 
 		// Types
 		// TODO use _HEX16GUID_ClassName_ instead of _mangledNameSpace_ClassName_!
@@ -1065,6 +1226,19 @@ class GenCxx {
 						}
 					}
 				}
+				// Per-class `toBool`: `String` is falsy when empty (JS), everything
+				// else is always truthy (objects/arrays — `[]`/`{}` are truthy).
+				var hiddenToBool = '&Hexa_ToBoolTrue_'
+
+				if c.name == 'String' {
+					hiddenToBool = '&String_hiddenToBool_'
+					forwardFunctions.push('uint8_t String_hiddenToBool_(void*)')
+					forwardFunctions.push(';\n')
+					out.push('uint8_t String_hiddenToBool_(void* self_) ' + hlb + hnl)
+					out.push('\tif (self_ == nullptr) return (uint8_t)0;' + hnl)
+					out.push('\treturn (uint8_t)(((String_*)(self_))->length_ != (int32_t)0);' + hnl)
+					out.push(hrb + '\n\n')
+				}
 				forwardFunctions.push('const char* ' + c.name + '_hiddenClassName_(void)')
 				forwardFunctions.push(';\n')
 				forwardFunctions.push('Any_* ' + c.name + '_hiddenDynGet_(void*, String_*)')
@@ -1102,6 +1276,12 @@ class GenCxx {
 
 					if isFatValueType(ft) {
 						boxed = 'Any_boxFatPair_((void(*)())(self->' + fn + '$f_), self->' + fn + '$e_)'
+						var thunk = 'nullptr'
+
+						if let n = argvApplyName(ft) {
+							thunk = n
+						}
+						boxed = 'Any_boxFatPair_((void(*)())(self->' + fn + '$f_), self->' + fn + '$e_, ' + thunk + ')'
 					} else {
 						boxed = printToAnyConverter('self->' + fn + '_', ft)
 					}
@@ -1114,6 +1294,35 @@ class GenCxx {
 					}
 					out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' return ' + boxed + '; ' + hrb + hnl)
 				}
+
+				// F10.4: bound METHOD values. The whole Perfide UI is
+				// `Any`-typed (`let state Any = targetWindow.state`), so
+				// `af.content.split('\n')`, `lines.forEach(fn)`,
+				// `someArray.push(x)` etc. are DYNAMIC calls: the callee is
+				// read out of the receiver with `dyn_get` and dispatched by
+				// the F10.3 pair registry. Without these branches the read
+				// returns null and the legacy proxy swallows the call —
+				// which is why the editor body, minimap and file tree drew
+				// nothing. `env_` carries the receiver (a method thunk is
+				// `withEnv` = true, so param 0 is the hidden `self`).
+				for v in c.methods { switch v {
+						case Function(mname, _, _, _, funcType, _, isAsync):
+							if isBoxableMethod(mname, funcType, isAsync) {
+								let implName = c.name + '_$' + mname
+								out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + mname + hq + '))) ' + hlb + ' return Any_boxFatPair_((void(*)())(&' + implName + '_), self, ' + implName + '$call_); ' + hrb + hnl)
+
+								if not fatPairMethodNames.includes(implName) {
+									fatPairMethodNames.push(implName)
+									fatPairMethodTypes.push(funcType)
+									fatPairMethodSelf.push(c.name + '_')
+								}
+
+								if not fatPairImpls.includes(implName) {
+									fatPairImpls.push(implName)
+								}
+							}
+						case _:
+					} }
 
 				if let parent = c.extend {
 					out.push('\treturn ' + parent + '_hiddenDynGet_(self_, k_);' + hnl)
@@ -1134,6 +1343,21 @@ class GenCxx {
 					} else {
 						let mb1 = metaBlock.length
 						let conv = printTypeConverter('v_', project.typer.typeAny, ft)
+						var conv = printTypeConverter('v_', project.typer.typeAny, ft)
+						// C-shape fallback: generic/inferred fields (e.g. Map's
+						// `nullValue = null`, later holding `V`) don't match a
+						// typer arm exactly — but their C slot is scalar. A raw
+						// `(int32_t)(Any_*)` is C4311 truncation (garbage int);
+						// route by the emitted C type instead.
+						let cShape = stringifyType(ft)
+
+						if cShape == 'Bool_' or cShape == 'uint8_t' {
+							conv = 'Any_toBool_(v_)'
+						} else if cShape == 'int32_t' or cShape == 'int64_t' or cShape == 'int16_t' or cShape == 'int8_t' or cShape == 'uint32_t' or cShape == 'uint64_t' or cShape == 'uint16_t' or cShape == 'uint8_t' {
+							conv = 'Any_unboxInt_(v_)'
+						} else if cShape == 'float' or cShape == 'double' {
+							conv = 'Any_unboxFloat_(v_)'
+						}
 
 						if metaBlock.length != mb1 {
 							while metaBlock.length > mb1 {
@@ -1303,6 +1527,13 @@ class GenCxx {
 				out.push('\tif (self_ == nullptr || op_ == nullptr) return;' + hnl)
 				out.push('\tswitch (op_->code_) ' + hlb + hnl)
 				out.push('\tcase (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break;' + hnl)
+				var hiddenToBoolCall = 'Hexa_ToBoolTrue_'
+
+				if c.name == 'String' {
+					hiddenToBoolCall = 'String_hiddenToBool_'
+				}
+
+				out.push('\tcase (int32_t)1: op_->resultInt_ = (int32_t)' + hiddenToBoolCall + '(self_); break;' + hnl)
 				out.push('\tcase (int32_t)2: op_->resultStr_ = Hexa_GenericToString_(self_); break;' + hnl)
 				out.push('\tcase (int32_t)3: op_->resultCStr_ = ' + c.name + '_hiddenClassName_(); break;' + hnl)
 				out.push('\tcase (int32_t)4: op_->result_ = ' + c.name + '_hiddenDynGet_(self_, op_->key_); break;' + hnl)
@@ -1317,7 +1548,7 @@ class GenCxx {
 				out.push('\tdefault: break;' + hnl)
 				out.push('\t' + hrb + hnl)
 				out.push(hrb + '\n\n')
-				let vtHiddenInit = '\{' + hiddenDestroy + ', &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &' + c.name + '_hiddenClassName_, &' + c.name + '_hiddenDynGet_, &' + c.name + '_hiddenDynSet_, &' + c.name + '_hiddenHas_, &' + c.name + '_hiddenDelete_, &' + c.name + '_hiddenKeyAt_, &' + c.name + '_hiddenKeyCount_, &' + c.name + '_hiddenIndexGet_, &' + c.name + '_hiddenIndexSet_, &' + c.name + '_hiddenIndexCount_, &' + c.name + '_hiddenReflect_\}'
+				let vtHiddenInit = '\{' + hiddenDestroy + ', ' + hiddenToBool + ', &Hexa_GenericToString_, &' + c.name + '_hiddenClassName_, &' + c.name + '_hiddenDynGet_, &' + c.name + '_hiddenDynSet_, &' + c.name + '_hiddenHas_, &' + c.name + '_hiddenDelete_, &' + c.name + '_hiddenKeyAt_, &' + c.name + '_hiddenKeyCount_, &' + c.name + '_hiddenIndexGet_, &' + c.name + '_hiddenIndexSet_, &' + c.name + '_hiddenIndexCount_, &' + c.name + '_hiddenReflect_\}'
 				let vtPublicInit = vtableBind.join(',\n\t')
 				let vtDef = 'struct ' + c.name + '_vt \{ struct HexaReflect_ hidden; struct ' + c.name + '__ public_; \};\n'
 				let vtVal = 'const struct ' + c.name + '_vt ' + c.name + '_vt$ = \{' + vtHiddenInit + ', \{' + vtPublicInit + '\}\};\n'
@@ -1534,6 +1765,11 @@ class GenCxx {
 		localDecls = [:]
 		out.push('int HEXA_MAIN(int argc, char **argv) \{\n')
 		// out.push('\tprintf("Starting...\\n");fflush(stdout);\n')
+		// D2: install the `null` sentinel tag and sentinel-fill every
+		// `ArrayByValue<T?, N>` (the intern table) BEFORE any string is
+		// interned — `String_$fromUTF16_` retains a bucket head unconditionally.
+		out.push('\thexaInstallNone_();\n')
+		out.push('\thexaInitNoneSlots_();\n')
 		out.push('%%%HEXA_STRINGS@@@\n')
 		// out.push('\tString_Strings = (String_**)HEXA_NEW(HEXA_STRINGS * sizeof(String_*));\n')
 		pushTab()
@@ -1668,6 +1904,17 @@ class GenCxx {
 										arraySize = '[' + Type.stringify(count) + ']'
 									} else {
 										arraySize = '[]'
+									}
+
+									// D2: nullable managed slots must read as the `null`
+									// sentinel OBJECT, not as a zero word (BSS `{0}`) —
+									// `stringBuckets` is exactly this case: the intern
+									// walk retains a bucket head before any string is
+									// interned. Fill at boot from `hexaInitNoneSlots_`.
+									if isNullSentinelType(generics[0]) {
+										if let count = generics[1] {
+											noneSlotInitLines.push('hexaFillNone_((void**)(&' + name + '_), (size_t)' + Type.stringify(count) + ');')
+										}
 									}
 
 									globalVariables.push('\(stringifyType(generics[0])) ' + name + '_' + arraySize)
@@ -1912,6 +2159,9 @@ class GenCxx {
 			+ '\n// Scalar boxing (D7: real `Any` payloads for ints/floats)\n' +
 			printScalarBoxing()
 
+			+ '\n// Fat-pair thunks for bare global functions (F10.3, needs the unboxers)\n' +
+			printFatPairGlobalThunks()
+
 			+ '\n// Destroy table (ARC: tag -> destructor for the F11 sweep)\n' +
 			printDestroyTable()
 
@@ -1919,11 +2169,16 @@ class GenCxx {
 			printAnyObject() + globalVariables.join('')
 
 			+ '\n// Sweep (F11: deferred free of rc==0 live entries, D6)\n' +
+			printNullVtable() +
+			printNoneSlotInit() +
 			printTagNames() +
 			printSweep()
 
 			+ '\n// Any -> struct helpers (F10 dynamic shape, registered on demand)\n' +
 			printAnyToStruct()
+
+			+ '\n// F10.5 fat-value adapters (per-signature argv <-> typed bridges)\n' +
+			printDynFatAdapters()
 
 			+ '\n// Global functions\n' +
 			globalFunctions.join('')
@@ -2667,7 +2922,7 @@ class GenCxx {
 							if let objLit = printObjectAs(project.typer.typeAny, v) {
 								dynVal = objLit
 							} else if isBoxableFat(v) {
-								dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+								dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ', ' + fatThunkStr(v) + ')'
 							}
 							return anyDynSetStr(printExpression(expr), name, dynVal)
 						}
@@ -2689,7 +2944,7 @@ class GenCxx {
 							if let objLit = printObjectAs(project.typer.typeAny, v) {
 								ifaceVal = objLit
 							} else if isBoxableFat(v) {
-								ifaceVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+								ifaceVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ', ' + fatThunkStr(v) + ')'
 							}
 							metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(expr))
 							metaBlock.push('Any_* ' + vtmp + ' = ' + ifaceVal)
@@ -2721,7 +2976,7 @@ class GenCxx {
 								if let objLit = printObjectAs(project.typer.typeAny, v) {
 									dynVal = objLit
 								} else if isBoxableFat(v) {
-									dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+									dynVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ', ' + fatThunkStr(v) + ')'
 								}
 								return 'Any_dynSet_((Any_*)(' + printExpression(expr) + '), ' + printExpression(index) + ', ' + dynVal + ')'
 							}
@@ -2751,7 +3006,7 @@ class GenCxx {
 							if let objLit2 = printObjectAs(project.typer.typeAny, v) {
 								dynVal2 = objLit2
 							} else if isBoxableFat(v) {
-								dynVal2 = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+								dynVal2 = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ', ' + fatThunkStr(v) + ')'
 							}
 							return printExpression(Expression.Call(
 									Expression.Dot(expr, 'set', null /*TODO*/),
@@ -3007,7 +3262,7 @@ class GenCxx {
 						if else_ {
 							r += ' else'
 						}
-						r += '\n' + tabs + 'if ('
+						r += '\n' + tabs + 'if (' + switchValueOf(cc) + ') '
 
 						switch cc {
 							case Null:
@@ -3633,6 +3888,16 @@ class GenCxx {
 				return printExpression(e) + '/*UNPAIRED-DOTPTR*/'
 			case Null(_):
 				return 'nullptr'
+			case Call(_, _, _, _, _):
+				// Function-typed RETURN ABI: the callee returns the CODE pointer
+				// directly (its env half travels through the callee's closure
+				// globals — see `makeAdder_`: `return (_$0)(closure$9$thin_)`),
+				// so the call expression IS this half. Without this arm a binding
+				// initialised from a call (`let add5 = makeAdder(5)`) emitted
+				// `/*UNPAIRED-PTR*/nullptr` and the first call through it jumped
+				// to 0 ("execute of 0"). `fatEnvStr` keeps its sentinel for calls
+				// (it never re-evaluates the call, so no double side effect).
+				return printExpression(e)
 			case _:
 				return '/*UNPAIRED-PTR*/nullptr'
 		} }
@@ -3697,6 +3962,43 @@ class GenCxx {
 			case _:
 				return 'hexaSentinelEnv_/*UNPAIRED-ENV*/'
 		} }
+
+	/// F10.5: argv-ABI thunk (`FatPair_.call_`) for a fat value being boxed into
+	/// `Any`. A lifted closure carries its own `$call_` (emitted next to the impl
+	/// by `printClosureThunk`). Everything else is a value whose impl only exists
+	/// at runtime (a stored pair var/param, a fat field, a thin wrapper for a
+	/// plain global) — those get `argvapply$N_`, the inverse adapter that reads
+	/// both halves back out of the pair. Only shapes with no reconstructible
+	/// signature keep `nullptr` (see the thin single-word struct field arm in
+	/// `printToAnyConverter`).
+	fun fatThunkStr(e: Expression): String { switch e {
+			case Parenthesis(inner):
+				return fatThunkStr(inner)
+			case Ident(_, _):
+				if let base = closureBaseName(e) {
+					let ds = base.substr(8, base.length - 8)
+
+					// A dropped creation has no per-instance env slot: the box
+					// carries the thin wrapper, so adapt through argv instead of
+					// the closure's own thunk.
+					if project.droppedClosureEnvs.get('closureEnv$' + ds) == null {
+						// `closure$178_` -> `closure$178$call_` (printClosureThunk)
+						return base + '$call_'
+					}
+				}
+			case _:
+		}
+
+		// Stored pair var/param, fat field, interface member, thin wrapper for a
+		// plain global: the impl exists only at runtime, so `argvapply$T` reads
+		// both halves back out of the pair it is handed.
+		if let vt = fatValueType(e) {
+			if let n = argvApplyName(vt) {
+				return n
+			}
+		}
+		return 'nullptr'
+	}
 
 	/// S3b: source function type behind a fat value (for call-site casts).
 	/// `null` when there is no meaningful source (Null → nullptr needs none).
@@ -3766,7 +4068,7 @@ class GenCxx {
 	/// here so pair shape never diverges. Composites have no addressable
 	/// halves and keep the legacy drop (see `isBoxableFat`).
 	fun boxFatPair(e: Expression): String {
-		return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(e) + '), ' + fatEnvStr(e) + ')'
+		return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(e) + '), ' + fatEnvStr(e) + ', ' + fatThunkStr(e) + ')'
 	}
 
 	/// #5 `Any` boxing for one element/value: pair when the leaf fat shape
@@ -3775,6 +4077,31 @@ class GenCxx {
 	fun anyBox(e: Expression): String {
 		if isBoxableFat(e) {
 			return boxFatPair(e)
+		}
+
+		// F10.3: a BARE global function designator (`drawRect`) stored into an
+		// `Any` slot must become a PAIR as well. A raw code pointer is not
+		// `Any_isFatPair_`, so every dynamic call through the slot fell into the
+		// `AnyValue_` no-op proxy — Perfide's agent harness bag
+		// (`{drawRect: drawRect, drawText: drawText, …}`) silently drew NOTHING:
+		// the whole agent panel (background, title, toggles, bubbles) is `h.draw*(…)`.
+		// The thunk for these is emitted by `printFatPairs` (no env slot).
+		switch e {
+			case Ident(name, _):
+				if let ft = globalFuncType(name) {
+					let cname = printExpression(e)
+
+					if cname.endsWith('_') {
+						let base = cname.substr(0, cname.length - 1)
+
+						if not fatPairGlobalNames.includes(base) {
+							fatPairGlobalNames.push(base)
+							fatPairGlobalTypes.push(ft)
+						}
+						return 'Any_boxFatPair_((void(*)())(' + cname + '), nullptr, ' + base + '$call_)'
+					}
+				}
+			case _:
 		}
 
 		return printToAnyConverter(printExpression(e), valueType(e))
@@ -3835,6 +4162,14 @@ class GenCxx {
 
 		if isFatValueType(memberT) {
 			let oldPair = 'Any_boxFatPair_((void(*)())((' + recv + ')->' + name + '$f_), ((' + recv + ')->' + name + '$e_))'
+			var thunk = 'nullptr'
+
+			if memberT != null {
+				if let n = argvApplyName(memberT) {
+					thunk = n
+				}
+			}
+			let oldPair = 'Any_boxFatPair_((void(*)())((' + recv + ')->' + name + '$f_), ((' + recv + ')->' + name + '$e_), ' + thunk + ')'
 			let structChoice = '(HexaHasReflect_(((const void**)(' + recv + '))[0]) ? ' + hiddenGet + ' : ' + oldPair + ')'
 			let pairExpr = '((' + recv + ') != nullptr && ((const void**)(' + recv + '))[0] == (const void*)(&AnyObject__$) ? ' + bag + ' : ' + structChoice + ')'
 			return '(' + pairExpr + ')'
@@ -3870,7 +4205,7 @@ class GenCxx {
 		if let objLit = printObjectAs(project.typer.typeAny, v) {
 			ifaceVal = objLit
 		} else if isBoxableFat(v) {
-			ifaceVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
+			ifaceVal = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ', ' + fatThunkStr(v) + ')'
 		}
 		metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(expr))
 		metaBlock.push('Any_* ' + vtmp + ' = ' + ifaceVal)
@@ -3940,10 +4275,164 @@ class GenCxx {
 				return p
 			}
 
+			// F10.4: adapt instead of blindly re-casting when only the
+			// parameter widths differ (`Any` params vs concrete callback
+			// type) — see `fatBridgeFor`.
+			if let br = fatBridgeFor(e, toT) {
+				return '&' + br + '_'
+			}
+
 			return '(' + stringifyType(toT) + ')(' + p + ')'
 		}
 
 		return p
+	}
+
+	/// S3b/F10.4: a lifted closure flowing into a DIFFERENT fat signature (the
+	/// js target adapts silently, C cannot). Emits a typed BRIDGE that
+	/// converts each argument at the boundary and forwards to the closure:
+	/// the case that matters today is a callback declaring `Any` params where
+	/// the collection's callback type is concrete (`[Struct_N_]` elements
+	/// into `fun (mode Any, i Int)`), so without a bridge the callee receives
+	/// a raw headerless struct as `Any` and every dynamic read returns null
+	/// (Perfide's Chat/Edit mode buttons drew no labels and never matched
+	/// `state.agentMode`). Returns the bridge name (no trailing `_`) or null
+	/// when the shapes do not line up — the caller then keeps the plain cast.
+	/// Conversions reuse `printToAnyConverter` (struct → `AnyObject_` bag,
+	/// scalar → box), hoisted out of the enclosing body via a metaBlock swap.
+	var fatBridgeCache: [String : String] = [:]
+	var fatBridgeCount Int = 0
+
+	fun fatBridgeFor(e: Expression, toT: Type): String? {
+		if closureBaseName(e) == null {
+			return null
+		}
+		let eName = closureBaseName(e) as!String
+		var fargs: [FunctionArgument] = []
+		var targs: [FunctionArgument] = []
+		var fret: Type = project.typer.typeAny
+		var tret: Type = project.typer.typeAny
+		var okFrom = false
+		var okTo = false
+
+		switch valueType(e) {
+			case Function(a, r):
+				fargs = a
+				fret = r
+				okFrom = true
+			case _:
+		}
+
+		switch toT {
+			case Function(a, r):
+				targs = a
+				tret = r
+				okTo = true
+			case _:
+		}
+
+		if not okFrom or not okTo {
+			return null
+		}
+
+		if fargs.length != targs.length {
+			return null
+		}
+
+		// Only "more dynamic callee" adapts (target concrete → closure `Any`),
+		// and only for plain data parameters — fat/`void` slots have their own
+		// ABI halves and keep the cast.
+		var needed = false
+
+		for i in fargs.length {
+			let fS = stringifyType(fargs[i].dataType)
+			let tS = stringifyType(targs[i].dataType)
+
+			if fS == 'void' or tS == 'void' {
+				return null
+			}
+
+			if isFatValueType(fargs[i].dataType) or isFatValueType(targs[i].dataType) {
+				return null
+			}
+
+			if fS == tS {
+				continue
+			}
+
+			if fS != 'Any_*' {
+				return null
+			}
+			needed = true
+		}
+
+		if not needed {
+			return null
+		}
+
+		if isFatValueType(fret) or isFatValueType(tret) {
+			return null
+		}
+
+		if stringifyType(fret) != stringifyType(tret) {
+			return null
+		}
+		let key = eName + '|' + stringifyType(toT)
+
+		if let cached = fatBridgeCache.get(key) {
+			return cached
+		}
+		// Build the forwarded args first (this is what pushes the box/bag
+		// statements), then move those statements into the bridge body.
+		let mb0 = metaBlock.length
+		var args2: [String] = []
+
+		for i in fargs.length {
+			let fS = stringifyType(fargs[i].dataType)
+			let tS = stringifyType(targs[i].dataType)
+
+			if fS == tS {
+				args2.push('a' + i)
+			} else {
+				args2.push(printToAnyConverter('a' + i, targs[i].dataType))
+			}
+		}
+		let setup = metaBlock.slice(mb0, metaBlock.length)
+
+		while metaBlock.length > mb0 {
+			metaBlock.pop()
+		}
+		let bid = eName + '$bx' + fatBridgeCount
+		fatBridgeCount++
+		let retS = stringifyType(tret)
+		var sig: [String] = ['void* env_']
+
+		for i in targs.length {
+			sig.push(stringifyType(targs[i].dataType) + ' a' + i)
+		}
+		var callArgs: [String] = ['env_']
+
+		for a in args2 {
+			callArgs.push(a)
+		}
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var body = 'HEXA_C ' + retS + ' ' + bid + '_(' + sig.join(', ') + ') ' + lb + nl
+
+		for s in setup {
+			body += ' ' + s + ';' + nl
+		}
+
+		if retS == 'void' {
+			body += ' ' + eName + '_(' + callArgs.join(', ') + ');' + nl
+		} else {
+			body += ' return ' + eName + '_(' + callArgs.join(', ') + ');' + nl
+		}
+		body += rb + nl + nl
+		globalFunctions.push(body)
+		fatBridgeCache.set(key, bid)
+		return bid
 	}
 
 	/// S3b: on-demand thin wrapper for a PLAIN global function flowing to a
@@ -4264,7 +4753,7 @@ class GenCxx {
 	/// return +1, env borrowed; missing->null-Any/0, extras ignored). Emitted
 	/// for every lifted `closure$N` (even empty ones, env ignored) so every
 	/// function-typed value is uniformly Any-callable.
-	fun printClosureThunk(cName: String, funcType: Type): String {
+	fun printClosureThunk(cName: String, funcType: Type, withEnv: Bool = true, envCast: String = '', skipFirst: Bool = true): String {
 		let base = cName.substr(0, cName.length - 1)
 		let thunk = base + '$call_'
 		var fargs: [FunctionArgument] = []
@@ -4280,7 +4769,12 @@ class GenCxx {
 		var ai = 0
 
 		for k in fargs.length {
-			if k == 0 {
+			// Closures: param 0 is the hidden `env_` the dispatcher supplies.
+			// Bare globals have no env param — shift nothing. F10.4 methods:
+			// the receiver is NOT part of `funcType` (the C signature
+			// prepends it from `thisArgument`), so `skipFirst` is false and
+			// every declared arg maps to argv[0..].
+			if withEnv and skipFirst and k == 0 {
 				continue
 			}
 			// Hexa rest (`...x: T`) is two C slots `(count, ptr)` — forward
@@ -4305,14 +4799,32 @@ class GenCxx {
 				case _:
 			}
 			// Fat (function-typed) param = TWO C slots (ptr + env, static ABI).
-			// Dynamic callers pass the pair as two consecutive argv entries.
-			// Thunks are dead code until F10.3 wires them — must compile, not
-			// run (same precedent as the Hexa-rest arm below).
+			// A DYNAMIC caller (the F10.3 pair dispatch) boxes the callback as
+			// ONE `FatPair_` argv entry, so both halves are unpacked from it —
+			// reading `argv_[ai]` as the code pointer would jump into the pair
+			// object. Non-pair payloads degrade to a null callback.
+			//
+			// F10.5: NEVER raw-cast the pair's impl into the callee's static
+			// signature. The boxed closure's own param types are erased to
+			// `Any` at the box site, so the callee's typed call would hand it
+			// UNBOXED C values (index 0 -> nullptr, doubles -> pointer bits,
+			// `Bool_` -> 0/1) and a boxed return would be read as the caller's
+			// scalar type. A `dynfat$N_` adapter (one per signature, generated
+			// at compile time) boxes the typed args back into the argv ABI and
+			// dispatches through `FatPair_.call_` instead.
 			if isFatValueType(fargs[k].dataType) {
 				let ptrT = stringifyType(fargs[k].dataType)
-				unboxed.push('(' + ptrT + ')(size_t)(((argc_ > ' + ai + ') ? argv_[' + ai + '] : nullptr))')
-				unboxed.push('((argc_ > ' + (ai + 1) + ') ? (void*)(size_t)(argv_[' + (ai + 1) + ']) : nullptr)')
-				ai += 2
+				let has = '(argc_ > ' + ai + ' && Any_isFatPair_(argv_[' + ai + ']))'
+				let adapt = dynFatAdapterName(fargs[k].dataType)
+
+				if adapt != null {
+					unboxed.push('(' + ptrT + ')(size_t)(' + has + ' ? (void(*)())(' + (adapt as!String) + ') : (void(*)())nullptr)')
+					unboxed.push('(' + has + ' ? (void*)(argv_[' + ai + ']) : (void*)nullptr)')
+				} else {
+					unboxed.push('(' + ptrT + ')(size_t)(' + has + ' ? ((FatPair_*)(argv_[' + ai + ']))->impl_ : nullptr)')
+					unboxed.push('(' + has + ' ? ((FatPair_*)(argv_[' + ai + ']))->env_ : nullptr)')
+				}
+				ai += 1
 				continue
 			}
 			let ti = stringifyType(fargs[k].dataType)
@@ -4338,13 +4850,30 @@ class GenCxx {
 			unboxed.push(u)
 			ai++
 		}
-		let allArgs: [String] = ['env_']
+		let allArgs: [String] = []
+
+		// Closures take the captured env as their FIRST C parameter; a bare
+		// global function takes none (same thunk ABI either way — the
+		// dispatcher always passes `env_`, which globals simply ignore).
+		// F10.4: a bound METHOD's first C parameter is the typed receiver
+		// (`Name_* $this`), not `void*` — C++ has no implicit void*→T*, so
+		// the caller names the class in `envCast` and the slot is cast.
+		if withEnv {
+			if envCast.length > 0 {
+				allArgs.push('(' + envCast + '*)self_->env_')
+			} else {
+				allArgs.push('self_->env_')
+			}
+		}
 
 		for u in unboxed {
 			allArgs.push(u)
 		}
 		let call = cName + '(' + allArgs.join(', ') + ')'
-		var r = 'Any_* ' + thunk + '(void* env_, Any_** argv_, int32_t argc_) \{\n'
+		// F10.5: the dispatcher passes the PAIR, not the bare env — the
+		// `argvapply$N_` adapter needs both halves (`impl_` + `env_`) to
+		// reconstruct the statically typed fat value it is adapting.
+		var r = 'Any_* ' + thunk + '(struct FatPair_* self_, Any_** argv_, int32_t argc_) \{\n'
 
 		if retName == 'void' {
 			r += call + ';\n'
@@ -4366,43 +4895,468 @@ class GenCxx {
 		return r
 	}
 
-	/// F10.3 pair-boxing runtime + `{impl, call}` registry (emitted post-Types
-	/// with the coroutines block — needs no bodies, just the thunk names
-	/// collected above). A fat value boxed into `Any` becomes a heap record
-	/// `{tag, impl, env}` (first word is the tag vtable, like every object);
-	/// the dynamic call slot unpacks it. Scalar `Any`s stay untouched (D7
-	/// real boxing later); unregistered impls (plain globals, thin wrappers)
-	/// keep the legacy no-op proxy. ARC: pairs leak like every other Phase-1
-	/// heap object (F11).
+	/// F10.5: a `FatPair_` carries the argv-ABI thunk of its own impl
+	/// (`call_`, chosen at COMPILE time by the box site), so the dynamic-call
+	/// slot and the fat-argument unboxing are O(1): dispatch is a single
+	/// indirect call through the field, and there is no impl→thunk registry.
+	///
+	/// `dynfat$N_` is the per-SIGNATURE adapter for the case a raw cast gets
+	/// wrong: a DYNAMICALLY boxed pair flowing into a STATICALLY typed fat
+	/// slot. The callee calls `impl(env, typed args...)`, so the adapter boxes
+	/// those typed args back into the argv ABI and dispatches through
+	/// `FatPair_.call_`. Without it the pair's raw impl is cast to the
+	/// callee's signature — an ABI lie that delivers UNBOXED values to a
+	/// closure whose params stayed `Any` (index 0 arrives as `nullptr`,
+	/// floats as pointer bits, `Bool_` as 0/1).
+	var dynFatKeys: [String] = []
+	var dynFatTypes: [Type] = []
+
+	/// Does one C value of type `t` have a total `Any` box/unbox (the D7 set)?
+	/// Nested fat params and `void` do not — they keep the legacy raw cast.
+	fun isDynFatSafe(t: Type): Bool {
+		switch t {
+			case Nullable(inner):
+				return isDynFatSafe(inner)
+			case Function(_, _):
+				return false
+			case _:
+		}
+		let s = stringifyType(t)
+
+		if s == 'Any_*' {
+			return true
+		}
+
+		if s.endsWith('*') {
+			return true
+		}
+
+		if s == 'int32_t' or s == 'int64_t' or s == 'uint32_t' or s == 'uint64_t' {
+			return true
+		}
+
+		if s == 'int16_t' or s == 'int8_t' or s == 'uint16_t' or s == 'uint8_t' {
+			return true
+		}
+
+		if s == 'double' or s == 'float' or s == 'Bool_' {
+			return true
+		}
+
+		return false
+	}
+
+	/// Whole-signature gate for `dynfat$N_` (params AND return must cross).
+	fun isDynFatSignature(t: Type): Bool {
+		switch t {
+			case Function(args, returns):
+				for a in args {
+					switch a.dataType {
+						case Rest(_, _):
+							return false
+						case _:
+					}
+
+					if not isDynFatSafe(a.dataType) {
+						return false
+					}
+				}
+				let rs = stringifyType(returns)
+
+				if rs == 'void' {
+					return true
+				}
+				return isDynFatSafe(returns)
+			case _:
+				return false
+		}
+	}
+
+	/// Cache key: the C shapes (never the minted `_$N` typedef — it may not
+	/// exist yet when the adapter is requested).
+	fun dynFatKey(t: Type): String {
+		switch t {
+			case Function(args, returns):
+				let parts: [String] = []
+
+				for a in args {
+					parts.push(stringifyType(a.dataType))
+				}
+				return parts.join('|') + '->' + stringifyType(returns)
+			case _:
+				return ''
+		}
+	}
+
+	/// Name of the adapter for fat type `t` (registers it for emission), or
+	/// null when the signature cannot cross the argv ABI.
+	fun dynFatAdapterName(t: Type): String? {
+		if not isDynFatSignature(t) {
+			return null
+		}
+		let key = dynFatKey(t)
+
+		for i in dynFatKeys.length {
+			if dynFatKeys[i] == key {
+				return 'dynfat$' + i + '_'
+			}
+		}
+		dynFatKeys.push(key)
+		dynFatTypes.push(t)
+		return 'dynfat$' + (dynFatKeys.length - 1) + '_'
+	}
+
+	/// Register the adapters the thunk bodies printed right after the adapter
+	/// section need (`printFatPairGlobalThunks` cannot register its own).
+	fun seedDynFat(t: Type) {
+		switch t {
+			case Function(args, _):
+				for a in args {
+					if isFatValueType(a.dataType) {
+						dynFatAdapterName(a.dataType)
+					}
+				}
+			case _:
+		}
+	}
+
+	/// Emitted BEFORE the thunk bodies that call the adapters.
+	fun printDynFatAdapterDecls(): String {
+		for t in fatPairGlobalTypes {
+			seedDynFat(t)
+		}
+
+		for t in fatPairMethodTypes {
+			seedDynFat(t)
+		}
+		let nl = String.fromCharCode(10)
+		var r = ''
+
+		for i in dynFatTypes.length {
+			r += 'HEXA_C ' + dynFatSignatureStr(i) + ';' + nl
+		}
+
+		for i in argvApplyTypes.length {
+			r += 'HEXA_C ' + argvApplySignatureStr(i) + ';' + nl
+		}
+		return r
+	}
+
+	/// Emitted after `printAnyObject` (the adapters need `Any_toBool_`,
+	/// `Any_unboxInt_`'s siblings and the counted-defer guards).
+	fun printDynFatAdapters(): String {
+		var r = ''
+
+		for i in dynFatTypes.length {
+			r += printDynFatAdapter(i, dynFatTypes[i])
+		}
+
+		for i in argvApplyTypes.length {
+			r += printArgvApplyAdapter(i, argvApplyTypes[i])
+		}
+		return r
+	}
+
+	/// C signature of adapter `idx` (shared by the declaration and the body).
+	fun dynFatSignatureStr(idx: Int): String {
+		var fargs: [FunctionArgument] = []
+		var frets: Type = project.typer.typeAny
+
+		switch dynFatTypes[idx] {
+			case Function(fa, fr, _):
+				fargs = fa
+				frets = fr
+		}
+		var params = 'void* env_'
+
+		for k in fargs.length {
+			params += ', ' + stringifyType(fargs[k].dataType) + ' a' + k + '_'
+		}
+		return stringifyType(frets) + ' dynfat$' + idx + '_(' + params + ')'
+	}
+
+	/// Did `printToAnyConverter` mint a fresh box we own (release at exit) or
+	/// pass a borrowed pointer/`Any` through (never release)?
+	fun isDynFatOwnedBox(t: Type): Bool {
+		if t == project.typer.typeAny {
+			return false
+		}
+		let s = stringifyType(t)
+
+		if s.endsWith('*') {
+			return false
+		}
+		return true
+	}
+
+	fun printDynFatAdapter(idx: Int, t: Type): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var fargs: [FunctionArgument] = []
+		var frets: Type = project.typer.typeAny
+
+		switch t {
+			case Function(fa, fr, _):
+				fargs = fa
+				frets = fr
+		}
+		let retT = stringifyType(frets)
+		var r = 'HEXA_C ' + dynFatSignatureStr(idx) + ' ' + lb + nl
+		r += '\tFatPair_* fp_ = (FatPair_*)env_;' + nl
+		// No registry: the box site named this pair's `call_` at compile time.
+		r += '\tAny_* (*fc_)(struct FatPair_*, Any_**, int32_t) = (fp_ != nullptr) ? fp_->call_ : nullptr;' + nl
+		r += '\tHEXA_ASSERT(fp_ == nullptr || fc_ != nullptr, "dynfat: fat pair without a call thunk")' + ';' + nl
+		// Box the typed args back into the argv ABI (same hoisting protocol as
+		// `printDynamicCall`: struct->bag statements flush first).
+		let mb0 = metaBlock.length
+		let boxes: [String] = []
+		let owned: [Bool] = []
+
+		for k in fargs.length {
+			boxes.push(printToAnyConverter('a' + k + '_', fargs[k].dataType))
+			owned.push(isDynFatOwnedBox(fargs[k].dataType))
+		}
+		let setup = metaBlock.slice(mb0, metaBlock.length)
+
+		while metaBlock.length > mb0 {
+			metaBlock.pop()
+		}
+
+		for s in setup {
+			r += '\t' + s + ';' + nl
+		}
+
+		var argvUse = 'nullptr'
+
+		if boxes.length > 0 {
+			r += '\tAny_* argv_[] = ' + lb + ' ' + boxes.join(', ') + ' ' + rb + ';' + nl
+			argvUse = 'argv_'
+
+			for k in boxes.length {
+				if owned[k] {
+					// We minted the box (index 0 is a HEAP box — `Any_boxInt_`
+					// keeps only non-zero small ints as immediates) — release
+					// our ownership at exit; borrowed pointers pass through.
+					r += '\tHexaDeferCountedDecPtr_ _$dfd' + idx + '_' + k + '((void**)&(argv_[' + k + ']));' + nl
+				}
+			}
+		}
+
+		if retT == 'void' {
+			r += '\tif (fc_ != nullptr) fc_(fp_, ' + argvUse + ', ' + fargs.length + ');' + nl
+		} else {
+			r += '\tAny_* res_ = (fc_ != nullptr) ? fc_(fp_, ' + argvUse + ', ' + fargs.length + ') : nullptr;' + nl
+			r += '\treturn ' + printTypeConverter('res_', project.typer.typeAny, frets) + ';' + nl
+		}
+		r += rb + nl + nl
+		return r
+	}
+
+	/// F10.5b: the INVERSE adapter. A *stored* fat value (pair var/param, fat
+	/// field, interface member, thin wrapper) being boxed into `Any` cannot name
+	/// its `$call_` thunk at compile time, so the pair carries this argv-ABI
+	/// `self_` is the `FatPair_*` whose `impl_`/`env_` are the
+	/// real halves. With one emitted per signature, every box site supplies a
+	/// `call_` and the per-signature adapted dispatch needs no impl registry.
+	var argvApplyKeys: [String] = []
+	var argvApplyTypes: [Type] = []
+
+	fun argvApplyName(t: Type): String? {
+		if not isDynFatSignature(t) {
+			return null
+		}
+		let key = dynFatKey(t)
+
+		for i in argvApplyKeys.length {
+			if argvApplyKeys[i] == key {
+				return 'argvapply$' + i + '_'
+			}
+		}
+		argvApplyKeys.push(key)
+		argvApplyTypes.push(t)
+		return 'argvapply$' + (argvApplyKeys.length - 1) + '_'
+	}
+
+	/// `call_`-shaped signature: no fat typedef involved, so nothing has to be
+	/// minted at assembly time (typedefs are printed earlier).
+	fun argvApplySignatureStr(idx: Int): String {
+		return 'Any_* argvapply$' + idx + '_(struct FatPair_* self_, Any_** argv_, int32_t argc_)'
+	}
+
+	/// `Any` -> one C value of type `t` (inverse of `printToAnyConverter`).
+	fun unboxAnyToStr(x: String, t: Type): String {
+		let s = stringifyType(t)
+
+		if s.endsWith('*') {
+			return '(' + s + ')(size_t)(' + x + ')'
+		}
+
+		if s == 'Bool_' {
+			return 'Any_toBool_(' + x + ')'
+		}
+
+		if s == 'int32_t' {
+			return 'Any_unboxInt_(' + x + ')'
+		}
+
+		if s == 'int64_t' {
+			return 'Any_unboxInt64_(' + x + ')'
+		}
+
+		if s == 'uint64_t' {
+			return '(uint64_t)(Any_unboxInt64_(' + x + '))'
+		}
+
+		if s == 'uint32_t' {
+			return '((uint32_t)(Any_unboxInt_(' + x + ')))'
+		}
+
+		if s == 'int16_t' or s == 'int8_t' or s == 'uint16_t' or s == 'uint8_t' {
+			return '((' + s + ')(Any_unboxInt_(' + x + ')))'
+		}
+
+		if s == 'float' {
+			return '((float)(Any_unboxFloat_(' + x + ')))'
+		}
+		return 'Any_unboxFloat_(' + x + ')'
+	}
+
+	/// Static fat type of `t` as a C function-pointer type (env-first, the
+	/// closure ABI), built from parts — never `stringifyType(Function)`.
+	fun fatFnTypeStr(t: Type): String {
+		var fargs: [FunctionArgument] = []
+		var frets: Type = project.typer.typeAny
+
+		switch t {
+			case Function(fa, fr, _):
+				fargs = fa
+				frets = fr
+		}
+		var params = 'void*'
+
+		for k in fargs.length {
+			params += ', ' + stringifyType(fargs[k].dataType)
+		}
+		return '(' + stringifyType(frets) + ' (' + defaultCallingConvention + '*)(' + params + '))'
+	}
+
+	fun printArgvApplyAdapter(idx: Int, t: Type): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var fargs: [FunctionArgument] = []
+		var frets: Type = project.typer.typeAny
+
+		switch t {
+			case Function(fa, fr, _):
+				fargs = fa
+				frets = fr
+		}
+		let retT = stringifyType(frets)
+		let callArgs: [String] = ['fp_->env_']
+
+		for k in fargs.length {
+			callArgs.push(unboxAnyToStr('((argc_ > ' + k + ') ? argv_[' + k + '] : nullptr)', fargs[k].dataType))
+		}
+		let call = '(' + fatFnTypeStr(t) + '(size_t)(fp_->impl_))(' + callArgs.join(', ') + ')'
+		var r = 'HEXA_C ' + argvApplySignatureStr(idx) + ' ' + lb + nl
+		r += '\tFatPair_* fp_ = (FatPair_*)self_;' + nl
+		r += '\tif (fp_ == nullptr) return nullptr;' + nl
+
+		if retT == 'void' {
+			r += '\t(' + call + ');' + nl
+			r += '\treturn nullptr;' + nl
+		} else {
+			r += '\treturn ' + printToAnyConverter('(' + call + ')', frets) + ';' + nl
+		}
+		r += rb + nl + nl
+		return r
+	}
+
+	/// F10.3 fat-pair runtime: a fat value boxed into `Any` becomes a heap
+	/// record `{tag, impl, env, call}` (first word is the tag vtable, like
+	/// every object). `call_` is the argv-ABI thunk of that exact impl, chosen
+	/// at COMPILE time by the box site (`<name>$call_` for a lifted closure /
+	/// bound method / bare global, `argvapply$N_` for a stored fat value), so
+	/// the dynamic-call slot needs no lookup table at all. ARC: pairs leak like
+	/// every other Phase-1 heap object (F11).
 	fun printFatPairs(): String {
-		var r = '// F10.3 fat-pair boxing (replaces env-dropping `Any` casts)\n'
-		r += 'struct FatPair__ \{ uint8_t _x_; \};\n'
-		r += 'const struct FatPair__ FatPair__$ = \{0\};\n'
-		r += 'struct FatPair_ \{ const struct FatPair__* _; int32_t rc_; void (*impl_)(); void* env_; \};\n'
-		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env) \{ FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// F10.3 fat-pair boxing (replaces env-dropping `Any` casts)' + nl
+		// Structs first (hidden bodies deref them), then hidden impls, then vt.
+		r += 'struct FatPair__ ' + lb + ' int32_t (*QueryInterface_)(void*, void*, void**); uint32_t (*AddRef_)(void*); uint32_t (*Release_)(void*); ' + rb + ';' + nl
+		r += 'struct FatPair_ ' + lb + ' const struct FatPair__* _; int32_t rc_; void (*impl_)(); void* env_; Any_* (*call_)(struct FatPair_*, Any_**, int32_t); ' + rb + ';' + nl
+		r += 'const char* FatPair_hiddenClassName_(void);' + nl
+		r += 'Any_* FatPair_hiddenDynGet_(void*, struct String_*);' + nl
+		r += 'void FatPair_hiddenDynSet_(void*, struct String_*, Any_*);' + nl
+		r += 'uint8_t FatPair_hiddenHas_(void*, struct String_*);' + nl
+		r += 'void FatPair_hiddenDelete_(void*, struct String_*);' + nl
+		r += 'struct String_* FatPair_hiddenKeyAt_(void*, int32_t);' + nl
+		r += 'int32_t FatPair_hiddenKeyCount_(void*);' + nl
+		r += 'Any_* FatPair_hiddenIndexGet_(void*, int32_t);' + nl
+		r += 'void FatPair_hiddenIndexSet_(void*, int32_t, Any_*);' + nl
+		r += 'int32_t FatPair_hiddenIndexCount_(void*);' + nl
+		r += 'void FatPair_hiddenReflect_(void*, HexaReflectOp_*);' + nl
+		r += 'const char* FatPair_hiddenClassName_(void) ' + lb + ' return "FatPair"; ' + rb + nl
+		r += 'Any_* FatPair_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return nullptr; ' + rb + nl
+		r += 'void FatPair_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
+		r += 'uint8_t FatPair_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (uint8_t)0; ' + rb + nl
+		r += 'void FatPair_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
+		r += 'struct String_* FatPair_hiddenKeyAt_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'int32_t FatPair_hiddenKeyCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'Any_* FatPair_hiddenIndexGet_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'void FatPair_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + lb + ' (void)self_; (void)i_; (void)v_; ' + rb + nl
+		r += 'int32_t FatPair_hiddenIndexCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'void FatPair_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + lb + ' if (self_ == nullptr || op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break; case (int32_t)2: op_->resultStr_ = Hexa_GenericToString_(self_); break; case (int32_t)3: op_->resultCStr_ = FatPair_hiddenClassName_(); break; case (int32_t)4: op_->result_ = FatPair_hiddenDynGet_(self_, op_->key_); break; case (int32_t)5: FatPair_hiddenDynSet_(self_, op_->key_, op_->value_); break; case (int32_t)6: op_->resultInt_ = (int32_t)FatPair_hiddenHas_(self_, op_->key_); break; case (int32_t)7: FatPair_hiddenDelete_(self_, op_->key_); break; case (int32_t)8: op_->resultStr_ = FatPair_hiddenKeyAt_(self_, op_->index_); break; case (int32_t)9: op_->resultInt_ = (int32_t)FatPair_hiddenKeyCount_(self_); break; case (int32_t)10: op_->result_ = FatPair_hiddenIndexGet_(self_, op_->index_); break; case (int32_t)11: FatPair_hiddenIndexSet_(self_, op_->index_, op_->value_); break; case (int32_t)12: op_->resultInt_ = (int32_t)FatPair_hiddenIndexCount_(self_); break; default: break; ' + rb + rb + nl
+		r += 'struct FatPair_vt ' + lb + ' struct HexaReflect_ hidden; struct FatPair__ public_; ' + rb + ';' + nl
+		r += 'const struct FatPair_vt FatPair_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &FatPair_hiddenClassName_, &FatPair_hiddenDynGet_, &FatPair_hiddenDynSet_, &FatPair_hiddenHas_, &FatPair_hiddenDelete_, &FatPair_hiddenKeyAt_, &FatPair_hiddenKeyCount_, &FatPair_hiddenIndexGet_, &FatPair_hiddenIndexSet_, &FatPair_hiddenIndexCount_, &FatPair_hiddenReflect_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
+		r += '#define FatPair__$ (FatPair_vt$.public_)' + nl
+		r += '_Static_assert(offsetof(struct FatPair_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
+		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
 		r += 'uint8_t Any_isFatPair_(Any_* p) \{ if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (uint8_t)0; return (uint8_t)(((const void**)(p))[0] == (const void*)(&FatPair__$)) ? 1 : 0; \}\n'
-		r += 'struct FatPairCallEntry_ \{ void (*impl_)(); Any_* (*call_)(void*, Any_**, int32_t); \};\n'
+		// F10.5: forward-declare the per-signature fat adapters (their bodies
+		// are emitted after `printAnyObject` — they need `Any_toBool_` and the
+		// counted-defer guard). Seeding here also fixes the name set before the
+		// thunk bodies below ask for them.
+		r += printDynFatAdapterDecls()
 
-		if fatPairImpls.length == 0 {
-			r += 'static Any_* (*FatPair_lookupCall_(void)) (void*, Any_**, int32_t);\n'
-			r += 'static Any_* (*FatPair_lookupCall_(void)) (void*, Any_**, int32_t) \{ return nullptr; \}\n'
-			return r
-		}
-
+		// F10.5: no impl->thunk map any more — every box site names its own
+		// `call_`. Only the forward declarations of the thunk bodies remain
+		// (they are emitted later, in `printFatPairGlobalThunks`).
 		for n in fatPairImpls {
-			r += 'Any_* ' + n + '$call_(void*, Any_**, int32_t);\n'
-		}
-		var rows: [String] = []
-
-		for n in fatPairImpls {
-			rows.push('\{(void(*)())(' + n + '_), ' + n + '$call_\}')
+			r += 'Any_* ' + n + '$call_(struct FatPair_*, Any_**, int32_t);\n'
 		}
 
-		if rows.length == 0 {
-			rows.push('\{nullptr, nullptr\}')
+		// Bare global functions boxed into `Any` (F10.3): same forward decls.
+		for n in fatPairGlobalNames {
+			r += 'Any_* ' + n + '$call_(struct FatPair_*, Any_**, int32_t);\n'
 		}
-		r += 'static const struct FatPairCallEntry_ fatPairCalls_[] = \{' + rows.join(', ') + '\};\n'
-		r += 'static Any_* (*FatPair_lookupCall_(void (*impl)()))(void*, Any_**, int32_t) \{ for (size_t i = 0; i < sizeof(fatPairCalls_)/sizeof(fatPairCalls_[0]); i++) \{ if (fatPairCalls_[i].impl_ != nullptr && fatPairCalls_[i].impl_ == impl) return fatPairCalls_[i].call_; \} return nullptr; \}\n'
+		return r
+	}
+
+	/// F10.3 thunk BODIES for bare GLOBAL functions boxed into `Any` (see
+	/// `anyBox`): no captured env, so the dispatcher's `env_` is ignored. Must
+	/// be emitted AFTER the scalar-boxing section (the unbox helpers live
+	/// there) — hence a separate section from `printFatPairs`, which only
+	/// forward-declares the thunks and fills the registry.
+	fun printFatPairGlobalThunks(): String {
+		var r = ''
+
+		for i in fatPairGlobalNames.length {
+			r += printClosureThunk(fatPairGlobalNames[i] + '_', fatPairGlobalTypes[i], withEnv: false)
+		}
+
+		// F10.4: instance-method thunks. A bound method pair stores the
+		// receiver in `env_`, which the method's C signature takes as its
+		// first parameter (`$this`) — the same shape `withEnv` emits for
+		// lifted closures, so param 0 is skipped and `env_` is pushed.
+		for i in fatPairMethodNames.length {
+			r += printClosureThunk(fatPairMethodNames[i] + '_', fatPairMethodTypes[i], withEnv: true, envCast: fatPairMethodSelf[i], skipFirst: false)
+		}
+
 		return r
 	}
 
@@ -4416,13 +5370,74 @@ class GenCxx {
 	/// string detector for `Any_unboxString_` (real strings pass through;
 	/// scalars format; everything else keeps the `"null"` placeholder).
 	fun printScalarBoxing(): String {
-		var r = '// D7 scalar boxing (real `Any` payloads for ints/floats)\n'
-		r += 'struct AnyInt__ \{ uint8_t _x_; \};\n'
-		r += 'const struct AnyInt__ AnyInt__$ = \{0\};\n'
-		r += 'struct AnyInt_ \{ const struct AnyInt__* _; int32_t rc_; int64_t v_; \};\n'
-		r += 'struct AnyFloat__ \{ uint8_t _x_; \};\n'
-		r += 'const struct AnyFloat__ AnyFloat__$ = \{0\};\n'
-		r += 'struct AnyFloat_ \{ const struct AnyFloat__* _; int32_t rc_; double v_; \};\n'
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// D7 scalar boxing (real `Any` payloads for ints/floats)' + nl
+		// Hidden vtables so `Any_toBool_` is a thin vtable call (no per-type
+		// branches in the forwarder): Int checks `v_ != 0`, Float checks
+		// `v_ != 0.0` with NaN falsy, like JS. Structs come FIRST — hidden
+		// bodies deref them, so they must be complete.
+		r += 'struct AnyInt__ ' + lb + ' int32_t (*QueryInterface_)(void*, void*, void**); uint32_t (*AddRef_)(void*); uint32_t (*Release_)(void*); ' + rb + ';' + nl
+		r += 'struct AnyInt_ ' + lb + ' const struct AnyInt__* _; int32_t rc_; int64_t v_; ' + rb + ';' + nl
+		r += 'struct AnyFloat__ ' + lb + ' int32_t (*QueryInterface_)(void*, void*, void**); uint32_t (*AddRef_)(void*); uint32_t (*Release_)(void*); ' + rb + ';' + nl
+		r += 'struct AnyFloat_ ' + lb + ' const struct AnyFloat__* _; int32_t rc_; double v_; ' + rb + ';' + nl
+		r += 'uint8_t AnyInt_hiddenToBool_(void* self_);' + nl
+		r += 'uint8_t AnyInt_hiddenToBool_(void* self_) ' + lb + ' if (self_ == nullptr) return (uint8_t)0; return (uint8_t)(((AnyInt_*)(self_))->v_ != (int64_t)0); ' + rb + nl
+		r += 'const char* AnyInt_hiddenClassName_(void);' + nl
+		r += 'const char* AnyInt_hiddenClassName_(void) ' + lb + ' return "Int"; ' + rb + nl
+		r += 'Any_* AnyInt_hiddenDynGet_(void*, struct String_*);' + nl
+		r += 'Any_* AnyInt_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return nullptr; ' + rb + nl
+		r += 'void AnyInt_hiddenDynSet_(void*, struct String_*, Any_*);' + nl
+		r += 'void AnyInt_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
+		r += 'uint8_t AnyInt_hiddenHas_(void*, struct String_*);' + nl
+		r += 'uint8_t AnyInt_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (uint8_t)0; ' + rb + nl
+		r += 'void AnyInt_hiddenDelete_(void*, struct String_*);' + nl
+		r += 'void AnyInt_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
+		r += 'struct String_* AnyInt_hiddenKeyAt_(void*, int32_t);' + nl
+		r += 'struct String_* AnyInt_hiddenKeyAt_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'int32_t AnyInt_hiddenKeyCount_(void*);' + nl
+		r += 'int32_t AnyInt_hiddenKeyCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'Any_* AnyInt_hiddenIndexGet_(void*, int32_t);' + nl
+		r += 'Any_* AnyInt_hiddenIndexGet_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'void AnyInt_hiddenIndexSet_(void*, int32_t, Any_*);' + nl
+		r += 'void AnyInt_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + lb + ' (void)self_; (void)i_; (void)v_; ' + rb + nl
+		r += 'int32_t AnyInt_hiddenIndexCount_(void*);' + nl
+		r += 'int32_t AnyInt_hiddenIndexCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'void AnyInt_hiddenReflect_(void*, HexaReflectOp_*);' + nl
+		r += 'void AnyInt_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + lb + ' if (self_ == nullptr || op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)AnyInt_hiddenToBool_(self_); break; case (int32_t)3: op_->resultCStr_ = AnyInt_hiddenClassName_(); break; default: break; ' + rb + rb + nl
+		r += 'struct AnyInt_vt ' + lb + ' struct HexaReflect_ hidden; struct AnyInt__ public_; ' + rb + ';' + nl
+		r += 'const struct AnyInt_vt AnyInt_vt$ = ' + lb + ' ' + lb + 'nullptr, &AnyInt_hiddenToBool_, &Hexa_GenericToString_, &AnyInt_hiddenClassName_, &AnyInt_hiddenDynGet_, &AnyInt_hiddenDynSet_, &AnyInt_hiddenHas_, &AnyInt_hiddenDelete_, &AnyInt_hiddenKeyAt_, &AnyInt_hiddenKeyCount_, &AnyInt_hiddenIndexGet_, &AnyInt_hiddenIndexSet_, &AnyInt_hiddenIndexCount_, &AnyInt_hiddenReflect_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
+		r += '#define AnyInt__$ (AnyInt_vt$.public_)' + nl
+		r += '_Static_assert(offsetof(struct AnyInt_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
+		r += 'uint8_t AnyFloat_hiddenToBool_(void* self_);' + nl
+		r += 'uint8_t AnyFloat_hiddenToBool_(void* self_) ' + lb + ' if (self_ == nullptr) return (uint8_t)0; double v_ = ((AnyFloat_*)(self_))->v_; if (v_ != v_) return (uint8_t)0; return (uint8_t)(v_ != 0.0); ' + rb + nl
+		r += 'const char* AnyFloat_hiddenClassName_(void);' + nl
+		r += 'const char* AnyFloat_hiddenClassName_(void) ' + lb + ' return "Float"; ' + rb + nl
+		r += 'Any_* AnyFloat_hiddenDynGet_(void*, struct String_*);' + nl
+		r += 'Any_* AnyFloat_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return nullptr; ' + rb + nl
+		r += 'void AnyFloat_hiddenDynSet_(void*, struct String_*, Any_*);' + nl
+		r += 'void AnyFloat_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
+		r += 'uint8_t AnyFloat_hiddenHas_(void*, struct String_*);' + nl
+		r += 'uint8_t AnyFloat_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (uint8_t)0; ' + rb + nl
+		r += 'void AnyFloat_hiddenDelete_(void*, struct String_*);' + nl
+		r += 'void AnyFloat_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
+		r += 'struct String_* AnyFloat_hiddenKeyAt_(void*, int32_t);' + nl
+		r += 'struct String_* AnyFloat_hiddenKeyAt_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'int32_t AnyFloat_hiddenKeyCount_(void*);' + nl
+		r += 'int32_t AnyFloat_hiddenKeyCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'Any_* AnyFloat_hiddenIndexGet_(void*, int32_t);' + nl
+		r += 'Any_* AnyFloat_hiddenIndexGet_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'void AnyFloat_hiddenIndexSet_(void*, int32_t, Any_*);' + nl
+		r += 'void AnyFloat_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + lb + ' (void)self_; (void)i_; (void)v_; ' + rb + nl
+		r += 'int32_t AnyFloat_hiddenIndexCount_(void*);' + nl
+		r += 'int32_t AnyFloat_hiddenIndexCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'void AnyFloat_hiddenReflect_(void*, HexaReflectOp_*);' + nl
+		r += 'void AnyFloat_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + lb + ' if (self_ == nullptr || op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)AnyFloat_hiddenToBool_(self_); break; case (int32_t)3: op_->resultCStr_ = AnyFloat_hiddenClassName_(); break; default: break; ' + rb + rb + nl
+		r += 'struct AnyFloat_vt ' + lb + ' struct HexaReflect_ hidden; struct AnyFloat__ public_; ' + rb + ';' + nl
+		r += 'const struct AnyFloat_vt AnyFloat_vt$ = ' + lb + ' ' + lb + 'nullptr, &AnyFloat_hiddenToBool_, &Hexa_GenericToString_, &AnyFloat_hiddenClassName_, &AnyFloat_hiddenDynGet_, &AnyFloat_hiddenDynSet_, &AnyFloat_hiddenHas_, &AnyFloat_hiddenDelete_, &AnyFloat_hiddenKeyAt_, &AnyFloat_hiddenKeyCount_, &AnyFloat_hiddenIndexGet_, &AnyFloat_hiddenIndexSet_, &AnyFloat_hiddenIndexCount_, &AnyFloat_hiddenReflect_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
+		r += '#define AnyFloat__$ (AnyFloat_vt$.public_)' + nl
+		r += '_Static_assert(offsetof(struct AnyFloat_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
 		r += 'Any_* Any_boxInt_(int64_t v) \{ if (v != (int64_t)0 && v >= (int64_t)-65535 && v <= (int64_t)65535) return (Any_*)(v); AnyInt_* b = (AnyInt_*)(HEXA_NEW(sizeof(AnyInt_))); b->_ = &AnyInt__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
 		r += 'Any_* Any_boxFloat_(double v) \{ double iv_ = (double)(int64_t)v; if (v != 0.0 && iv_ == v && iv_ >= (double)-65535.0 && iv_ <= (double)65535.0) return (Any_*)((int64_t)v); AnyFloat_* b = (AnyFloat_*)(HEXA_NEW(sizeof(AnyFloat_))); b->_ = &AnyFloat__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
 		r += 'int32_t Any_unboxInt_(Any_* p) \{ if (p == nullptr) return (int32_t)0; if (p == (Any_*)(&_true)) return (int32_t)1; if (p == (Any_*)(&_false)) return (int32_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int32_t)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (int32_t)(((AnyInt_*)(p))->v_); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int32_t)(((AnyFloat_*)(p))->v_); return (int32_t)0; \}\n'
@@ -4446,11 +5461,43 @@ class GenCxx {
 		let lb = String.fromCharCode(123)
 		let rb = String.fromCharCode(125)
 		let nl = String.fromCharCode(10)
-		var r = '// F10.2 plain-object bags (AnyObject_ heap records)' + nl
-		r += 'struct AnyObject__ ' + lb + ' uint8_t _x_; ' + rb + ';' + nl
-		r += 'const struct AnyObject__ AnyObject__$ = ' + lb + '0' + rb + ';' + nl
+		var r = '// F10.2 plain-object bags: `Object` common class, per-instance shape' + nl
+		// The common `Object` class: every `JSON.parse` object and every
+		// untyped `{...}` literal is an instance. Shape lives PER INSTANCE
+		// (`count_/cap_/entries_`), hidden vtable is SHARED (one vt for all
+		// bags — fields dispatch by linear key scan, like the per-class
+		// string-compare for small static classes).
+		r += 'struct AnyObject__ ' + lb + ' int32_t (*QueryInterface_)(void*, void*, void**); uint32_t (*AddRef_)(void*); uint32_t (*Release_)(void*); ' + rb + ';' + nl
 		r += 'struct AnyObjectEntry_ ' + lb + ' String_* k_; Any_* v_; ' + rb + ';' + nl
 		r += 'struct AnyObject_ ' + lb + ' const struct AnyObject__* _; int32_t rc_; int32_t count_; int32_t cap_; struct AnyObjectEntry_* entries_; ' + rb + ';' + nl
+		r += 'int32_t Any_objectFind_(AnyObject_* o, String_* k);' + nl
+		r += 'uint8_t Any_isCounted_(Any_* p);' + nl
+		r += 'const char* AnyObject_hiddenClassName_(void);' + nl
+		r += 'const char* AnyObject_hiddenClassName_(void) ' + lb + ' return "Object"; ' + rb + nl
+		r += 'Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_);' + nl
+		r += 'Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return nullptr; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) return o_->entries_[at_].v_; return nullptr; ' + rb + nl
+		r += 'void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_);' + nl
+		r += 'void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) ' + lb + ' Any_* old_ = o_->entries_[at_].v_; o_->entries_[at_].v_ = v_; if (Any_isCounted_(v_)) hexaRef((void*)v_); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o_->count_ >= o_->cap_) ' + lb + ' int32_t ncap_ = o_->cap_ <= (int32_t)0 ? (int32_t)4 : o_->cap_ * (int32_t)2; struct AnyObjectEntry_* ne_ = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap_)); for (int32_t i_ = (int32_t)0; i_ < o_->count_; i_++) ' + lb + ' ne_[i_].k_ = o_->entries_[i_].k_; ne_[i_].v_ = o_->entries_[i_].v_; ' + rb + ' o_->entries_ = ne_; o_->cap_ = ncap_; ' + rb + ' o_->entries_[o_->count_].k_ = k_; if (Any_isCounted_((Any_*)(k_))) hexaRef((void*)(k_)); o_->entries_[o_->count_].v_ = v_; if (Any_isCounted_(v_)) hexaRef((void*)v_); o_->count_++; ' + rb + nl
+		r += 'uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_);' + nl
+		r += 'uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return (uint8_t)0; return (uint8_t)(Any_objectFind_((AnyObject_*)(self_), k_) >= (int32_t)0); ' + rb + nl
+		r += 'void AnyObject_hiddenDelete_(void* self_, struct String_* k_);' + nl
+		r += 'void AnyObject_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
+		r += 'struct String_* AnyObject_hiddenKeyAt_(void* self_, int32_t i_);' + nl
+		r += 'struct String_* AnyObject_hiddenKeyAt_(void* self_, int32_t i_) ' + lb + ' if (self_ == nullptr || i_ < (int32_t)0) return nullptr; AnyObject_* o_ = (AnyObject_*)(self_); if (i_ >= o_->count_) return nullptr; return o_->entries_[i_].k_; ' + rb + nl
+		r += 'int32_t AnyObject_hiddenKeyCount_(void* self_);' + nl
+		r += 'int32_t AnyObject_hiddenKeyCount_(void* self_) ' + lb + ' if (self_ == nullptr) return (int32_t)0; return ((AnyObject_*)(self_))->count_; ' + rb + nl
+		r += 'Any_* AnyObject_hiddenIndexGet_(void* self_, int32_t i_);' + nl
+		r += 'Any_* AnyObject_hiddenIndexGet_(void* self_, int32_t i_) ' + lb + ' (void)self_; (void)i_; return nullptr; ' + rb + nl
+		r += 'void AnyObject_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_);' + nl
+		r += 'void AnyObject_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + lb + ' (void)self_; (void)i_; (void)v_; ' + rb + nl
+		r += 'int32_t AnyObject_hiddenIndexCount_(void* self_);' + nl
+		r += 'int32_t AnyObject_hiddenIndexCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'void AnyObject_hiddenReflect_(void* self_, HexaReflectOp_* op_);' + nl
+		r += 'void AnyObject_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + lb + ' if (self_ == nullptr || op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break; case (int32_t)2: op_->resultStr_ = Hexa_GenericToString_(self_); break; case (int32_t)3: op_->resultCStr_ = AnyObject_hiddenClassName_(); break; case (int32_t)4: op_->result_ = AnyObject_hiddenDynGet_(self_, op_->key_); break; case (int32_t)5: AnyObject_hiddenDynSet_(self_, op_->key_, op_->value_); break; case (int32_t)6: op_->resultInt_ = (int32_t)AnyObject_hiddenHas_(self_, op_->key_); break; case (int32_t)7: AnyObject_hiddenDelete_(self_, op_->key_); break; case (int32_t)8: op_->resultStr_ = AnyObject_hiddenKeyAt_(self_, op_->index_); break; case (int32_t)9: op_->resultInt_ = (int32_t)AnyObject_hiddenKeyCount_(self_); break; case (int32_t)10: op_->result_ = AnyObject_hiddenIndexGet_(self_, op_->index_); break; case (int32_t)11: AnyObject_hiddenIndexSet_(self_, op_->index_, op_->value_); break; case (int32_t)12: op_->resultInt_ = (int32_t)AnyObject_hiddenIndexCount_(self_); break; default: break; ' + rb + rb + nl
+		r += 'struct AnyObject_vt ' + lb + ' struct HexaReflect_ hidden; struct AnyObject__ public_; ' + rb + ';' + nl
+		r += 'const struct AnyObject_vt AnyObject_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &AnyObject_hiddenClassName_, &AnyObject_hiddenDynGet_, &AnyObject_hiddenDynSet_, &AnyObject_hiddenHas_, &AnyObject_hiddenDelete_, &AnyObject_hiddenKeyAt_, &AnyObject_hiddenKeyCount_, &AnyObject_hiddenIndexGet_, &AnyObject_hiddenIndexSet_, &AnyObject_hiddenIndexCount_, &AnyObject_hiddenReflect_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
+		r += '#define AnyObject__$ (AnyObject_vt$.public_)' + nl
+		r += '_Static_assert(offsetof(struct AnyObject_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
 		r += 'Any_* Any_objectNew_() ' + lb + ' AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; hexaRegisterLive_((void*)o); return (Any_*)(o); ' + rb + nl
 		r += 'uint8_t Any_objectStringEquals_(String_* a, String_* b) ' + lb + ' if (a == b) return (uint8_t)1; if (a == nullptr || b == nullptr) return (uint8_t)0; if (a->length_ != b->length_) return (uint8_t)0; for (int32_t i = (int32_t)0; i < a->length_; i++) ' + lb + ' if (a->bytes_[i] != b->bytes_[i]) return (uint8_t)0; ' + rb + ' return (uint8_t)1; ' + rb + nl
 		r += 'int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; HEXA_ASSERT(o->count_ <= o->cap_, "Any_objectFind_: count exceeds cap - corrupt bag (entries_ overrun)"); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
@@ -4468,7 +5515,9 @@ class GenCxx {
 		}
 		r += '(const void*)&FatPair__$, (const void*)&AnyInt__$, (const void*)&AnyFloat__$, (const void*)&AnyObject__$' + nl
 		r += rb + ';' + nl
-		r += 'static uint8_t hexaTagIsCounted_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaCountedTags_)/sizeof(hexaCountedTags_[0]); i_++) ' + lb + ' if (hexaCountedTags_[i_] != nullptr && hexaCountedTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
+		r += 'static const void* hexaTagLast_ = nullptr;' + nl
+		r += 'static uint8_t hexaTagLastRes_ = (uint8_t)0;' + nl
+		r += 'static uint8_t hexaTagIsCounted_(const void* tag_) ' + lb + ' if (tag_ == (const void*)(&AnyObject__$)) return (uint8_t)1; if (tag_ == (const void*)(&String__$)) return (uint8_t)1; if (tag_ == (const void*)(&AnyInt__$)) return (uint8_t)1; if (tag_ == (const void*)(&AnyFloat__$)) return (uint8_t)1; if (tag_ == (const void*)(&FatPair__$)) return (uint8_t)1; if (tag_ == hexaTagLast_) return hexaTagLastRes_; for (size_t i_ = (size_t)0; i_ < sizeof(hexaCountedTags_)/sizeof(hexaCountedTags_[0]); i_++) ' + lb + ' if (hexaCountedTags_[i_] != nullptr && hexaCountedTags_[i_] == tag_) ' + lb + ' hexaTagLast_ = tag_; hexaTagLastRes_ = (uint8_t)1; return (uint8_t)1; ' + rb + rb + ' hexaTagLast_ = tag_; hexaTagLastRes_ = (uint8_t)0; return (uint8_t)0; ' + rb + nl
 		r += 'uint8_t Any_isCounted_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr) return (uint8_t)0; return hexaTagIsCounted_(tag_); ' + rb + nl
 		r += '#ifdef __cplusplus' + nl
 		r += 'extern "C++" ' + lb + nl
@@ -4486,23 +5535,32 @@ class GenCxx {
 		r += 'uint8_t Any_isString_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&String__$)) ? 1 : 0); ' + rb + nl
 		r += 'uint8_t Any_isInt_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)1; const void* t_ = ((const void**)(p))[0]; if (t_ == (const void*)(&AnyInt__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
 		r += 'uint8_t Any_isNumber_(Any_* p) ' + lb + ' if (Any_isInt_(p)) return (uint8_t)1; if (p == nullptr) return (uint8_t)0; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
-		// D7 JS truthiness for `Any` conditions (`if state.flag`, `x == false`,
-		// `!any`): null/`false`/0/''/NaN are FALSY, everything else (incl.
-		// objects/arrays) is truthy. Reading the raw pointer was wrong — the
-		// `_false` singleton is a non-null address, so every `Any` flag read as
-		// true and e.g. the find widget recomputed with an unset match list.
-		r += 'uint8_t Any_toBool_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true)) return (uint8_t)1; if (p == (Any_*)(&_false)) return (uint8_t)0; int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (uint8_t)(v_ != (int64_t)0); const void* t_ = ((const void**)(p))[0]; if (t_ == (const void*)(&String__$)) return (uint8_t)(((String_*)(p))->length_ != (int32_t)0); if (t_ == (const void*)(&AnyInt__$)) return (uint8_t)(((AnyInt_*)(p))->v_ != (int64_t)0); if (t_ == (const void*)(&AnyFloat__$)) return (uint8_t)(((AnyFloat_*)(p))->v_ != 0.0); return (uint8_t)1; ' + rb + nl
-		// F10 central `obj[key]` dispatch — one copy for the whole program (no
-		// per-site ternaries): bags field-dispatch on the string form of the
-		// key, reflect-capable shapes split Int keys to `index_*` (container
-		// semantics) and everything else to `dyn_*` (field semantics). The
-		// receiver/key hoist at the call site, so both are single-eval.
-		r += 'Any_* Any_indexGet_(Any_* o, Any_* k) ' + lb + ' if (o == nullptr || k == nullptr) return nullptr; if (Any_isObject_(o)) ' + lb + ' String_* ks_ = Any_unboxString_(k); return ks_ != nullptr ? Any_objectGet_(o, ks_) : nullptr; ' + rb + ' const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return nullptr; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) return rf_->index_get_ != nullptr ? rf_->index_get_((void*)o, Any_unboxInt_(k)) : nullptr; if (Any_isString_(k)) return rf_->dyn_get_ != nullptr ? rf_->dyn_get_((void*)o, (String_*)(k)) : nullptr; String_* ks2_ = Any_unboxString_(k); return (ks2_ != nullptr && rf_->dyn_get_ != nullptr) ? rf_->dyn_get_((void*)o, ks2_) : nullptr; ' + rb + nl
-		r += 'void Any_indexSet_(Any_* o, Any_* k, Any_* v) ' + lb + ' if (o == nullptr || k == nullptr) return; if (Any_isObject_(o)) ' + lb + ' String_* ks_ = Any_unboxString_(k); if (ks_ != nullptr) Any_objectSet_(o, ks_, v); return; ' + rb + ' const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) ' + lb + ' if (rf_->index_set_ != nullptr) rf_->index_set_((void*)o, Any_unboxInt_(k), v); return; ' + rb + ' if (Any_isString_(k)) ' + lb + ' if (rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, (String_*)(k), v); return; ' + rb + ' String_* ks2_ = Any_unboxString_(k); if (ks2_ != nullptr && rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, ks2_, v); ' + rb + nl
+		// Reflection thin forwarders: every `Any_*` dynamic op is ONE hidden
+		// vtable call. Immediates (small ints) and Bool singletons have no
+		// tag word, so they guard up front; everything else (bags, boxes,
+		// strings, arrays, class instances) carries `hidden` at a negative
+		// offset and owns its semantics there. No bag special-cases, no
+		// string/array branches, no `let_`/`$set` legacy proxy.
+		r += 'uint8_t Any_toBool_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true)) return (uint8_t)1; if (p == (Any_*)(&_false)) return (uint8_t)0; int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (uint8_t)(v_ != (int64_t)0); const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (uint8_t)1; return HexaReflectFor_(tag_)->toBool_((void*)p); ' + rb + nl
+		// D7/JS value equality for dynamic operands. `Any_boxInt_` keeps the
+		// immediate form only for NON-ZERO values, so a boxed `0` is a heap
+		// object: a plain pointer `==` against `0`/`Any_boxInt_(0)` is false.
+		// That is exactly how `state.activePanel == 0` silently became FALSE —
+		// Perfide drew the sidebar header but never a panel body (the "vertical
+		// list of opened files is missing" bug), and every `Any == 0/1/…`
+		// comparison in any project was broken the same way. Identity first
+		// (strings are interned, bools are singletons), then numeric by value;
+		// everything else stays referential (JS object identity).
+		r += 'uint8_t Any_equals_(Any_* a, Any_* b) ' + lb + ' if (a == b) return (uint8_t)1; uint8_t an_ = (uint8_t)(a == nullptr || a == (Any_*)(&HexaNone_)); uint8_t bn_ = (uint8_t)(b == nullptr || b == (Any_*)(&HexaNone_)); if (an_ != (uint8_t)0 || bn_ != (uint8_t)0) return (uint8_t)((an_ != (uint8_t)0 && bn_ != (uint8_t)0) ? 1 : 0); uint8_t an2_ = (uint8_t)(Any_isNumber_(a) || a == (Any_*)(&_true) || a == (Any_*)(&_false)); uint8_t bn2_ = (uint8_t)(Any_isNumber_(b) || b == (Any_*)(&_true) || b == (Any_*)(&_false)); if (an2_ && bn2_) return (uint8_t)(Any_unboxFloat_(a) == Any_unboxFloat_(b)); return (uint8_t)0; ' + rb + nl
+		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return nullptr; int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return nullptr; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return nullptr; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return nullptr; return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
+		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) return; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return; HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); ' + rb + nl
+		// `obj[key]`: key shape picks the hidden slot (Int -> index_*,
+		// String -> dyn_*). The receiver/key hoist at the call site, so both
+		// are single-eval; no per-site ternary, no legacy proxy.
+		r += 'Any_* Any_indexGet_(Any_* o, Any_* k) ' + lb + ' if (o == nullptr || k == nullptr) return nullptr; int64_t ov_ = (int64_t)(o); if (ov_ >= (int64_t)-65535 && ov_ <= (int64_t)65535) return nullptr; if (o == (Any_*)(&_true) || o == (Any_*)(&_false)) return nullptr; const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return nullptr; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) return rf_->index_get_ != nullptr ? rf_->index_get_((void*)o, Any_unboxInt_(k)) : nullptr; if (Any_isString_(k)) return rf_->dyn_get_ != nullptr ? rf_->dyn_get_((void*)o, (String_*)(k)) : nullptr; String_* ks_ = Any_unboxString_(k); return (ks_ != nullptr && rf_->dyn_get_ != nullptr) ? rf_->dyn_get_((void*)o, ks_) : nullptr; ' + rb + nl
+		r += 'void Any_indexSet_(Any_* o, Any_* k, Any_* v) ' + lb + ' if (o == nullptr || k == nullptr) return; int64_t ov_ = (int64_t)(o); if (ov_ >= (int64_t)-65535 && ov_ <= (int64_t)65535) return; if (o == (Any_*)(&_true) || o == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) ' + lb + ' if (rf_->index_set_ != nullptr) rf_->index_set_((void*)o, Any_unboxInt_(k), v); return; ' + rb + ' if (Any_isString_(k)) ' + lb + ' if (rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, (String_*)(k), v); return; ' + rb + ' String_* ks_ = Any_unboxString_(k); if (ks_ != nullptr && rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, ks_, v); ' + rb + nl
 		r += 'int32_t Any_objectCount_(Any_* p) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return (int32_t)0; return ((AnyObject_*)(p))->count_; ' + rb + nl
 		r += 'String_* Any_objectKeyAt_(Any_* p, int32_t i) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return nullptr; AnyObject_* o = (AnyObject_*)(p); if (i < (int32_t)0 || i >= o->count_) return nullptr; return o->entries_[i].k_; ' + rb + nl
-		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr) return nullptr; if (Any_isObject_(p)) return Any_objectGet_(p, k); const void* tag_ = ((const void**)(p))[0]; if (HexaHasReflect_(tag_)) return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); HEXA_ASSERT(((const void**)(p))[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)p)[0]), "Any_dynGet_: legacy let_ on a non-dynamic payload (string/array receiver) - convert at the Any boundary (printToAnyConverter/printIfaceField)"); return (Any_*)(((Any_*)(p))->let_(k)); ' + rb + nl
-		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; if (Any_isObject_(p)) ' + lb + ' Any_objectSet_(p, k, v); return; ' + rb + ' const void* tag_ = ((const void**)(p))[0]; if (HexaHasReflect_(tag_)) ' + lb + ' HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); return; ' + rb + ' HEXA_ASSERT(((const void**)(p))[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)p)[0]), "Any_dynSet_: $set on a non-dynamic payload (string/array receiver) - the write is silently lost"); ((Any_*)(p))->$set(k, v); ' + rb + nl
 		return r
 	}
 
@@ -4565,6 +5623,73 @@ class GenCxx {
 		return r
 	}
 
+	/// The `null` sentinel's own reflection vtable (D2). `null` is an OBJECT for
+	/// every managed (`Foo_*`) and `Any` slot: it carries the ordinary instance
+	/// header (so `hexaRef`/`hexaUnref` are blind `rc++`/`rc--`), and this
+	/// double vtable (`hidden` reflection + `public` COM head, same layout as
+	/// every class), so dynamic operations are answered VIRTUALLY instead of by
+	/// per-helper null tests: `toBool` = false, `toString` = "null", field reads
+	/// = null, field writes dropped, key/index counts = 0, never destroyed.
+	/// `_` (the tag) is installed by `hexaInstallNone_()` — the first statement
+	/// of `HEXA_MAIN`. Until then the tag is 0, which every dispatcher already
+	/// treats as "no reflection", so nothing can mis-dispatch.
+	fun printNullSentinel(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// Null sentinel (D2: `null` is an object, never a null pointer)' + nl
+		// The public half is emitted LATE (`printNullVtable`, after Types, where
+		// `struct String__` is complete) — a single sentinel cannot be shaped
+		// like every class, so it is shaped like the one class JS coerces.
+		r += 'static void* HexaNone_stringStub_(void);' + nl
+		r += 'HEXA_C void hexaInstallNone_(void);' + nl
+		r += 'static uint8_t HexaNone_hiddenToBool_(void* self_) ' + lb + ' (void)self_; return (uint8_t)0; ' + rb + nl
+		r += 'static const char* HexaNone_hiddenClassName_(void) ' + lb + ' return "Null"; ' + rb + nl
+		r += 'static struct Any_* HexaNone_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)k_; return (struct Any_*)(self_); ' + rb + nl
+		r += 'static void HexaNone_hiddenDynSet_(void* self_, struct String_* k_, struct Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
+		r += 'static uint8_t HexaNone_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (uint8_t)0; ' + rb + nl
+		r += 'static void HexaNone_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
+		r += 'static struct String_* HexaNone_hiddenKeyAt_(void* self_, int32_t i_) ' + lb + ' (void)i_; return (struct String_*)(self_); ' + rb + nl
+		r += 'static int32_t HexaNone_hiddenKeyCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		r += 'static struct Any_* HexaNone_hiddenIndexGet_(void* self_, int32_t i_) ' + lb + ' (void)i_; return (struct Any_*)(self_); ' + rb + nl
+		r += 'static void HexaNone_hiddenIndexSet_(void* self_, int32_t i_, struct Any_* v_) ' + lb + ' (void)self_; (void)i_; (void)v_; ' + rb + nl
+		r += 'static int32_t HexaNone_hiddenIndexCount_(void* self_) ' + lb + ' (void)self_; return (int32_t)0; ' + rb + nl
+		// Body emitted with the sweep/tag section (it needs the interned "null").
+		r += 'static struct String_* HexaNone_hiddenToString_(void* self_);' + nl
+		r += 'static void HexaNone_hiddenReflect_(void* self_, struct HexaReflectOp_* op_);' + nl
+		// Reflection half: compiled here, wired into `HexaNone_vt_` at boot.
+		r += 'static const struct HexaReflect_ HexaNone_hidden_ = ' + lb + ' nullptr, &HexaNone_hiddenToBool_, &HexaNone_hiddenToString_, &HexaNone_hiddenClassName_, &HexaNone_hiddenDynGet_, &HexaNone_hiddenDynSet_, &HexaNone_hiddenHas_, &HexaNone_hiddenDelete_, &HexaNone_hiddenKeyAt_, &HexaNone_hiddenKeyCount_, &HexaNone_hiddenIndexGet_, &HexaNone_hiddenIndexSet_, &HexaNone_hiddenIndexCount_, &HexaNone_hiddenReflect_ ' + rb + ';' + nl
+		r += 'static void HexaNone_hiddenReflect_(void* self_, struct HexaReflectOp_* op_) ' + lb + ' if (op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)0; break; case (int32_t)2: op_->resultStr_ = HexaNone_hiddenToString_(self_); break; case (int32_t)3: op_->resultCStr_ = HexaNone_hiddenClassName_(); break; default: break; ' + rb + ' ' + rb + nl
+		return r
+	}
+
+	/// The `null` sentinel's PUBLIC half (D2) — emitted with the sweep section so
+	/// `struct String__` (its exact shape) is complete.
+	/// WHY String-shaped: every Hexa method call is `recv->_->m(recv, …)`, so a
+	/// `null` receiver must answer with the JS coercion (`String(null)` =
+	/// "null") instead of reading a slot past a short head and calling 0. All
+	/// slots get one stub returning the interned `"null"`; the head is filled at
+	/// boot (`hexaInstallNone_`, first statement of `HEXA_MAIN`) by slot count,
+	/// so no `String__` field list is needed here. Non-String receivers also land
+	/// on the stub (pointer-sized return, never a jump to 0) — calling a method
+	/// on `null` is a source bug either way and the trace assert names it.
+	fun printNullVtable(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// Null sentinel public half: String-shaped, every slot = the coercion stub' + nl
+		// A plain slot array (not `struct String__`): String's method members are
+		// `const` function pointers, so the struct has no default constructor and
+		// cannot host a mutable table. 14 = the reflect head, 64 = method slots.
+		r += 'static void* HexaNone_vt$_[14 + 64];' + nl
+		r += '#define HexaNone__$ (*(void**)(&(HexaNone_vt$_[14])))' + nl
+		r += '_Static_assert(sizeof(struct HexaReflect_) / sizeof(void*) == 14, "reflect: head must stay 14 slots");' + nl
+		r += '_Static_assert(sizeof(struct String__) / sizeof(void*) <= 64, "reflect: HexaNone_ needs more method slots");' + nl
+		r += 'static void* HexaNone_stringStub_(void) ' + lb + ' return (void*)String_1; ' + rb + nl
+		r += 'HEXA_C void hexaInstallNone_(void) ' + lb + ' memcpy(&(HexaNone_vt$_[0]), &HexaNone_hidden_, sizeof(struct HexaReflect_)); size_t n_ = sizeof(struct String__) / sizeof(void*); void** s_ = (void**)(&(HexaNone_vt$_[14])); for (size_t i_ = (size_t)0; i_ < n_; i_++) s_[i_] = (void*)(&HexaNone_stringStub_); HexaNone_._ = (const void*)(&HexaNone__$); ' + rb + nl
+		return r
+	}
+
 	/// ARC destroy registry: one row per `@destructor` class (vtable tag,
 	/// destroy fn, instance size) plus a tag lookup for the future F11 sweep.
 	/// Always emitted (lone null row when empty) so the sweep links blindly.
@@ -4620,6 +5745,24 @@ class GenCxx {
 		return r
 	}
 
+	/// D2 storage: `ArrayByValue<T?, N>` globals live in BSS (all-zero words),
+	/// but their unset slots are observable — `stringBuckets` (the intern
+	/// table) is retained before any bucket is filled. Fill them with the
+	/// sentinel object in the `HEXA_MAIN` prologue, before strings intern.
+	fun printNoneSlotInit(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// D2: sentinel-fill ArrayByValue slots (a BSS zero is not `null`)' + nl
+		r += 'static void hexaInitNoneSlots_(void) ' + lb + nl
+
+		for line in noneSlotInitLines {
+			r += line + nl
+		}
+		r += rb + nl
+		return r
+	}
+
 	/// Sweep victim-class names (diagnostic): one `if` per vtable-managed
 	/// class so the sweep can log WHO it frees (first victims per sweep).
 	/// Same vtable predicate as the class printer (structs/unions/native
@@ -4634,15 +5777,35 @@ class GenCxx {
 		for n in vtableClasses {
 			r += 'if (tag_ == (const void*)(&' + n + '__$)) return "' + n + '";' + nl
 		}
+		r += 'if (tag_ == (const void*)(&AnyObject__$)) return "Object";' + nl
+		r += 'if (tag_ == (const void*)(&AnyInt__$)) return "Int";' + nl
+		r += 'if (tag_ == (const void*)(&AnyFloat__$)) return "Float";' + nl
+		r += 'if (tag_ == (const void*)(&FatPair__$)) return "FatPair";' + nl
+		r += 'if (tag_ == (const void*)(&HexaNone__$)) return "Null";' + nl
 		r += 'return "?";' + nl
 		r += rb + nl
+		r += 'static const void* hexaReflectLast_ = nullptr;' + nl
 		r += 'uint8_t HexaHasReflect_(const void* tag_) ' + lb + nl
+		r += 'if (tag_ == (const void*)(&AnyObject__$)) return (uint8_t)1;' + nl
+		r += 'if (tag_ == (const void*)(&AnyInt__$)) return (uint8_t)1;' + nl
+		r += 'if (tag_ == (const void*)(&AnyFloat__$)) return (uint8_t)1;' + nl
+		r += 'if (tag_ == (const void*)(&FatPair__$)) return (uint8_t)1;' + nl
+		r += 'if (tag_ == (const void*)(&String__$)) return (uint8_t)1;' + nl
+		r += 'if (tag_ == (const void*)(&HexaNone__$)) return (uint8_t)1;' + nl
+		r += 'if (tag_ == hexaReflectLast_) return (uint8_t)1;' + nl
 
 		for n in vtableClasses {
-			r += 'if (tag_ == (const void*)(&' + n + '__$)) return (uint8_t)1;' + nl
+			r += 'if (tag_ == (const void*)(&' + n + '__$)) ' + lb + ' hexaReflectLast_ = tag_; return (uint8_t)1; ' + rb + nl
 		}
 		r += 'return (uint8_t)0;' + nl
 		r += rb + nl
+		// `hexaUnref` (compile prologue) exempts interned strings from the
+		// negative-refcount assert — see the D2/F11 note there. Declared early,
+		// defined here because `String__$` only exists after the type section.
+		r += 'HEXA_C uint8_t hexaTagIsString_(const void* tag_) ' + lb + ' return (uint8_t)(tag_ != nullptr && tag_ == (const void*)(&String__$)); ' + rb + nl
+		// `null`'s `toString` lives here (needs the interned "null" global, which
+		// only exists after the Global variables section).
+		r += 'static struct String_* HexaNone_hiddenToString_(void* self_) ' + lb + ' (void)self_; return String_1; ' + rb + nl
 		return r
 	}
 
@@ -4791,7 +5954,7 @@ class GenCxx {
 			if let objArg = printObjectAs(project.typer.typeAny, a) {
 				boxes.push(objArg)
 			} else if isBoxableFat(a) {
-				boxes.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')')
+				boxes.push(boxFatPair(a))
 			} else {
 				boxes.push(printToAnyConverter(printExpression(a), valueType(a)))
 			}
@@ -4804,14 +5967,18 @@ class GenCxx {
 		}
 		metaBlock.push('Any_* ' + fres + ' = nullptr')
 		metaBlock.push('uint8_t ' + fok + ' = 0')
-		metaBlock.push('if (Any_isFatPair_(' + ftmp + ')) \{ FatPair_* fp = (FatPair_*)(' + ftmp + '); Any_* (*fc)(void*, Any_**, int32_t) = FatPair_lookupCall_(fp->impl_); if (fc != nullptr) \{ ' + fres + ' = fc(fp->env_, ' + argvUse + ', ' + args.length + '); ' + fok + ' = 1; \} \}')
+		// F10.5: `FatPair_.call_` is the argv-ABI thunk of the boxed impl (the
+		// box site named it at compile time), so dispatch is O(1) — there is no
+		// impl→thunk registry. A pair without a `call_` keeps the legacy proxy
+		// (visible through the assert below).
+		metaBlock.push('if (Any_isFatPair_(' + ftmp + ')) \{ FatPair_* fp = (FatPair_*)(' + ftmp + '); Any_* (*fc)(struct FatPair_*, Any_**, int32_t) = fp->call_; if (fc != nullptr) \{ ' + fres + ' = fc(fp, ' + argvUse + ', ' + args.length + '); ' + fok + ' = 1; \} \}')
 		var refs: [String] = []
 
 		for i in args.length {
 			refs.push(fargv + '[' + i + ']')
 		}
 		var legacy = 'AnyValue_\{' + ftmp + '\}(' + refs.join(', ') + ')'
-		metaBlock.push('HEXA_ASSERT(!Any_isFatPair_(' + ftmp + ') || ' + fok + ' != 0, "dynamic call: boxed pair without a registered thunk - falls into the legacy proxy (F10.3)")')
+		metaBlock.push('HEXA_ASSERT(!Any_isFatPair_(' + ftmp + ') || ' + fok + ' != 0, "dynamic call: fat pair without a call thunk - falls into the legacy proxy (F10.5)")')
 		return '(' + fok + ' ? ' + fres + ' : ' + legacy + ')'
 	}
 
@@ -5023,7 +6190,7 @@ class GenCxx {
 			return 'String_$fromUInt64_(' + receiverPrinted + ')'
 		}
 
-		if receiverShape == 'double', receiverShape == 'float' {
+		if receiverShape == 'double' or receiverShape == 'float' {
 			return 'String_$fromFloat_(' + receiverPrinted + ')'
 		}
 
@@ -5054,6 +6221,15 @@ class GenCxx {
 			return '(float)0.0'
 		}
 
+		// D2: managed/`Any` padding is the sentinel OBJECT, not a null pointer.
+		// Shape-gated exactly like the converter below: an ERASED target
+		// (`Unknown`/generic/`Any`-payload) can TYPE as managed while its C
+		// shape is a scalar (`int32_t`) — pouring a pointer into that slot is
+		// C4311 (pointer truncation) and passes garbage where `null` was meant.
+		if isNullSentinelType(to), (name == 'Any_*' or name.endsWith('_*')) {
+			return '(' + name + ')(&HexaNone_)'
+		}
+
 		return printTypeConverter('nullptr', Type.UnknownNullable({ value: null }), to)
 	}
 
@@ -5073,6 +6249,14 @@ class GenCxx {
 	}
 
 	fun printToAnyConverter(string: String, fromType: Type): String {
+		// D2: `null` in an `Any` slot is the sentinel OBJECT, never a null
+		// pointer. This matters beyond tidiness: `if let` guards lower to
+		// `Any_equals_(x, null)`, and a slot holding 0 would then read as
+		// NON-null (0 != sentinel), walking `x->field` on a null object.
+		if string == 'nullptr' {
+			return '(struct Any_ *) (size_t) (&HexaNone_)'
+		}
+
 		if fromType == project.typer.typeAny {
 			// F7: bridge through `size_t` (not a raw pointer cast) — the Nice
 			// type may say `Any` while the C value is a scalar (widened-field
@@ -5113,7 +6297,7 @@ class GenCxx {
 						// Struct fat fields are thin single values (Phase 1)
 						// — box as pair with a sentinel env (dynamic calls on
 						// them keep the legacy proxy, as before).
-						vstr = 'Any_boxFatPair_((void(*)())(' + sp + '->' + names[i] + '_), hexaSentinelEnv_)'
+						vstr = 'Any_boxFatPair_((void(*)())(' + sp + '->' + names[i] + '_), hexaSentinelEnv_, nullptr)'
 					}
 					metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 				}
@@ -5160,7 +6344,10 @@ class GenCxx {
 		}
 
 		if string == 'nullptr' {
-			return string // Workaround for cases when type of `null` cannot be inferred
+			// D2: `null` in an `Any` slot is the sentinel object, not 0 — the
+			// dynamic ops dispatch on its tag (`toBool` false, `toString`
+			// "null", reads null), so no `== nullptr` special case is needed.
+			return '(struct Any_ *) (size_t) (&HexaNone_)'
 		}
 
 		let fromName = stringifyType(fromType)
@@ -5250,8 +6437,16 @@ class GenCxx {
 			let types = (anyToStructTypes.get(fn) as![Type])
 			r += 'HEXA_C ' + sname + '* ' + fn + '(Any_* v_) ' + lb + nl
 			r += ' if (v_ == nullptr) return nullptr;' + nl
-			r += ' HEXA_ASSERT(((const void**)v_)[0] == (const void*)(&AnyObject__$) || (((const void**)v_)[0] != (const void*)(&String__$) && !hexaTagIsArray_(((const void**)v_)[0])), "Any_toStruct: pass-through got a string/array payload - upstream Any-to-struct conversion gap");' + nl
-			r += ' if (((const void**)(v_))[0] != (const void*)(&AnyObject__$)) return /*PASS-THROUGH (#6: non-bag stays raw — a future reflectPost Any->struct lowering should make this unreachable except legacy pointers)*/ (' + sname + '*)(size_t)(v_);' + nl
+			r += ' if (((const void**)v_)[0] == (const void*)(&String__$) || hexaTagIsArray_(((const void**)v_)[0])) ' + lb + ' HEXA_ASSERT(0, "Any_toStruct: got a string/array payload - upstream Any-to-struct conversion gap"); return nullptr; ' + rb + nl
+			// Headered payloads (bags, class instances, interface structs —
+			// `Name_*` values carry a vtable AND `rc_` BEFORE their fields)
+			// CANNOT be reinterpreted as the headerless `Struct_N_` layout
+			// the caller expects: taking `.line_` at offset 0 would read the
+			// vtable pointer. Every reflect-capable payload therefore
+			// rebuilds field-by-field through `dyn_get` (the bag arm below
+			// is the same path). Only a genuinely headerless legacy struct
+			// passes through raw.
+			r += ' if (((const void**)(v_))[0] != (const void*)(&AnyObject__$) && !HexaHasReflect_(((const void**)v_)[0])) return /*PASS-THROUGH (#6: headerless legacy struct stays raw)*/ (' + sname + '*)(size_t)(v_);' + nl
 			r += ' ' + sname + '* s_ = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')));' + nl
 
 			for j in names.length {
@@ -5329,11 +6524,15 @@ class GenCxx {
 
 		if dynamicSource {
 			if to == project.typer.typeBool {
-				return '(' + string + ')->_toBool() '
+				return 'Any_toBool_(' + string + ')'
 			}
 
-			if to == project.typer.typeInt {
+			if to == project.typer.typeInt or to == project.typer.typeInt8 or to == project.typer.typeInt16 or to == project.typer.typeInt32 {
 				return 'Any_unboxInt_(' + string + ') '
+			}
+
+			if to == project.typer.typeUInt8 or to == project.typer.typeUInt16 or to == project.typer.typeUInt32 {
+				return '((uint32_t)(Any_unboxInt_(' + string + '))) '
 			}
 
 			if to == project.typer.typeFloat {
@@ -5398,14 +6597,18 @@ class GenCxx {
 		}
 
 		if fromValue == project.typer.typeAny, to == project.typer.typeBool {
-			return '(' + string + ')->_toBool()'
+			return 'Any_toBool_(' + string + ')'
 		}
 		// ^ TODO ((==null)?false:_toBool)
 		// != null SHOULD BE DONE ONLY FOR NULLABLE AND Any
-		if fromValue == project.typer.typeAny, to == project.typer.typeInt {
+		if fromValue == project.typer.typeAny, to == project.typer.typeInt or fromValue == project.typer.typeAny, to == project.typer.typeInt8 or fromValue == project.typer.typeAny, to == project.typer.typeInt16 or fromValue == project.typer.typeAny, to == project.typer.typeInt32 {
 			return 'Any_unboxInt_(' + string + ')'
 		}
 		// ^ TODO ((==null)?0:_toInt) cause 1+null+2=3
+
+		if fromValue == project.typer.typeAny, to == project.typer.typeUInt8 or fromValue == project.typer.typeAny, to == project.typer.typeUInt16 or fromValue == project.typer.typeAny, to == project.typer.typeUInt32 {
+			return '((uint32_t)(Any_unboxInt_(' + string + ')))'
+		}
 
 		if fromValue == project.typer.typeAny, to == project.typer.typeFloat {
 			return 'Any_unboxFloat_(' + string + ')'
@@ -5665,6 +6868,22 @@ class GenCxx {
 										if toNull == null {
 											return string // TODO seems like unspecified generic type <T>
 										}
+
+										// D2: `null` for a managed/`Any` target is the
+										// sentinel OBJECT (header + reflection vtable), so
+										// retain/release stay blind `rc++`/`rc--` and every
+										// dynamic op answers virtually. `_*` shapes are the
+										// managed ones (`Foo_*`, `Any_*`, `Array_$X_*`) — that
+										// also covers ERASED generics (`T` prints `Any_*`),
+										// where the runtime type may be managed. Native
+										// pointers (`const uint16_t*`, `void*`) and scalars
+										// keep their own null form.
+										let targetShape = stringifyType(toNull)
+
+										if isNullSentinelType(toNull) or targetShape == 'Any_*' or targetShape.endsWith('_*') {
+											return '(' + targetShape + ')(&HexaNone_)'
+										}
+
 										return '/*%T? = null%*/(' + string + ')'
 									}
 							}
@@ -6503,6 +7722,50 @@ class GenCxx {
 		}
 	}
 
+	/// D2: types whose `null` is the OBJECT sentinel `&HexaNone_` — every
+	/// reflection-managed class instance (`String`, `Array_$T$`, `Map`, user
+	/// classes: they carry the `__$` tag and the `rc_` header) and `Any`.
+	/// Native pointers (`ConstArrayPointer`/`ArrayPointer` lower to raw `T*`),
+	/// payload words (`CString8/16`, `RuntimeAllocated`, `ClangWideChar`) and
+	/// minted inline structs keep the raw null pointer: no header, never
+	/// counted, so a sentinel there would be a lie.
+	fun isNullSentinelType(dataType: Type?): Bool {
+		if dataType == null {
+			return false
+		}
+
+		if dataType == project.typer.typeAny {
+			return true
+		}
+
+		switch dataType {
+			case Nullable(inner):
+				return isNullSentinelType(inner)
+			case UnknownNullable(inner):
+				return isNullSentinelType(inner)
+			case Unknown(inner):
+				return isNullSentinelType(inner.value)
+			case ClassInstance(c, _):
+				if c.name == null {
+					return false
+				}
+
+				for n in ['ConstArrayPointer', 'ArrayPointer', 'ArrayByValue', 'RuntimeAllocated', 'ClangWideChar', 'CString8', 'CString16', 'StackAsciiString', 'HeapAsciiString', 'Embed', 'ByValue'] {
+					if c.name == n {
+						return false
+					}
+				}
+
+				if c.name.startsWith('Struct_') {
+					return false
+				}
+
+				return true
+			case _:
+				return false
+		}
+	}
+
 	/// Whether a call callee must go through the `AnyValue_` call proxy:
 	/// an `Any_*`-SHAPED callee is a raw pointer and `ptr(args)` is not valid
 	/// C++ even with `Any_::operator()`. DECLARED types win over use-node
@@ -7080,6 +8343,17 @@ class GenCxx {
 						case _:
 					}
 				}
+				// Nominal classes: same named-field construction, PLUS vtable
+				// init so `hidden->dyn_*` works on the value (FileInfo/Tab/
+				// Cursor/... records). Missing fields stay zero (HEXA_NEW
+				// zeroes); the vtable/ARC header is always filled.
+				if kind.kind == ClassKind.Class {
+					switch e {
+						case Object(onames, oels):
+							return printClassObject(kind.name, onames, oels)
+						case _:
+					}
+				}
 				// Batch-1 UAF fix (headerless struct values in counted slots —
 				// the updateBlinkStates `rc went negative` burst): a container
 				// literal whose INFERRED element is a headerless inline struct
@@ -7134,9 +8408,72 @@ class GenCxx {
 						case _:
 					}
 				}
+
+				if kind.kind == ClassKind.Class {
+					switch e {
+						case Object(onames, oels):
+							return printClassObject(kind.name, onames, oels)
+						case _:
+					}
+				}
 			case _:
 		}
 		return null
+	}
+
+	/// Heap-construct a nominal class `Name_*` from an object literal (real
+	/// classes, not interfaces): `HEXA_NEW` + vtable init (`->$__$`), `rc_=1`,
+	/// live registration, then named field stores. Missing fields stay zero.
+	/// This is what makes `FileInfo/Tab/Cursor/...` literals work once those
+	/// records are classes — every site gets the same layout, and dynamic
+	/// reads go through `hidden->dyn_*`.
+	fun printClassObject(className: String, onames: [String], oels: [Expression]): String {
+		var names: [String] = []
+		var ftypes: [Type] = []
+
+		for c in project.classes {
+			if c.name == className {
+				for v in c.vars {
+					switch v {
+						case Var(n, _, t):
+							names.push(n)
+							ftypes.push(t)
+						case Const(n, _, t):
+							names.push(n)
+							ftypes.push(t)
+						case _:
+							continue
+					}
+				}
+			}
+		}
+		let tid = tempId++
+		let tmp = '_$cls' + tid
+		let sname = className + '_'
+		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
+		metaBlock.push('((void**)' + tmp + ')[0] = (void*)&' + className + '__$')
+		metaBlock.push(tmp + '->rc_ = 1')
+		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
+
+		for i in names.length {
+			for k in onames.length {
+				if onames[k] == names[i] {
+					if isFatValueType(ftypes[i]) {
+						metaBlock.push(tmp + '->' + names[i] + '$f_ = ' + 'reinterpret_cast<' + stringifyType(ftypes[i]) + '>(' + fatPtrStr(oels[k]) + ')')
+						metaBlock.push(tmp + '->' + names[i] + '$e_ = ' + fatEnvStr(oels[k]))
+					} else {
+						metaBlock.push(tmp + '->' + names[i] + '_ = ' + printStructFieldValue(ftypes[i], oels[k]))
+
+						// Borrowed source (`{ a: localTemp }`): the literal must
+						// take its own reference — see retainLiteralField.
+						if isBorrowedValue(oels[k]) {
+							metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_'))
+						}
+					}
+				}
+			}
+		}
+		return tmp
 	}
 
 	/// F10.2: heap-construct an `AnyObject_*` bag from an object literal into
@@ -7207,6 +8544,12 @@ class GenCxx {
 			for k in onames.length {
 				if onames[k] == names[i] {
 					metaBlock.push(tmp + '->' + names[i] + '_ = ' + printStructFieldValue(fieldTypes[i], oels[k]))
+
+					// Borrowed source: the struct literal owns its own reference
+					// (see retainLiteralField).
+					if isBorrowedValue(oels[k]) {
+						metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_'))
+					}
 				}
 			}
 		}
@@ -7246,7 +8589,13 @@ class GenCxx {
 		let tid = tempId++
 		let tmp = '_$iface' + tid
 		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
-		// ARC birth count (interface literals are heap-managed like classes).
+		// Vtable init: interfaces carry the same hidden vtable as classes
+		// (per-class string-compare shape). Without this `_` stays null and
+		// every dynamic read (`Any_dynGet_` via `hidden->dyn_get_`) misses —
+		// the "Loading null…" family. ARC birth count as usual.
+		// NOTE `_` is `const ... * const` (like classes) — write through
+		// `void**` exactly as `$new_` does, or MSVC rejects it (C2166).
+		metaBlock.push('((void**)' + tmp + ')[0] = (void*)&' + className + '__$')
 		metaBlock.push(tmp + '->rc_ = 1')
 		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
 
@@ -7263,11 +8612,50 @@ class GenCxx {
 						metaBlock.push(tmp + '->' + names[i] + '$e_ = ' + fatEnvStr(oels[k]))
 					} else {
 						metaBlock.push(tmp + '->' + names[i] + '_ = ' + printStructFieldValue(ftypes[i], oels[k]))
+
+						// Borrowed source (`boxes: fresh` — the WindowBoxes
+						// rczero UAF): an interface literal owns what it stores,
+						// so take the reference here (retainLiteralField).
+						if isBorrowedValue(oels[k]) {
+							metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_'))
+						}
 					}
 				}
 			}
 		}
 		return tmp
+	}
+
+	/// A literal field value that merely BORROWS an existing reference (a local
+	/// temp or parameter) instead of minting its own. Fresh values (`new`, call
+	/// results, literals, closures) arrive with their own birth count and
+	/// transfer it into the field; borrowed ones do not.
+	fun isBorrowedValue(e: Expression): Bool {
+		switch e {
+			case Ident(_, _):
+				return true
+			case Parenthesis(inner):
+				return isBorrowedValue(inner)
+			case _:
+				return false
+		}
+	}
+
+	/// Take a reference for a borrowed value just stored into a freshly
+	/// constructed literal (`tmp->field_ = ident`).
+	/// WHY: literals are built out of temps whose birth count is released by the
+	/// sibling `HexaDeferDecPtr_` guard at the end of the enclosing scope, and
+	/// `ArcInserter` never visits `Expression.Object` elements (it only walks
+	/// statements), so a borrow-only store left the new object pointing at an
+	/// rc==0 object — the sweep freed it and every later read of the field
+	/// (`WindowBoxes`/`WindowUi`/state records) returned garbage. The retain is
+	/// owned by the receiving object; without a `destroy_` that releases fields
+	/// (most interfaces emit `nullptr /*INHERIT-DESTROY*/`) it leaks instead of
+	/// corrupting — same trade-off as the `Assign(Dot)` arm in `arc.hexa`.
+	/// The `Any_isCounted_` tag check keeps this type-agnostic: scalars,
+	/// immediates and bare sentinels are no-ops.
+	fun retainLiteralField(slot: String): String {
+		return 'if (Any_isCounted_((Any_*)(size_t)(' + slot + '))) hexaRef((void*)(size_t)(' + slot + '));'
 	}
 
 	/// One struct field value, converted to its declared type (recursing into
@@ -7997,12 +9385,15 @@ class GenCxx {
 
 				// Hexa's word-operator `not` → C's `!` (a word would glue to the operand)
 				if op == Token.KNot or op == Token.Exclamation {
-					// Dynamic operands print as the `AnyValue_` proxy — `!`
-					// on it resolves through the conversion operator, so keep
-					// it parenthesized (precedence) and let `getType` report
-					// `Bool` so no outer `->_toBool()` is appended (C2227)
+					// JS truthiness (D7), never pointer non-null: a boxed
+					// `false`/`0`/`''` is a NON-NULL pointer, so `!ptr` was always
+					// false and `if not state.flag` (Any) never took the false
+					// branch — Perfide's hidden command palette therefore ran its
+					// whole per-frame hitbox sync. Same funnel as `printCondition`
+					// (If/While); `getType` still reports Bool so no outer
+					// `->_toBool()` is appended.
 					if cShape(e) == 'Any_*' {
-						return '!(' + printExpression(e) + ')'
+						return '!(Any_toBool_(' + printExpression(e) + '))'
 					}
 
 					return '!' + printExpression(e)
@@ -8152,7 +9543,23 @@ class GenCxx {
 								return '((double)(' + printExpression(a) + ') ' + op2 + ' (double)(' + printExpression(b) + '))'
 							}
 						}
-						return printToAnyConverter(printExpression(a), binopFromType(a)) + ' ' + op2 + ' ' + printToAnyConverter(printExpression(b), binopFromType(b))
+						// D7/JS VALUE equality when a dynamic side is involved:
+						// `Any_boxInt_` keeps the immediate form only for
+						// NON-ZERO values, so a boxed `0` is a heap object and a
+						// pointer compare against `Any_boxInt_(0)` is false —
+						// that is how `state.activePanel == 0` silently became
+						// FALSE (Perfide drew the sidebar header but never a
+						// panel body: the missing OPEN EDITORS list), and every
+						// `Any == 0/1/…` in any project broke the same way.
+						let boxedA = printToAnyConverter(printExpression(a), binopFromType(a))
+						let boxedB = printToAnyConverter(printExpression(b), binopFromType(b))
+
+						if aName == 'Any_*' or bName == 'Any_*' {
+							let eqCall = 'Any_equals_(' + boxedA + ', ' + boxedB + ')'
+							return op2 == '!=' ? '(!' + eqCall + ')' : eqCall
+						}
+
+						return boxedA + ' ' + op2 + ' ' + boxedB
 					}
 				}
 
@@ -8211,6 +9618,111 @@ class GenCxx {
 				let illegalPointerOp = ['+', '*', '/', '%'].includes(token)
 				let aPtr = aSide.endsWith('*')
 				let bPtr = bSide.endsWith('*')
+
+				// Dynamic (`Any_*`) arithmetic / relational operators: NUMERIC
+				// unboxing (D7 — mimic JS `ToNumber`), never pointer arithmetic
+				// and never the Phase-1 `AnyValue_` proxy.
+				// The proxy's operators are literal stubs returning 0, so
+				// `sel >= (top + visible)` over `Any` fields produced `0 >= 0`
+				// → always TRUE: Perfide's `commandPaletteScrollTop` then
+				// computed `top = sel - visible + 1` = -11 and the row pool got
+				// indexed with a negative index (`list[-11]` → null HitBox → AV
+				// in the frame). String shapes keep the `String_$combine_` arms
+				// above (JS `+` with a string concatenates); pointer peers and
+				// `void` fall through to the legacy paths below.
+				if ['+', '-', '*', '/', '%', '<', '<=', '>', '>='].includes(token) {
+					if aSide == 'Any_*' or bSide == 'Any_*' {
+						let scalarA = aSide == 'Any_*' or (not aPtr and aSide != 'void')
+						let scalarB = bSide == 'Any_*' or (not bPtr and bSide != 'void')
+
+						if scalarA and scalarB and aSide != 'String_*' and bSide != 'String_*' {
+							// `cShape` can LIE about the printed C value (use-node
+							// types are coerced, e.g. an `Any` field that prints as
+							// `String_*`/`int32_t`) — the `(size_t)` bridge accepts
+							// every shape and round-trips pointers bit-identically.
+							let fa = aSide == 'Any_*' ? 'Any_unboxFloat_((Any_*)(size_t)(' + printExpression(a) + '))' : '(double)(' + printExpression(a) + ')'
+							let fb = bSide == 'Any_*' ? 'Any_unboxFloat_((Any_*)(size_t)(' + printExpression(b) + '))' : '(double)(' + printExpression(b) + ')'
+							var numRaw = '(' + fa + ' ' + token + ' ' + fb + ')'
+
+							// `%` is integer-only in C
+							if token == '%' {
+								numRaw = '((double)((int64_t)(' + fa + ') % (int64_t)(' + fb + ')))'
+							}
+
+							if resultSide == 'Any_*' {
+								return 'Any_boxFloat_(' + numRaw + ')'
+							}
+
+							return numRaw
+						}
+					}
+				}
+
+				// `==` / `!=` with a dynamic side: VALUE equality (D7/JS).
+				// `Any_boxInt_` keeps the immediate form only for NON-ZERO
+				// values, so a boxed `0` is a heap object — a pointer compare
+				// against `0` is false, which is exactly how
+				// `state.activePanel == 0` became FALSE and Perfide drew the
+				// sidebar header but never a panel body (the "vertical list of
+				// opened files is missing" bug). A literal `null` keeps the
+				// plain null check (JS `x == null`).
+				// Two-layer `==` / `!=`: (1) `null` on either side of a
+				// managed/`Any` comparison is the OBJECT sentinel, so the
+				// compare is a plain pointer compare against `&HexaNone_`
+				// (JS `x == null`); (2) otherwise dynamic sides compare by
+				// value (D7/JS).
+				if op == Token.Equal or op == Token.Unequal {
+					var anyNull = false
+					var aIsNull = false
+					var bIsNull = false
+
+					switch a {
+						case Null:
+							anyNull = true
+							aIsNull = true
+						case _:
+					}
+
+					switch b {
+						case Null:
+							anyNull = true
+							bIsNull = true
+						case _:
+					}
+
+					// D2: a `null` operand against a managed/`Any` value is the
+					// sentinel OBJECT, so the test is a pointer compare against
+					// `&HexaNone_` — never a null-pointer compare (which would
+					// never be true once `null` is an object). Scalar nullables
+					// (`Int?` …) keep their in-band sentinel path below.
+					if anyNull and not (aIsNull and bIsNull) {
+						let other = aIsNull ? b : a
+
+						if isNullSentinelType(valueType(other)) {
+							let left = aIsNull ? '(void*)(&HexaNone_)' : '(void*)(' + printExpression(a) + ')'
+							let right = bIsNull ? '(void*)(&HexaNone_)' : '(void*)(' + printExpression(b) + ')'
+							let cmp = '(' + left + (op == Token.Equal ? ' == ' : ' != ') + right + ')'
+
+							// Same result-shape convention as the neighboring arms:
+							// a dynamic Nice result must stay `Any_*`-shaped (callers
+							// unbox it), everything else takes the static shape.
+							if resultSide == 'Any_*' {
+								return '(struct Any_ *) (size_t) (' + cmp + ')'
+							}
+
+							return '(' + resultSide + ')(' + cmp + ')'
+						}
+					}
+
+					// `x == null` keeps the plain pointer check (it was already
+					// correct and it is what guards use everywhere).
+					if not anyNull, (aSide == 'Any_*' or bSide == 'Any_*') {
+						let eqA = aSide == 'Any_*' ? '(struct Any_ *)(size_t)(' + printExpression(a) + ')' : printToAnyConverter(printExpression(a), valueType(a))
+						let eqB = bSide == 'Any_*' ? '(struct Any_ *)(size_t)(' + printExpression(b) + ')' : printToAnyConverter(printExpression(b), valueType(b))
+						let eqCall = 'Any_equals_(' + eqA + ', ' + eqB + ')'
+						return op == Token.Equal ? eqCall : '(!' + eqCall + ')'
+					}
+				}
 
 				// NOTE `_$N` fn-ptr typedef names never end with `*`
 				if illegalPointerOp, aPtr or bPtr {
@@ -8319,6 +9831,11 @@ class GenCxx {
 							[]
 						))
 					return 'Any_indexGet_((Any_*)(' + printExpression(expr) + '), (Any_*)(' + printExpression(index) + '))'
+					// Box the key through the normal `Any` funnel: `Int` ->
+					// `Any_boxInt_`, `Float` -> `Any_boxFloat_`, `String_*` ->
+					// direct cast, `Any` -> `size_t` bridge. A raw
+					// `(Any_*)(int32)` is C4312 (and truncates on 64-bit).
+					return 'Any_indexGet_((Any_*)(' + printExpression(expr) + '), ' + printToAnyConverter(printExpression(index), idxT) + ')'
 				}
 
 				switch Type.unwrapNullable(exprType) {
