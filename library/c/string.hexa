@@ -493,6 +493,87 @@ class String {
 	fun replaceAllRegExp(what: RegExp, withString: String): String { return '' } // TODO
 	fun match(regexp: RegExp): RegExpMatch? { return null } // TODO
 	fun search(regexp: RegExp): Int { return -1 } // TODO
+	// Real engine as of Batch 9 (library/c/regexp.hexa): replaces the stubs
+	// that returned '' / null and silently broke the syntax tokenizer and the
+	// Seti icon lookup (`replaceRegExp(/^\x5c+/, '')` + `parseInt(hex, 16)`).
+	// `$&` = whole match, `$1`..`$9` = groups, `$$` = literal '$'.
+	fun replaceRegExp(what: RegExp, withString: String): String {
+		let m = what.exec(this)
+
+		if m == null { return this }
+		// `exec` advanced `lastIndex` for /g patterns — a single replace must
+		// not leave the regex mid-scan for the next caller.
+		what.lastIndex = 0
+		return rxReplaceOne(this, m !, withString)
+	}
+	fun replaceAllRegExp(what: RegExp, withString: String): String {
+		var out = ''
+		var start = 0
+		what.lastIndex = 0
+		var m = what.exec(this)
+
+		while m != null {
+			let mm = m !
+			// Zero-width match at the current cursor would loop forever.
+			if mm.index < start or mm.index > this.length {
+				what.lastIndex = start + 1
+
+				if what.lastIndex > this.length { break }
+				m = what.exec(this)
+				continue
+			}
+			out = out + this.substring(start, mm.index) + rxExpandReplacement(mm, withString)
+			start = mm.index + mm.get(0).length
+
+			if mm.get(0).length == 0 {
+				if start >= this.length {
+					break
+				}
+				start++
+				out = out + this.substring(start - 1, start)
+			}
+			what.lastIndex = start
+			m = what.exec(this)
+		}
+		what.lastIndex = 0
+		return out + this.substring(start, this.length)
+	}
+	fun match(regexp: RegExp): RegExpMatch? {
+		regexp.lastIndex = 0
+		let m = regexp.exec(this)
+		regexp.lastIndex = 0
+		return m
+	}
+	fun search(regexp: RegExp): Int {
+		regexp.lastIndex = 0
+		let m = regexp.exec(this)
+		regexp.lastIndex = 0
+
+		if m == null { return -1 }
+		return (m !).index
+	}
+	// Split on a RegExp separator (JS `String.prototype.split(RegExp)`)
+	fun splitRegExp(separator: RegExp): [String] {
+		var out [String] = []
+		var start = 0
+		separator.lastIndex = 0
+		var m = separator.exec(this)
+
+		while m != null {
+			let mm = m !
+			out.push(this.substring(start, mm.index))
+			start = mm.index + mm.get(0).length
+
+			if mm.get(0).length == 0 { start++ }
+			separator.lastIndex = start
+
+			if start > this.length { break }
+			m = separator.exec(this)
+		}
+		separator.lastIndex = 0
+		out.push(this.substring(start, this.length))
+		return out
+	}
 
 	// Runtime functions below //
 
