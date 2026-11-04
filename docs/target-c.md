@@ -1212,6 +1212,19 @@ with location; multi-catch order respected.
   awaits either suspended forever or returned a small int as `Any_*`.
   `get_return_object` also initialises `{rc_=1, state=0}` (the heap object is
   never registered, so garbage `rc_` used to feed `hexaRef`/`hexaUnref`).
+- Reflection: every heap `Any` payload carries `hidden` at a negative offset;
+  `Any_toBool_/dyn_get/dyn_set/index_get/index_set` are thin
+  `HexaReflectFor(tag)->op(...)` forwarders (+ null/immediate guards only).
+  `Object` (`AnyObject_`) is the common class with per-instance shape;
+  static classes use per-class string-compare/parent-chain shapes; boxes have
+  trivial hidden impls with correct `toBool`. No bag branches, no `let_`/
+  `$set`, no `AnyValue_` at those sites. `Index(any, int)` keys box through
+  the normal `Any` funnel (`Any_boxInt_`); raw `(Any_*)(int32)` was C4312.
+  `hiddenDynSet` scalar fields convert by C shape (`Any_toBool_/unboxInt_/
+  unboxFloat_`), never raw casts (C4311).
+- Interface/class literals must init `_` (`((void**)tmp)[0] = &Class__$`,
+  C2166-safe) — otherwise dynamic reads miss and paint `"Loading null…"`.
+
 - Conditions on `Any` use `Any_toBool_` (D7 JS truthiness: null/`false`/0/''/
   NaN falsy, objects truthy). C pointer-non-null made every `Any` flag truthy —
   `_false` is a non-null address.
