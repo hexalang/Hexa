@@ -506,6 +506,11 @@ inline Any_* AnyValue_::operator->() const {
 // deallocation is the sweep's job (F11), never the decrement site's.
 // Immediates (tagged small ints, incl. 0/null — same test as the unboxers)
 // carry no header and are skipped.
+// ARC retain/release (D6): plain non-atomic counter, single-threaded programs
+// for now (relaxed atomics when threads land). Deallocation is the sweep's job
+// (F11), never the decrement site's — a release never frees and never inspects
+// the counter. Ownership transfers and shape decisions belong to ARC (compile
+// time) and to the reflection vtable (run time), never to these two macros.
 // HEXA_ASSERT(cond, reason): reflection/runtime invariant check (F10) —
 // prints file:line, function name and reason to stderr and CONTINUES (a red
 // assert must never take the app down; smoke runs capture stderr). The
@@ -532,10 +537,56 @@ HEXA_C void Perfide_OnUnrefNeg_Default(void* p, void* caller) {
 	n_++;
 	fprintf(stderr, "HEXA_RCNEG %p caller=%p (link Perfide host for symbols)\n", p, caller);
 	fflush(stderr);
+// Owner is a plain counter: EVERY counted slot holds a real header, because
+// `null` is an object (the `HexaNone_` sentinel, emitted in the Forward
+// section) — never a null pointer. So retain/release are literally `rc_++` /
+// `rc_--`, one macro line each: no pointer-shape test, no null test, no
+// `rc == 0` free (deferred free is the sweep's job, F11), no bookkeeping.
+// Macros (not functions) so a `/Od` build pays no call per counter op.
+// TEMPORARY (D2 migration): a managed slot can still hold a raw zero when its
+// producer has not been converted yet (`Array<T>` element clears in
+// `library/c/array.hexa`, `Any_*` helper misses). Such a slot must not fault
+// here, so the increment skips it — remove the `nullptr` test as soon as those
+// producers emit the sentinel (the end state is literally `rc_++` / `rc_--`).
+#define hexaRef(p)   do { void* _hr_ = (void*)(p); if (_hr_ != nullptr) ((struct HexaHeader_*)_hr_)->rc_++; } while (0)
+#define hexaUnref(p) do { void* _hu_ = (void*)(p); if (_hu_ != nullptr) ((struct HexaHeader_*)_hu_)->rc_--; } while (0)
+
+// ── null sentinel (D2) ──────────────────────────────────────────────────────
+// The single representation of `null` for managed (`Foo_*`) and `Any` slots.
+// It carries the ordinary instance header, so the two macros above can bump it
+// blindly, and it gets its own reflection vtable in the Forward section
+// (`toBool` = false, `toString` = "null", field reads = null, writes dropped),
+// so dynamic ops answer through reflection instead of null checks.
+// `_` (the tag) is installed as the first statement of `HEXA_MAIN` — before
+// that, tag 0 means "no reflection" and every dispatch degrades safely.
+// 96 bytes of storage: wider than any managed instance header tail we read on a
+// `null` receiver (`String.bytes_` sits at offset 40), so a mis-shaped field
+// read on a sentinel stays in-bounds and yields 0 instead of adjacent .data.
+struct HexaNone_ { const void* _; int32_t rc_; int32_t pad_[20]; };
+HEXA_C struct HexaNone_ HexaNone_ = { nullptr, (int32_t)0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
+// Fill `count` pointer slots with the sentinel — the Hexa-aware `calloc`.
+// Used for every storage class whose unset slots are observable:
+// `ArrayByValue<T?, N>` (BSS and stack) and raw pointer tables.
+HEXA_C void hexaFillNone_(void** slots, size_t count) {
+	void* f_ = (void*)&HexaNone_;
+	for (size_t i_ = 0; i_ < count; i_++) slots[i_] = f_;
 }
 #ifdef _MSC_VER
 #pragma comment(linker, "/alternatename:Perfide_OnUnrefNeg=Perfide_OnUnrefNeg_Default")
 #endif
+// Sentinel-filling slot allocation (malloc under the hood) — the replacement
+// for `calloc` wherever slots hold nullable managed values.
+HEXA_C void* hexaSlotsAlloc(size_t count) {
+	void** p_ = (void**)(malloc(count * sizeof(void*)));
+	if (p_ == nullptr) return nullptr;
+	hexaFillNone_(p_, count);
+	return (void*)(p_);
+}
+// ── rc triage (opt-in: /DHEXA_RC_TRACE) ────────────────────────────────────
+// Nothing below is part of the ownership contract; it only NAMES the site when
+// the contract is already broken. Shipping builds compile it out entirely (no
+// `_ReturnAddress`, no host symbol dependency, no `/alternatename` stub).
+#ifdef HEXA_RC_TRACE
 #ifdef _MSC_VER
 	#include <intrin.h>
 	#pragma intrinsic(_ReturnAddress)
@@ -553,9 +604,26 @@ HEXA_C void hexaUnref(void* p) {
 	if (((struct HexaHeader_*)(p))->rc_ < (int32_t)0) {
 #ifdef _MSC_VER
 		Perfide_OnUnrefNeg(p, _ReturnAddress());
+	#define HEXA_SITE_ADDR() _ReturnAddress()
 #else
 		Perfide_OnUnrefNeg(p, (void*)0);
+	#define HEXA_SITE_ADDR() ((void*)0)
 #endif
+// host-provided reporters (Perfide's main-hexa.cpp); other hosts may stub them
+HEXA_C void Perfide_OnUnrefZero(void* p, void* caller);
+HEXA_C void Perfide_OnUnrefNeg(void* p, void* caller);
+// Emitted later in the TU (`genC.printTagNames`, where `String__$` exists).
+// D2/F11: interned `String`s are RETIRED by the sweep (never destroyed), so a
+// String's counter is advisory: the intern walk borrows bucket neighbours and
+// legitimately drives it below 0. Keep the assert meaningful for everything
+// else by exempting strings here — triage only.
+HEXA_C uint8_t hexaTagIsString_(const void* tag_);
+HEXA_C void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
+	if (rc_after_ < (int32_t)0) {
+		if (hexaTagIsString_(((const void**)p)[0]) == (uint8_t)0) {
+			HEXA_ASSERT(rc_after_ >= (int32_t)0, "rc went negative: double release (stale value-captured guard or unbalanced transfer)");
+			Perfide_OnUnrefNeg(p, caller_);
+		}
 	}
 	if (((struct HexaHeader_*)(p))->rc_ == 0) {
 #ifdef _MSC_VER
@@ -563,8 +631,13 @@ HEXA_C void hexaUnref(void* p) {
 #else
 		Perfide_OnUnrefZero(p, (void*)0);
 #endif
+	if (rc_after_ == (int32_t)0) {
+		Perfide_OnUnrefZero(p, caller_);
 	}
 }
+#undef hexaUnref
+#define hexaUnref(p) do { void* _hu_ = (void*)(p); int32_t _hr_ = --(((struct HexaHeader_*)_hu_)->rc_); hexaRcCheck_(_hu_, _hr_, HEXA_SITE_ADDR()); } while (0)
+#endif // HEXA_RC_TRACE
 // D4 scope guard: `DeferRefDec` lowers to one of these per retained value
 // (constructed where ArcInserter put the Defer, destructs at block exit —
 // normal returns AND C++ unwinding both release, D5). Trivial
