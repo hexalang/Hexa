@@ -1084,6 +1084,71 @@ class ReflectPostLowerer {
 		return id
 	}
 
+	/// Callee for explicit D7 truthiness conversion (same convention as the
+	/// bag callees — the C name prints raw; genC emits the definition
+	/// unconditionally, so no existence check needed).
+	fun toBoolCallee(): Expression {
+		let id = Expression.Ident('Any_toBool_', null)
+		niceProject.native.set(id, true)
+		return id
+	}
+
+	/// Printed-shape test for the truthiness wrap (mirrors genC `cShape` /
+	/// `binopShape`): true when the expression prints as a dynamic `Any_*`
+	/// pointer, where C `&&`/`||`/`?:` would test pointer non-null instead of
+	/// JS truthiness. Static shapes print scalar and keep the genC fallback.
+	fun needsTruthinessWrap(e: Expression): Bool {
+		if isAnyType(baseTypeOf(e)) {
+			switch e {
+				case Binop(_, op, _, _):
+					// Logic/comparison/relational `Binop`s print scalar C
+					// values despite an `Any` type — wrapping those would feed
+					// a scalar to the pointer parameter. Arithmetic keeps the
+					// wrap (it boxes to `Any_*` when the result is dynamic).
+					if op == Token.KAnd or op == Token.LogicalAnd or op == Token.KOr or op == Token.LogicalOr or op == Token.Equal or op == Token.Unequal or op == Token.Less or op == Token.LessOrEqual or op == Token.Greater or op == Token.GreaterOrEqual { return false }
+					return true
+				case _:
+					return true
+			}
+		}
+
+		switch e {
+			case Parenthesis(inner):
+				return needsTruthinessWrap(inner)
+			case Dot(base, _, _):
+				// Dynamic root prints `Any_*` no matter what the use node claims.
+				return isAnyType(baseTypeOf(base))
+			case Index(base, _, _):
+				return isAnyType(baseTypeOf(base))
+			case Call(callee, _, _, _, _):
+				switch callee {
+					case Dot(base, _, _):
+						return isAnyType(baseTypeOf(base))
+					case Ident(_, _):
+						return isAnyType(baseTypeOf(callee))
+					case _:
+						return false
+				}
+			case _:
+				return false
+		}
+	}
+
+	/// Wrap site for D7 truthiness (Bundle 4): `&&`/`||` operands and
+	/// ternary conds that print as `Any_*` become explicit `Any_toBool_()`
+	/// calls. Counts every examined site; wraps + traces only the dynamic
+	/// ones. Static shapes fall through to the genC fallback untouched.
+	fun wrapBoolIfNeeded(e: Expression): Expression {
+		boolSites++
+
+		if needsTruthinessWrap(e) {
+			boolLowered++
+			traceLog('REFLECT-POST-LOWERED bool ' + currentFuncName + ' kind=' + kindOfExpr(e))
+			return Expression.Call(toBoolCallee(), [e], niceProject.typer.typeBool, CallKind.Function, [])
+		}
+		return e
+	}
+
 	/// True for plain bag fields: scalars and object pointers bridge to
 	/// `Any` identically in the lowered `Any_objectSet` call and in the
 	/// genC fallback, so no conversion can diverge. Nullable wrappers
@@ -2304,7 +2369,10 @@ class ReflectPostLowerer {
 					hoistable = false
 					let nb = rewriteExpr(b)
 					hoistable = savedHoistable
-					return Expression.Binop(na, op, nb, result)
+					// D7 truthiness (Bundle 4): dynamic operands print as
+					// `Any_*` pointers — explicit `Any_toBool_` so C `&&`/`||`
+					// test JS truthiness, not pointer non-null.
+					return Expression.Binop(wrapBoolIfNeeded(na), op, wrapBoolIfNeeded(nb), result)
 				}
 
 				return Expression.Binop(na, op, rewriteExpr(b), result)
@@ -2319,7 +2387,7 @@ class ReflectPostLowerer {
 			case Map(keys, values, keyType, valueType, mapType):
 				return Expression.Map(rewriteExprList(keys), rewriteExprList(values), keyType, valueType, mapType)
 			case If(econd, eif, eelse, result):
-				let nc = rewriteExpr(econd)
+				let nc = wrapBoolIfNeeded(rewriteExpr(econd))
 				// Branches run conditionally (at most one): bag builds inside
 				// them must not hoist out (they would evaluate unconditionally).
 				// The whole-If lowering in `tryLowerStructValue` re-attempts
