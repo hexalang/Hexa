@@ -3008,6 +3008,7 @@ class GenCxx {
 
 							if isPureIsReceiver(expr) {
 								var dynVal2 = printToAnyConverter(printExpression(v), getType(v))
+							var dynVal2 = printToAnyConverter(printExpression(v), getType(v))
 
 								if let objLit2 = printObjectAs(project.typer.typeAny, v) {
 									dynVal2 = objLit2
@@ -3041,6 +3042,7 @@ class GenCxx {
 									[]
 								))
 							return 'Any_indexSet_((Any_*)(' + printExpression(expr) + '), (Any_*)(' + printExpression(index) + '), ' + dynVal2 + ')'
+							return 'Any_indexSet_((Any_*)(' + printExpression(expr) + '), ' + printToAnyConverter(printExpression(index), idxT) + ', ' + dynVal2 + ')'
 						}
 
 						switch Type.unwrapNullable(exprType) {
@@ -5553,7 +5555,7 @@ class GenCxx {
 		r += rb + ' // extern "C++"' + nl
 		r += '#endif' + nl
 		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
-		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return nullptr; if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return nullptr; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return nullptr; ' + rb + nl
+		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
 		// D7 scalar/string shape predicates (F10 index dispatch): `true`/`false`
 		// singletons and boxed scalars are values, never keys.
@@ -5577,13 +5579,13 @@ class GenCxx {
 		// (strings are interned, bools are singletons), then numeric by value;
 		// everything else stays referential (JS object identity).
 		r += 'uint8_t Any_equals_(Any_* a, Any_* b) ' + lb + ' if (a == b) return (uint8_t)1; uint8_t an_ = (uint8_t)(a == nullptr || a == (Any_*)(&HexaNone_)); uint8_t bn_ = (uint8_t)(b == nullptr || b == (Any_*)(&HexaNone_)); if (an_ != (uint8_t)0 || bn_ != (uint8_t)0) return (uint8_t)((an_ != (uint8_t)0 && bn_ != (uint8_t)0) ? 1 : 0); uint8_t an2_ = (uint8_t)(Any_isNumber_(a) || a == (Any_*)(&_true) || a == (Any_*)(&_false)); uint8_t bn2_ = (uint8_t)(Any_isNumber_(b) || b == (Any_*)(&_true) || b == (Any_*)(&_false)); if (an2_ && bn2_) return (uint8_t)(Any_unboxFloat_(a) == Any_unboxFloat_(b)); return (uint8_t)0; ' + rb + nl
-		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return nullptr; int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return nullptr; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return nullptr; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return nullptr; return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
-		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) return; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return; HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); ' + rb + nl
+		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (Any_*)(size_t)(&HexaNone_); if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (Any_*)(size_t)(&HexaNone_); const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (Any_*)(size_t)(&HexaNone_); return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
+		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: immediate receiver - field write dropped (box the receiver through Any first)\"); return; ' + rb + ' if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: receiver has no reflection - field write dropped (convert at the Any boundary)\"); return; ' + rb + ' HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); ' + rb + nl
 		// `obj[key]`: key shape picks the hidden slot (Int -> index_*,
 		// String -> dyn_*). The receiver/key hoist at the call site, so both
 		// are single-eval; no per-site ternary, no legacy proxy.
-		r += 'Any_* Any_indexGet_(Any_* o, Any_* k) ' + lb + ' if (o == nullptr || k == nullptr) return nullptr; int64_t ov_ = (int64_t)(o); if (ov_ >= (int64_t)-65535 && ov_ <= (int64_t)65535) return nullptr; if (o == (Any_*)(&_true) || o == (Any_*)(&_false)) return nullptr; const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return nullptr; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) return rf_->index_get_ != nullptr ? rf_->index_get_((void*)o, Any_unboxInt_(k)) : nullptr; if (Any_isString_(k)) return rf_->dyn_get_ != nullptr ? rf_->dyn_get_((void*)o, (String_*)(k)) : nullptr; String_* ks_ = Any_unboxString_(k); return (ks_ != nullptr && rf_->dyn_get_ != nullptr) ? rf_->dyn_get_((void*)o, ks_) : nullptr; ' + rb + nl
-		r += 'void Any_indexSet_(Any_* o, Any_* k, Any_* v) ' + lb + ' if (o == nullptr || k == nullptr) return; int64_t ov_ = (int64_t)(o); if (ov_ >= (int64_t)-65535 && ov_ <= (int64_t)65535) return; if (o == (Any_*)(&_true) || o == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return; struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) ' + lb + ' if (rf_->index_set_ != nullptr) rf_->index_set_((void*)o, Any_unboxInt_(k), v); return; ' + rb + ' if (Any_isString_(k)) ' + lb + ' if (rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, (String_*)(k), v); return; ' + rb + ' String_* ks_ = Any_unboxString_(k); if (ks_ != nullptr && rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, ks_, v); ' + rb + nl
+		r += 'Any_* Any_indexGet_(Any_* o, Any_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); int64_t ov_ = (int64_t)(o); if (ov_ >= (int64_t)-65535 && ov_ <= (int64_t)65535) return (Any_*)(size_t)(&HexaNone_); if (o == (Any_*)(&_true) || o == (Any_*)(&_false)) return (Any_*)(size_t)(&HexaNone_); const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (Any_*)(size_t)(&HexaNone_); struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) return rf_->index_get_ != nullptr ? rf_->index_get_((void*)o, Any_unboxInt_(k)) : (Any_*)(size_t)(&HexaNone_); if (Any_isString_(k)) return rf_->dyn_get_ != nullptr ? rf_->dyn_get_((void*)o, (String_*)(k)) : (Any_*)(size_t)(&HexaNone_); String_* ks_ = Any_unboxString_(k); return (ks_ != nullptr && rf_->dyn_get_ != nullptr) ? rf_->dyn_get_((void*)o, ks_) : (Any_*)(size_t)(&HexaNone_); ' + rb + nl
+		r += 'void Any_indexSet_(Any_* o, Any_* k, Any_* v) ' + lb + ' if (o == nullptr || k == nullptr) return; int64_t ov_ = (int64_t)(o); if (ov_ >= (int64_t)-65535 && ov_ <= (int64_t)65535) ' + lb + ' HEXA_ASSERT(0, \"Any_indexSet_: immediate receiver - element write dropped\"); return; ' + rb + ' if (o == (Any_*)(&_true) || o == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(o))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' HEXA_ASSERT(0, \"Any_indexSet_: receiver has no reflection - element write dropped (convert at the Any boundary)\"); return; ' + rb + ' struct HexaReflect_* rf_ = HexaReflectFor_(tag_); if (Any_isInt_(k)) ' + lb + ' if (rf_->index_set_ != nullptr) rf_->index_set_((void*)o, Any_unboxInt_(k), v); else HEXA_ASSERT(0, \"Any_indexSet_: receiver has no index_set - element write dropped\"); return; ' + rb + ' if (Any_isString_(k)) ' + lb + ' if (rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, (String_*)(k), v); else HEXA_ASSERT(0, \"Any_indexSet_: receiver has no dyn_set - element write dropped\"); return; ' + rb + ' String_* ks_ = Any_unboxString_(k); if (ks_ != nullptr && rf_->dyn_set_ != nullptr) rf_->dyn_set_((void*)o, ks_, v); ' + rb + nl
 		r += 'int32_t Any_objectCount_(Any_* p) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return (int32_t)0; return ((AnyObject_*)(p))->count_; ' + rb + nl
 		r += 'String_* Any_objectKeyAt_(Any_* p, int32_t i) ' + lb + ' if (Any_isObject_(p) == (uint8_t)0) return nullptr; AnyObject_* o = (AnyObject_*)(p); if (i < (int32_t)0 || i >= o->count_) return nullptr; return o->entries_[i].k_; ' + rb + nl
 		return r
@@ -6312,8 +6314,29 @@ class GenCxx {
 				let tid = tempId++
 				let sp = '_$sp' + tid
 				let tmp = '_$sb' + tid
-				metaBlock.push(stringifyType(fromType) + ' ' + sp + ' = ' + string)
-				metaBlock.push('Any_* ' + tmp + ' = Any_objectNew_()')
+				let shape = stringifyType(fromType)
+				// Only pointer-shaped struct values can be null; a by-value
+				// `@byValue` struct keeps the plain build.
+				let guarded = shape.endsWith('_*')
+				let gcb = String.fromCharCode(123)
+				let gcc = String.fromCharCode(125)
+				metaBlock.push(shape + ' ' + sp + ' = ' + string)
+
+				if guarded {
+					// The source may be a NULLABLE struct whose C shape is still
+					// the bare pointer (e.g. `selection: if let s = tab.selection
+					// { { startLine: ... } } else { null }` -> `Struct_N_*` that
+					// can be nullptr or the sentinel). Reading a field off a dead
+					// value is an AV read at address 0 - Perfide's `pushUndo`
+					// crashed on the FIRST typed character this way. Dead source
+					// yields the null sentinel (never a zero-filled bag), a live
+					// source builds the real bag.
+					metaBlock.push('Any_* ' + tmp + ' = (Any_*)(size_t)(&HexaNone_)')
+					metaBlock.push('if (' + sp + ' != nullptr && ' + sp + ' != (' + shape + ')(size_t)(&HexaNone_)) ' + gcb)
+					metaBlock.push(tmp + ' = Any_objectNew_()')
+				} else {
+					metaBlock.push('Any_* ' + tmp + ' = Any_objectNew_()')
+				}
 
 				for i in names.length {
 					var vstr = printToAnyConverter('(' + sp + '->' + names[i] + '_)', fieldTypes[i])
@@ -6326,6 +6349,8 @@ class GenCxx {
 					}
 					metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 				}
+
+				if guarded { metaBlock.push(gcc) }
 				return tmp
 			case _:
 		}
@@ -8851,6 +8876,25 @@ class GenCxx {
 			return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
 			return boxFatPair(v)
 		}
+		// A BARE global function designator is a fat value too, but it has no
+		// addressable pair halves, so `isBoxableFat` misses it and the slot got
+		// the RAW code pointer (`(Any_*)(size_t)(handler_)`). A raw pointer is
+		// not `Any_isFatPair_`, so every dynamic call through such a slot fell
+		// into the `AnyValue_` no-op proxy and returned null: the whole Perfide
+		// keyboard layer was dead on native (`KeyController.onKey` is `Any?` and
+		// every controller is bound as `ctrl.onKey = someKeyHandler`), plus
+		// `handleKey`'s `if let handler = this.onKey` read a code pointer as an
+		// `Any`. `anyBox` already emits the pair + registers the `$call_` thunk
+		// (same arm object-literal fields use — the agent harness bag).
+		if stringifyType(ofType) == 'Any_*' {
+			switch v {
+				case Ident(fnName, _):
+					if globalFuncType(fnName) != null {
+						return anyBox(v)
+					}
+				case _:
+			}
+		}
 
 		switch ofType {
 			case ClassInstance(c):
@@ -10045,16 +10089,12 @@ class GenCxx {
 				return '(' + e + ' == ((Unknown_ *)0)? -1 : ' + e + '->is_)'
 
 			case Object(names, el):
-				// Keys are JS property names — print them as Hexa String literals
-				// (the first key also lands in `Object_from`'s `stub` parameter)
-				if el.length == 0 {
-					// The `stub` parameter must still be passed
-					return 'Object_from(nullptr)'
-				}
-
-				return 'Object_from(' + [for i in el.length {
-						(printExpression(Expression.String(names[i])) + ', ' + printExpression(el[i]))
-					}].join(', ') + ')'
+				// Untyped object literal (no target type reached `printObjectAs`):
+				// build a REAL `AnyObject_` bag. The old `Object_from(...)`
+				// emission was a null stub, so every untyped literal — settings
+				// defaults, selector geometry, `ToolLine`, ext records — was
+				// null at runtime and blew up on first field read.
+				return printAnyObjectLit(names, el)
 
 			case Map(keys, values, keyType, valueType, mapType):
 				let typeName = omitPointer(stringifyType(mapType))
@@ -10073,7 +10113,7 @@ class GenCxx {
 					if let s = printObjectAs(valueType, el) { valStrs.push(s) }
 					// F10.3: fat values into `Any` slots box pairs (leaf
 					// shapes only — composites have no addressable pair).
-					else if isBoxableFat(el), stringifyType(valueType) == 'Any_*' { valStrs.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(el) + '), ' + fatEnvStr(el) + ')') }
+					else if isBoxableFat(el), stringifyType(valueType) == 'Any_*' { valStrs.push(boxFatPair(el)) }
 					else { valStrs.push(printExpression(el)) }
 				}
 				let valueItems = valStrs.join(', ')
