@@ -436,6 +436,12 @@ class Parser {
 		// }
 		// tok()
 		// }
+		// Past-the-end reads must yield the end marker (Token.Eof = 0), never
+		// stale buffer contents — `#if`-compacted Tokens once leaked the
+		// un-compacted tail here and it got glued into the last parsed statement.
+		if i >= lex.length {
+			return Token.Eof
+		}
 		return lex.token[i] as!Token
 	}
 	fun print(): String {
@@ -475,6 +481,9 @@ class Parser {
 		i++
 	}
 	@inline fun offset(v): Token {
+		if i + v >= lex.length {
+			return Token.Eof
+		}
 		return lex.token[i + v] as!Token
 	}
 	// ------------
@@ -2214,6 +2223,22 @@ class Parser {
 								bp = bp % 100
 
 								if bp > tp {
+								// Equal precedence binds LEFT for the NON-ASSOCIATIVE
+								// arithmetic operators, so `a - b - c` builds
+								// `(a - b) - c` and a subtraction following an
+								// addition cannot swallow the rest
+								// (`x + w - 16 - 12` was `x + (w - (16 - 12))`).
+								// The js target hid this (no parens in its output,
+								// JS re-applies left associativity) while any
+								// consumer that honours the tree — the C target
+								// prints explicit parens — computed wrong numbers
+								// (Perfide's agent panel was ~24px off, then 94px
+								// more, once per `-` in the chain).
+								// `+`/`*`/`&&`/`||` are associative and `**` is
+								// right-associative, so they keep the old arm.
+								var bindLeft = bp > tp
+
+								if bindLeft {
 									let eb = Node.Binop(result, t, aa)
 									// project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
 									project.data.set(eb, project.data.get(result) ?? project.data.get(b) ?? project.data.get(aa))
@@ -2222,6 +2247,7 @@ class Parser {
 									// project.data.set(result, project.data.get(b))
 								} else {
 									result = Node.Binop(result, t, b)
+									result = leftAssocFix(result, t, b)
 									// project.data.set(result, project.data.get(b))
 								}
 								// Ternary operator has the lowest precedence
@@ -3158,7 +3184,10 @@ class Parser {
 		}
 		return comments
 	}
-
+	/// Reports misplaced `///` docs found after decorators/modifiers instead of before them
+	fun failMisplacedDocumentation() {
+		fail('Documentation comments should go before decorators and fields as a single `///` block')
+	}
 	fun parseDecorator() {
 		i++
 		let name = getgo(Token.Identifier)
@@ -3178,6 +3207,10 @@ class Parser {
 				} }
 			step(Token.CallClose)
 		}
+		// NOTE a `///` block after a decorator is a syntax error, docs must precede all decorators
+		if tok() == Token.Documentation {
+			failMisplacedDocumentation()
+		}
 		return new Decorator(name, values)
 	}
 
@@ -3191,6 +3224,8 @@ class Parser {
 			isReadonly = true
 			i++
 		}
+		// Collect documentation comments first (higher priority than decorators)
+		var docComments = collectDocumentationComments()
 
 		if tok() == Token.At {
 			let decorators: Array<Decorator> = []
@@ -3474,14 +3509,81 @@ class Parser {
 		return result
 	}
 
+	/// Left-associativity repair for equal-precedence ARITHMETIC chains.
+	/// The recursive `parseExpr()` RHS parse consumes the rest of the chain, so
+	/// `x - a - b - c` arrived as `x - (a - (b - c))` and the previous
+	/// one-level "rotation" could only fix a single operator
+	/// (`682 - (22 - (120 - 0))` = 780 for a value the source means as 540 —
+	/// Perfide's agent input row landed 240px below its panel).
+	/// This flattens the group leftward: `Binop(a, t, Binop(b, t2, c))` with
+	/// equal precedence and both operators arithmetic → `Binop(Binop(a, t, b), t2, c)`,
+	/// recursing so any chain length is handled. Comparisons keep the old shape
+	/// (non-associative in practice, and `a == b == c` is a type error anyway),
+	/// `**`/`=` stay right-associative.
+	static fun isArithmeticOp(t: Token): Bool {
+		switch t {
+			case Add: return true
+			case Subtract: return true
+			case Multiply: return true
+			case Divide: return true
+			case IntegerDivide: return true
+			case Remainder: return true
+			case _: return false
+		}
+	}
+	/// Collect an equal-precedence ARITHMETIC chain in source order:
+	/// `a - b - c` arrives as `Binop(a, -, Binop(b, -, c))` (the recursive
+	/// RHS parse eats the whole tail), which must be REBUILT left-nested.
+	/// Both operands recurse, so any nesting depth flattens.
+	static fun flattenArith(e: Node, p: Int, values: [Node], ops: [Token]) {
+		switch e {
+			case Binop(l, t, r):
+				if isArithmeticOp(t), precedence(t) % 100 == p {
+					flattenArith(l, p, values, ops)
+					ops.push(t)
+					flattenArith(r, p, values, ops)
+					return
+				}
+			case _:
+		}
+		values.push(e)
+	}
+	static fun leftAssocFix(a: Node, t: Token, b: Node): Node {
+		// Flat rebuild for arithmetic chains: `x - a - b - c` really means
+		// `((x - a) - b) - c`, but the recursive-descent RHS parse produced
+		// `x - (a - (b - c))`. The js target hid this (it emits no parens and
+		// JS re-applies left associativity); the C target honours the tree, so
+		// Perfide's layout math drifted a few px per `-` in a chain
+		// (`682 - 22 - 120 - 0` evaluated as 780 instead of 540 — the agent
+		// input row landed off-panel and the editor box grew past the status
+		// bar). Comparisons keep the old shape (non-associative in practice,
+		// and `a == b == c` is a type error anyway), `**`/`=` stay
+		// right-associative.
+		if isArithmeticOp(t) {
+			let p = precedence(t) % 100
+			var values [Node] = []
+			var ops [Token] = []
+			flattenArith(Node.Binop(a, t, b), p, values, ops)
+
+			if values.length > 1 and values.length == ops.length + 1 {
+				var result = values[0]
+
+				for i in ops.length {
+					result = Node.Binop(result, ops[i], values[i + 1])
+				}
+				return result
+			}
+		}
+		return Node.Binop(a, t, b)
+	}
 	// TODO proper precedence table
 	static fun precedence(op: Token): Int {
 		let left = 100
 		let right = 0
 
 		switch op {
-			case Remainder: return 0 + left
 			case Exponent: return 0 + left
+			case Remainder: return 1 + left
 			case Multiply: return 1 + left
 			case Divide: return 1 + left
 			case IntegerDivide: return 1 + left
