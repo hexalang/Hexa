@@ -216,6 +216,13 @@ class String {
 	}
 
 	// JS substring: clamps, swaps when start > end (default = rest of string)
+	// Hexa-first interning fix (OOM): single-slice + fromUTF16 interning
+	// instead of per-char `+` (which bypasses the intern table, allocating
+	// O(n^2) new Strings every call — `render` splits 300KB/frame → 8GB leak,
+	// js GC hides it). fromUTF16 reuses across frames for same content, so
+	// per-frame split only allocates the `[String]` array (ARC debt, slower).
+	// NOTE fromUTF16 ignores `offset` (TODO there) — copy the slice into a
+	// temp buffer first, then intern via fromUTF16z.
 	fun substring(startIndex: Int, endIndex: Int = 1073741824): String {
 		var end = endIndex
 		var start = startIndex
@@ -233,14 +240,17 @@ class String {
 			start = end
 			end = t
 		}
-		var out = ''
-		var i = start
-		while i < end {
-			if let c = charCodeAt(i) { out = out + String.fromCharCode(c) }
-			i++
+		var n = end - start
 
+		if n <= 0 { return '' }
+		let buf = malloc((n * 2 + 2) as!UInt64) as!ArrayPointer<UInt16>
+		for k in n {
+			if let c = charCodeAt(start + k) { buf[k] = c as!UInt16 } else { buf[k] = 0 }
 		}
-		return out
+		buf[n] = 0
+		let s = String.fromUTF16z(buf as!ConstArrayPointer<UInt16>)
+		free(buf as!RuntimeAllocated)
+		return s
 	}
 
 	// TODO Int or UInt16?
@@ -248,6 +258,12 @@ class String {
 		var bytes: ArrayByValue<UInt16, 2> = [code as! UInt16, 0] // TODO split Int to two shorts
 		return fromUTF16z(bytes.ref as! ConstArrayPointer<UInt16>)
 		// TODO `.constRef` of `ArrayByValue`
+		let buf = malloc(4u64) as!ArrayPointer<UInt16>
+		buf[0] = code
+		buf[1] = 0
+		let s = fromUTF16z(buf as!ConstArrayPointer<UInt16>)
+		free(buf as!RuntimeAllocated)
+		return s
 	}
 
 	// TODO overloads
@@ -647,21 +663,30 @@ class String {
 		}
 
 		let bytesSize = chars * 2 + 2
-		@weak var cursor: String = root
+		var bucket = hash % 65536
 
-		while true {
-			// We do NOT check the root itself here
-			if let now = cursor.next {
-				cursor = now
+		if bucket < 0 {
+			bucket = bucket + 65536
+		}
+		var tail: String? = null
+		var cursor: String? = stringBuckets[bucket]
 
 				//if now.bytesHash != hash or now.bytesLength != bytesSize {
 				if now.bytesHash != hash, now.bytesLength != bytesSize {
+		while true {
+			if let now = cursor {
+				tail = now
+				cursor = now.next
+				// Either mismatch short-circuits the bucket slot (hash OR length).
+				if now.bytesHash != hash or now.bytesLength != bytesSize {
 					continue
 				}
 
 				var i = 0
 				// TODO scan 8 bytes at a time
 				while string[i] == now.bytes[i] and i < chars {
+				// Bounds first: content compare must not read past the slice.
+				while i < chars and string[i] == now.bytes[i] {
 					// TODO syntax `while string[i] == now.bytes[i], i < chars {` + `while let`
 					i++
 				}
@@ -707,9 +732,13 @@ class String {
 		bytes[chars] = 0
 		result.length = chars
 		result.bytesLength = bytesSize
-		cursor.next = result
 		result.bytesHash = hash
 
+		if let t = tail {
+			t.next = result
+		} else {
+			stringBuckets[bucket] = result
+		}
 		return result
 	}
 
@@ -763,7 +792,11 @@ class String {
 
 		// TODO unit test this carefully
 		bytes[length] = 0
+		// The temp buffer is scratch: fromUTF16z copies into its own interned
+		// storage, so free here (siblings fromUTF8z/substring/fromCharCode do
+		// the same — a missing free leaks 2*len+2 untracked bytes per concat).
 		let joined = fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
+		free(bytes as!RuntimeAllocated)
 		return joined
 	}
 
@@ -957,7 +990,18 @@ class String {
 			v = 0.0 - v
 		}
 
-		if v >= 2000000000.0 or (v < 0.000001 and v > 0.0) {
+		// Range select with nested ifs only (no `and`/`or` combinators).
+		var useExp = false
+
+		if v >= 2000000000.0 {
+			useExp = true
+		} else {
+			if v < 0.000001 {
+				if v > 0.0 { useExp = true }
+			}
+		}
+
+		if useExp {
 			var exp = 0
 
 			while v >= 10.0 {
@@ -969,18 +1013,21 @@ class String {
 				v = v * 10.0
 				exp--
 			}
-			let d = Math.floor(v)
-			var f = v - d
-			var digits = ''
+			// 6 significant digits via single rounding (JS-style within this
+			// precision; no endsWith trim anywhere in this function).
+			let d0 = Math.floor(v)
+			var rest = Math.floor((v - d0) * 100000.0 + 0.5)
+			var dd = d0
 
-			for k in 6 {
-				f = f * 10.0
-				let dd = Math.floor(f)
-				digits = digits + String.fromInt32(dd)
-				f = f - dd
+			if rest >= 100000 {
+				dd = dd + 1
+				rest = 0
+
+				if dd >= 10 {
+					dd = 1
+					exp++
+				}
 			}
-
-			while digits.endsWith('0') and digits.length > 1 { digits = digits.substring(0, digits.length - 1) }
 			var expSign = ''
 			var expAbs = exp
 
@@ -988,26 +1035,55 @@ class String {
 				expSign = '-'
 				expAbs = 0 - exp
 			}
-			return out + String.fromInt32(d) + '.' + digits + 'e' + expSign + String.fromInt32(expAbs)
+
+			if rest == 0 {
+				return out + String.fromInt32(dd) + 'e' + expSign + String.fromInt32(expAbs)
+			}
+			var rwidth = 5
+
+			while rest % 10 == 0 {
+				rest = rest \ 10
+				rwidth--
+			}
+			var rdigits = String.fromInt32(rest)
+
+			while rdigits.length < rwidth { rdigits = '0' + rdigits }
+			return out + String.fromInt32(dd) + '.' + rdigits + 'e' + expSign + String.fromInt32(expAbs)
 		}
 		let ip = Math.floor(v)
-		var f = v - ip
-		var fracPart = ''
+		// Single rounding to 6 fractional digits, trim done arithmetically.
+		// The old per-digit loop plus endsWith string trim turned 0.05 into
+		// "0.0" on the C target (fBg/f05 probes); this path avoids endsWith,
+		// `and`/`or` and byte indexing entirely.
+		var scaled = Math.floor((v - ip) * 1000000.0 + 0.5)
 
-		if f > 0.0 {
-			var digits = ''
-
-			for k in 6 {
-				f = f * 10.0
-				let dd = Math.floor(f)
-				digits = digits + String.fromInt32(dd)
-				f = f - dd
-			}
-
-			while digits.endsWith('0') and digits.length > 1 { digits = digits.substring(0, digits.length - 1) }
-			fracPart = '.' + digits
+		if scaled >= 1000000 {
+			return out + String.fromInt32(ip + 1)
 		}
-		return out + String.fromInt32(ip) + fracPart
+
+		if scaled == 0 {
+			return out + String.fromInt32(ip)
+		}
+		var width = 6
+
+		while scaled % 10 == 0 {
+			scaled = scaled \ 10
+			width--
+		}
+		// Exactly `width` digits, leading zeros kept via explicit pad.
+		var rev = ''
+		var tmp = scaled
+
+		for k in width {
+			rev = rev + String.fromInt32(tmp % 10)
+			tmp = tmp \ 10
+		}
+		var digits = ''
+
+		for k in rev.length {
+			digits = digits + rev.substring(rev.length - 1 - k, rev.length - k)
+		}
+		return out + String.fromInt32(ip) + '.' + digits
 	}
 
 	static fun fromNullableInt32(value: Int?): String {
