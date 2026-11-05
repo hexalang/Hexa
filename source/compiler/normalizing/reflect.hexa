@@ -895,6 +895,22 @@ class ReflectLowerer {
 		let na = rewriteExpr(a)
 		let nb = rewriteExpr(b)
 
+		// `a ?? null` is the IDENTITY on the lhs: `null ?? null` is null and
+		// `v ?? null` is `v`, so the result type equals the lhs type by
+		// construction. Rewriting here is not just an optimization — the
+		// `Elvis`-with-`Null`-fallback shape is MIS-COMPILED: the fallback
+		// printer dropped the condition and emitted an unconditional
+		// `return null` (Perfide `getIcon`'s `cache.get(k) ?? null` therefore
+		// never returned a cached image and no PNG icon ever drew, while the
+		// `?? 'literal'` sibling on the next line was fine). Never emit that
+		// shape; both the simple (If) and complex (Elvis temp) paths below
+		// then only ever see a real fallback value.
+		switch nb {
+			case Null(_):
+				return na
+			case _:
+		}
+
 		if not isSimpleElvisLhs(na) {
 			return Expression.Elvis(na as!Node, nb as!Node)
 		}
