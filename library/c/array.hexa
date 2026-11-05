@@ -469,6 +469,13 @@ class Array<T> {
 		// Container slots beyond `length` must read as null (calloc zeroes) —
 		// ARC releases the overwritten slot on every store, including appends.
 		data = calloc(capacity as!UInt64, sizeOfPreferPointer<T>() as!UInt64) as!ArrayPointer<T>
+		// Container slots beyond `length` must read as `null` — and `null` is
+		// the `&HexaNone_` sentinel for managed slots, not a zeroed word (D2).
+		// `slotsAlloc<T>` picks the fill from the slot shape: sentinel for
+		// pointers (classes/interfaces/`Any`/`String`/`Array`), zeroes for
+		// by-value scalars. Every store past a slot's old value releases it,
+		// appends included, so an unset slot must be a real object.
+		data = slotsAlloc<T>(capacity) as!ArrayPointer<T>
 	}
 	// TODO fix ... in parser
 	// private fun get(index: Int): T {return null}
