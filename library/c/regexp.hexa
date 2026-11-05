@@ -746,7 +746,7 @@ class RegExp {
 
 			if code == null { return -1 }
 
-			if code ! == 10 and code ! == 13 { return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1) }
+			if code ! != 10 and code ! != 13 { return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1) }
 			return -1
 		}
 
@@ -898,12 +898,18 @@ class RegExpMatch {
 	var input String = ''
 	var length Int = 0
 	var groups [String] = []
+	// Participation per slot (group 0 always hits). Unmatched groups keep
+	// the '' placeholder for length/index/get stability, but `hit` lets
+	// nullable reads distinguish "didn't participate" (null, JS-identical)
+	// from "participated with empty text" ('').
+	var hit [Int] = []
 	var source RegExp? = null
 	new (re RegExp, text String, start Int, end Int, caps [Int]) {
 		this.source = re
 		this.input = text
 		this.index = start
 		this.groups = [text.substring(start, end)]
+		this.hit = [1]
 
 		for g in re.groupCount {
 			let a = caps[g * 2]
@@ -911,8 +917,10 @@ class RegExpMatch {
 
 			if a >= 0 and b >= a {
 				this.groups.push(text.substring(a, b))
+				this.hit.push(1)
 			} else {
 				this.groups.push('')
+				this.hit.push(0)
 			}
 		}
 		this.length = this.groups.length
@@ -923,6 +931,8 @@ class RegExpMatch {
 	}
 	fun at(i Int): String? {
 		if i < 0 or i >= this.groups.length { return null }
+
+		if this.hit[i] == 0 { return null }
 		return this.groups[i]
 	}
 }
