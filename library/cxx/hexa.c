@@ -548,6 +548,17 @@ HEXA_C void Perfide_OnUnrefNeg_Default(void* p, void* caller) {
 // `library/c/array.hexa`, `Any_*` helper misses). Such a slot must not fault
 // here, so the increment skips it — remove the `nullptr` test as soon as those
 // producers emit the sentinel (the end state is literally `rc_++` / `rc_--`).
+// D2 producers are converted: `Array<T>` slot clears (`data[i] = null`),
+// `slotsAlloc<T>` fills, class/struct/interface literal field defaults (incl.
+// omitted fields), global initializers, generic-erased `= null` field defaults
+// (`Map.nullValue`), and every dynamic-get miss (`Any_objectGet_`,
+// `AnyObject_hiddenDynGet_`, per-class `*_hiddenDynGet_`, `Any_dynGet_`,
+// `Any_indexGet_`) all emit the `HexaNone_` sentinel instead of a raw zero.
+// ONE producer is still outstanding: `Map_$K_$V_$new_` releases a nullptr temp
+// during early module init (`Map_$String_$RegexProgram_$new_` → AV read of 0x8
+// inside `~HexaDeferDecPtr_`), so the null test below stays until that ctor's
+// temp is found and sentineled. After that, the macros are literally
+// `rc_++` / `rc_--` — drop the test and re-run the smoke.
 #define hexaRef(p)   do { void* _hr_ = (void*)(p); if (_hr_ != nullptr) ((struct HexaHeader_*)_hr_)->rc_++; } while (0)
 #define hexaUnref(p) do { void* _hu_ = (void*)(p); if (_hu_ != nullptr) ((struct HexaHeader_*)_hu_)->rc_--; } while (0)
 
