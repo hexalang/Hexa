@@ -63,6 +63,27 @@ declare fun sizeOf<T>(): UInt64 // TODO `UInt32` aka `PointerSize` alias
 @operator('&sizeof')
 declare fun sizeOfPreferPointer<T>(): UInt64 // TODO UInt32
 
+// Hexa-aware container-slot allocation — the `calloc` replacement for storage
+// whose unset slots are observable (`Array<T>` growth + construction).
+//
+// `calloc` zeroes, and a zeroed slot happens to read as "empty" for scalars —
+// but `null` is an OBJECT on the C target (D2: the `HexaNone_` sentinel), so a
+// zeroed MANAGED slot is a raw `nullptr`: `hexaRef`/`hexaUnref` (literally
+// `rc_++`/`rc_--`) have to keep a null shape test forever, `Any_equals_` has to
+// canonicalize it, and the sweep/census sees an untagged word. The fill must
+// therefore follow the SLOT SHAPE, decided at compile time — same `<T>` as
+// `sizeOfPreferPointer<T>` above:
+//   * pointer-shaped slots (`Foo_*` classes/interfaces, `Any_*`, `String_*`,
+//     `Array_$T_*`, `Map_$K_$V_*`, fat pairs) → `hexaSlotsAlloc` = malloc +
+//     `hexaFillNone_` (every slot = `&HexaNone_`);
+//   * by-value slots (`Int`/`UInt32`/`Float`/`Bool`/`@byValue` structs) →
+//     plain zeroed `calloc`, because a pointer fill would corrupt the element.
+// Lowered by the `&slotsAlloc` arm in genC (`NativeOperator`s never reach
+// codegen as calls); `count` is a number of SLOTS, never bytes.
+@nativeGeneric
+@operator('&slotsAlloc')
+declare fun slotsAlloc<T>(count: Int): RuntimeAllocated
+
 // @rename('dereferenceOf')
 // @header('#define dereferenceOf(v) (*(v))')
 // @nativeGeneric
@@ -1713,6 +1734,10 @@ class Embed<T> { }
 // @rename('memcpy') declare fun memcpy(dst: ConstArrayPointer<UInt8>, src: ConstArrayPointer<UInt8>, size: SizeOfPointer): Void
 // @rename('printInt') declare fun printInt(val: Int): Void
 @rename('malloc') declare fun malloc(size: UInt64): RuntimeAllocated
+// Zero-initializing allocator (calloc(count, size)): container buffers must
+// hold null-or-valid in every slot — ARC reads the overwritten slot on each
+// store, and a malloc'd slot beyond `length` is garbage that `hexaUnref`
+// would dereference (post-sweep UAF; pre-sweep latent UB on reused heaps).
 @rename('calloc') declare fun calloc(count: UInt64, size: UInt64): RuntimeAllocated
 // TODO rename to HeapAllocated?
 @rename('free') declare fun free(pointer: RuntimeAllocated): Void
