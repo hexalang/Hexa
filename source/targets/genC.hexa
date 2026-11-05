@@ -968,9 +968,12 @@ class GenCxx {
 ')
 													out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '
 ')
+													out.push('\t$this->' + name + '$f_ = ' + fatPtrAs(expr, dataType) + ';' + '\n')
+													out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '\n')
 												} else {
 													out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '
 ')
+													out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '\n')
 												}
 											} else {
 												// TODO
@@ -985,9 +988,12 @@ class GenCxx {
 ')
 												out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '
 ')
+												out.push('\t$this->' + name + '$f_ = ' + fatPtrAs(expr, dataType) + ';' + '\n')
+												out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '\n')
 											} else {
 												out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '
 ')
+												out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '\n')
 											}
 										}
 								} }
@@ -1267,6 +1273,10 @@ class GenCxx {
 				out.push('Any_* ' + c.name + '_hiddenDynGet_(void* self_, String_* k_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				out.push('\tif (self == nullptr || k_ == nullptr) return nullptr;' + hnl)
+				// D2: an unknown field / null receiver is `null` = the sentinel
+				// OBJECT, never a raw `nullptr` (a raw zero reads as "present"
+				// at every `!= null` / `if let` / `??` test in the emitted code).
+				out.push('\tif (self == nullptr || k_ == nullptr) return (Any_*)(size_t)(&HexaNone_);' + hnl)
 
 				for i in hnames.length {
 					let fn = hnames[i]
@@ -1327,7 +1337,7 @@ class GenCxx {
 				if let parent = c.extend {
 					out.push('\treturn ' + parent + '_hiddenDynGet_(self_, k_);' + hnl)
 				} else {
-					out.push('\treturn nullptr;' + hnl)
+					out.push('\treturn (Any_*)(size_t)(&HexaNone_);' + hnl)
 				}
 				out.push(hrb + '\n\n')
 				out.push('void ' + c.name + '_hiddenDynSet_(void* self_, String_* k_, Any_* v_) ' + hlb + hnl)
@@ -1995,6 +2005,21 @@ class GenCxx {
 
 								globalVariables.push(linkName)
 								globalVariables.push('")')
+							}
+
+							// D2: a managed global WITHOUT an explicit initializer must
+							// start as the `null` sentinel OBJECT, not as C's zero word
+							// (`toolNameAliasMap_`, `reasoningEfforts_`, …): a raw zero
+							// reads as "present" at every `!= null` / `if let` / `??` test
+							// and is dereferenced by `hexaRef`/`hexaUnref` (which are
+							// literally `rc_++`/`rc_--`). An address constant is a valid
+							// static initializer, so no boot-time fill is needed.
+							if expr == null {
+								let globalShape = stringifyType(dataType)
+
+								if globalShape.endsWith('_*') {
+									globalVariables.push(' = (' + globalShape + ')(&HexaNone_)')
+								}
 							}
 
 							globalVariables.push(';\n')
@@ -5301,7 +5326,7 @@ class GenCxx {
 		r += 'int32_t FatPair_hiddenIndexCount_(void*);' + nl
 		r += 'void FatPair_hiddenReflect_(void*, HexaReflectOp_*);' + nl
 		r += 'const char* FatPair_hiddenClassName_(void) ' + lb + ' return "FatPair"; ' + rb + nl
-		r += 'Any_* FatPair_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return nullptr; ' + rb + nl
+		r += 'Any_* FatPair_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'void FatPair_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
 		r += 'uint8_t FatPair_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (uint8_t)0; ' + rb + nl
 		r += 'void FatPair_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
@@ -5387,7 +5412,7 @@ class GenCxx {
 		r += 'const char* AnyInt_hiddenClassName_(void);' + nl
 		r += 'const char* AnyInt_hiddenClassName_(void) ' + lb + ' return "Int"; ' + rb + nl
 		r += 'Any_* AnyInt_hiddenDynGet_(void*, struct String_*);' + nl
-		r += 'Any_* AnyInt_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return nullptr; ' + rb + nl
+		r += 'Any_* AnyInt_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'void AnyInt_hiddenDynSet_(void*, struct String_*, Any_*);' + nl
 		r += 'void AnyInt_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
 		r += 'uint8_t AnyInt_hiddenHas_(void*, struct String_*);' + nl
@@ -5415,7 +5440,7 @@ class GenCxx {
 		r += 'const char* AnyFloat_hiddenClassName_(void);' + nl
 		r += 'const char* AnyFloat_hiddenClassName_(void) ' + lb + ' return "Float"; ' + rb + nl
 		r += 'Any_* AnyFloat_hiddenDynGet_(void*, struct String_*);' + nl
-		r += 'Any_* AnyFloat_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return nullptr; ' + rb + nl
+		r += 'Any_* AnyFloat_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'void AnyFloat_hiddenDynSet_(void*, struct String_*, Any_*);' + nl
 		r += 'void AnyFloat_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' (void)self_; (void)k_; (void)v_; ' + rb + nl
 		r += 'uint8_t AnyFloat_hiddenHas_(void*, struct String_*);' + nl
@@ -8454,6 +8479,7 @@ class GenCxx {
 		metaBlock.push('((void**)' + tmp + ')[0] = (void*)&' + className + '__$')
 		metaBlock.push(tmp + '->rc_ = 1')
 		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
+		pushOmittedFieldFill(tmp, names, ftypes, onames)
 
 		for i in names.length {
 			for k in onames.length {
@@ -8539,6 +8565,7 @@ class GenCxx {
 		let tid = tempId++
 		let tmp = '_$struct\(tid)'
 		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
+		pushOmittedFieldFill(tmp, names, fieldTypes, onames)
 
 		for i in names.length {
 			for k in onames.length {
@@ -8554,6 +8581,34 @@ class GenCxx {
 			}
 		}
 		return tmp
+	}
+
+	/// D2: a literal that OMITS a field leaves that slot at `HEXA_NEW`'s zero —
+	/// a raw `nullptr` in a managed slot. Every emitted null test
+	/// (`x != (void*)&HexaNone_`, `if let`, `??`) reads a zero as PRESENT, and
+	/// `hexaUnref(old)` on the first `field = value` store would dereference it.
+	/// Fill every omitted POINTER-shaped field (`Foo_*`, `Any_*`, `String_*`,
+	/// `Struct_N_*`) with the `null` sentinel; omitted by-value fields
+	/// (int/float/Bool/`@byValue`) and native pointers keep their zero form,
+	/// and present fields overwrite the fill with the literal's own value.
+	fun pushOmittedFieldFill(tmp: String, names: [String], ftypes: [Type], onames: [String]) {
+		for i in names.length {
+			var present = false
+
+			for k in onames.length {
+				if onames[k] == names[i] {
+					present = true
+				}
+			}
+
+			if not present {
+				let shape = stringifyType(ftypes[i])
+
+				if shape.endsWith('_*') {
+					metaBlock.push(tmp + '->' + names[i] + '_ = (' + shape + ')(&HexaNone_)')
+				}
+			}
+		}
 	}
 
 	/// Heap-construct a named interface `Name_*` from an object literal (see
@@ -8598,6 +8653,7 @@ class GenCxx {
 		metaBlock.push('((void**)' + tmp + ')[0] = (void*)&' + className + '__$')
 		metaBlock.push(tmp + '->rc_ = 1')
 		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
+		pushOmittedFieldFill(tmp, names, ftypes, onames)
 
 		for i in names.length {
 			for k in onames.length {
@@ -8661,6 +8717,22 @@ class GenCxx {
 	/// One struct field value, converted to its declared type (recursing into
 	/// nested struct literals, which printTypeConverter cannot see as strings).
 	fun printStructFieldValue(ftype: Type, val: Expression): String {
+		// D2: an explicit `null` in a literal (`{ tooltip: null, drag: null }`)
+		// must be the sentinel OBJECT for managed/`Any` targets — otherwise
+		// every `!= null` / `if let` guard on that field is TRUE (a raw zero is
+		// not `&HexaNone_`), which is what made the per-window tooltip paint a
+		// "null" box in the top-left corner on every frame. Scalars and native
+		// pointers keep their own zero form (handled by the converter below).
+		switch val {
+			case Null:
+				let nullShape = stringifyType(ftype)
+
+				if isNullSentinelType(ftype) or nullShape == 'Any_*' or nullShape.endsWith('_*') {
+					return '(' + nullShape + ')(&HexaNone_)'
+				}
+			case _:
+		}
+
 		if let s = printObjectAs(ftype, val) {
 			let sname = omitPointer(stringifyType(ftype))
 			return '(' + sname + '*)(' + s + ')'
@@ -8692,6 +8764,23 @@ class GenCxx {
 	}
 
 	fun printInitializer(ofType: Type, v: Expression) {
+		// D2: `= null` on a managed shape must be the sentinel OBJECT. The
+		// converter's `/*T? = null*\/` arm needs a *known* nullable type, but
+		// this path also serves generic-erased slots (`Map.nullValue = null`,
+		// `var x = null` at file scope, untyped field defaults) where the
+		// declared type is `T`/Unknown and the arm is skipped — that left a raw
+		// `nullptr` in a counted slot, which `hexaRef`/`hexaUnref` (now literally
+		// `rc_++`/`rc_--`) dereference. Route by the EMITTED shape instead.
+		switch v {
+			case Null(_):
+				let initShape = stringifyType(ofType)
+
+				if initShape.endsWith('_*') {
+					return '(' + initShape + ')(&HexaNone_)'
+				}
+			case _:
+		}
+
 		// F7: `var x Int = cond ? a : b` where a branch is `Int?` (nullable
 		// int64 sentinel, e.g. `tc.index`) — convert each branch toward the
 		// DECLARED type (not the If's own box-both `Any` result), else the
@@ -9893,10 +9982,12 @@ class GenCxx {
 
 						if isBoxableFat(eif) {
 							ba = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eif) + '), ' + fatEnvStr(eif) + ')'
+							ba = boxFatPair(eif)
 						}
 
 						if isBoxableFat(eelse) {
 							bb = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eelse) + '), ' + fatEnvStr(eelse) + ')'
+							bb = boxFatPair(eelse)
 						}
 						metaBlock.push('if (' + printExpression(econd) + ') ' + tmp + ' = ' + ba + '; else ' + tmp + ' = ' + bb)
 						return tmp
@@ -9929,10 +10020,12 @@ class GenCxx {
 
 						if isBoxableFat(eif) {
 							boxA = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eif) + '), ' + fatEnvStr(eif) + ')'
+							boxA = boxFatPair(eif)
 						}
 
 						if isBoxableFat(eelse) {
 							boxB = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eelse) + '), ' + fatEnvStr(eelse) + ')'
+							boxB = boxFatPair(eelse)
 						}
 						return '(' + printExpression(econd) + ')?(' + boxA + '):(' + boxB + ')'
 					}
@@ -10032,6 +10125,25 @@ class GenCxx {
 
 						if let params = params, s == '&sizeof' {
 							return 'sizeof(' + stringifyType(params[0]) + ')'
+						}
+
+						if let params = params, s == '&slotsAlloc' {
+							// Hexa-aware container storage (D2). Pointer-shaped
+							// slots hold MANAGED references, where `null` is the
+							// `&HexaNone_` object: a zeroed slot is a raw nullptr,
+							// which forces the temporary null test in
+							// `hexaRef`/`hexaUnref`, a canonicalization step in
+							// `Any_equals_` and an untagged word in the sweep.
+							// By-value slots (`int32_t`/`double`/`Bool_`/
+							// `@byValue` structs) must stay ZEROED — a pointer
+							// fill would corrupt the element itself.
+							let slotShape = stringifyType(params[0])
+
+							if slotShape.endsWith('*') {
+								return 'hexaSlotsAlloc((size_t)(' + printExpression(args[0]) + '))'
+							}
+
+							return 'calloc((uint64_t)(' + printExpression(args[0]) + '), sizeof(' + slotShape + '))'
 						}
 						return s + printCallArguments(args)
 					case Prefix:
