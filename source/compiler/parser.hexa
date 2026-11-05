@@ -77,14 +77,27 @@ class Parser {
 			let pos = { line: lex.line[i], column: lex.column[i] }
 			let pos = new NodeData(pos.line, pos.column, lex.fileName)
 			var _static = false
-			if tok() == Token.KStatic {
-				_static = true
-				i++
-			}
 			var _readonly = false
-			if tok() == Token.KReadonly {
-				_readonly = true
-				i++
+			// Field modifiers may combine in any order (`private static var`,
+			// `static private var`, ...). Consume them ALL up front so the
+			// decorators collected above stay attached to the field parsed
+			// below. (A lone `case KPrivate` used to end the iteration here and
+			// silently drop them — every `@`-annotated `private` field lost its
+			// decorators, e.g. `@weak`/`@keep` on internals. `private` itself
+			// stays unenforced, matching the old behavior.)
+			while true {
+				// TODO they cannot repeat and order is enforced
+				if tok() == Token.KStatic {
+					_static = true
+					i++
+				} else if tok() == Token.KReadonly {
+					_readonly = true
+					i++
+				} else if tok() == Token.KPrivate {
+					i++
+				} else {
+					break
+				}
 			}
 
 			switch tok() {
@@ -334,6 +347,9 @@ class Parser {
 					if let setter = setter {
 						fields.push(setter)
 					}
+				case Documentation:
+					// `///` docs found after `static`/`readonly` modifiers instead of before them
+					failMisplacedDocumentation()
 				case _:
 					fail('Fields cannot start with `' + print() + '`')
 			}
@@ -1717,15 +1733,15 @@ class Parser {
 					// `Blah.blah().blah - 1 + 1`
 
 					while
-					tok() == Token.Identifier or
-					tok() == Token.Title or
-					tok() == Token.CallOpen or // TODO align || in formatter
-					tok() == Token.CallClose or
-					tok() == Token.Add or
-					tok() == Token.Subtract or
-					tok() == Token.Integer or
-					tok() == Token.Multiply or
-					tok() == Token.Dot
+						tok() == Token.Identifier or
+						tok() == Token.Title or
+						tok() == Token.CallOpen or // TODO align || in formatter
+						tok() == Token.CallClose or
+						tok() == Token.Add or
+						tok() == Token.Subtract or
+						tok() == Token.Integer or
+						tok() == Token.Multiply or
+						tok() == Token.Dot
 					{
 						// `a-1` -> `a - 1`
 						if tok() == Token.Subtract or tok() == Token.Add {
