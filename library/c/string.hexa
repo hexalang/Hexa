@@ -23,16 +23,17 @@
 // TODO "Abc".sameAsUtf16(char ptr) comparison method
 // TODO `[i]` not works
 /// TODO doc comment
+// Intern table: 64k buckets (BSS-resident via ArrayByValue, zero-init = all
+// empty, no init loop). Bucket index is the low 16 bits of the content hash
+// (see `hashFinish`). Lookup walks one bucket only; new strings link at the
+// bucket HEAD (O(1) insert — the old code walked to the tail on every miss).
+var stringBuckets ArrayByValue<String?, 65536> = []
+var intCache ArrayByValue<String?, 4096> = []
+// `fromCharCode` memo for 0..255 (tokenizers, `charAt`, path/quote helpers).
+var charCache ArrayByValue<String?, 256> = []
 @final // TODO optimize into non-virtual calls
 @friend(true) // Allows to access `private var` of `String` instances within any static/etc methods of String
 // TODO @asIs // Allows to simply use this name in code generator
-
-// F10.2b intern table: 64k buckets (BSS-resident via ArrayByValue,
-// zero-init = all empty, no init loop). Bucket index is the low 16 bits
-// of the content hash (see fromUTF16). Replaces the single linked-list
-// root (O(n) walk per intern); lookup walks one bucket only, new strings
-// link at the walked tail.
-var stringBuckets ArrayByValue<String?, 65536> = []
 class String {
 	// TODO `let length: Int` ?
 	// var length: SizeOfPointer = 0 as! SizeOfPointer or `SizeOfPointer(n)` and `SizeOfPointer.zero`
@@ -100,12 +101,54 @@ class String {
 	// TODO `.ref` getter?
 
 	fun utf8copy(): Buffer {
-		let result = Buffer.alloc(this.length)
+		let maxBytes = length * 3 + 4
+		let result = Buffer.alloc(maxBytes)
+		var o = 0
+		var i = 0
 
-		for index in length {
-			result.bytes[index] = bytes[index] & 0xFFu8
+		while i < length {
+			let c: Int = bytes[i]
+
+			if c < 128 {
+				result.bytes[o] = c as!UInt8
+				o++
+				i++
+			} else if c < 2048 {
+				result.bytes[o] = (192 + (c \ 64)) as!UInt8
+				result.bytes[o + 1] = (128 + (c % 64)) as!UInt8
+				o += 2
+				i++
+			} else {
+				var units = 1
+				var cp = c
+
+				if c >= 55296 and c <= 56319, i + 1 < length {
+					let lo: Int = bytes[i + 1]
+
+					if lo >= 56320 and lo <= 57343 {
+						cp = 65536 + (c - 55296) * 1024 + (lo - 56320)
+						units = 2
+					}
+				}
+
+				if units == 2 {
+					result.bytes[o] = (240 + (cp \ 262144)) as!UInt8
+					result.bytes[o + 1] = (128 + ((cp \ 4096) % 64)) as!UInt8
+					result.bytes[o + 2] = (128 + ((cp \ 64) % 64)) as!UInt8
+					result.bytes[o + 3] = (128 + (cp % 64)) as!UInt8
+					o += 4
+				} else {
+					result.bytes[o] = (224 + (cp \ 4096)) as!UInt8
+					result.bytes[o + 1] = (128 + ((cp \ 64) % 64)) as!UInt8
+					result.bytes[o + 2] = (128 + (cp % 64)) as!UInt8
+					o += 3
+				}
+
+				i += units
+			}
 		}
 
+		result.length = o
 		return result
 	}
 
@@ -137,11 +180,12 @@ class String {
 	fun charAt(index: Int): String {
 		if let c = charCodeAt(index) { return String.fromCharCode(c) }
 		return ''
+		if index < 0 or index >= length { return '' }
+		return String.fromCharCode(bytes[index])
 	}
 	// `s[i]` sugar lowers here on native (genC has no address-of-char form —
 	// `&s[i]` was struct-pointer garbage). OOB → ''.
 	static fun stringAt(s: String, i: Int): String { return s.charAt(i) }
-	// Naive code-unit search (real engine, O(n*m); destacar: empty needle → start)
 	fun indexOf(@weak str: String, startIndex: Int? = 0): Int {
 		var start = 0
 
@@ -216,13 +260,6 @@ class String {
 	}
 
 	// JS substring: clamps, swaps when start > end (default = rest of string)
-	// Hexa-first interning fix (OOM): single-slice + fromUTF16 interning
-	// instead of per-char `+` (which bypasses the intern table, allocating
-	// O(n^2) new Strings every call — `render` splits 300KB/frame → 8GB leak,
-	// js GC hides it). fromUTF16 reuses across frames for same content, so
-	// per-frame split only allocates the `[String]` array (ARC debt, slower).
-	// NOTE fromUTF16 ignores `offset` (TODO there) — copy the slice into a
-	// temp buffer first, then intern via fromUTF16z.
 	fun substring(startIndex: Int, endIndex: Int = 1073741824): String {
 		var end = endIndex
 		var start = startIndex
@@ -240,7 +277,7 @@ class String {
 			start = end
 			end = t
 		}
-		var n = end - start
+		let n = end - start
 
 		if n <= 0 { return '' }
 		let buf = malloc((n * 2 + 2) as!UInt64) as!ArrayPointer<UInt16>
@@ -349,6 +386,18 @@ class String {
 
 		for k in count { out = out + this }
 		return out
+		if count == 1 { return this }
+		let n = length * count
+		let buf = bufferAlloc(n)
+
+		for k in count {
+			memcpy(
+				(((buf as!UInt64) + ((k * length * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+				bytes as!ConstArrayPointer<UInt8>,
+				length * 2
+			)
+		}
+		return fromUTF16Own(buf, n)
 	}
 	// BMP code point, or astral value assembled from a surrogate pair
 	fun codePointAt(pos: Int): Int? {
@@ -392,14 +441,13 @@ class String {
 			return false
 		}
 
-		var allSame = true
 		let begin = this.length - str.length
 
 		for i in str.length {
-			allSame = allSame and (this.bytes[begin + i] == str.bytes[i])
+			if not (this.bytes[begin + i] == str.bytes[i]) { return false }
 		}
 
-		return allSame
+		return true
 	}
 
 	fun startsWith(str: String): Bool {
@@ -419,6 +467,8 @@ class String {
 
 			if start < 0 { start = 0 }
 		}
+
+		if start > length { start = length }
 		var end = length
 
 		if let e = len {
@@ -430,8 +480,6 @@ class String {
 				if end < 0 { end = 0 }
 			}
 		}
-
-		if start > length { start = length }
 
 		if end > length { end = length }
 
@@ -754,8 +802,10 @@ class String {
 
 	// TODO disallow String? + String (i.e. left/this cannot be null)
 	// TODO with may be null
-	// TODO early return if one of strings is empty
 	fun concat(with: String): String {
+		if this.length == 0 { return with }
+
+		if with.length == 0 { return this }
 		let length = with.length + this.length
 
 		// Hot path (labels, paths, render text): stack scratch, zero malloc /
@@ -893,8 +943,7 @@ class String {
 			pos++
 		}
 
-		let bytes = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
-		return fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
+		return fromUTF16(bytes.address as!ConstArrayPointer<UInt16>, pos, 21 - pos)
 	}
 
 	static fun fromUInt64(value: UInt64): String {
@@ -932,10 +981,8 @@ class String {
 			pos++
 		}
 
-		let bytes = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
 		// tofitaDebugLog('fromUInt64 "%S"'.utf16(), bytes.address as! UInt64)
-		// TODO use with known size
-		return fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
+		return fromUTF16(bytes.address as!ConstArrayPointer<UInt16>, pos, 21 - pos)
 	}
 
 	static fun fromUInt64n(value: UInt64): String {
@@ -967,9 +1014,7 @@ class String {
 		// Ensure null terminator
 		bytes[21] = 0
 
-		// Point to the start of the string
-		let bytesPtr = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
-		return fromUTF16z(bytesPtr)
+		return fromUTF16(bytes.address as!ConstArrayPointer<UInt16>, pos, 21 - pos)
 	}
 
 	// Decimal form: specials, plain notation in [1e-6, 2e9), exponent otherwise
@@ -1094,6 +1139,7 @@ class String {
 		return 'null'
 	}
 
+	// NOTE `Bool?` nullable wrapping is zero-cost in Hexa, no boxing happens, boolean is tri-state plain integer
 	static fun fromBool(value: Bool?): String {
 		if value == false {
 			return 'false'
@@ -1113,15 +1159,13 @@ class String {
 	// interned twin while this entry leaks. Unmapped entries simply free
 	// their own bytes and leave buckets untouched (leak-safe).
 	@destructor fun destroy() {
-		var bucket = bytesHash % 65536
-
-		if bucket < 0 {
-			bucket = bucket + 65536
-		}
+		// TODO is `%` operation too slow? use first 16 bits?
+		let bucket = bytesHash % 65536
 		let selfAddr = bytes as!UInt64
 		var prev: String? = null
 		var cursor: String? = stringBuckets[bucket]
 
+		// NOTE the depth of the buckets is genrally is very low so this traversal is not perf issue
 		while true {
 			if let now = cursor {
 				if now.bytes as!UInt64 == selfAddr {
