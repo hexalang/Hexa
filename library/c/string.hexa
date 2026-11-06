@@ -325,6 +325,8 @@ class String {
 		let s = fromUTF16z(buf as!ConstArrayPointer<UInt16>)
 		free(buf as!RuntimeAllocated)
 		if code >= 0 and code < 256 {
+			// TODO explicit `String?` — an inferred `let` from an ArrayByValue
+			// index types as `Any` (dynamic unbox on every hit).
 			let hit: String? = charCache[code]
 
 			if not (hit == null) { return hit ! }
@@ -874,13 +876,11 @@ class String {
 		for i in size {
 			bytes[i] = string[i]
 		}
-
-		bytes[size + 1] = 0
 		// TODO transfer size
 		// TODO no as!
-		let result = fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
 		free(bytes as!RuntimeAllocated)
-		return result
+		bytes[size] = 0
+		return fromUTF16Own(bytes, size)
 	}
 
 	static fun countUTF16zUpTo(string: ConstArrayPointer<UInt16>, limit: Int): Int {
@@ -902,6 +902,12 @@ class String {
 	static fun fromUTF16(string: ConstArrayPointer<UInt16>, offset: UInt32, chars: Int): String {
 		// TODO replace call `strlen` with `countUTF16z` oh wait it's *8*-bit!
 		var hash: Int = 0x1e2caa1f // Just a random number
+	/// Interned `String` from `chars` units at `string + offset`. `offset` is
+	/// honoured now: slices intern straight out of their parent's storage
+	/// (`fromUTF16Slice`) instead of copying through a temp buffer first.
+	static fun fromUTF16(string: ConstArrayPointer<UInt16>, offset: Int, chars: Int): String {
+		return fromUTF16H(string, offset, chars, hashOf(string, offset, chars))
+	}
 
 		// TODO 64-bit steps
 		for i in chars {
@@ -958,8 +964,16 @@ class String {
 		// Produce new string
 		var message ArrayByValue<ClangWideChar, 23> = "fromUTF16 new String()"
 		// tofitaDebugLog(message.ref, 0, 0) TODO unused `message` must be omitted by normalizer
+	/// Zero-copy slice of an interned parent (the `substring`/`slice`/`substr`
+	/// workhorse): hashes the parent range and interns from it. Miss → the one
+	/// unavoidable copy.
+	static fun fromUTF16Slice(parent: String, start: Int, chars: Int): String {
+		if chars <= 0 { return '' }
 
 		let result = new String()
+		if start == 0 and chars == parent.length { return parent }
+		return fromUTF16(parent.bytes, start, chars)
+	}
 
 		// TODO use hexa allocator instead of malloc
 		// TODO allocate as `malloc(sizeof String + bytes)` to avoid pointer indirection
@@ -973,25 +987,26 @@ class String {
 		return fromUTF16OwnH(buf, chars, hashFinish(hashUpdate(hashSeed(), buf as!ConstArrayPointer<UInt16>, chars)))
 	}
 
-		result.bytes = bytesStorage
-		let bytes: ArrayPointer<UInt16> = result.bytes as!ArrayPointer<UInt16>
+	// TODO rename H to Hashed
+	static fun fromUTF16OwnH(buf: ArrayPointer<UInt16>, chars: Int, hash: Int): String {
+		let bytesSize = bytesFor(chars)
 
 		if chars > 0 {
 			// TODO respect `offset` !!!
 			// TODO copy 4/8 bytes at a time manually
 			memcpy(bytes as!ArrayPointer<UInt8>, string as!ConstArrayPointer<UInt8>, chars * 2)
+		if let found = internLookup(hash, bytesSize, buf as!ConstArrayPointer<UInt16>, 0, chars) {
+			// NOTE owned buffer dealloced when unneeded
+			free(buf as!RuntimeAllocated)
+			return found
 		}
-
-		bytes[chars] = 0
+		buf[chars] = 0
+		let result = new String()
+		result.bytes = buf as!ConstArrayPointer<UInt16>
 		result.length = chars
 		result.bytesLength = bytesSize
 		result.bytesHash = hash
-
-		if let t = tail {
-			t.next = result
-		} else {
-			stringBuckets[bucket] = result
-		}
+		internLink(hash, result)
 		return result
 	}
 
@@ -1013,25 +1028,19 @@ class String {
 
 		if with.length == 0 { return this }
 		let length = with.length + this.length
+		// FNV is sequential: hashing the two sources in order == hashing the
+		// joined result, so the copy never has to be re-scanned.
+		let hash = hashFinish(hashUpdate(hashUpdate(hashSeed(), this.bytes, this.length), with.bytes, with.length))
 
-		// Hot path (labels, paths, render text): stack scratch, zero malloc /
-		// free traffic. fromUTF16z copies into interned storage before
-		// return, so the stack buffer never escapes.
 		if length <= 255 {
 			var scratch: ArrayByValue<UInt16, 256> = [0]
 			let buf = scratch.address as!ArrayPointer<UInt16>
 
-			if this.length > 0 {
-				memcpy(buf as!ArrayPointer<UInt8>, this.bytes as!ConstArrayPointer<UInt8>, this.length * 2)
-			}
 
-			let right: ArrayPointer<UInt16> = ((buf as!UInt64) + this.length * 2) as!ArrayPointer<UInt16>
-			if with.length > 0 {
-				memcpy(right as!ArrayPointer<UInt8>, with.bytes as!ConstArrayPointer<UInt8>, with.length * 2)
-			}
 	// N-ary concat: genC flattens `a + b + c + …` (statically-`String` chains)
 	// into ONE call — one allocation, one intern instead of N-1 nested
 	// `concat`s where each step copied the whole prefix again.
+	// TODO ^ should be done in the proper pass
 	static fun concat3(a: String, b: String, c: String): String {
 		if a.length == 0 { return b.concat(c) }
 
@@ -1047,9 +1056,6 @@ class String {
 		return fromUTF16OwnH(buf, total, hash)
 	}
 
-			buf[length] = 0
-			return fromUTF16z(buf as!ConstArrayPointer<UInt16>)
-		}
 	static fun concat4(a: String, b: String, c: String, d: String): String {
 		if a.length == 0 { return concat3(b, c, d) }
 		let total = a.length + b.length + c.length + d.length
@@ -1068,7 +1074,6 @@ class String {
 		return fromUTF16OwnH(buf, total, hash)
 	}
 
-		let bytes = malloc(length * 2u64 + 2u64) as!ArrayPointer<UInt16>
 	static fun concat5(a: String, b: String, c: String, d: String, e: String): String {
 		if a.length == 0 { return concat4(b, c, d, e) }
 		let total = a.length + b.length + c.length + d.length + e.length
@@ -1092,10 +1097,6 @@ class String {
 		return fromUTF16OwnH(buf, total, hash)
 	}
 
-		let left: ArrayPointer<UInt16> = bytes as!ArrayPointer<UInt16>
-		if this.length > 0 {
-			memcpy(left as!ArrayPointer<UInt8>, this.bytes as!ConstArrayPointer<UInt8>, this.length * 2)
-		}
 	static fun concat6(a: String, b: String, c: String, d: String, e: String, f: String): String {
 		if a.length == 0 { return concat5(b, c, d, e, f) }
 		let total = a.length + b.length + c.length + d.length + e.length + f.length
@@ -1124,10 +1125,6 @@ class String {
 		return fromUTF16OwnH(buf, total, hash)
 	}
 
-		let right: ArrayPointer<UInt16> = ((bytes as!UInt64) + this.length * 2) as!ArrayPointer<UInt16>
-		if with.length > 0 {
-			memcpy(right as!ArrayPointer<UInt8>, with.bytes as!ConstArrayPointer<UInt8>, with.length * 2)
-		}
 	static fun concat7(a: String, b: String, c: String, d: String, e: String, f: String, g: String): String {
 		if a.length == 0 { return concat6(b, c, d, e, f, g) }
 		let total = a.length + b.length + c.length + d.length + e.length + f.length + g.length
@@ -1161,14 +1158,6 @@ class String {
 		return fromUTF16OwnH(buf, total, hash)
 	}
 
-		// TODO unit test this carefully
-		bytes[length] = 0
-		// The temp buffer is scratch: fromUTF16z copies into its own interned
-		// storage, so free here (siblings fromUTF8z/substring/fromCharCode do
-		// the same — a missing free leaks 2*len+2 untracked bytes per concat).
-		let joined = fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
-		free(bytes as!RuntimeAllocated)
-		return joined
 	static fun concat8(a: String, b: String, c: String, d: String, e: String, f: String, g: String, h: String): String {
 		if a.length == 0 { return concat7(b, c, d, e, f, g, h) }
 		let total = a.length + b.length + c.length + d.length + e.length + f.length + g.length + h.length
