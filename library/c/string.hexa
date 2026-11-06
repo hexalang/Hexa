@@ -27,10 +27,17 @@
 // empty, no init loop). Bucket index is the low 16 bits of the content hash
 // (see `hashFinish`). Lookup walks one bucket only; new strings link at the
 // bucket HEAD (O(1) insert — the old code walked to the tail on every miss).
+// TODO pre-fill at startup in a more efficient way (like compute hashes at compile time)
 var stringBuckets ArrayByValue<String?, 65536> = []
+
+// `fromInt32` memo: 0..4095 decimal strings
+// TODO negative numbers + pre-fill at startup
 var intCache ArrayByValue<String?, 4096> = []
+
 // `fromCharCode` memo for 0..255 (tokenizers, `charAt`, path/quote helpers).
+// TODO pre-fill at startup + 256 can be overkill (only 128 valid ASCII?)
 var charCache ArrayByValue<String?, 256> = []
+
 @final // TODO optimize into non-virtual calls
 @friend(true) // Allows to access `private var` of `String` instances within any static/etc methods of String
 // TODO @asIs // Allows to simply use this name in code generator
@@ -157,24 +164,32 @@ class String {
 	// fun toUpperCase(): String TODO typer not errors here!
 	// ASCII-only case mapping (full Unicode tables land with the locale runtime)
 	fun toUpperCase(): String {
-		var out = ''
+		if length == 0 { return this }
+
+		// TODO stack alloc for small string
+		let buf = bufferAlloc(length)
 
 		for i in length {
-			if let c = charCodeAt(i) {
-				if c >= 97 and c <= 122 { out = out + String.fromCharCode(c - 32) } else { out = out + String.fromCharCode(c) }
-			}
+			let c: Int = bytes[i]
+
+			if c >= 97 and c <= 122 { buf[i] = (c - 32) as!UInt16 } else { buf[i] = c as!UInt16 }
 		}
-		return out
+
+		return fromUTF16Own(buf, length)
 	}
 	fun toLowerCase(): String {
-		var out = ''
+		if length == 0 { return this }
+
+		// TODO stack alloc for small string (for every bufferAlloc out there)
+		let buf = bufferAlloc(length)
 
 		for i in length {
-			if let c = charCodeAt(i) {
-				if c >= 65 and c <= 90 { out = out + String.fromCharCode(c + 32) } else { out = out + String.fromCharCode(c) }
-			}
+			let c: Int = bytes[i]
+
+			if c >= 65 and c <= 90 { buf[i] = (c + 32) as!UInt16 } else { buf[i] = c as!UInt16 }
 		}
-		return out
+
+		return fromUTF16Own(buf, length)
 	}
 	fun includes(str: String): Bool { return indexOf(str) >= 0 }
 	fun charAt(index: Int): String {
@@ -199,15 +214,20 @@ class String {
 		}
 
 		if start < 0 { start = 0 }
+
+		let n = str.length
+		let first: UInt16 = str.bytes[0]
 		var i = start
 
-		while i + str.length <= length {
-			var match = true
-			for j in str.length {
-				if not (bytes[i + j] == str.bytes[j]) { match = false }
+		while i + n <= length {
+			if bytes[i] == first {
+				var j = 1
+
+				while j < n and bytes[i + j] == str.bytes[j] { j++ }
+
+				if j == n { return i }
 			}
 
-			if match { return i }
 			i++
 		}
 		return -1
@@ -215,7 +235,11 @@ class String {
 	// Last occurrence at or before start (default = from the end, JS default)
 	fun lastIndexOf(str: String, startIndex: Int = 1073741824): Int {
 		if str.length == 0 { return length }
-		var start = length - str.length
+
+		let n = str.length
+
+		if n > length { return -1 }
+		var start = length - n
 
 		if startIndex < start { start = startIndex }
 
@@ -223,12 +247,11 @@ class String {
 		var i = start
 
 		while i >= 0 {
-			var match = true
-			for j in str.length {
-				if not (bytes[i + j] == str.bytes[j]) { match = false }
-			}
+			var j = 0
 
-			if match { return i }
+			while j < n and bytes[i + j] == str.bytes[j] { j++ }
+
+			if j == n { return i }
 			i--
 		}
 		return -1
@@ -238,7 +261,7 @@ class String {
 
 		if delimiter.length == 0 {
 			for i in length {
-				if let c = charCodeAt(i) { parts.push(String.fromCharCode(c)) }
+				parts.push(String.fromCharCode(bytes[i]))
 			}
 			return parts
 		}
@@ -246,11 +269,11 @@ class String {
 		var idx = indexOf(delimiter, start)
 
 		while idx >= 0 {
-			parts.push(substring(start, idx))
+			parts.push(fromUTF16Slice(this, start, idx - start))
 			start = idx + delimiter.length
 			idx = indexOf(delimiter, start)
 		}
-		parts.push(substring(start, length))
+		parts.push(fromUTF16Slice(this, start, length - start))
 		return parts
 	}
 
@@ -288,6 +311,7 @@ class String {
 		let s = String.fromUTF16z(buf as!ConstArrayPointer<UInt16>)
 		free(buf as!RuntimeAllocated)
 		return s
+		return fromUTF16Slice(this, start, n)
 	}
 
 	// TODO Int or UInt16?
@@ -300,6 +324,18 @@ class String {
 		buf[1] = 0
 		let s = fromUTF16z(buf as!ConstArrayPointer<UInt16>)
 		free(buf as!RuntimeAllocated)
+		if code >= 0 and code < 256 {
+			let hit: String? = charCache[code]
+
+			if not (hit == null) { return hit ! }
+		}
+
+		var scratch: ArrayByValue<UInt16, 2> = [0]
+		scratch[0] = code as!UInt16
+		scratch[1] = 0
+		let s = fromUTF16(scratch.address as!ConstArrayPointer<UInt16>, 0, 1)
+
+		if code >= 0 and code < 256 { charCache[code] = s }
 		return s
 	}
 
@@ -333,23 +369,32 @@ class String {
 		var i = 0
 
 		while i < length {
-			if let c = charCodeAt(i) {
-				if isTrimUnit(c) { i++ } else { return substring(i, length) }
-			} else { return substring(i, length) }
+			let c: Int = bytes[i]
+
+			if not isTrimUnit(c) { break }
+			i++
 		}
-		return ''
+
+		if i == 0 { return this }
+
+		if i >= length { return '' }
+		return fromUTF16Slice(this, i, length - i)
 	}
 	fun trimEnd(): String {
 		var end = length
 
 		while end > 0 {
-			if let c = charCodeAt(end - 1) {
-				if isTrimUnit(c) { end-- } else { return substring(0, end) }
-			} else { return substring(0, end) }
+			let c: Int = bytes[end - 1]
+
+			if not isTrimUnit(c) { break }
+			end--
 		}
 
-		return ''
 	} // TODO full functionality and tests
+		if end == length { return this }
+
+		if end <= 0 { return '' }
+		return fromUTF16Slice(this, 0, end)
 	}
 	fun padStart(targetLength: Int, padString: String = ' '): String {
 		var pad = padString
@@ -358,12 +403,22 @@ class String {
 
 		if length >= targetLength { return this }
 		let need = targetLength - length
-		var fill = ''
+		let buf = bufferAlloc(targetLength)
+		var i = 0
 
-		while fill.length < need { fill = fill + pad }
+		while i < need {
+			buf[i] = pad.bytes[i % pad.length]
+			i++
+		}
 
-		if fill.length > need { fill = fill.substring(0, need) }
-		return fill + this
+		if length > 0 {
+			memcpy(
+				(((buf as!UInt64) + ((need * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+				bytes as!ConstArrayPointer<UInt8>,
+				length * 2
+			)
+		}
+		return fromUTF16Own(buf, targetLength)
 	}
 	fun padEnd(targetLength: Int, padString: String = ' '): String {
 		var pad = padString
@@ -372,15 +427,21 @@ class String {
 
 		if length >= targetLength { return this }
 		let need = targetLength - length
-		var fill = ''
+		let buf = bufferAlloc(targetLength)
 
-		while fill.length < need { fill = fill + pad }
+		if length > 0 {
+			memcpy(buf as!ArrayPointer<UInt8>, bytes as!ConstArrayPointer<UInt8>, length * 2)
+		}
+		var i = 0
 
-		if fill.length > need { fill = fill.substring(0, need) }
-		return this + fill
+		while i < need {
+			buf[length + i] = pad.bytes[i % pad.length]
+			i++
+		}
+		return fromUTF16Own(buf, targetLength)
 	}
 	fun repeat(count: Int): String {
-		// JS throws RangeError on negative; native keeps '' (no throw ABI yet)
+		// TODO JS throws RangeError on negative; native keeps '' (no throw ABI yet)
 		if count <= 0 or length == 0 { return '' }
 		var out = ''
 
@@ -391,6 +452,7 @@ class String {
 		let buf = bufferAlloc(n)
 
 		for k in count {
+			// TODO not really best way to do it, esp. for smaller strings (use stack + ropes)
 			memcpy(
 				(((buf as!UInt64) + ((k * length * 2) as!UInt64)) as!ArrayPointer<UInt8>),
 				bytes as!ConstArrayPointer<UInt8>,
@@ -418,13 +480,12 @@ class String {
 		if compareString.length < n { n = compareString.length }
 
 		for i in n {
-			if let a = charCodeAt(i) {
-				if let b = compareString.charCodeAt(i) {
-					if a < b { return -1 }
+			let a: Int = bytes[i]
+			let b: Int = compareString.bytes[i]
 
-					if a > b { return 1 }
-				}
-			}
+			if a < b { return -1 }
+
+			if a > b { return 1 }
 		}
 
 		if length < compareString.length { return -1 }
@@ -483,15 +544,10 @@ class String {
 
 		if end > length { end = length }
 
-		if end <= start { return '' }
-		var out = ''
-		var i = start
+		let n = end - start
 
-		while i < end {
-			if let c = charCodeAt(i) { out = out + String.fromCharCode(c) }
-			i++
-		}
-		return out
+		if n <= 0 { return '' }
+		return fromUTF16Slice(this, start, n)
 	}
 	// Legacy substr(pos, len): length-based, negative pos counts from the end
 	fun substr(pos: Int, len: Int = 1073741824): String {
@@ -507,12 +563,7 @@ class String {
 		if len <= 0 { return '' }
 
 		if len < count { count = len }
-		var out = ''
-
-		for k in count {
-			if let c = charCodeAt(start + k) { out = out + String.fromCharCode(c) }
-		}
-		return out
+		return fromUTF16Slice(this, start, count)
 	}
 	// at(): negative counts from the end, out-of-range → null
 	fun at(index: Int): String? {
@@ -520,8 +571,8 @@ class String {
 
 		if i < 0 { i = length + i }
 
-		if let c = charCodeAt(i) { return String.fromCharCode(c) }
-		return null
+		if i < 0 or i >= length { return null }
+		return String.fromCharCode(bytes[i])
 	}
 	fun replace(what: String, with: String): String {
 		// JS: empty needle anchors at the front
@@ -529,28 +580,92 @@ class String {
 		let idx = indexOf(what)
 
 		if idx < 0 { return this }
-		return substring(0, idx) + with + substring(idx + what.length, length)
+		return fromUTF16Slice(this, 0, idx) + with + fromUTF16Slice(this, idx + what.length, length - idx - what.length)
 	}
 	fun replaceAll(what: String, with: String): String {
 		// JS: empty needle wraps every char plus both ends
 		if what.length == 0 {
-			var out = with
+			if length == 0 { return with }
+			let n = length + (length + 1) * with.length
+			let buf = bufferAlloc(n)
+			var o = 0
+			var i = 0
 
-			for i in length {
-				if let c = charCodeAt(i) { out = out + String.fromCharCode(c) + with }
+			while i < length {
+				var k = 0
+
+				while k < with.length {
+					buf[o] = with.bytes[k]
+					o++
+					k++
+				}
+				buf[o] = bytes[i]
+				o++
+				i++
 			}
-			return out
+			var k = 0
+
+			while k < with.length {
+				buf[o] = with.bytes[k]
+				o++
+				k++
+			}
+			return fromUTF16Own(buf, n)
 		}
-		var out = ''
-		var start = 0
-		var idx = indexOf(what, start)
+
+		var hits = 0
+		var scan = 0
+		var idx = indexOf(what, scan)
 
 		while idx >= 0 {
-			out = out + substring(start, idx) + with
+			hits++
+			scan = idx + what.length
+			idx = indexOf(what, scan)
+		}
+
+		if hits == 0 { return this }
+		let n = length + (with.length - what.length) * hits
+		let buf = bufferAlloc(n)
+		var o = 0
+		var start = 0
+		idx = indexOf(what, start)
+
+		while idx >= 0 {
+			let seg = idx - start
+
+			if seg > 0 {
+				memcpy(
+					(((buf as!UInt64) + ((o * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+					(((bytes as!UInt64) + ((start * 2) as!UInt64)) as!ConstArrayPointer<UInt8>),
+					seg * 2
+				)
+				o += seg
+			}
+
+			if with.length > 0 {
+				memcpy(
+					(((buf as!UInt64) + ((o * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+					with.bytes as!ConstArrayPointer<UInt8>,
+					with.length * 2
+				)
+				o += with.length
+			}
+
 			start = idx + what.length
 			idx = indexOf(what, start)
 		}
-		return out + substring(start, length)
+
+		let tail = length - start
+
+		if tail > 0 {
+			memcpy(
+				(((buf as!UInt64) + ((o * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+				(((bytes as!UInt64) + ((start * 2) as!UInt64)) as!ConstArrayPointer<UInt8>),
+				tail * 2
+			)
+			o += tail
+		}
+		return fromUTF16Own(buf, n)
 	}
 	// RegExp first-arg overloads (same JS `String.prototype.replace/all` behavior)
 	fun replaceRegExp(what: RegExp, withString: String): String { return '' } // TODO
@@ -646,12 +761,95 @@ class String {
 		// TODO `length` must be immutable after construction
 	}
 
+	/// Byte size of `chars` units + the terminator (the exact capacity every
+	/// interned string owns; `fromUTF16Own` requires it).
+	static fun bytesFor(chars: Int): Int { return chars * 2 + 2 }
+	// TODO `@inline`
+
+	static fun ptrAdd(ptr: ConstArrayPointer<UInt16>, units: Int): ConstArrayPointer<UInt16> {
+		return ((ptr as!UInt64) + ((units * 2) as!UInt64)) as!ConstArrayPointer<UInt16>
+	}
+
+	/// Fresh `chars`-unit storage (exactly `bytesFor(chars)`), for
+	/// `fromUTF16Own` adoption.
+	static fun bufferAlloc(chars: Int): ArrayPointer<UInt16> {
+		return malloc(bytesFor(chars) as!UInt64) as!ArrayPointer<UInt16>
+	}
+
+	/// Copy `chars` units of `src` into `buf + at`; returns the new offset.
+	/// Raw-pointer form on purpose: builders append 3..8 parts without ARC
+	/// traffic or temporary arrays.
+	static fun appendBytes(buf: ArrayPointer<UInt16>, at: Int, src: ConstArrayPointer<UInt16>, chars: Int): Int {
+		if chars <= 0 { return at }
+		memcpy(
+			(((buf as!UInt64) + ((at * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+			src as!ConstArrayPointer<UInt8>,
+			chars * 2
+		)
+		return at + chars
+	}
+
+	static fun hashSeed(): UInt64 { return 2166136261u64 }
+	// TODO `static let` or just use the pointer to self as a seed
+
+	static fun hashUpdate(h0: UInt64, string: ConstArrayPointer<UInt16>, chars: Int): UInt64 {
+		var h: UInt64 = h0
+
+		for i in chars {
+			h = (h * 16777619u64) + (string[i] as!UInt64)
+		}
+
+		return h
+	}
+
+	static fun hashFinish(h: UInt64): Int {
+		let folded = h ^ (h >> 16)
+		return (folded & 2147483647u64) as!Int
+	}
+
+	static fun hashOf(string: ConstArrayPointer<UInt16>, offset: Int, chars: Int): Int {
+		return hashFinish(hashUpdate(hashSeed(), ptrAdd(string, offset), chars))
+	}
+
+	/// Intern-walk lookup only: the canonical entry for `chars` units at
+	/// `src + offset`, or null. No allocation, no linking.
+	static fun internLookup(hash: Int, bytesSize: Int, src: ConstArrayPointer<UInt16>, offset: Int, chars: Int): String? {
+		let bucket = hash % 65536
+		var cursor: String? = stringBuckets[bucket]
+
+		while true {
+			if let now = cursor {
+				// Either mismatch short-circuits the bucket slot (hash OR length).
+				if now.bytesHash == hash and now.bytesLength == bytesSize {
+					var i = 0
+					// Bounds first: content compare must not read past the slice.
+					while i < chars and src[offset + i] == now.bytes[i] { i++ }
+
+					if i == chars { return now }
+				}
+
+				cursor = now.next
+			} else {
+				break
+			}
+		}
+		return null
+	}
+
+	static fun internLink(hash: Int, entry: String) {
+		let bucket = hash % 65536
+		entry.next = stringBuckets[bucket]
+		stringBuckets[bucket] = entry
+	}
+
 	static fun countUTF8zUpTo(string: ConstArrayPointer<UInt8>, limit: Int): Int {
 		// TODO stop at UINT32_MAX or define MAX_STRING_LENGTH
 		// var size = 1u32 // TODO starts from 1? Nope, fromUTF16 adds own `\0`
 		var i = 0
 		// TODO scan 8 bytes at a time
-		while string[i] != 0 and i < limit {
+		// NOTE bound BEFORE the load: `string[i] != 0 and i < limit` read one
+		// unit past `limit` (the load was evaluated first)
+		while i < limit and string[i] != 0 {
 			i++
 		}
 		return i
@@ -668,11 +866,11 @@ class String {
 		let size: Int = countUTF8z(string)
 		// TODO test type check that constructor is private
 		// TODO use stack allocated array for small strings or .bss 64k one if size < 64k
-		let bytes = malloc(size * 2u64 + 2u64) as!ArrayPointer<UInt16>
 		// TODO alloc on stack if size is not that large (64k?)
-
 		// TODO proper UTF convert
 		// TODO copy 8 bytes at a time
+		let bytes = bufferAlloc(size)
+		// TODO proper UTF-8 decode (BMP multi-byte) — this widens Latin-1 only
 		for i in size {
 			bytes[i] = string[i]
 		}
@@ -690,7 +888,7 @@ class String {
 		// var size = 1u32 // TODO starts from 1? Nope, fromUTF16 adds own `\0`
 		var i = 0
 		// TODO scan 8 bytes at a time
-		while string[i] != 0 and i < limit {
+		while i < limit and string[i] != 0 {
 			i++
 		}
 		return i
@@ -767,6 +965,13 @@ class String {
 		// TODO allocate as `malloc(sizeof String + bytes)` to avoid pointer indirection
 		// TODO allocate 8-byte aligned for 8-byte comparison steps
 		let bytesStorage = malloc(bytesSize as!UInt64) as!ConstArrayPointer<UInt16>
+	/// Takes OWNERSHIP of `buf` (allocated with `bytesFor(chars)`): adopted on
+	/// a miss (zero copies — the concat/replace/pad builders write straight
+	/// into internable storage), freed on a hit. Saves the second malloc +
+	/// memcpy + free that every builder used to pay.
+	static fun fromUTF16Own(buf: ArrayPointer<UInt16>, chars: Int): String {
+		return fromUTF16OwnH(buf, chars, hashFinish(hashUpdate(hashSeed(), buf as!ConstArrayPointer<UInt16>, chars)))
+	}
 
 		result.bytes = bytesStorage
 		let bytes: ArrayPointer<UInt16> = result.bytes as!ArrayPointer<UInt16>
@@ -802,6 +1007,7 @@ class String {
 
 	// TODO disallow String? + String (i.e. left/this cannot be null)
 	// TODO with may be null
+	// TODO also add variadic version - do this one variadic (same as JS), and introduce concat2 instead
 	fun concat(with: String): String {
 		if this.length == 0 { return with }
 
@@ -823,22 +1029,137 @@ class String {
 			if with.length > 0 {
 				memcpy(right as!ArrayPointer<UInt8>, with.bytes as!ConstArrayPointer<UInt8>, with.length * 2)
 			}
+	// N-ary concat: genC flattens `a + b + c + …` (statically-`String` chains)
+	// into ONE call — one allocation, one intern instead of N-1 nested
+	// `concat`s where each step copied the whole prefix again.
+	static fun concat3(a: String, b: String, c: String): String {
+		if a.length == 0 { return b.concat(c) }
+
+		if b.length == 0 { return a.concat(c) }
+
+		if c.length == 0 { return a.concat(b) }
+		let total = a.length + b.length + c.length
+		let hash = hashFinish(hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length))
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, a.bytes, a.length)
+		o = appendBytes(buf, o, b.bytes, b.length)
+		o = appendBytes(buf, o, c.bytes, c.length)
+		return fromUTF16OwnH(buf, total, hash)
+	}
 
 			buf[length] = 0
 			return fromUTF16z(buf as!ConstArrayPointer<UInt16>)
 		}
+	static fun concat4(a: String, b: String, c: String, d: String): String {
+		if a.length == 0 { return concat3(b, c, d) }
+		let total = a.length + b.length + c.length + d.length
+		let hash = hashFinish(
+			hashUpdate(
+				hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length),
+				d.bytes,
+				d.length
+			)
+		)
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, a.bytes, a.length)
+		o = appendBytes(buf, o, b.bytes, b.length)
+		o = appendBytes(buf, o, c.bytes, c.length)
+		o = appendBytes(buf, o, d.bytes, d.length)
+		return fromUTF16OwnH(buf, total, hash)
+	}
 
 		let bytes = malloc(length * 2u64 + 2u64) as!ArrayPointer<UInt16>
+	static fun concat5(a: String, b: String, c: String, d: String, e: String): String {
+		if a.length == 0 { return concat4(b, c, d, e) }
+		let total = a.length + b.length + c.length + d.length + e.length
+		let hash = hashFinish(
+			hashUpdate(
+				hashUpdate(
+					hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length),
+					d.bytes,
+					d.length
+				),
+				e.bytes,
+				e.length
+			)
+		)
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, a.bytes, a.length)
+		o = appendBytes(buf, o, b.bytes, b.length)
+		o = appendBytes(buf, o, c.bytes, c.length)
+		o = appendBytes(buf, o, d.bytes, d.length)
+		o = appendBytes(buf, o, e.bytes, e.length)
+		return fromUTF16OwnH(buf, total, hash)
+	}
 
 		let left: ArrayPointer<UInt16> = bytes as!ArrayPointer<UInt16>
 		if this.length > 0 {
 			memcpy(left as!ArrayPointer<UInt8>, this.bytes as!ConstArrayPointer<UInt8>, this.length * 2)
 		}
+	static fun concat6(a: String, b: String, c: String, d: String, e: String, f: String): String {
+		if a.length == 0 { return concat5(b, c, d, e, f) }
+		let total = a.length + b.length + c.length + d.length + e.length + f.length
+		let hash = hashFinish(
+			hashUpdate(
+				hashUpdate(
+					hashUpdate(
+						hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length),
+						d.bytes,
+						d.length
+					),
+					e.bytes,
+					e.length
+				),
+				f.bytes,
+				f.length
+			)
+		)
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, a.bytes, a.length)
+		o = appendBytes(buf, o, b.bytes, b.length)
+		o = appendBytes(buf, o, c.bytes, c.length)
+		o = appendBytes(buf, o, d.bytes, d.length)
+		o = appendBytes(buf, o, e.bytes, e.length)
+		o = appendBytes(buf, o, f.bytes, f.length)
+		return fromUTF16OwnH(buf, total, hash)
+	}
 
 		let right: ArrayPointer<UInt16> = ((bytes as!UInt64) + this.length * 2) as!ArrayPointer<UInt16>
 		if with.length > 0 {
 			memcpy(right as!ArrayPointer<UInt8>, with.bytes as!ConstArrayPointer<UInt8>, with.length * 2)
 		}
+	static fun concat7(a: String, b: String, c: String, d: String, e: String, f: String, g: String): String {
+		if a.length == 0 { return concat6(b, c, d, e, f, g) }
+		let total = a.length + b.length + c.length + d.length + e.length + f.length + g.length
+		let hash = hashFinish(
+			hashUpdate(
+				hashUpdate(
+					hashUpdate(
+						hashUpdate(
+							hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length),
+							d.bytes,
+							d.length
+						),
+						e.bytes,
+						e.length
+					),
+					f.bytes,
+					f.length
+				),
+				g.bytes,
+				g.length
+			)
+		)
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, a.bytes, a.length)
+		o = appendBytes(buf, o, b.bytes, b.length)
+		o = appendBytes(buf, o, c.bytes, c.length)
+		o = appendBytes(buf, o, d.bytes, d.length)
+		o = appendBytes(buf, o, e.bytes, e.length)
+		o = appendBytes(buf, o, f.bytes, f.length)
+		o = appendBytes(buf, o, g.bytes, g.length)
+		return fromUTF16OwnH(buf, total, hash)
+	}
 
 		// TODO unit test this carefully
 		bytes[length] = 0
@@ -848,6 +1169,42 @@ class String {
 		let joined = fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
 		free(bytes as!RuntimeAllocated)
 		return joined
+	static fun concat8(a: String, b: String, c: String, d: String, e: String, f: String, g: String, h: String): String {
+		if a.length == 0 { return concat7(b, c, d, e, f, g, h) }
+		let total = a.length + b.length + c.length + d.length + e.length + f.length + g.length + h.length
+		let hash = hashFinish(
+			hashUpdate(
+				hashUpdate(
+					hashUpdate(
+						hashUpdate(
+							hashUpdate(
+								hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length),
+								d.bytes,
+								d.length
+							),
+							e.bytes,
+							e.length
+						),
+						f.bytes,
+						f.length
+					),
+					g.bytes,
+					g.length
+				),
+				h.bytes,
+				h.length
+			)
+		)
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, a.bytes, a.length)
+		o = appendBytes(buf, o, b.bytes, b.length)
+		o = appendBytes(buf, o, c.bytes, c.length)
+		o = appendBytes(buf, o, d.bytes, d.length)
+		o = appendBytes(buf, o, e.bytes, e.length)
+		o = appendBytes(buf, o, f.bytes, f.length)
+		o = appendBytes(buf, o, g.bytes, g.length)
+		o = appendBytes(buf, o, h.bytes, h.length)
+		return fromUTF16OwnH(buf, total, hash)
 	}
 
 	/// Concatenates strings safely
