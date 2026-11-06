@@ -909,16 +909,21 @@ class String {
 		return fromUTF16H(string, offset, chars, hashOf(string, offset, chars))
 	}
 
-		// TODO 64-bit steps
-		for i in chars {
-			hash += string[i]
-		}
+	/// Same, with the hash supplied by the caller (concat/slice compose the
+	/// hash while they already touch the bytes — no second pass over the copy).
+	static fun fromUTF16H(string: ConstArrayPointer<UInt16>, offset: Int, chars: Int, hash: Int): String {
+		let bytesSize = bytesFor(chars)
 
-		let bytesSize = chars * 2 + 2
-		var bucket = hash % 65536
+		if let found = internLookup(hash, bytesSize, string, offset, chars) { return found }
+		let result = new String()
+		let storage = malloc(bytesSize as!UInt64) as!ArrayPointer<UInt16>
 
-		if bucket < 0 {
-			bucket = bucket + 65536
+		if chars > 0 {
+			memcpy(
+				storage as!ArrayPointer<UInt8>,
+				(((string as!UInt64) + ((offset * 2) as!UInt64)) as!ConstArrayPointer<UInt8>),
+				chars * 2
+			)
 		}
 		var tail: String? = null
 		var cursor: String? = stringBuckets[bucket]
@@ -948,17 +953,14 @@ class String {
 					continue
 				}
 
-				// TODO arc++? Cause `@weak`
-				// console.log('deduplicated: ', now)
-				// TODO NONVCALLconsole.logString('deduplicated: ')
-				// TODO NONVCALLconsole.logString(now)
-				// trace(now.bytes as! ConstArrayPointer<ClangWideChar>)
-				// tofitaDebugLog('fromUTF16 deduplicated: %S'.utf16(), now.bytes as! UInt64)
-				return now
-			} else {
-				break
-			}
-		}
+		storage[chars] = 0
+		result.bytes = storage as!ConstArrayPointer<UInt16>
+		result.length = chars
+		result.bytesLength = bytesSize
+		result.bytesHash = hash
+		internLink(hash, result)
+		return result
+	}
 
 		// TODO test type check that constructor is private
 		// Produce new string
@@ -970,7 +972,6 @@ class String {
 	static fun fromUTF16Slice(parent: String, start: Int, chars: Int): String {
 		if chars <= 0 { return '' }
 
-		let result = new String()
 		if start == 0 and chars == parent.length { return parent }
 		return fromUTF16(parent.bytes, start, chars)
 	}
@@ -1035,7 +1036,16 @@ class String {
 		if length <= 255 {
 			var scratch: ArrayByValue<UInt16, 256> = [0]
 			let buf = scratch.address as!ArrayPointer<UInt16>
+			var o = appendBytes(buf, 0, this.bytes, this.length)
+			o = appendBytes(buf, o, with.bytes, with.length)
+			return fromUTF16H(buf as!ConstArrayPointer<UInt16>, 0, length, hash)
+		}
 
+		let buf = bufferAlloc(length)
+		var o = appendBytes(buf, 0, this.bytes, this.length)
+		o = appendBytes(buf, o, with.bytes, with.length)
+		return fromUTF16OwnH(buf, length, hash)
+	}
 
 	// N-ary concat: genC flattens `a + b + c + …` (statically-`String` chains)
 	// into ONE call — one allocation, one intern instead of N-1 nested
@@ -1221,40 +1231,49 @@ class String {
 		// ^ for some reason required despite being UInt16-array
 		// TODO ^ test it more, comment/overwrite `bytes[i] = 0` etc
 		var bytes: ArrayByValue<UInt16, 12> = [0]
+		if value >= 0 and value < 4096 {
+			let hit: String? = intCache[value]
 
 		// TODO error on out of bounds limit like `for i in 22` of `bytes`
 		// ^ maybe a possibility to runtime check these aka sanitize
 		for i in 12 {
 			// TODO `for i in bytes.itemsCount` of ArrayByValue
 			bytes[i] = 0
+			if not (hit == null) { return hit ! }
 		}
+		// NOTE reserves 2 bytes for null-terminator
+		var bytes: ArrayByValue<UInt16, 12> = [0]
+		var v = value
+		let negative = v < 0
 
-		var value = value
-		var pos = 10
-		let negative = value < 0
-
-		if negative {
-			value = -value
-		}
+		if negative { v = -v }
+		var pos = 11
 
 		while value >= 10 {
 			// TODO optimize if non-null value in normalizer? wrap to return 0?
 			bytes[pos] = '0'.charCodeAt(0) + (value % 10)
 			value = value \ 10
+		while v >= 10 {
 			pos--
+			bytes[pos] = (48 + (v % 10)) as!UInt16
+			v = v \ 10
 		}
 
 		bytes[pos] = '0'.charCodeAt(0) + (value % 10)
 		pos--
+		bytes[pos] = (48 + (v % 10)) as!UInt16
 
 		if negative {
 			bytes[pos] = '-'.charCodeAt(0)
-		} else {
-			pos++
+			pos--
+			bytes[pos] = 45
 		}
+		let chars = 11 - pos
+		// Length known — no `countUTF16z` rescan of the digit buffer.
+		let result = fromUTF16(bytes.address as!ConstArrayPointer<UInt16>, pos, chars)
 
-		let bytes = (bytes.address + pos * 2) as!ConstArrayPointer<UInt16>
-		return fromUTF16z(bytes as!ConstArrayPointer<UInt16>)
+		if value >= 0 and value < 4096 { intCache[value] = result }
+		return result
 	}
 
 	static fun fromInt64(value: Int64): String {
