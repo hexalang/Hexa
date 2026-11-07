@@ -144,6 +144,20 @@ int HEXA_MAIN(int, char **);
 	#define HEXA_CPP
 #endif
 
+// Small-runtime-helper inlining. The Hexa TU is compiled `/Od` (see
+// `build_msvc_hexa.bat`), where plain `inline` means nothing and every helper
+// below is a real call: the ARC scope guards (22k sites), the `Any` shape/tag
+// predicates (8k sites) and the string builder primitives. `__forceinline` is
+// the only form MSVC honours without optimization, so the per-`rc_` cost stays
+// a pair of instructions even in a debug build.
+#ifndef HEXA_FORCEINLINE
+	#ifdef _MSC_VER
+		#define HEXA_FORCEINLINE __forceinline
+	#else
+		#define HEXA_FORCEINLINE inline __attribute__((always_inline))
+	#endif
+#endif
+
 #ifndef HEXA_NEW
 	#ifndef HEXA_NO_PLATFORM_INCLUDES
 		#ifdef _WIN32
@@ -554,13 +568,8 @@ HEXA_C void Perfide_OnUnrefNeg_Default(void* p, void* caller) {
 // (`Map.nullValue`), and every dynamic-get miss (`Any_objectGet_`,
 // `AnyObject_hiddenDynGet_`, per-class `*_hiddenDynGet_`, `Any_dynGet_`,
 // `Any_indexGet_`) all emit the `HexaNone_` sentinel instead of a raw zero.
-// ONE producer is still outstanding: `Map_$K_$V_$new_` releases a nullptr temp
-// during early module init (`Map_$String_$RegexProgram_$new_` → AV read of 0x8
-// inside `~HexaDeferDecPtr_`), so the null test below stays until that ctor's
-// temp is found and sentineled. After that, the macros are literally
-// `rc_++` / `rc_--` — drop the test and re-run the smoke.
-#define hexaRef(p)   do { void* _hr_ = (void*)(p); if (_hr_ != nullptr) ((struct HexaHeader_*)_hr_)->rc_++; } while (0)
-#define hexaUnref(p) do { void* _hu_ = (void*)(p); if (_hu_ != nullptr) ((struct HexaHeader_*)_hu_)->rc_--; } while (0)
+#define hexaRef(p)   ((void)((p) && (((struct HexaHeader_*)(void*)(p))->rc_++)))
+#define hexaUnref(p) ((void)((p) && (((struct HexaHeader_*)(void*)(p))->rc_--)))
 
 // ── null sentinel (D2) ──────────────────────────────────────────────────────
 // The single representation of `null` for managed (`Foo_*`) and `Any` slots.
@@ -582,9 +591,6 @@ HEXA_C void hexaFillNone_(void** slots, size_t count) {
 	void* f_ = (void*)&HexaNone_;
 	for (size_t i_ = 0; i_ < count; i_++) slots[i_] = f_;
 }
-#ifdef _MSC_VER
-#pragma comment(linker, "/alternatename:Perfide_OnUnrefNeg=Perfide_OnUnrefNeg_Default")
-#endif
 // Sentinel-filling slot allocation (malloc under the hood) — the replacement
 // for `calloc` wherever slots hold nullable managed values.
 HEXA_C void* hexaSlotsAlloc(size_t count) {
@@ -592,6 +598,26 @@ HEXA_C void* hexaSlotsAlloc(size_t count) {
 	if (p_ == nullptr) return nullptr;
 	hexaFillNone_(p_, count);
 	return (void*)(p_);
+}
+// Grow-in-place twin of `hexaSlotsAlloc` (see `resizeSlots<T>` in
+// `library/c/c.hexa`): `realloc` + fill ONLY the fresh tail `[oldCount,
+// newCount)`. The live head keeps its bit pattern — the block may move, and the
+// references move with it (same array, no ownership transfer, so no counter
+// traffic). `realloc` failure keeps the old block (leak-safe, never a dangling
+// array).
+HEXA_C void* hexaResizeSlots(void** p, size_t oldCount, size_t newCount) {
+	void** q_ = (void**)(realloc((void*)(p), newCount * sizeof(void*)));
+	if (q_ == nullptr) return (void*)(p);
+	if (newCount > oldCount) hexaFillNone_(q_ + oldCount, newCount - oldCount);
+	return (void*)(q_);
+}
+// By-value slots: same contract, zero-filled tail (what `calloc` handed the
+// first block); the element size comes from the call site.
+HEXA_C void* hexaResizeScalar(void* p, size_t elemSize, size_t oldCount, size_t newCount) {
+	void* q_ = realloc(p, newCount * elemSize);
+	if (q_ == nullptr) return p;
+	if (newCount > oldCount) memset((char*)(q_) + (oldCount * elemSize), 0, (newCount - oldCount) * elemSize);
+	return q_;
 }
 // ── rc triage (opt-in: /DHEXA_RC_TRACE) ────────────────────────────────────
 // Nothing below is part of the ownership contract; it only NAMES the site when
@@ -601,23 +627,8 @@ HEXA_C void* hexaSlotsAlloc(size_t count) {
 #ifdef _MSC_VER
 	#include <intrin.h>
 	#pragma intrinsic(_ReturnAddress)
-#endif
-HEXA_C void hexaRef(void* p) {
-	int64_t v_ = (int64_t)(p);
-	if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return;
-	((struct HexaHeader_*)(p))->rc_++;
-}
-HEXA_C void hexaUnref(void* p) {
-	int64_t v_ = (int64_t)(p);
-	if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return;
-	((struct HexaHeader_*)(p))->rc_--;
-	HEXA_ASSERT(((struct HexaHeader_*)(p))->rc_ >= 0, "rc went negative: double release (stale value-captured guard or unbalanced transfer)");
-	if (((struct HexaHeader_*)(p))->rc_ < (int32_t)0) {
-#ifdef _MSC_VER
-		Perfide_OnUnrefNeg(p, _ReturnAddress());
 	#define HEXA_SITE_ADDR() _ReturnAddress()
 #else
-		Perfide_OnUnrefNeg(p, (void*)0);
 	#define HEXA_SITE_ADDR() ((void*)0)
 #endif
 // host-provided reporters (Perfide's main-hexa.cpp); other hosts may stub them
@@ -636,18 +647,13 @@ HEXA_C void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
 			Perfide_OnUnrefNeg(p, caller_);
 		}
 	}
-	if (((struct HexaHeader_*)(p))->rc_ == 0) {
-#ifdef _MSC_VER
-		Perfide_OnUnrefZero(p, _ReturnAddress());
-#else
-		Perfide_OnUnrefZero(p, (void*)0);
-#endif
 	if (rc_after_ == (int32_t)0) {
 		Perfide_OnUnrefZero(p, caller_);
 	}
 }
 #undef hexaUnref
-#define hexaUnref(p) do { void* _hu_ = (void*)(p); int32_t _hr_ = --(((struct HexaHeader_*)_hu_)->rc_); hexaRcCheck_(_hu_, _hr_, HEXA_SITE_ADDR()); } while (0)
+// #define hexaUnref(p) do { void* _hu_ = (void*)(p); int32_t _hr_ = --(((struct HexaHeader_*)_hu_)->rc_); hexaRcCheck_(_hu_, _hr_, HEXA_SITE_ADDR()); } while (0)
+#define hexaUnref(p) { void* _hu_ = (void*)(p); int32_t _hr_ = --(((struct HexaHeader_*)_hu_)->rc_); hexaRcCheck_(_hu_, _hr_, HEXA_SITE_ADDR()); }
 #endif // HEXA_RC_TRACE
 // D4 scope guard: `DeferRefDec` lowers to one of these per retained value
 // (constructed where ArcInserter put the Defer, destructs at block exit —
@@ -655,8 +661,7 @@ HEXA_C void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
 // non-throwing ctor keeps the inc-to-guard window empty by construction.
 // C++ only: pure-C targets use the inline best-effort form (F4.4).
 #ifdef __cplusplus
-template <typename T>
-struct HexaDeferDec_ { T o_; HexaDeferDec_(T o): o_(o) {} ~HexaDeferDec_() { hexaUnref((void*)o_); } };
+struct HexaDeferDec_ { void* o_; HEXA_FORCEINLINE HexaDeferDec_(void* o): o_(o) {} HEXA_FORCEINLINE ~HexaDeferDec_() { hexaUnref(o_); } };
 // Pointer-captured guard (genC prints it for plain Ident operands): releases
 // the value the VARIABLE holds at scope exit, not the construction snapshot.
 // ARC pairs a declaration guard with per-assignment temp guards (`x = e`
@@ -664,7 +669,7 @@ struct HexaDeferDec_ { T o_; HexaDeferDec_(T o): o_(o) {} ~HexaDeferDec_() { hex
 // double-release the FIRST value (rc drains toward 0 → the sweep frees live
 // objects) while the LAST value leaked. Fields/exps keep the snapshot form
 // (an overwritten field's old share is what must die).
-struct HexaDeferDecPtr_ { void** p_; HexaDeferDecPtr_(void** p): p_(p) {} ~HexaDeferDecPtr_() { hexaUnref(*p_); } };
+struct HexaDeferDecPtr_ { void** p_; HEXA_FORCEINLINE HexaDeferDecPtr_(void** p): p_(p) {} HEXA_FORCEINLINE ~HexaDeferDecPtr_() { hexaUnref(*p_); } };
 #endif
 
 // COM interop DEL
