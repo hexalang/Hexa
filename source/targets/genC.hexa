@@ -1097,7 +1097,7 @@ class GenCxx {
 							let vbind = '&' + c.name + '_$' + name + '_'
 							vtableBind.push(vbind)
 
-							out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+							out.push(linkagePrefixFor(isAsync, c.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							out.push(' ' + c.name + '_$' + name + '_')
 							out.push(printFunctionArguments(args, funcType, variadic))
 							let _currentReturnType = currentReturnType
@@ -1302,7 +1302,7 @@ class GenCxx {
 						}
 						continue
 					}
-					out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' return ' + boxed + '; ' + hrb + hnl)
+					out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(fn)) + ')) ' + hlb + ' return ' + boxed + '; ' + hrb + hnl)
 				}
 
 				// F10.4: bound METHOD values. The whole Perfide UI is
@@ -1319,7 +1319,7 @@ class GenCxx {
 						case Function(mname, _, _, _, funcType, _, isAsync):
 							if isBoxableMethod(mname, funcType, isAsync) {
 								let implName = c.name + '_$' + mname
-								out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + mname + hq + '))) ' + hlb + ' return Any_boxFatPair_((void(*)())(&' + implName + '_), self, ' + implName + '$call_); ' + hrb + hnl)
+								out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(mname)) + ')) ' + hlb + ' return Any_boxFatPair_((void(*)())(&' + implName + '_), self, ' + implName + '$call_); ' + hrb + hnl)
 
 								if not fatPairMethodNames.includes(implName) {
 									fatPairMethodNames.push(implName)
@@ -1375,7 +1375,7 @@ class GenCxx {
 							}
 							continue
 						}
-						out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' self->' + fn + '_ = ' + conv + '; return; ' + hrb + hnl)
+						out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(fn)) + ')) ' + hlb + ' self->' + fn + '_ = ' + conv + '; return; ' + hrb + hnl)
 					}
 				}
 
@@ -1389,7 +1389,7 @@ class GenCxx {
 
 				for i in hnames.length {
 					let fn = hnames[i]
-					out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) return (uint8_t)1;' + hnl)
+					out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(fn)) + ')) return (uint8_t)1;' + hnl)
 				}
 
 				if let parent = c.extend {
@@ -1411,7 +1411,7 @@ class GenCxx {
 
 				for i in hnames.length {
 					let fn = hnames[i]
-					out.push('\tif (i_ == (int32_t)' + i + ') return String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + ');' + hnl)
+					out.push('\tif (i_ == (int32_t)' + i + ') return ' + printExpression(Expression.String(fn)) + ';' + hnl)
 				}
 
 				if let parent = c.extend {
@@ -1570,12 +1570,12 @@ class GenCxx {
 
 			for v in c.staticMethods { switch v {
 					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
-						forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+						forwardFunctions.push(linkagePrefixFor(isAsync, c.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						forwardFunctions.push(' ' + c.name + '_$' + name + '_')
 						forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 						forwardFunctions.push(';\n')
 
-						out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+						out.push(linkagePrefixFor(isAsync, c.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						out.push(' ' + c.name + '_$' + name + '_')
 						out.push(printFunctionArguments(args, funcType, variadic))
 
@@ -1736,7 +1736,7 @@ class GenCxx {
 						// We have `link.convention = Default` if `link` is present
 						// out. types.push(defaultCallingConvention)
 						// }
-						let returns = linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
+						let returns = linkagePrefixFor(isAsync, name) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 						out.push(returns)
 						out.push(' ' + name)
 						out.push(printFunctionArguments(args, funcType, variadic))
@@ -2815,6 +2815,11 @@ class GenCxx {
 									return omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expectsOrDerived(expects, e))
 								}
 
+								// `@final` class: direct call, no vtable hop
+								if let direct = finalMethodName(exprType, name) {
+									return direct + printCallArgumentsVirtual('_$\(temp)', args, expectsOrDerived(expects, e))
+								}
+
 								return '_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, expectsOrDerived(expects, e))
 								// return
 								// '\{\n' + tabs +
@@ -3336,10 +3341,10 @@ class GenCxx {
 					} else if isAnyLikeValue(valueType(e)) {
 						// Any-shaped slots may hold managed payloads (or
 						// immediates/singletons): count through the runtime
-						// guard, never blind. Refs print twice like the
-						// neighboring arms — RefInc operands are always
-						// single-eval shapes (Ident temps, pure Dots).
-						incParts.push('if (Any_isCounted_((Any_*)(' + printExpression(e) + '))) hexaRef((void*)(' + printExpression(e) + '))')
+						// guard, never blind. One call, ONE evaluation of the
+						// operand — the old inline form printed the expression
+						// twice at every one of these sites.
+						incParts.push('Any_refCounted_((Any_*)(' + printExpression(e) + '))')
 					} else {
 						incParts.push('hexaRef(' + printExpression(e) + ')')
 					}
@@ -3404,14 +3409,14 @@ class GenCxx {
 							if isVarSlot {
 								decParts.push('HexaDeferCountedDecPtr_ _$defer' + tid + '_((void**)&(' + target + '));')
 							} else {
-								decParts.push('HexaDeferCountedDec_<void*> _$defer' + tid + '_(' + target + ');')
+								decParts.push('HexaDeferCountedDec_ _$defer' + tid + '_(' + target + ');')
 							}
 						} else {
 							null case
 							if isVarSlot {
 								decParts.push('HexaDeferDecPtr_ _$defer' + tid + '_((void**)&(' + target + '));')
 							} else {
-								decParts.push('HexaDeferDec_<void*> _$defer' + tid + '_(' + target + ');')
+								decParts.push('HexaDeferDec_ _$defer' + tid + '_(' + target + ');')
 							}
 						}
 						^ in normalizer
@@ -3444,7 +3449,7 @@ class GenCxx {
 					if isFatValueType(valueType(e)) {
 						legacyParts.push('hexaUnref(' + fatEnvStr(e) + ')')
 					} else if isAnyLikeValue(valueType(e)) {
-						legacyParts.push('if (Any_isCounted_((Any_*)(' + printExpression(e) + '))) hexaUnref((void*)(' + printExpression(e) + '))')
+						legacyParts.push('Any_unrefCounted_((Any_*)(' + printExpression(e) + '))')
 					} else {
 						legacyParts.push('hexaUnref(' + printExpression(e) + ')')
 					}
@@ -4184,7 +4189,7 @@ class GenCxx {
 	fun printIfaceFieldOn(recv: String, name: String, memberT: Type?): String {
 		let bag = anyDynGetStr(recv, name)
 		let q = String.fromCharCode(34)
-		let hiddenGet = 'HexaReflectFor_(((const void**)(' + recv + '))[0])->dyn_get_((void*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '))'
+		let hiddenGet = 'HexaReflectFor_(((const void**)(' + recv + '))[0])->dyn_get_((void*)(' + recv + '), ' + printExpression(Expression.String(name)) + ')'
 		var oldSlot = '(((' + recv + '))->' + name + '_)'
 
 		if isFatValueType(memberT) {
@@ -4236,7 +4241,7 @@ class GenCxx {
 		}
 		metaBlock.push(rT + ' ' + btmp + ' = ' + printExpression(expr))
 		metaBlock.push('Any_* ' + vtmp + ' = ' + ifaceVal)
-		let hiddenSet = 'HexaReflectFor_(((const void**)(' + btmp + '))[0])->dyn_set_((void*)(' + btmp + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '), ' + vtmp + ')'
+		let hiddenSet = 'HexaReflectFor_(((const void**)(' + btmp + '))[0])->dyn_set_((void*)(' + btmp + '), ' + printExpression(Expression.String(name)) + ', ' + vtmp + ')'
 		var oldStore = ''
 
 		if isFatValueType(memberT) {
@@ -5467,13 +5472,13 @@ class GenCxx {
 		r += '_Static_assert(offsetof(struct AnyFloat_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
 		r += 'Any_* Any_boxInt_(int64_t v) \{ if (v != (int64_t)0 && v >= (int64_t)-65535 && v <= (int64_t)65535) return (Any_*)(v); AnyInt_* b = (AnyInt_*)(HEXA_NEW(sizeof(AnyInt_))); b->_ = &AnyInt__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
 		r += 'Any_* Any_boxFloat_(double v) \{ double iv_ = (double)(int64_t)v; if (v != 0.0 && iv_ == v && iv_ >= (double)-65535.0 && iv_ <= (double)65535.0) return (Any_*)((int64_t)v); AnyFloat_* b = (AnyFloat_*)(HEXA_NEW(sizeof(AnyFloat_))); b->_ = &AnyFloat__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
-		r += 'int32_t Any_unboxInt_(Any_* p) \{ if (p == nullptr) return (int32_t)0; if (p == (Any_*)(&_true)) return (int32_t)1; if (p == (Any_*)(&_false)) return (int32_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int32_t)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (int32_t)(((AnyInt_*)(p))->v_); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int32_t)(((AnyFloat_*)(p))->v_); return (int32_t)0; \}\n'
-		r += 'int64_t Any_unboxInt64_(Any_* p) \{ if (p == nullptr) return (int64_t)0; if (p == (Any_*)(&_true)) return (int64_t)1; if (p == (Any_*)(&_false)) return (int64_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return ((AnyInt_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int64_t)(((AnyFloat_*)(p))->v_); return (int64_t)0; \}\n'
-		r += 'double Any_unboxFloat_(Any_* p) \{ if (p == nullptr) return (double)0.0; if (p == (Any_*)(&_true)) return (double)1.0; if (p == (Any_*)(&_false)) return (double)0.0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (double)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return ((AnyFloat_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (double)(((AnyInt_*)(p))->v_); return (double)0.0; \}\n'
+		r += 'HEXA_FORCEINLINE int32_t Any_unboxInt_(Any_* p) \{ if (p == nullptr) return (int32_t)0; if (p == (Any_*)(&_true)) return (int32_t)1; if (p == (Any_*)(&_false)) return (int32_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int32_t)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (int32_t)(((AnyInt_*)(p))->v_); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int32_t)(((AnyFloat_*)(p))->v_); return (int32_t)0; \}\n'
+		r += 'HEXA_FORCEINLINE int64_t Any_unboxInt64_(Any_* p) \{ if (p == nullptr) return (int64_t)0; if (p == (Any_*)(&_true)) return (int64_t)1; if (p == (Any_*)(&_false)) return (int64_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return ((AnyInt_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int64_t)(((AnyFloat_*)(p))->v_); return (int64_t)0; \}\n'
+		r += 'HEXA_FORCEINLINE double Any_unboxFloat_(Any_* p) \{ if (p == nullptr) return (double)0.0; if (p == (Any_*)(&_true)) return (double)1.0; if (p == (Any_*)(&_false)) return (double)0.0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (double)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return ((AnyFloat_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (double)(((AnyInt_*)(p))->v_); return (double)0.0; \}\n'
 		r += 'String_* Any_$toString_(Any_*);\n'
 		r += 'String_* String_$fromInt32_(int32_t);\n'
 		r += 'String_* String_$fromFloat_(double);\n'
-		r += 'String_* Any_unboxString_(Any_* p) \{ if (p == nullptr) return Any_$toString_(p); if (p == (Any_*)(&_true)) return Any_$toString_(p); if (p == (Any_*)(&_false)) return Any_$toString_(p); if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return String_$fromInt32_((int32_t)(int64_t)(p)); if (((const void**)(p))[0] == (const void*)(&String__$)) return (String_*)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return String_$fromInt32_((int32_t)(((AnyInt_*)(p))->v_)); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return String_$fromFloat_((double)(((AnyFloat_*)(p))->v_)); return Any_$toString_(p); \}\n'
+		r += 'HEXA_FORCEINLINE String_* Any_unboxString_(Any_* p) \{ if (p == nullptr) return Any_$toString_(p); if (p == (Any_*)(&_true)) return Any_$toString_(p); if (p == (Any_*)(&_false)) return Any_$toString_(p); if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return String_$fromInt32_((int32_t)(int64_t)(p)); if (((const void**)(p))[0] == (const void*)(&String__$)) return (String_*)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return String_$fromInt32_((int32_t)(((AnyInt_*)(p))->v_)); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return String_$fromFloat_((double)(((AnyFloat_*)(p))->v_)); return Any_$toString_(p); \}\n'
 		return r
 	}
 
@@ -5578,7 +5583,7 @@ class GenCxx {
 		// comparison in any project was broken the same way. Identity first
 		// (strings are interned, bools are singletons), then numeric by value;
 		// everything else stays referential (JS object identity).
-		r += 'uint8_t Any_equals_(Any_* a, Any_* b) ' + lb + ' if (a == b) return (uint8_t)1; uint8_t an_ = (uint8_t)(a == nullptr || a == (Any_*)(&HexaNone_)); uint8_t bn_ = (uint8_t)(b == nullptr || b == (Any_*)(&HexaNone_)); if (an_ != (uint8_t)0 || bn_ != (uint8_t)0) return (uint8_t)((an_ != (uint8_t)0 && bn_ != (uint8_t)0) ? 1 : 0); uint8_t an2_ = (uint8_t)(Any_isNumber_(a) || a == (Any_*)(&_true) || a == (Any_*)(&_false)); uint8_t bn2_ = (uint8_t)(Any_isNumber_(b) || b == (Any_*)(&_true) || b == (Any_*)(&_false)); if (an2_ && bn2_) return (uint8_t)(Any_unboxFloat_(a) == Any_unboxFloat_(b)); return (uint8_t)0; ' + rb + nl
+		r += 'HEXA_FORCEINLINE uint8_t Any_equals_(Any_* a, Any_* b) ' + lb + ' if (a == b) return (uint8_t)1; uint8_t an_ = (uint8_t)(a == nullptr || a == (Any_*)(&HexaNone_)); uint8_t bn_ = (uint8_t)(b == nullptr || b == (Any_*)(&HexaNone_)); if (an_ != (uint8_t)0 || bn_ != (uint8_t)0) return (uint8_t)((an_ != (uint8_t)0 && bn_ != (uint8_t)0) ? 1 : 0); uint8_t an2_ = (uint8_t)(Any_isNumber_(a) || a == (Any_*)(&_true) || a == (Any_*)(&_false)); uint8_t bn2_ = (uint8_t)(Any_isNumber_(b) || b == (Any_*)(&_true) || b == (Any_*)(&_false)); if (an2_ && bn2_) return (uint8_t)(Any_unboxFloat_(a) == Any_unboxFloat_(b)); return (uint8_t)0; ' + rb + nl
 		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (Any_*)(size_t)(&HexaNone_); if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (Any_*)(size_t)(&HexaNone_); const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (Any_*)(size_t)(&HexaNone_); return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
 		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: immediate receiver - field write dropped (box the receiver through Any first)\"); return; ' + rb + ' if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: receiver has no reflection - field write dropped (convert at the Any boundary)\"); return; ' + rb + ' HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); ' + rb + nl
 		// `obj[key]`: key shape picks the hidden slot (Int -> index_*,
@@ -6126,6 +6131,13 @@ class GenCxx {
 	/// become plain `HEXA_C` functions again and this prefix collapses.
 	fun linkagePrefix(isAsync: Bool): String {
 		if isAsync { return 'HEXA_CPP ' }
+		return 'HEXA_C '
+	}
+
+	fun linkagePrefixFor(isAsync: Bool, emittedName: String): String {
+		if isAsync { return 'HEXA_CPP ' }
+
+		if project.inlineFuncs.get(emittedName) == true { return 'HEXA_C HEXA_FORCEINLINE ' }
 		return 'HEXA_C '
 	}
 
@@ -7918,6 +7930,139 @@ class GenCxx {
 		return valueType(e)
 	}
 
+	/// Leaves of a `+` chain that is statically plain `String` all the way
+	/// down (parentheses unwrapped). Anything else — a nullable `String?`, an
+	/// `Any`, a number coerced by JS `+` — fails the walk and keeps the
+	/// nullable `String_$combine_` path with its `null` → `"null"` coercion.
+	fun collectStringAddLeaves(e: Expression, out: [Expression]): Bool {
+		var lhs: Expression? = null
+		var rhs: Expression? = null
+
+		switch e {
+			case Binop(a, op, b):
+				if op == Token.Add {
+					lhs = a
+					rhs = b
+				}
+			case Parenthesis(inner):
+				return collectStringAddLeaves(inner, out)
+			case _:
+		}
+
+		if lhs == null {
+			if valueType(e) != project.typer.typeString { return false }
+
+			if cShape(e) != 'String_*' { return false }
+			out.push(e)
+			return true
+		}
+		var ok = false
+
+		if let l = lhs {
+			ok = collectStringAddLeaves(l, out)
+		}
+
+		if not ok { return false }
+
+		if let r = rhs {
+			return collectStringAddLeaves(r, out)
+		}
+		return false
+	}
+
+	/// `@final` method on a parentless, non-template class: no override can
+	/// exist, so `recv->_->m(recv, …)` is provably `Cls_$m_(recv, …)` and the
+	/// direct call is emitted (the vtable load + indirect call was the only
+	/// thing keeping `charCodeAt`/`concat`/`substring` opaque to the C
+	/// optimizer). Async (needs `co_await`) and variadic (rest ABI) methods
+	/// keep the vtable path.
+	///
+	/// NOTE the `@final` trait is read off the DECLARATION node the type points
+	/// at, and `This`-typed receivers arrive as `Type.Class` (not
+	/// `ClassInstance`) — both arms below, or `this.someMethod()` inside a
+	/// `@final` class kept the vtable hop. The class scan must also not stop at
+	/// the FIRST name match: a generic instance can appear several times in
+	/// `project.classes` (per-module duplicates — the genC log prints
+	/// `duplicate struct Array_$…`) and the first copy may carry no methods.
+	fun finalMethodName(exprType: Type, name: String): String? {
+		var isFinal = false
+
+		switch exprType {
+			case ClassInstance(kind, _):
+				let atts = project.mapDecorators.get(kind.parent)
+				isFinal = Decorator.getDecorator(atts, 'final') != null
+				// `this` inside a method types as a bare `Class` value
+			case Class(kind):
+				let atts = project.mapDecorators.get(kind.parent)
+				isFinal = Decorator.getDecorator(atts, 'final') != null
+			case _:
+		}
+
+		if not isFinal { return null }
+		// NOTE the emitted member prefix is the NiceClass `name`
+		// (`Array_$int32_t` → `Array_$int32_t_$push_`), and instance types
+		// stringify to the POINTER form (`Array_$int32_t_*`, `String_*`), so the
+		// receiver side is stripped and compared with `name`/`name + '_'`.
+		// NOTE the class list can hold SEVERAL entries per monomorph (the genC
+		// log prints `duplicate struct Array_$…`), and the duplicate is the one
+		// whose `classType` still stringifies to the mangled name while being
+		// `useless` (no bodies emitted) — so key on the NAME + emit flags, never
+		// on `stringifyType(c.classType)` (that used to make every library-side
+		// receiver miss: only the useless duplicate matched, and the scan bailed
+		// out of the whole loop on the first name mismatch).
+		let wanted = omitPointer(stringifyType(exprType))
+
+		for c in project.classes {
+			if c.useless { continue }
+
+			if c.external { continue }
+
+			if c.name != wanted and c.name + '_' != wanted { continue }
+
+			if c.extend != null { continue }
+
+			if c.template { continue }
+			// Only a plain class DECLARATION emits `Name_$method_`; interfaces and
+			// erased shapes have no member bodies to call directly.
+			var isPlainClass = false
+
+			switch c.classType {
+				case Class(_): isPlainClass = true
+					// Monomorphization of a `@final` generic (`Array_$String_`):
+					// `isFinal` above already verified the decorator on the
+					// DECLARATION, `c.extend == null` (checked above) means no
+					// subclass can exist, and the mangled `c.name` already ends
+					// with `_` — the emitted member is `Name$method_`.
+				case ClassInstance(_, _): isPlainClass = true
+				case _:
+			}
+
+			if not isPlainClass { continue }
+			// Instantiated names already end with `_`: their members are
+			// `Array_$String_$join_`; plain classes emit `String_$trim_`.
+			var sep = '_$'
+
+			if c.name.endsWith('_') { sep = '$' }
+
+			for m in c.methods {
+				var direct: String? = null
+
+				switch m {
+					case Function(mname, _, _, _, mfuncType, mvariadic, misAsync):
+						if mname == name {
+							if misAsync { direct = null }
+							else if mvariadic != VariadicKind.NotVariadic { direct = null }
+							else { direct = c.name + sep + name + '_' }
+						}
+					case _:
+				}
+
+				if let hit = direct { return hit }
+			}
+		}
+		return null
+	}
+
 	/// C-shaped scalar classifiers for `==`/`!=` mismatched widths: pure
 	/// scalar pairs compare by VALUE (int64, or double if a float is
 	/// involved) so sentinel loops (`c != 0`) terminate after D7 boxing
@@ -9339,10 +9484,19 @@ class GenCxx {
 									case _:
 								}
 
+								var vtName = '_$\(temp)->_->' + name + '_'
+
+								if not isStruct {
+									// `@final` class: direct call, no vtable hop
+									if let direct = finalMethodName(exprType, name) {
+										vtName = direct
+									}
+								}
+
 								let result = if isStruct {
 									omitPointer(typeString) + '$' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, exprCallExpects(callExpectsField, e))
 								} else {
-									'_$\(temp)->_->' + name + '_' + printCallArgumentsVirtual('_$\(temp)', args, exprCallExpects(callExpectsField, e))
+									vtName + printCallArgumentsVirtual('_$\(temp)', args, exprCallExpects(callExpectsField, e))
 								}
 
 								for b in metaBlock {
@@ -9576,8 +9730,20 @@ class GenCxx {
 				if lhsC.startsWith('Null$') {
 					cond = '(' + tmp + '.has_ != 0)'
 				} else {
-					let nullLit = printExpression(Expression.Null(lhsT))
-					cond = '(' + tmp + ' != ' + nullLit + ')'
+					// D2: `null` is an OBJECT (`&HexaNone_`) for every
+					// managed/`Any` slot, and a raw zero still exists (the
+					// `(/*T = null*/…)(nullptr)` producers), so the null test
+					// must cover BOTH. A plain `!= nullptr` read the sentinel as
+					// PRESENT, which made `??` always take the lhs — the
+					// `elvis-fb-miss` probe (`get(k) ?? 'fb'` returned the
+					// sentinel instead of the fallback). Two compares, no call:
+					// an `Any` slot that holds a boxed 0/immediate is not null.
+					if lhsC.endsWith('*') and not lhsC.startsWith('_$') {
+						cond = '(' + tmp + ' != nullptr && ' + tmp + ' != (' + lhsC + ')(void*)(&HexaNone_))'
+					} else {
+						let nullLit = printExpression(Expression.Null(lhsT))
+						cond = '(' + tmp + ' != ' + nullLit + ')'
+					}
 				}
 				let resC = stringifyType(resT)
 				var thenS = ''
@@ -9687,6 +9853,54 @@ class GenCxx {
 						let boxedA = printToAnyConverter(printExpression(a), binopFromType(a))
 						let boxedB = printToAnyConverter(printExpression(b), binopFromType(b))
 
+						// `null` against a statically typed operand: compare against
+						// that operand's OWN null representation — the `&HexaNone_`
+						// sentinel object for managed references, the in-band
+						// `int32_t$null`-style literal for scalar nullables — instead
+						// of boxing both sides and calling `Any_equals_`. The boxed
+						// form was a real cost: `if let x = arr[i]` on `[Int]`
+						// allocated a box per test (`Any_boxInt_`) and `s != null` on
+						// a `String?` paid a helper call for one pointer compare.
+						// `valueType` (DECLARED type) is what makes this sound: the
+						// use node is exactly what claimed `Any` for the other side.
+						var firstNull = false
+						var secondNull = false
+						switch a { case Null(_): firstNull = true case _: }
+
+						switch b { case Null(_): secondNull = true case _: }
+
+						if firstNull != secondNull {
+							let operand = firstNull? b : a
+							let operandType = valueType(operand)
+							let operandC = binopShape(operand)
+							var nullTest: String? = null
+
+							if isNullSentinelType(operandType) {
+								let v = printExpression(operand)
+								// twin form: `null` is the sentinel OBJECT for every
+								// managed slot, but raw-zero producers still exist
+								// (same reason the Elvis temp test covers both)
+								nullTest = '(' + v + ' == nullptr || ' + v + ' == (' + operandC + ')(void*)(&HexaNone_))'
+							} else {
+								let nullLit: String = printExpression(Expression.Null(operandType))
+
+								if nullLit != 'nullptr' {
+									nullTest = '(' + printExpression(operand) + ' == ' + nullLit + ')'
+								}
+							}
+
+							if let nt = nullTest {
+								let cmp = op == Token.Equal? nt : '(!' + nt + ')'
+								let resC = stringifyType(getType(e))
+
+								if resC == 'Any_*' {
+									return '(struct Any_ *)(size_t)(' + cmp + ')'
+								}
+
+								return '(' + resC + ')(' + cmp + ')'
+							}
+						}
+
 						if aName == 'Any_*' or bName == 'Any_*' {
 							let eqCall = 'Any_equals_(' + boxedA + ', ' + boxedB + ')'
 							return op2 == '!=' ? '(!' + eqCall + ')' : eqCall
@@ -9697,7 +9911,26 @@ class GenCxx {
 				}
 
 				if op == Token.Add {
-					if getType(a) == project.typer.typeString {
+					// `a + b + c` over statically plain `String`s: ONE n-ary
+					// concat (one allocation + one intern) instead of n-1
+					// nested `concat`s where every step copied the prefix again.
+					var leaves: [Expression] = []
+
+					if collectStringAddLeaves(e, leaves) {
+						if leaves.length == 2 {
+							return 'String_$concat_(' + printExpression(leaves[0]) + ', ' + printExpression(leaves[1]) + ')'
+						}
+
+						if leaves.length >= 3 and leaves.length <= 8 {
+							var parts: [String] = []
+
+							for leaf in leaves {
+								parts.push(printExpression(leaf))
+							}
+							return 'String_$concat\(leaves.length)_(' + parts.join(', ') + ')'
+						}
+					}
+
 					if cShape(a) == 'String_*' {
 						return 'String_$combine_(' + printExpression(a) + ', ' + printTypeConverter(printExpression(b), valueType(b), project.typer.typeString) + ')'
 					}
@@ -10185,6 +10418,52 @@ class GenCxx {
 
 							return 'calloc((uint64_t)(' + printExpression(args[0]) + '), sizeof(' + slotShape + '))'
 						}
+
+						if let params = params, s == '&freeSlots' {
+							// Teardown half of `slotsAlloc<T>` — emitted as ONE
+							// call, never as an inline per-slot loop:
+							// * pointer-managed T → `hexaFreeSlots` (one plain
+							// `hexaUnref` per live slot + free the block);
+							// * `Any`-shaped T → `hexaFreeAnySlots` (COUNTED:
+							// immediates and Bool singletons have no header);
+							// * by-value T → nothing to release, just free.
+							// `count` is the container's LIVE length: the tail
+							// `[count, capacity)` is sentinel/zero filled and owns
+							// nothing (releasing a sentinel fill would drain the
+							// shared `&HexaNone_` counter per dead slot).
+							let slotShape = stringifyType(params[0])
+							let ptr = printExpression(args[0])
+							let count = printExpression(args[1])
+
+							if not slotShape.endsWith('*') {
+								return '(free((void*)(' + ptr + ')), (int32_t)(' + count + '))'
+							}
+
+							if slotShape == 'Any_*' {
+								return 'hexaFreeAnySlots((struct Any_**)(' + ptr + '), (size_t)(' + count + '))'
+							}
+
+							return 'hexaFreeSlots((void**)(' + ptr + '), (size_t)(' + count + '))'
+						}
+
+						if let params = params, s == '&resizeSlots' {
+							// Grow-in-place twin of `&slotsAlloc` (see
+							// `resizeSlots<T>` in library/c/c.hexa): the same
+							// slot-shape split, applied to the fresh tail only,
+							// on top of `realloc` — no full re-fill, no
+							// per-slot copy loop, no free+alloc.
+							let slotShape = stringifyType(params[0])
+							let p = printExpression(args[0])
+							let oc = printExpression(args[1])
+							let nc = printExpression(args[2])
+
+							if not slotShape.endsWith('*') {
+								return '((' + slotShape + '*)hexaResizeScalar((void*)(' + p + '), sizeof(' + slotShape + '), (size_t)(' + oc + '), (size_t)(' + nc + ')))'
+							}
+
+							return '((' + slotShape + '*)hexaResizeSlots((void**)(' + p + '), (size_t)(' + oc + '), (size_t)(' + nc + ')))'
+						}
+
 						return s + printCallArguments(args)
 					case Prefix:
 						return '(' + s + '(' + printExpression(args[0]) + '))'
