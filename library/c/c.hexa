@@ -84,6 +84,43 @@ declare fun sizeOfPreferPointer<T>(): UInt64 // TODO UInt32
 @operator('&slotsAlloc')
 declare fun slotsAlloc<T>(count: Int): RuntimeAllocated
 
+// Counterpart of `slotsAlloc<T>` — the ONE place that knows how a slot is
+// released, and the teardown half of every container: `Array<T>.destroy`
+// (`library/c/array.hexa`) calls it with its LIVE length, so the storage a
+// container grew is freed exactly once and by the same shape rules that
+// allocated it. The tail `[count, capacity)` is sentinel/zero filled and owns
+// nothing — releasing a `&HexaNone_` fill would drain the shared sentinel
+// counter once per dead slot per dead array, so `count` is the LIVE length,
+// never the capacity.
+//
+// Lowered by the `&freeSlots` arm in genC, shape-split exactly like
+// `slotsAlloc`:
+//   * pointer-managed T (classes/interfaces/`String`/`Array`/`Map`) → one
+//     `hexaUnref` per live slot;
+//   * `Any`-shaped T → COUNTED release (`Any_isCounted_` first: immediates and
+//     Bool singletons carry no header and must be skipped);
+//   * by-value T (`Int`/`UInt32`/`Float`/`Bool`/`@byValue` structs) → nothing
+//     to release, the block is simply freed.
+//
+// Returns the number of slots it released (the `count` it was given), which is
+// what keeps call sites in EXPRESSION position: the operator lowering runs in
+// `nodeToExpression` only, so a bare statement call would emit a plain
+// `freeSlots_<T>(...)` C call instead (the statement path has no
+// discard-expression form yet).
+@nativeGeneric
+@operator('&freeSlots')
+declare fun freeSlots<T>(data: ArrayPointer<T>, count: Int): Int
+
+/// Grow-in-place twin of `slotsAlloc<T>`: `realloc` to `newCapacity` slots and
+/// fill ONLY the fresh tail `[oldCapacity, newCapacity)` by the same shape rule
+/// the allocation used (sentinel for pointer slots, zeroes for by-value slots).
+/// The live head is a bit copy — `realloc` may move the block, and the
+/// references move with it: moving a value between two blocks of the SAME array
+/// is not ownership traffic, so nothing is retained or released here.
+@nativeGeneric
+@operator('&resizeSlots')
+declare fun resizeSlots<T>(data: ArrayPointer<T>, oldCapacity: Int, newCapacity: Int): ArrayPointer<T>
+
 // @rename('dereferenceOf')
 // @header('#define dereferenceOf(v) (*(v))')
 // @nativeGeneric
@@ -1152,7 +1189,40 @@ class Object {
 		}
 		return []
 	}
-	static fun assign(target: Any,...sources: Any): Any { return target }
+	// `Object.assign(target, ...sources)` — merges by copying the sources' own
+	// keys through the AnyObject runtime (the shape every `{…}` literal, every
+	// `JSON.parse` result and `process.env` carries).
+	//
+	// This used to be `{ return target }`, i.e. a silent no-op: the merged
+	// result was DEFAULTS ONLY. That killed every merged payload on native —
+	// the Perfide event bag (`Object.assign({ …event defaults }, raw)`) came
+	// back with clientX/clientY/key/button still at their defaults, so the
+	// whole mouse/keyboard layer was dead under the Hexa-built exe while the js
+	// target worked. Same for `Object.assign({ }, process.env)` in the terminal,
+	// debugger and LSP spawn paths.
+	//
+	// Non-bag receivers keep JS's silent no-op result (reflection-based merging
+	// of class instances is a separate, still-open F10 item) — callers only
+	// merge bags.
+	static fun assign(target: Any,...sources: Any): Any {
+		if not anyIsObject(target) { return target }
+		// Index loop, not `for src in sources`: direct rest iteration lowers to
+		// an empty loop on native (length/index go through $nrest/$rest).
+		for i in sources.length {
+			if let src = sources[i] {
+				if not anyIsObject(src) { continue }
+				let keys = anyObjectKeys(src)
+				for k in keys.length {
+					if let key = keys[k] {
+						// Null values read back as missing through
+						// `Any_objectGet_`, so only present values copy over.
+						if let v = anyObjectGet(src, key) { anyObjectSet(target, key, v) }
+					}
+				}
+			}
+		}
+		return target
+	}
 	static fun freeze(obj: Any): Any { return obj }
 	static fun seal(obj: Any): Any { return obj }
 	static fun isSame(value1: Any, value2: Any): Bool { return value1 == value2 }
