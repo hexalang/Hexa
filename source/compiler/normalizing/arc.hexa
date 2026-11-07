@@ -49,9 +49,9 @@ class ArcInserter {
 	var arcCatchGuards Int = 0
 	var arcWrappedBodies Int = 0
 	var arcBufferStores Int = 0
-	var arcDestroyMarked Int = 0
 	var arcImmortalRetains Int = 0
 	var arcWeakStores Int = 0
+	var weakLocals [String] = []
 	// TEMP-DIAG (triage only): first дороге weak-Dot misses + the weak table.
 	var arcWeakMisses [String] = []
 	var arcWeakLogged Int = 0
@@ -94,35 +94,6 @@ class ArcInserter {
 				return name
 			case _:
 				return null
-		}
-	}
-
-	/// Marks container instances whose elements ARC counts (F11.2 destroy
-	/// side): Array with a managed element type gets an element walk + buffer
-	/// free (kind 1), other Arrays a buffer free only (kind 2 — walking
-	/// scalars would corrupt), every Map an inner-array release (kind 3 — the
-	/// inner arrays are separate heap objects freed by the sweep through their
-	/// own destroys). Templates carry generic stubs (never managed) and never
-	/// mark — only monomorphized instances do.
-	fun markContainerDestroy(nc: NiceClass) {
-		switch nc.classType {
-			case ClassInstance(c, generics):
-				if c.name == 'Array', generics.length > 0 {
-					if let e0 = generics[0] {
-						if this.needsARC(e0) {
-							nc.destroyKind = 1
-						} else {
-							nc.destroyKind = 2
-						}
-						arcDestroyMarked++
-					}
-				}
-
-				if c.name == 'Map', generics.length > 1 {
-					nc.destroyKind = 3
-					arcDestroyMarked++
-				}
-			case _:
 		}
 	}
 
@@ -245,8 +216,6 @@ class ArcInserter {
 		}
 
 		for cls in niceProject.classes { // Process class methods
-			this.markContainerDestroy(cls)
-
 			for i in cls.methods.length {
 				cls.methods[i] = this.wrapBodyToBlock(cls.methods[i])
 				arcFuncKey = arcKeyFor(cls.name, stmtFuncName(cls.methods[i]) ?? '')
@@ -305,7 +274,6 @@ class ArcInserter {
 				arcImmortalRetains += immortal.length
 			}
 		}
-		Fs.writeFileSync('arc-trace.log', 'ARC-ELIDE params=' + arcElidedParams + ' retained=' + arcRetainedParams + ' returnRetains=' + arcReturnRetains + ' returnUnknown=' + arcReturnUnknown + ' transferredInits=' + arcTransferredInits + ' fieldStores=' + arcFieldStores + ' dotAssignsSeen=' + arcDotAssignsSeen + ' dotImpure=' + arcDotImpure + ' dotNonARC=' + arcDotNonARC + ' bareReturns=' + arcBareReturns + ' indexAssignsSeen=' + arcIndexAssignsSeen + ' indexStores=' + arcIndexStores + ' discardedCalls=' + arcDiscardedCalls + ' callTemps=' + arcCallTemps + ' callTempsSkipped=' + arcCallTempsSkipped + ' throwRetains=' + arcThrowRetains + ' catchGuards=' + arcCatchGuards + ' wrappedBodies=' + arcWrappedBodies + ' bufferStores=' + arcBufferStores + ' destroyMarked=' + arcDestroyMarked + ' immortalRetains=' + arcImmortalRetains + ' weakStores=' + arcWeakStores)
 		// TEMP-DIAG: weak-field table + first unresolvable Dot bases.
 		var wtab: [String] = []
 
@@ -321,6 +289,9 @@ class ArcInserter {
 	fun processStatement(s: Statement) Void { // Recurse and mutate statements
 		switch s {
 			case Block(els):
+				// `@weak` locals live for the duration of this block only
+				let weakMark = this.weakLocals.length
+
 				for el in els { this.processStatement(el) } // Recurse first to handle nested
 				var i = 0
 
@@ -333,7 +304,11 @@ class ArcInserter {
 							// is mutation-free; only nested bodies insert.
 							if expr != null { this.processExpression(expr) }
 
-							if expr != null and this.needsRefRetain(dataType) { // If initialized ARC local
+							// `@weak` local: borrowed, non-owning — the declaration
+							// takes no share, so there is no guard to release.
+							if this.takeWeakLocal(els[i], name) {
+								arcWeakLocals++
+							} else if expr != null and this.needsRefRetain(dataType) { // If initialized ARC local
 								let obj = Expression.Ident(name, dataType) // Object to ref count
 								if this.isFreshOwned(expr) {
 									els.spliceAndInsert(i + 1, 0, Statement.DeferRefDec([obj])) // Transfer: +1 already, guard release only
@@ -348,7 +323,10 @@ class ArcInserter {
 						case Var(name, expr, dataType): // Similar for Var, but if reassigned, handled separately
 							if expr != null { this.processExpression(expr) }
 
-							if expr != null and this.needsRefRetain(dataType) {
+							// `@weak` local: same as the `Const` arm above.
+							if this.takeWeakLocal(els[i], name) {
+								arcWeakLocals++
+							} else if expr != null and this.needsRefRetain(dataType) {
 								let obj = Expression.Ident(name, dataType)
 
 								if this.isFreshOwned(expr) {
@@ -434,7 +412,12 @@ class ArcInserter {
 
 							switch left {
 								case Ident(name, _):
-									if this.needsRefRetain(left_dataType) { // Handle reassign for ARC var
+									// `@weak` local: the slot never owned a share, so an
+									// assignment neither retains the new value nor
+									// releases the old one (plain pointer store).
+									if this.isWeakLocal(name) {
+										arcWeakLocals++
+									} else if this.needsRefRetain(left_dataType) { // Handle reassign for ARC var
 										let temp_name = this.unique('temp_old')
 										let temp = Expression.Ident(temp_name, left_dataType)
 										els.spliceAndInsert(i, 0, Statement.Const(temp_name, left, left_dataType)) // Save old
@@ -562,7 +545,11 @@ class ArcInserter {
 
 							switch left {
 								case Ident(name, _):
-									if this.needsARC(left_type) {
+									if this.isWeakLocal(name) {
+										// `@weak` local: `x op= y` is a plain read-modify-write
+										// with no ownership change (see `isWeakLocal`).
+										arcWeakLocals++
+									} else if this.needsARC(left_type) {
 										let temp_old_name = this.unique('temp_old')
 										let temp_old = Expression.Ident(temp_old_name, left_type)
 										let temp_right_name = this.unique('temp_right')
@@ -724,6 +711,8 @@ class ArcInserter {
 					}
 					i++
 				}
+				// drop this block's `@weak` locals (nested blocks restored their own)
+				while this.weakLocals.length > weakMark { this.weakLocals.pop() }
 			case Function(name, body, args, defaults, dataType, variadic, isAsync):
 				if body != null {
 					this.processStatement(body) // Recurse on body
@@ -967,6 +956,23 @@ class ArcInserter {
 			case _:
 				return false
 		}
+	}
+
+	/// `@weak` LOCAL declaration: the normalizer copies the decorator onto the
+	/// Nice `Var`/`Const` node (typed nodes are what `project.mapDecorators` is
+	/// keyed by), so the declaration site can be recognised here by identity —
+	/// no name-based guessing, no cross-function leakage. Records the renamed
+	/// name in `weakLocals` for the following assignments in this scope.
+	fun takeWeakLocal(s: Statement, name: String): Bool {
+		if this.niceProject.weakLocals.get(name) != true { return false }
+
+		this.weakLocals.push(name)
+		return true
+	}
+
+	/// Is `name` an active `@weak` local in the scope being processed?
+	fun isWeakLocal(name: String): Bool {
+		return this.weakLocals.includes(name)
 	}
 
 	/// Weak-link Dot stores (`@weak` instance fields, e.g. the intern-bucket
