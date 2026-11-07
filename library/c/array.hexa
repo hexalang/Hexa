@@ -22,6 +22,7 @@
 
 // TODO decorators like `@final` etc
 // TODO `Array` should behave as interface for all other array implementations, so documentation is valid
+@final
 class Array<T> {
 	// TODO do not store "capacity" - it can be always(?) calculated from length
 	var length: Int = 0
@@ -55,20 +56,7 @@ class Array<T> {
 			if newCapacity <= index {
 				newCapacity = index * 2 // TODO align or something
 			}
-
-			let newData = malloc(sizeOfPreferPointer<T>() * newCapacity) as!ArrayPointer<T>
-			let newData = calloc(newCapacity as!UInt64, sizeOfPreferPointer<T>() as!UInt64) as!ArrayPointer<T>
-			// TODO realloc (calloc zeroes so slots beyond `length` read as null)
-			let newData = slotsAlloc<T>(newCapacity) as!ArrayPointer<T>
-			// TODO realloc (managed slots are `null`-sentinel filled, scalar
-			// slots zeroed — see `slotsAlloc<T>` in library/c/c.hexa)
-
-			for i in length {
-				newData[i] = data[i]
-			}
-
-			free(data as!RuntimeAllocated)
-			data = newData
+			data = resizeSlots<T>(data, capacity, newCapacity)
 			capacity = newCapacity
 		}
 
@@ -494,4 +482,6 @@ class Array<T> {
 	}
 
 	static fun isArray(value: Any): Bool { return false }
+	@destructor fun destroy() {
+	}
 }
