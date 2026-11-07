@@ -765,10 +765,10 @@ class String {
 
 	/// Byte size of `chars` units + the terminator (the exact capacity every
 	/// interned string owns; `fromUTF16Own` requires it).
-	static fun bytesFor(chars: Int): Int { return chars * 2 + 2 }
+	@inline static fun bytesFor(chars: Int): Int { return chars * 2 + 2 }
 	// TODO `@inline`
 
-	static fun ptrAdd(ptr: ConstArrayPointer<UInt16>, units: Int): ConstArrayPointer<UInt16> {
+	@inline static fun ptrAdd(ptr: ConstArrayPointer<UInt16>, units: Int): ConstArrayPointer<UInt16> {
 		return ((ptr as!UInt64) + ((units * 2) as!UInt64)) as!ConstArrayPointer<UInt16>
 	}
 
@@ -794,7 +794,7 @@ class String {
 	static fun hashSeed(): UInt64 { return 2166136261u64 }
 	// TODO `static let` or just use the pointer to self as a seed
 
-	static fun hashUpdate(h0: UInt64, string: ConstArrayPointer<UInt16>, chars: Int): UInt64 {
+	@inline static fun hashUpdate(h0: UInt64, string: ConstArrayPointer<UInt16>, chars: Int): UInt64 {
 		var h: UInt64 = h0
 
 		for i in chars {
@@ -804,42 +804,39 @@ class String {
 		return h
 	}
 
-	static fun hashFinish(h: UInt64): Int {
+	@inline static fun hashFinish(h: UInt64): Int {
 		let folded = h ^ (h >> 16)
 		return (folded & 2147483647u64) as!Int
 	}
 
-	static fun hashOf(string: ConstArrayPointer<UInt16>, offset: Int, chars: Int): Int {
+	@inline static fun hashOf(string: ConstArrayPointer<UInt16>, offset: Int, chars: Int): Int {
 		return hashFinish(hashUpdate(hashSeed(), ptrAdd(string, offset), chars))
 	}
 
 	/// Intern-walk lookup only: the canonical entry for `chars` units at
 	/// `src + offset`, or null. No allocation, no linking.
 	static fun internLookup(hash: Int, bytesSize: Int, src: ConstArrayPointer<UInt16>, offset: Int, chars: Int): String? {
-		let bucket = hash % 65536
-		var cursor: String? = stringBuckets[bucket]
+		let bucket = hash & 65535
+		@weak var cursor: String? = stringBuckets[bucket]
 
-		while true {
-			if let now = cursor {
-				// Either mismatch short-circuits the bucket slot (hash OR length).
-				if now.bytesHash == hash and now.bytesLength == bytesSize {
-					var i = 0
-					// Bounds first: content compare must not read past the slice.
-					while i < chars and src[offset + i] == now.bytes[i] { i++ }
+		while cursor != null {
+			@weak let now = cursor !
 
-					if i == chars { return now }
-				}
-
-				cursor = now.next
-			} else {
-				break
+			if now.bytesHash == hash and now.bytesLength == bytesSize {
+				if memcmp(
+					(((src as!UInt64) + ((offset * 2) as!UInt64)) as!ArrayPointer<UInt8>),
+					now.bytes as!ConstArrayPointer<UInt8>,
+					(chars * 2) as!SizeOfPointer
+				) == 0 { return now }
 			}
+
+			cursor = now.next
 		}
 		return null
 	}
 
 	static fun internLink(hash: Int, entry: String) {
-		let bucket = hash % 65536
+		let bucket = hash & 65535
 		entry.next = stringBuckets[bucket]
 		stringBuckets[bucket] = entry
 	}
@@ -1525,7 +1522,7 @@ class String {
 	// their own bytes and leave buckets untouched (leak-safe).
 	@destructor fun destroy() {
 		// TODO is `%` operation too slow? use first 16 bits?
-		let bucket = bytesHash % 65536
+		let bucket = bytesHash & 65535
 		let selfAddr = bytes as!UInt64
 		var prev: String? = null
 		var cursor: String? = stringBuckets[bucket]
