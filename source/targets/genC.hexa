@@ -42,7 +42,7 @@ class GenCxx {
 	/// Quick access
 	var memory64 = true
 	let nativeIterators = false
-	let globalAccessor = ''
+	let globalAccessor = '' // TODO no name no error: fun x()
 	var project: NiceProject
 	var declarationsOfFunctions: [String] = []
 	var declarationsOfOpaqueTypes: [String] = []
@@ -330,9 +330,10 @@ class GenCxx {
 	// tag global), for the sweep victim-name table. Collected at vtable
 	// emission so the table can only reference symbols that exist.
 	let vtableClasses: [String] = []
-	// Vtable-managed container class names (destroyKind 1/2 arrays) for the
+	// Vtable-managed container class names (classes whose `@destructor`
+	// releases owned storage — Array/Map slots, String bytes) for the
 	// sweep bisect: `hexaArrayTags_` lets `HEXA_SWEEP_MODE=2` skip exactly
-	// the array-element unref cascade while freeing everything else.
+	// the storage-release cascade while freeing everything else.
 	let arrayDestroyTags: [String] = []
 	// D2: `ArrayByValue<T?, N>` globals whose BSS zero-fill is not `null` —
 	// each entry is one `hexaFillNone_` statement for the boot prologue.
@@ -407,6 +408,10 @@ class GenCxx {
 		// D2 sentinel env for null-fat values (see Global variables section).
 		// Typed `Any` so pair assembly bridges via `(size_t)` (void* value).
 		globalDecls.set('hexaSentinelEnv', project.typer.typeAny)
+		// Emit-time class renames FIRST (see `renameClassNamesEmit`): every
+		// name-keyed lookup done while printing must see the EMITTED names,
+		// not the pre-rename Nice ones.
+		renameClassNamesEmit()
 		buildVoidFuncs()
 		forward.push(printReflectABI())
 		forward.push(printNullSentinel())
@@ -563,7 +568,7 @@ class GenCxx {
 						currentReturnType = getFunctionReturnType(funcType)
 						let _insideAsyncFunction = insideAsyncFunction
 						insideAsyncFunction = isAsync
-						// out.push(' {};\\n')
+						// out.push(' \{\};\n')
 						out.push(' ' + (isAsync? printFunctionBody(expr, printFunctionReturnType(funcType)) : printBlock(expr)) + ';\n\n')
 						insideAsyncFunction = _insideAsyncFunction
 						currentReturnType = _currentReturnType
@@ -1583,7 +1588,7 @@ class GenCxx {
 						currentReturnType = getFunctionReturnType(funcType)
 						let _insideAsyncFunction = insideAsyncFunction
 						insideAsyncFunction = isAsync
-						// out.push('\t{printf(\"\(c.name).\(name)()\\n\");\n\t')
+						// out.push('\t{printf("\{c.name}.\{name}()\\n");\n\t')
 						// out.push('\\{\\};\\n')
 						if let e = expr {
 							out.push(' ' + (isAsync? printFunctionBody(e, printFunctionReturnType(funcType)) : printBlock(e)) + ';\n\n')
@@ -1700,7 +1705,7 @@ class GenCxx {
 						types.push(customHeader)
 						types.push('\n')
 					} else if expr != null or shouldEmitHeader {
-						types.push(linkagePrefix(isAsync) + spec)
+						types.push(linkagePrefixFor(isAsync, name) + spec)
 						types.push((isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						types.push(' ' + name)
 						types.push(printFunctionArguments(args, funcType, variadic))
@@ -2816,7 +2821,7 @@ class GenCxx {
 								}
 
 								// `@final` class: direct call, no vtable hop
-								if let direct = finalMethodName(exprType, name) {
+								if let direct = finalMethodName(exprType, name, 'stmt', exprPos(expr)) {
 									return direct + printCallArgumentsVirtual('_$\(temp)', args, expectsOrDerived(expects, e))
 								}
 
@@ -5556,12 +5561,12 @@ class GenCxx {
 		r += 'template <typename T> struct HexaDeferCountedDec_ ' + lb + ' T o_; HexaDeferCountedDec_(T o): o_(o) ' + lb + ' ' + rb + ' ~HexaDeferCountedDec_() ' + lb + ' if (Any_isCounted_((Any_*)(o_))) hexaUnref((void*)o_); ' + rb + ' ' + rb + ';' + nl
 		// Pointer-captured twin (Ident operands): live-value release — see
 		// HexaDeferDecPtr_ in the compile prologue (double-release fix).
-		r += 'struct HexaDeferCountedDecPtr_ ' + lb + ' void** p_; HexaDeferCountedDecPtr_(void** p): p_(p) ' + lb + ' ' + rb + ' ~HexaDeferCountedDecPtr_() ' + lb + ' void* v_ = *p_; if (Any_isCounted_((Any_*)(v_))) hexaUnref(v_); ' + rb + ' ' + rb + ';' + nl
+		r += 'struct HexaDeferCountedDecPtr_ ' + lb + ' void** p_; HEXA_FORCEINLINE HexaDeferCountedDecPtr_(void** p): p_(p) ' + lb + ' ' + rb + ' HEXA_FORCEINLINE ~HexaDeferCountedDecPtr_() ' + lb + ' Any_unrefCounted_((Any_*)(*p_)); ' + rb + ' ' + rb + ';' + nl
 		r += rb + ' // extern "C++"' + nl
 		r += '#endif' + nl
 		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; if (Any_isCounted_((Any_*)(k))) hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; if (Any_isCounted_(v)) hexaRef((void*)v); o->count_++; ' + rb + nl
 		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
-		r += 'uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
+		r += 'HEXA_FORCEINLINE uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
 		// D7 scalar/string shape predicates (F10 index dispatch): `true`/`false`
 		// singletons and boxed scalars are values, never keys.
 		r += 'uint8_t Any_isString_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&String__$)) ? 1 : 0); ' + rb + nl
@@ -6137,7 +6142,10 @@ class GenCxx {
 	fun linkagePrefixFor(isAsync: Bool, emittedName: String): String {
 		if isAsync { return 'HEXA_CPP ' }
 
-		if project.inlineFuncs.get(emittedName) == true { return 'HEXA_C HEXA_FORCEINLINE ' }
+		if project.inlineFuncs.get(emittedName) == true {
+			return 'HEXA_C HEXA_FORCEINLINE '
+		}
+
 		return 'HEXA_C '
 	}
 
@@ -7818,6 +7826,12 @@ class GenCxx {
 					}
 				}
 
+				for n in ['Int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64', 'Bool', 'Bool32', 'Bool8', 'Float', 'Float32', 'Number', 'Void', 'BigInt', 'SizeOfPointer', 'SignedSizeOfPointer', 'ClangChar'] {
+					if c.name == n {
+						return false
+					}
+				}
+
 				if c.name.startsWith('Struct_') {
 					return false
 				}
@@ -7970,6 +7984,57 @@ class GenCxx {
 		return false
 	}
 
+	fun remapInlineKeys(oldName: String, newName: String, methods: [Statement]) {
+		for m in methods { switch m {
+				case Function(mname, _, _, _, _, _, _):
+					if project.inlineFuncs.get(oldName + '_$' + mname + '_') == true {
+						project.inlineFuncs.set(newName + '_$' + mname + '_', true)
+					}
+				case _:
+			} }
+	}
+
+	fun renameClassNamesEmit() {
+		for c in project.classes {
+			if c.external {
+				if c.jsRequire != null { continue }
+
+				if c.jsNative != null { continue }
+
+				if not stringifyType(c.classType).endsWith('_*') { continue }
+			}
+
+			// `Any`/`Bool` map onto runtime shapes and templates keep only
+			// their static members — never renamed by the types loop
+			var builtinName = c.name
+
+			switch c.classType {
+				case Class(kind):
+					builtinName = kind.name
+				case _:
+			}
+
+			if builtinName == 'Any' { continue }
+
+			if builtinName == 'Bool' { continue }
+
+			if c.template { continue }
+
+			var cName = ''
+
+			switch c.classType {
+				case Class(kind):
+					cName = kind.name
+				case _:
+					cName = stringifyType(c.classType).replace('_*', '')
+			}
+
+			if cName == c.name { continue }
+
+			c.name = cName
+		}
+	}
+
 	/// `@final` method on a parentless, non-template class: no override can
 	/// exist, so `recv->_->m(recv, …)` is provably `Cls_$m_(recv, …)` and the
 	/// direct call is emitted (the vtable load + indirect call was the only
@@ -7984,21 +8049,29 @@ class GenCxx {
 	/// the FIRST name match: a generic instance can appear several times in
 	/// `project.classes` (per-module duplicates — the genC log prints
 	/// `duplicate struct Array_$…`) and the first copy may carry no methods.
-	fun finalMethodName(exprType: Type, name: String): String? {
+	fun finalMethodName(exprType: Type, name: String, where: String = '', pos: String = ''): String? {
 		var isFinal = false
+		var attsState = 'null'
+		var typeKind = 'other'
 
 		switch exprType {
 			case ClassInstance(kind, _):
+				typeKind = 'ClassInstance'
 				let atts = project.mapDecorators.get(kind.parent)
+				attsState = atts == null? 'null' : 'present'
 				isFinal = Decorator.getDecorator(atts, 'final') != null
 				// `this` inside a method types as a bare `Class` value
 			case Class(kind):
+				typeKind = 'Class'
 				let atts = project.mapDecorators.get(kind.parent)
+				attsState = atts == null? 'null' : 'present'
 				isFinal = Decorator.getDecorator(atts, 'final') != null
 			case _:
 		}
 
-		if not isFinal { return null }
+		if not isFinal {
+			return null
+		}
 		// NOTE the emitted member prefix is the NiceClass `name`
 		// (`Array_$int32_t` → `Array_$int32_t_$push_`), and instance types
 		// stringify to the POINTER form (`Array_$int32_t_*`, `String_*`), so the
@@ -8013,15 +8086,23 @@ class GenCxx {
 		let wanted = omitPointer(stringifyType(exprType))
 
 		for c in project.classes {
-			if c.useless { continue }
-
-			if c.external { continue }
-
 			if c.name != wanted and c.name + '_' != wanted { continue }
 
-			if c.extend != null { continue }
+			if c.useless {
+				continue
+			}
 
-			if c.template { continue }
+			if c.external {
+				continue
+			}
+
+			if c.extend != null {
+				continue
+			}
+
+			if c.template {
+				continue
+			}
 			// Only a plain class DECLARATION emits `Name_$method_`; interfaces and
 			// erased shapes have no member bodies to call directly.
 			var isPlainClass = false
@@ -8037,7 +8118,9 @@ class GenCxx {
 				case _:
 			}
 
-			if not isPlainClass { continue }
+			if not isPlainClass {
+				continue
+			}
 			// Instantiated names already end with `_`: their members are
 			// `Array_$String_$join_`; plain classes emit `String_$trim_`.
 			var sep = '_$'
@@ -8057,7 +8140,9 @@ class GenCxx {
 					case _:
 				}
 
-				if let hit = direct { return hit }
+				if let hit = direct {
+					return hit
+				}
 			}
 		}
 		return null
@@ -8075,13 +8160,15 @@ class GenCxx {
 		return name == 'float' or name == 'double'
 	}
 
-	/// Pure `is` receivers (evaluating twice is harmless): plain idents and
-	/// `Dot` chains over them (stub `let_` getters, no mutation). Calls and
-	/// exotic shapes keep the legacy single-evaluation truthiness path.
+	/// Pure `is` receivers (evaluating twice is harmless): plain idents,
+	/// `Dot` chains over them (stub `let_` getters, no mutation) and `as`
+	/// bit-casts (no side effects — the cast is a C-style reinterpret).
+	/// Calls and exotic shapes keep the legacy single-evaluation truthiness path.
 	fun isPureIsReceiver(e: Expression): Bool { switch e {
 			case Ident(_, _): return true
 			case Dot(base, _, _): return isPureIsReceiver(base)
 			case Parenthesis(inner): return isPureIsReceiver(inner)
+			case UnsafeBitCast(inner, _): return isPureIsReceiver(inner)
 			case _: return false
 		} }
 
@@ -8710,6 +8797,7 @@ class GenCxx {
 	fun anyDynGetStr(recv: String, name: String): String {
 		let q = String.fromCharCode(34)
 		return 'Any_dynGet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '))'
+		return 'Any_dynGet_((Any_*)(' + recv + '), ' + printExpression(Expression.String(name)) + ')'
 	}
 
 	/// F10.2 dynamic member write: `AnyObject` bags store real fields, every
@@ -8717,6 +8805,7 @@ class GenCxx {
 	fun anyDynSetStr(recv: String, name: String, val: String): String {
 		let q = String.fromCharCode(34)
 		return 'Any_dynSet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '), ' + val + ')'
+		return 'Any_dynSet_((Any_*)(' + recv + '), ' + printExpression(Expression.String(name)) + ', ' + val + ')'
 	}
 
 	/// Heap-construct a `Struct_N_*` from an object literal (see printObjectAs).
@@ -9072,7 +9161,7 @@ class GenCxx {
 	}
 
 	var customThis: String? = null
-	fun printExpression(e: Expression) {
+	fun printExpression(e: Expression): String {
 		switch e {
 			case This: return customThis ?? 'this'
 			case Ident(name):
@@ -9117,6 +9206,13 @@ class GenCxx {
 				}
 
 				if actualType == project.typer.typeInt {
+					return 'int32_t$null'
+				}
+
+				// `Int32` and `Int` stringify to the same `int32_t$` but are
+				// distinct types — without this arm an `Int32?` null test fell
+				// back to `'nullptr'` and the caller could re-emit C2446
+				if actualType == project.typer.typeInt32 {
 					return 'int32_t$null'
 				}
 
@@ -9488,7 +9584,7 @@ class GenCxx {
 
 								if not isStruct {
 									// `@final` class: direct call, no vtable hop
-									if let direct = finalMethodName(exprType, name) {
+									if let direct = finalMethodName(exprType, name, 'expr', exprPos(expr)) {
 										vtName = direct
 									}
 								}
@@ -9875,12 +9971,29 @@ class GenCxx {
 							let operandC = binopShape(operand)
 							var nullTest: String? = null
 
-							if isNullSentinelType(operandType) {
+							// The twin test is only valid on POINTER shapes:
+							// a scalar/widened (`int32_t$`), `Bool_` or `Null$*`
+							// struct operand rejects `== nullptr` outright
+							// (C2446) — those take the in-band `nullLit` path
+							// below. Belt-and-braces on top of the
+							// `isNullSentinelType` value-class exclusions so
+							// this site can never re-emit it.
+							var twinOk = not isIntCTypeName(operandC) and not isFloatCTypeName(operandC) and not operandC.endsWith('$') and operandC != 'Bool_' and not operandC.startsWith('Null$')
+
+							if isNullSentinelType(operandType), twinOk {
 								let v = printExpression(operand)
 								// twin form: `null` is the sentinel OBJECT for every
 								// managed slot, but raw-zero producers still exist
 								// (same reason the Elvis temp test covers both)
 								nullTest = '(' + v + ' == nullptr || ' + v + ' == (' + operandC + ')(void*)(&HexaNone_))'
+								if isPureIsReceiver(operand) {
+									nullTest = '((void*)(' + v + ') == nullptr || (void*)(' + v + ') == (void*)(&HexaNone_))'
+								} else {
+									let t = tempId++
+									let tmp = '_$nz' + t
+									metaBlock.push('void* ' + tmp + ';')
+									nullTest = '((' + tmp + ' = (void*)(' + v + ')), (' + tmp + ' == nullptr || ' + tmp + ' == (void*)(&HexaNone_)))'
+								}
 							} else {
 								let nullLit: String = printExpression(Expression.Null(operandType))
 
