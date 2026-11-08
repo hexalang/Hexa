@@ -16,6 +16,16 @@ class Normalizer {
 	var nativeEnums = false
 	var nativeIterators = true
 	var nativeReverseIterators = false
+	// Fill omitted trailing call arguments with their declared default
+	// expressions. Required by the C target (C has no optional params, so the
+	// callee's parameter slots must be filled at the call site).
+	// The JS target keeps the JS-side default (`fun f(x T = v)` already prints
+	// `x = v` into the signature) and must OMIT the argument: Hexa's `null`
+	// literal is not "absent" for a foreign JS callee — emitting
+	// `path.basename(p, null)` throws `ERR_INVALID_ARG_TYPE: The "suffix"
+	// argument must be of type string. Received null` (Perfide's
+	// `projectNameForRoot` window titles did exactly that).
+	var fillDefaultArgs = true
 	var globalAccessor = '<!--global-->' // TODO hover over string not work, but works on rigth side
 	var typer: Typer
 	var package: Package
@@ -25,16 +35,18 @@ class Normalizer {
 	// otherwise Hexa ABI `(count, arrayptr*)` — fixed C params, NotVariadic.
 	fun variadicKindOf(funcType: Type?, variadic: Bool): VariadicKind {
 		if not variadic { return VariadicKind.NotVariadic }
+
 		if let ft = funcType { switch ft {
-			case Function(args, _, _):
-				if args.length > 0 {
-					switch args[args.length - 1].dataType {
-						case Rest(_, native):
-							if native { return VariadicKind.NativeVariadic }
-							return VariadicKind.NotVariadic
+				case Function(args, _, _):
+					if args.length > 0 {
+						switch args[args.length - 1].dataType {
+							case Rest(_, native):
+								if native { return VariadicKind.NativeVariadic }
+								return VariadicKind.NotVariadic
+						}
 					}
-				}
-		} }
+			} }
+
 		if variadic { return VariadicKind.NativeVariadic }
 		return VariadicKind.NotVariadic
 	}
@@ -49,6 +61,11 @@ class Normalizer {
 	/// Never reassigned local variables
 	let neverReassignedLocal: [Node : Bool] = [:]
 	let neverReassignedLocalParent: [Statement : Node] = [:]
+	/// TEMP DIAGNOSTICS: one line per `@weak`/`@inline` decorator carried from
+	/// a typed node into the NiceProject maps (dumped to `carry-trace.log` at
+	/// the end of `normalize()`), so "recorded but not honoured downstream"
+	/// can be split from "never recorded at all".
+	let carryTrace: [String] = []
 
 	new (project: Project) {
 		this.project = project
@@ -60,179 +77,231 @@ class Normalizer {
 			addToScope(global)
 		}
 
-			// Rename upfront to avoid race condition
-			for file in project.moduleInfo { for e in file.nodes { switch e {
-						case Class(t, ext, impl, fields, external):
-							renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
-						case Enum(t, fields, valuesType):
-							renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
-						case Var(name, t, expr, const, external):
-							let atts = project.mapDecorators.get(e)
-							if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
+		// Rename upfront to avoid race condition
+		for file in project.moduleInfo { for e in file.nodes { switch e {
+					case Class(t, ext, impl, fields, external):
+						renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
+					case Enum(t, fields, valuesType):
+						renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
+					case Var(name, t, expr, const, external):
+						let atts = project.mapDecorators.get(e)
+						// if native != null { switch native.valuesb[0] {
+						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
 								case String(s): uniqueNative(s, e)
 								case _: throw '@rename takes string as argument'
-							}} else {
+							} } else {
+							unique(name, e)
+						}
+					case Function(name, expr, vars, rettype, external):
+						if (parentNames.get(e) == null) {
+							if let name = getNative(e) {
+								uniqueNative(name, e)
+							} else if let name = name {
 								unique(name, e)
 							}
-						case Function(name, expr, vars, rettype, external):
-							if (parentNames.get(e) == null) {
-								if let name = getNative(e) {
-									uniqueNative(name, e)
-								} else if let name = name {
-									unique(name, e)
-								}
-							}
-			}}}
+						}
+
+						// if let name = name unique(name, e)
+				} } }
 
 			// Fill statements
-			let init = []
-			for file in project.moduleInfo {
-				let initial = []
-				pushScope()
-				for e in file.nodes {
-					let decorators = project.mapDecorators.get(e)
-					switch e {
-						// TODO indent
-								case Function(name, _):
-									if let s = nodeToStatement(e) { // Non-declare ones
-										let link = new NiceLink()
+		let init = []
 
-										if let dec = Decorator.getDecorator(decorators, 'linkName') {
-											// TODO ^ rename to `linkAs()`
-											switch dec.values[0] {
-												case String(s):
-													link.linkName = s
+		for file in project.moduleInfo {
+			let initial = []
+			pushScope()
+
+			for e in file.nodes {
+				let decorators = project.mapDecorators.get(e)
+
+				switch e {
+					// TODO indent
+					case Function(name, _):
+						if let s = nodeToStatement(e) { // Non-declare ones
+							let link = new NiceLink()
+
+							if let dec = Decorator.getDecorator(decorators, 'linkName') {
+								// TODO ^ rename to `linkAs()`
+								switch dec.values[0] {
+									case String(s):
+										link.linkName = s
+								}
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'rename') {
+								// TODO @as
+								switch dec.values[0] {
+									case String(s):
+										link.rename = s
+								}
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'linkAsIs') {
+								link.linkName = name
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'customHeader') {
+								switch dec.values[0] {
+									case String(s):
+										link.customHeader = s
+								}
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'convention') {
+								switch dec.values[0] {
+									case String(s): // TODO `case String('fastcall'):`
+										switch s {
+											case 'fastcall': link.convention = CallingConvention.FastCall
+											case 'stdcall': link.convention = CallingConvention.StdCall
+											case 'cdecl': link.convention = CallingConvention.CDecl
+												// TODO more!!!
+												// TODO error on default case
+										}
+								}
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'dllExport') {
+								// Extract linkName from dllExport(nameHere) (a shortcut for `@linkName("abc") @dllExport`)
+								switch dec.values[0] {
+									case String(s):
+										link.linkName = s
+								}
+								link.dllExport = true
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'dllImport') {
+								// TODO disallow linkName + dllExport(nameHere)
+								// TODO disallow dllImport + dllExport
+								switch dec.values[0] {
+									case String(s):
+										link.linkName = s
+								}
+								link.dllImport = true
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'emitHeader') {
+								// TODO disallow emitHeader(nameHere)
+								// TODO disallow dllImport + dllExport + emitHeader
+								link.emitHeader = true
+							}
+
+							// TODO better idea + avoid unnecessary nice link allocation
+							// TODO linking setting for vars and classes
+							niceProject.globalLink.set(s, link)
+							niceProject.globalFuncs.push(s)
+						} else {
+							recordDeclareType(e)
+						}
+					case Var(name, _, _, _, external):
+						// @lazy (native module singletons): a never-referenced
+						// `let x X = X()` is omitted WHOLE — the initializer never
+						// reaches the IR, so no startup instantiation and the class
+						// stays DCE-able (mirrors the @require used-filter below).
+						var omitLazy = false
+
+						if Decorator.getDecorator(decorators, 'lazy') != null {
+							omitLazy = true
+
+							for u in project.usedLazy {
+								if u == name { omitLazy = false }
+							}
+						}
+
+						if not omitLazy, let s = nodeToStatement(e) { // Non-declare ones
+							let link = new NiceLink() // TODO unify this code for functions too
+
+							// TODO makes sense for functions too?
+							if let dec = Decorator.getDecorator(decorators, 'aligned') {
+								// TODO checks
+								switch dec.values[0] {
+									case Int(v):
+										link.aligned = v
+								}
+							}
+
+							if let dec = Decorator.getDecorator(decorators, 'dllExport') {
+								// Extract linkName from dllExport(nameHere) (a shortcut for `@linkName("abc") @dllExport`)
+								switch dec.values[0] {
+									case String(s):
+										link.linkName = s
+								}
+								link.dllExport = true
+							}
+
+							niceProject.globalLink.set(s, link)
+							niceProject.globalVars.push(s)
+						} else if external {
+							// @require('mod') on a body-less `declare`: record for
+							// auto-require const emission (genJs emits
+							// `const name = require("mod")`); omitted entirely when
+							// the binding was never referenced (checked below).
+							if let dec = Decorator.getDecorator(decorators, 'require') {
+								if dec.values.length > 0 {
+									switch dec.values[0] {
+										case String(mod):
+											var used = false
+											for u in project.usedRequires {
+												if u == name { used = true }
 											}
-										}
 
-										if let dec = Decorator.getDecorator(decorators, 'rename') {
-											// TODO @as
-											switch dec.values[0] {
-												case String(s):
-													link.rename = s
+											if used {
+												niceProject.globalRequires.set(name, mod)
 											}
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'linkAsIs') {
-											link.linkName = name
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'customHeader') {
-											switch dec.values[0] {
-												case String(s):
-													link.customHeader = s
-											}
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'convention') {
-											switch dec.values[0] {
-												case String(s): // TODO `case String('fastcall'):`
-													switch s {
-														case 'fastcall': link.convention = CallingConvention.FastCall
-														case 'stdcall': link.convention = CallingConvention.StdCall
-														case 'cdecl': link.convention = CallingConvention.CDecl
-														// TODO more!!!
-														// TODO error on default case
-													}
-											}
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'dllExport') {
-											// Extract linkName from dllExport(nameHere) (a shortcut for `@linkName("abc") @dllExport`)
-											switch dec.values[0] {
-												case String(s):
-													link.linkName = s
-											}
-											link.dllExport = true
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'dllImport') {
-											// TODO disallow linkName + dllExport(nameHere)
-											// TODO disallow dllImport + dllExport
-											switch dec.values[0] {
-												case String(s):
-													link.linkName = s
-											}
-											link.dllImport = true
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'emitHeader') {
-											// TODO disallow emitHeader(nameHere)
-											// TODO disallow dllImport + dllExport + emitHeader
-											link.emitHeader = true
-										}
-
-										// TODO better idea + avoid unnecessary nice link allocation
-										// TODO linking setting for vars and classes
-										niceProject.globalLink.set(s, link)
-										niceProject.globalFuncs.push(s)
+										case _: throw '@require takes string as argument'
 									}
-								case Var(_):
-									if let s = nodeToStatement(e) { // Non-declare ones
-										let link = new NiceLink() // TODO unify this code for functions too
+								}
+							}
+						}
+						// case Vars(vars):
+						// for v in vars {
+						// if let s = nodeToStatement(v) { // Non-declare ones
+						// niceProject.globalVars.push(s)
+						// }
+						// }
+					case Enum(_):
+						fillStatement(e)
+					case Class(_):
+						fillStatement(e)
+					case _:
+						let statement = fillStatement(e)
 
-										// TODO makes sense for functions too?
-										if let dec = Decorator.getDecorator(decorators, 'aligned') {
-											// TODO checks
-											switch dec.values[0] {
-												case Int(v):
-													link.aligned = v
-											}
-										}
-
-										if let dec = Decorator.getDecorator(decorators, 'dllExport') {
-											// Extract linkName from dllExport(nameHere) (a shortcut for `@linkName("abc") @dllExport`)
-											switch dec.values[0] {
-												case String(s):
-													link.linkName = s
-											}
-											link.dllExport = true
-										}
-
-										niceProject.globalLink.set(s, link)
-										niceProject.globalVars.push(s)
-									}
-								case Enum(_):
-									fillStatement(e)
-								case Class(_):
-									fillStatement(e)
-						case _:
-							let statement = fillStatement(e)
-							switch statement {
-								case null:
-								case Block(el):
+						switch statement {
+							case null:
+							case Block(el):
 								if el.length > 0 { // Don't output empty blocks
 									initial.push(statement)
 								}
-								case _:
-									initial.push(statement)
-							}
-					}
-				}
-				popScope()
-				if initial.length > 0 {
-					init.push(Statement.Block(initial))
+							case _:
+								initial.push(statement)
+						}
 				}
 			}
+			popScope()
 
-			niceProject.init.push(Statement.Block(init))
-
-			if niceProject.init.length > 1 {
-				throw "too many inits"
+			if initial.length > 0 {
+				init.push(Statement.Block(initial))
 			}
+		}
 
-			niceProject.package = package
-			niceProject.typer = typer
-			if project.defines.bit64 == true {
-				niceProject.memory = Memory.Modern64
-			} else {
-				niceProject.memory = Memory.Old32
-			}
-			niceProject.mapDecorators = project.mapDecorators
+		niceProject.init.push(Statement.Block(init))
 
-			// Sort non-inherited & external classes upfront
-			// TODO backport implementation of dependency tree
-			niceProject.classes.sort(fun(a, b) {
+		if niceProject.init.length > 1 {
+			throw "too many inits"
+		}
+
+		niceProject.package = package
+		niceProject.typer = typer
+		// if package.define.bit64 == true {
+		if project.defines.bit64 == true {
+			niceProject.memory = Memory.Modern64
+		} else {
+			niceProject.memory = Memory.Old32
+		}
+		niceProject.mapDecorators = project.mapDecorators
+
+		// Sort non-inherited & external classes upfront
+		// TODO backport implementation of dependency tree
+		niceProject.classes.sort(fun (a, b) {
 				// TODO types of a/b not inferred
 				if a.external == true {
 					return -1
@@ -247,7 +316,7 @@ class Normalizer {
 
 			// Sort forward declarations
 			// Let's hope it is a stable sort
-			niceProject.classes.sort(fun(a, b) {
+		niceProject.classes.sort(fun (a, b) {
 				if a.usedByValueDepth > b.usedByValueDepth {
 					// TODO test this properly (nested ByValue)
 					return -1
@@ -260,104 +329,140 @@ class Normalizer {
 				return 1
 			})
 
-			return niceProject
+			// TEMP DIAGNOSTICS: dump what was carried (see `carryTrace`)
+		Fs.writeFileSync('carry-trace.log', carryTrace.join('\n'))
+		return niceProject
+	}
+
+	/// Classifies `receiver.name(...)` calls — `VirtualMethod` for method
+	/// fields, `Static` for class-typed receivers. NOTE the USE node's type
+	/// can be missing (typer pass order) — the resolved declaration's type is
+	/// the fallback or virtual calls would degrade to raw member calls
+	fun callKindOf(receiver: Node, name: String): CallKind {
+		var typed = receiver
+
+		if typer.types.get(typed) == null {
+			if let source = typer.parents.get(typed) {
+				typed = source
+			}
 		}
 
-		fun nodeToExpression(e: Node): Expression? {
-			let result = nodeToExpressionWithoutPosition(e)
-			if result != null {
-				niceProject.expressionPosition.set(result, project.data.get(e))
-				if (niceProject.expressionType.get(result) == null) {
-					niceProject.expressionType.set(result, typer.types.get(e))
+		switch typer.types.get(typed) as!Type {
+			case ClassInstance(c, _):
+				if c.fields.get(name) == ClassTypeField.Method {
+					return CallKind.VirtualMethod
 				}
-			}
-			return result
+			case Class(_):
+				return CallKind.Static
+			case _:
 		}
 
-		fun nodeToExpressionWithoutPosition(e: Node): Expression? {
-			if e == null {
-				return null
+		return CallKind.Function
+	}
+
+	fun nodeToExpression(e: Node): Expression? {
+		let result = nodeToExpressionWithoutPosition(e)
+
+		if result != null {
+			niceProject.expressionPosition.set(result, project.data.get(e))
+
+			if (niceProject.expressionType.get(result) == null) {
+				niceProject.expressionType.set(result, typer.types.get(e))
 			}
+		}
+		return result
+	}
 
-			switch e {
-				// Transformation not required
-				case String(v):
-					// TODO remove
-					// Handle `@acpiHeaderSignature`
-					if Decorator.getDecorator(project.mapDecorators.get(e), 'acpiHeaderSignature') != null {
-						fun byteswap(x: BigInt) {
-							return ((x >> 24u32) & 0x000000ffu32) | ((x >> 8u32) & 0x0000ff00u32) | ((x << 8u32) & 0x00ff0000u32) |
-								((x << 24u32) & 0xff000000u32)
-						}
+	fun nodeToExpressionWithoutPosition(e: Node): Expression? {
+		if e == null {
+			return null
+		}
 
-						let v = v.split('')
-						v.reverse()
-						let v = v.join('')
-
-						let num32 = toBigInt(v.charCodeAt(0) as! Int) +
-							toBigInt(v.charCodeAt(1) as! Int) * 256n +
-							toBigInt(v.charCodeAt(2) as! Int) * 256n * 256n +
-							toBigInt(v.charCodeAt(3) as! Int) * 256n * 256n * 256n
-
-						let result = '0x' + byteswap(num32).toString(16)
-
-						console.log(v + ' == ' + num32)
-
-						return Expression.MetaInt(parseBigInt(result), Meta.UInt32, typer.typeUInt32)
+		switch e {
+			// Transformation not required
+			case String(v):
+				// TODO remove
+				// Handle `@acpiHeaderSignature`
+				if Decorator.getDecorator(project.mapDecorators.get(e), 'acpiHeaderSignature') != null {
+					fun byteswap(x: BigInt) {
+						return ((x >> 24u32) & 0x000000ffu32) | ((x >> 8u32) & 0x0000ff00u32) | ((x << 8u32) & 0x00ff0000u32) |
+						((x << 24u32) & 0xff000000u32)
 					}
 
-					return Expression.String(v)
-				case Int(v):
-					return Expression.Int(v)
-				case MetaInt(v, kind):
-					return Expression.MetaInt(v, kind, typer.types.get(e))
-				case Float(v):
-					return Expression.Float(v)
-				case Bool(v):
-					if v {
-						return Expression.True
-					}
-					return Expression.False
-				case RegExp(pattern, flags):
-					let escapedPattern = pattern.replaceAll('\\', '\\\\')
-					return Expression.New(
-						Expression.Ident('RegExp', null),
-						flags != null
-							? [Expression.String(escapedPattern), Expression.String(flags)]
-							: [Expression.String(escapedPattern)],
-						typer.types.get(e)
-					)
+					let v = v.split('')
+					v.reverse()
+					let v = v.join('')
 
-				case Null:
-					return Expression.Null(typer.types.get(e))
+					let num32 = toBigInt(v.charCodeAt(0) as!Int) +
+					toBigInt(v.charCodeAt(1) as!Int) * 256n +
+					toBigInt(v.charCodeAt(2) as!Int) * 256n * 256n +
+					toBigInt(v.charCodeAt(3) as!Int) * 256n * 256n * 256n
 
-				case NodeTypeValue(t): switch t {
+					let result = '0x' + byteswap(num32).toString(16)
+
+					console.log(v + ' == ' + num32)
+
+					return Expression.MetaInt(parseBigInt(result), Meta.UInt32, typer.typeUInt32)
+				}
+
+				return Expression.String(v)
+			case Int(v):
+				// if v == 239 {
+				// console.log('v', v)
+				// }
+				return Expression.Int(v)
+			case MetaInt(v, kind):
+				// console.log('mv', v)
+				return Expression.MetaInt(v, kind, typer.types.get(e))
+			case Float(v):
+				return Expression.Float(v)
+			case Bool(v):
+				if v {
+					return Expression.True
+				}
+				return Expression.False
+			case RegExp(pattern, flags):
+				let escapedPattern = pattern.replaceAll('\\', '\\\\')
+				return Expression.New(
+					Expression.Ident('RegExp', null),
+					flags != null
+					? [Expression.String(escapedPattern), Expression.String(flags)]
+					: [Expression.String(escapedPattern)],
+					typer.types.get(e)
+				)
+
+			case Null:
+				return Expression.Null(typer.types.get(e))
+
+			case NodeTypeValue(t): switch t {
 					case Type(name):
 						return Expression.Ident(parentNames.get(typer.parents.get(e)) ?? name, null)
 				}
 
 				// Transform
-				case Ident(name):
-					var source: Node? = typer.parents.get(e)
-					// Constant propagation
-					// TODO inline map to TNode.inline, also TNode.neverReassigned
-					if let value = inline.get(source) {
-						return value
-					}
+			case Ident(name):
+				var source: Node? = typer.parents.get(e)
+				// if (let value = inline.get(source)) console.log('Inlined', name, source, inline.get(source))
+				// Constant propagation
+				// TODO inline map to TNode.inline, also TNode.neverReassigned
+				if let value = inline.get(source) {
+					return value
+				}
 
-					nonInlineRead.set(source, true)
+				nonInlineRead.set(source, true)
 
-					switch source {
-						case null:
-							throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
-						case Var(name, _, _):
-							let staticSource = typer.parents.get(source)
-							// TODO make `K` of Map non-nullable in `.get` because here its confusing that `staticSource` may be null
-							if let map = typer.parents.get(source) {
-								switch map as! Node {
+				switch source {
+					case null:
+						throw 'Unmapped `\(e)` of name `\(name)` ' + JSON.stringify(project.data.get(e))
+					case Var(name, _, _):
+						let staticSource = typer.parents.get(source)
+						// TODO make `K` of Map non-nullable in `.get` because here its confusing that `staticSource` may be null
+						if let map = typer.parents.get(source) {
+							switch map as!Node {
 								case Module(_):
 									let name = parentNames.get(source) ?? name
 									let result = Expression.Ident(globalAccessor + name, typer.types.get(source))
+
 									if let name = getNative(source) {
 										niceProject.native.set(result, true)
 									}
@@ -366,22 +471,26 @@ class Normalizer {
 									// Check if this is a static field
 									if project.mapStatic.get(source) == true {
 										let staticSource = typer.parents.get(source)
+
 										switch staticSource {
 											case Class(t, _):
 												// TODO pass type into `Ident` instead of plain name
 												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
-											case Enum(t,_):
+											case Enum(t, _):
 												return Expression.Dot(Expression.Ident(DataHelper.extractTypeName(t), null), getClassDotField(staticSource, name), typer.types.get(e))
 											case _:
 												throw 'staticSource is \(staticSource) for \(name)'
 										}
 									}
+									// if (parentNames.get(source) != name)
+									// console.log('fail', source, parentNames.get(source), name)
 									let dataType = typer.types.get(typer.parents.get(source))
+									// if (name == 'isIdentifier') {console.log('source x', dataType)}
 									// TODO .This(dataType)
-									return Expression.Dot(Expression.This(thisType), getClassDotField(staticSource, name)/*parentNames.get(source) ?? name*/, typer.types.get(e))
-							}}
-						case Function(name, _):
-							if let map = typer.parents.get(source) { switch map as! Node {
+									return Expression.Dot(Expression.This(thisType), getClassDotField(staticSource, name) /*parentNames.get(source) ?? name*/, typer.types.get(e))
+							} }
+					case Function(name, _):
+						if let map = typer.parents.get(source) { switch map as!Node {
 								case Module(_):
 									let result = Expression.Ident(globalAccessor + (parentNames.get(source) ?? name), null)
 
@@ -407,52 +516,80 @@ class Normalizer {
 									let dataType = typer.types.get(typer.parents.get(source))
 									return Expression.Dot(Expression.This(thisType), parentNames.get(source) ?? name, typer.types.get(e))
 							}
-							}
-					}
-					let result = Expression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
-					if let name = getNative(source) {
-						niceProject.native.set(result, true)
-					}
-					return result
+						}
+				}
+				// console.log('success', source, parentNames.get(source), name)
+				let result = Expression.Ident(parentNames.get(source) ?? name, typer.types.get(e))
+				// if getDec(project.mapDecorators.get(source), 'rename') != null {
+				if let name = getNative(source) {
+					niceProject.native.set(result, true)
+				}
+				return result
 
-//				// `name<T>`
-//				case ParametricIdent(name, params):
-//					// TODO
-//					if name == '_sizeOf' {
-//						if params.length != 1 {
-//							throw 'sizeOf takes only one <T>'
-//						}
-//
-//						switch params[0] {
-//							case Type(name): {
-//								let dataType = typer.toType(params[0])
-//								return Expression.SizeOf(dataType)
-//								return Expression.SizeOf('struct ' + name + '_')
-//							}
-//						}
-//					}
-//
-//					return Expression.String('TODO_ParametricIdent')
-//					var source: Node? = typer.parents.get(e)
-//					nonInlineRead.set(source, true)
-//					let fixup = Node.Ident(name)
-//					typer.parents.get(fixup, source)
-//					return nodeToExpressionWithoutPosition(fixup)
-//
+				// // `name<T>`
+				// case ParametricIdent(name, params):
+				// // TODO
+				// if name == '_sizeOf' {
+				// if params.length != 1 {
+				// throw 'sizeOf takes only one <T>'
+				// }
+				//
+				// switch params[0] {
+				// case Type(name): {
+				// let dataType = typer.toType(params[0])
+				// return Expression.SizeOf(dataType)
+				// return Expression.SizeOf('struct ' + name + '_')
+				// }
+				// }
+				// }
+				//
+				// return Expression.String('TODO_ParametricIdent')
+				// var source: Node? = typer.parents.get(e)
+				// nonInlineRead.set(source, true)
+				// let fixup = Node.Ident(name)
+				// typer.parents.get(fixup, source)
+				// return nodeToExpressionWithoutPosition(fixup)
+				//
 				// `expr.name`
 				// TODO constant propagation
-				case Dot(expr, name):
+			case Dot(expr, name):
 
 				// TODO optimize `'String'.length`
-				//if (name == 'length') switch expr {
-				//	case String(s): console.log('String.length', s, name, s.length) return Expression.Int(s.length)
-				//}
+				// if (name == 'length') switch expr {
+				// case String(s): console.log('String.length', s, name, s.length) return Expression.Int(s.length)
+				// }
 
 				let parent: Node? = typer.parents.get(expr)
+				// let staticSource = (typer.types.get(expr) ?? {parent: Node.This}).parent//typer.parents.get(e)
+
 				/*switch expr {
-						return NiceExpression.Dot(NiceExpression.This(typer.types.get(expr)), getClassDotField(typer.types.get(expr).parent, name) ?? name, typer.types.get(e))
-				}
 					case This:
+
+						return Expression.Dot(Expression.This(typer.types.get(expr)), (getClassDotField(staticSource, name) ?? name), typer.types.get(e))
+
+						console.log('Node.Dot Node.This,', name, 'parent:', parent, 'type:', typer.types.get(expr))
+						// TODO should not be raw ClassType
+						let dataType: ClassType = typer.types.get(expr)
+						console.log('dataType.fieldNames =', dataType.fieldNames)
+						let renamed = dataType.fieldRenames[dataType.fieldNames.indexOf(name)]
+						if (let rename = renamed) {
+							return Expression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
+						}
+						console.log('no dataType.fieldRenames found for', name)
+						console.log('no dataType.fieldRenames found for parent', dataType.parent)
+						switch dataType.parent {
+							case Class(t, extend, implement, fields, external, kind):
+								let field = fields[dataType.fieldNames.indexOf(name)]
+								console.log('fields', fields, dataType.fieldNames.indexOf(name), fields[dataType.fieldNames.indexOf(name)])
+								console.log('field', field, typer.parents.get(field), getClassDotField(typer.parents.get(field), name))
+						}
+
+						//if (let type = typer.types.get(expr)) switch type {
+						//	case Class(type):
+						//		console.log('type Type.Class =', type)
+						//	case _:
+						//		console.log('type? =', type)
+						//}
 				}*/
 				switch parent {
 					case Enum(t, fields, valuesType):
@@ -463,25 +600,35 @@ class Normalizer {
 					case Class(_):
 						return Expression.Dot(nodeToExpression(expr), getClassDotField(parent, name) ?? name, typer.types.get(e))
 				}
+
 				if let dataType = typer.types.get(expr) {
-					switch dataType as! Type {
-					case ClassInstance(classType):
-						let renamed = classType.fieldRenames[classType.fieldNames.indexOf(name)]
-						if let rename = renamed {
-							return Expression.Dot(nodeToExpression(expr), rename, typer.types.get(e))
-						}
-				}}
+					switch dataType as!Type {
+						case ClassInstance(classType):
+							let renamed = classType.fieldRenames[classType.fieldNames.indexOf(name)]
+
+							if let rename = renamed {
+								return Expression.Dot(nodeToExpression(expr),
+									// '/*2*/' +
+									rename, typer.types.get(e))
+							}
+					} }
+					// switch expr {
+					// case This:
+					// console.log('Node.Dot got to the end Node.This,', name)
+					// }
 				let value = nodeToExpression(expr)
 
 				if (name == 'length') { switch value {
-					case String(s):
-						return Expression.Int(s.length)
-				}}
+						case String(s):
+							// console.log('String.length!', s, name, s.length)
+							return Expression.Int(s.length)
+					} }
 
 				return Expression.Dot(value, name, typer.types.get(e))
 
-				case DotUpper(expr, name):
+			case DotUpper(expr, name):
 				let parent: Node? = typer.parents.get(expr)
+
 				switch parent {
 					case Enum(t, fields, valuesType):
 						if not nativeEnums, let vt = valuesType, let tag = getTag(parent, name) {
@@ -496,129 +643,137 @@ class Normalizer {
 				}
 				return Expression.Dot(nodeToExpression(expr), name, typer.types.get(e))
 
-				case Call(expr, args, argNames):
+			case Call(expr, args, argNames):
 
 				// Constructor
 				switch expr {
 					case NodeTypeValue(t):
 						let v = Expression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 						let a = []
+
 						for arg in args {
 							// TODO generate default arg values
 							a.push(nodeToExpression(arg))
 						}
+						// console.log('Constructor!')
 						return Expression.New(v, a, typer.types.get(e))
 				}
 
 				// Optimize `'String'.charCodeAt(0)`
 				if args.length == 1 { switch expr {
-					case Dot(expr, name): if name == 'charCodeAt' { switch expr {
-						case String(s): if s.indexOf('\\') == -1 { switch args[0] {
-							case Int(v):
-								let i = v
-								if i < s.length, i > -1 {
-									let value = s.charCodeAt(i) // Returns NaN in js
-									// TODO how to handle NaN-able integers?
-									//if (value > -1) Expression.Int('' + value) // TODO generate enum creation statement to var= or js crashes
-									let result = if not Number.isNaN(value) {
-										Expression.Int(value)
-									} else {
-										Expression.Int(0)
-									}
-									niceProject.expressionType.set(result, typer.typeInt)
-									return result
-								}
-						}}
-					}}
-				}}
+						case Dot(expr, name): if name == 'charCodeAt' { switch expr {
+									case String(s): if s.indexOf('\\') == -1 { switch args[0] {
+												case Int(v):
+													let i = v
 
-				// Call kind
+													if i < s.length, i > -1 {
+														let value = s.charCodeAt(i) // Returns NaN in js
+														// TODO how to handle NaN-able integers?
+														// if (value > -1) Expression.Int('' + value) // TODO generate enum creation statement to var= or js crashes
+														let result = if not Number.isNaN(value) {
+															Expression.Int(value)
+														} else {
+															Expression.Int(0)
+														}
+														niceProject.expressionType.set(result, typer.typeInt)
+														return result
+													}
+											} }
+								} }
+					} }
+
+					// Call kind
 				var kind = CallKind.Function
 				switch expr {
 					case Dot(expr, name):
-						switch typer.types.get(expr) as! Type {
-							case ClassInstance(c, _):
-								if c.fields.get(name) == ClassTypeField.Method {
-									kind = CallKind.VirtualMethod
-								}
-							case Class(_): kind = CallKind.Static
-						}
+						kind = callKindOf(expr, name)
 				}
 
+				// console.log(typer.parents.get(expr))
 				let a = []
+
 				for arg in args {
 					a.push(nodeToExpression(arg))
 				}
 
-				switch typer.parents.get(expr) as! Node {
+				switch typer.parents.get(expr) as!Node {
 					case Function(_, _, vars): {
-						if vars.length > a.length {
-							// Fill default arg values
-							for i in vars.length {
-								if i < a.length {
-									continue
-								}
+							if fillDefaultArgs and vars.length > a.length {
+								// Fill default arg values
+								for i in vars.length {
+									if i < a.length {
+										continue
+									}
 
-								switch vars[i] as! Node {
-									case Var(_, _, value): if let value = value {
-										a.push(nodeToExpression(value))
-									} // TODO else `break`? cause not args have values?
+									switch vars[i] as!Node {
+										case Var(_, _, value): if let value = value {
+												a.push(nodeToExpression(value))
+											} // TODO else `break`? cause not args have values?
+									}
 								}
 							}
 						}
-					}
 				}
 
 				// Enum constructor
 				if not nativeEnums { switch expr {
-					case DotUpper(expr, name):
-						let parent: Node? = typer.parents.get(expr)
-						switch parent {
-							case Enum(t, fields, valuesType):
-								if let tag = getTag(parent, name) {
-									return Expression.Enum(DataHelper.extractTypeName(t), name, tag, a)
-								}
-						}
-				}}
+						case DotUpper(expr, name):
+							let parent: Node? = typer.parents.get(expr)
+
+							switch parent {
+								case Enum(t, fields, valuesType):
+									if let tag = getTag(parent, name) {
+										return Expression.Enum(DataHelper.extractTypeName(t), name, tag, a)
+									}
+							}
+					} }
 
 				let atts = project.mapDecorators.get(typer.parents.get(expr))
 
 				if let infix = Decorator.getDecorator(atts, 'infix') { switch infix.values[0] {
-					case String(s):
-						switch expr {
-							case Ident(_, params):
-								if let parames = params {
-									return Expression.NativeOperator(NativeOperatorKind.Infix, a, s, params.map(param => typer.types.get(param)), typer.types.get(e))
-								}
+						case String(s):
+							switch expr {
+								case Ident(_, params):
+									if let parames = params {
+										return Expression.NativeOperator(NativeOperatorKind.Infix, a, s, params.map(param => typer.types.get(param)), typer.types.get(e))
+									}
 
-								return Expression.NativeOperator(NativeOperatorKind.Infix, a, s, null, typer.types.get(e))
-						}
-					case _: throw '@infix takes string as argument'
-				}}
+									return Expression.NativeOperator(NativeOperatorKind.Infix, a, s, null, typer.types.get(e))
+							}
+						case _: throw '@infix takes string as argument'
+					} }
 
-				// TODO pre-compute `sizeof` for known types, so can eliminate `if sizeof(T) % 8 == 0 { 8-byte step } else`
+					// TODO pre-compute `sizeof` for known types, so can eliminate `if sizeof(T) % 8 == 0 { 8-byte step } else`
 				if let operator = Decorator.getDecorator(atts, 'operator') { switch operator.values[0] {
-					case String(s):
-						switch expr {
-							case Ident(_, params):
-								if let parames = params {
-									return Expression.NativeOperator(NativeOperatorKind.Function, a, s, params.map(param => typer.types.get(param)), typer.types.get(e))
-								}
+						case String(s):
+							switch expr {
+								case Ident(_, params):
+									if let parames = params {
+										return Expression.NativeOperator(NativeOperatorKind.Function, a, s, params.map(param => typer.types.get(param)), typer.types.get(e))
+									}
 
-								return Expression.NativeOperator(NativeOperatorKind.Function, a, s, null, typer.types.get(e))
-						}
-					case _: throw '@operator takes string as argument'
-				}}
+									return Expression.NativeOperator(NativeOperatorKind.Function, a, s, null, typer.types.get(e))
+							}
+						case _: throw '@operator takes string as argument'
+					} }
 
 				let v = nodeToExpression(expr)
 
 				switch v {
 					case Dot(expr, _): switch expr {
-						case This(_): kind = CallKind.VirtualMethod
-					}
+							case This(_): kind = CallKind.VirtualMethod
+						}
 				}
 
-				return Expression.Call(v, a, typer.types.get(e), kind)
+				var callExpects: [Type] = []
+
+				// D8: derive from the callee signature (Function args), not the
+				// Call node type (which is the result). Covers Ident/Dot/closures.
+				switch typer.types.get(expr) as!Type {
+					case Function(args, _): callExpects = args.map(arg => arg.dataType)
+				}
+
+				return Expression.Call(v, a, typer.types.get(e), kind, callExpects)
 
 			case Binop(a, op, b):
 				// TODO extract bin-op handler to function so than can be called commutatively `infixCommutative()`
@@ -638,147 +793,148 @@ class Normalizer {
 
 				// TODO refactor `if op` to `switch op`
 				if op == Token.Add { switch ea {
-					case String(sa): switch eb {
-						// `"abc" + "dce" = "abcdce"`
-						case String(sb): return Expression.String(sa + sb)
-						// `"abc" + 123 = "abc123"`
-						case Int(sb): return Expression.String(sa + sb)
-						case Float(sb): return Expression.String(sa + sb)
-						case True: return Expression.String(sa + "true")
-						case False: return Expression.String(sa + "false")
-					}
-					case Int(sa): switch eb {
-						// `1 + 1 = 2`
-						case Int(sb): return Expression.Int(sa + sb)
-						case Float(sb): return Expression.Float(sa + sb)
-						// `123 + "123" = "123123"`
-						case String(sb): return Expression.String(sa + sb)
-					}
-					case Float(sa): switch eb {
-						case Int(sb): return Expression.Float(sa + sb)
-						case Float(sb): return Expression.Float(sa + sb)
-						case String(sb): return Expression.String(sa + sb)
-					}
-				}}
+						case String(sa): switch eb {
+								// `"abc" + "dce" = "abcdce"`
+								case String(sb): return Expression.String(sa + sb)
+									// `"abc" + 123 = "abc123"`
+								case Int(sb): return Expression.String(sa + sb)
+								case Float(sb): return Expression.String(sa + sb)
+								case True: return Expression.String(sa + "true")
+								case False: return Expression.String(sa + "false")
+							}
+						case Int(sa): switch eb {
+								// `1 + 1 = 2`
+								case Int(sb): return Expression.Int(sa + sb)
+								case Float(sb): return Expression.Float(sa + sb)
+									// `123 + "123" = "123123"`
+								case String(sb): return Expression.String(sa + sb)
+							}
+						case Float(sa): switch eb {
+								case Int(sb): return Expression.Float(sa + sb)
+								case Float(sb): return Expression.Float(sa + sb)
+								case String(sb): return Expression.String(sa + sb)
+							}
+					} }
 
-				// TODO use nested pattern matching here
-				// `case ea, op, eb:`
+					// TODO use nested pattern matching here
+					// `case ea, op, eb:`
 				if op == Token.LogicalOr { switch ea {
-					case True: switch eb {
-						// `true || false = true`
-						case False: return Expression.True
-						// `true || true = true`
-						case True: return Expression.True
-					}
-					case False: switch eb {
-						// `false || false = false`
-						case False: return Expression.False
-						// `false || true = true`
-						case True: return Expression.True
-					}
-				}}
+						case True: switch eb {
+								// `true || false = true`
+								case False: return Expression.True
+									// `true || true = true`
+								case True: return Expression.True
+							}
+						case False: switch eb {
+								// `false || false = false`
+								case False: return Expression.False
+									// `false || true = true`
+								case True: return Expression.True
+							}
+					} }
 
 				if op == Token.LogicalAnd {
 					switch ea {
-					case True: switch eb {
-						// `true && false = false`
-						case False: return Expression.False
-						// `true && true = true`
-						case True: return Expression.True
-					}
-					case False: switch eb {
-						// `false && false = false`
-						case False: return Expression.False
-						// `false && true = false`
-						case True: return Expression.False
-					}
-				}}
+						case True: switch eb {
+								// `true && false = false`
+								case False: return Expression.False
+									// `true && true = true`
+								case True: return Expression.True
+							}
+						case False: switch eb {
+								// `false && false = false`
+								case False: return Expression.False
+									// `false && true = false`
+								case True: return Expression.False
+							}
+					} }
 
-				// `a == b`
+					// `a == b`
 				if op == Token.Equal {
 					switch ea {
-					case True: switch eb {
-						// `true == false = false`
-						case False: return Expression.False
-						// `true == true = true`
-						case True: return Expression.True
-					}
-					case False: switch eb {
-						// `false == false = true`
-						case False: return Expression.True
-						// `false == true = false`
-						case True: return Expression.False
-					}
-					case String(sa): switch eb {
-						case String(sb):
-							if sa == sb {
-								return Expression.True
+						case True: switch eb {
+								// `true == false = false`
+								case False: return Expression.False
+									// `true == true = true`
+								case True: return Expression.True
 							}
-							return Expression.False
-					}
-					case Int(sa): switch eb {
-						case Int(sb):
-							if sa == sb {
-								return Expression.True
+						case False: switch eb {
+								// `false == false = true`
+								case False: return Expression.True
+									// `false == true = false`
+								case True: return Expression.False
 							}
-							return Expression.False
-					}
+						case String(sa): switch eb {
+								case String(sb):
+									if sa == sb {
+										return Expression.True
+									}
+									return Expression.False
+							}
+						case Int(sa): switch eb {
+								case Int(sb):
+									if sa == sb {
+										return Expression.True
+									}
+									return Expression.False
+							}
 
-					// `null == b`
-					// `== null` optimized to `false` for non-nullable types
-					// TODO meta-block version, cause expr must be evaluated
-					// TODO `null != b`
-					// TODO commutative `null==` `==null`
-					case Null: switch eb {
-						case True: return Expression.False
-						case False: return Expression.False
-						case String(_): return Expression.False
-						case Int(_): return Expression.False
-						case Ident(_, dataType): switch dataType {
-							case Nullable(_):
-							case UnknownNullable(_):
-							case Unknown(_):
-							case _: return Expression.False
-						}
-					}
-				}}
+							// `null == b`
+							// `== null` optimized to `false` for non-nullable types
+							// TODO meta-block version, cause expr must be evaluated
+							// TODO `null != b`
+							// TODO commutative `null==` `==null`
+						case Null: switch eb {
+								case True: return Expression.False
+								case False: return Expression.False
+								case String(_): return Expression.False
+								case Int(_): return Expression.False
+								case Ident(_, dataType): switch dataType {
+										case Nullable(_):
+										case UnknownNullable(_):
+										case Unknown(_):
+										case _: return Expression.False
+									}
+							}
+					} }
 
-				// `a != b`
+					// `a != b`
 				if op == Token.Unequal {
 					switch ea {
-					case True: switch eb {
-						// `true != false = true`
-						case False: return Expression.True
-						// `true != true = false`
-						case True: return Expression.False
-					}
-					case False: switch eb {
-						// `false != false = false`
-						case False: return Expression.False
-						// `false != true = true`
-						case True: return Expression.True
-					}
-					case String(sa): switch eb {
-						case String(sb):
-							if sa != sb {
-								return Expression.True
+						case True: switch eb {
+								// `true != false = true`
+								case False: return Expression.True
+									// `true != true = false`
+								case True: return Expression.False
 							}
-							return Expression.False
-					}
-					case Int(sa): switch eb {
-						case Int(sb):
-							if sa != sb {
-								return Expression.True
+						case False: switch eb {
+								// `false != false = false`
+								case False: return Expression.False
+									// `false != true = true`
+								case True: return Expression.True
 							}
-							return Expression.False
-					}
-				}}
+						case String(sa): switch eb {
+								case String(sb):
+									if sa != sb {
+										return Expression.True
+									}
+									return Expression.False
+							}
+						case Int(sa): switch eb {
+								case Int(sb):
+									if sa != sb {
+										return Expression.True
+									}
+									return Expression.False
+							}
+					} }
 
 				return Expression.Binop(ea, op, eb, typer.types.get(e))
 
-				case New(path, t, args, fields, el):
+			case New(path, t, args, fields, el):
 				let v = Expression.Ident(parentNames.get(typer.parents.get(e)) ?? DataHelper.extractTypeName(t), null)
 				let a = []
+
 				for arg in args {
 					// TODO generate default arg values
 					a.push(nodeToExpression(arg))
@@ -789,43 +945,49 @@ class Normalizer {
 				let a = []
 				let defaults = []
 				let types = []
-				for arg in vars { switch arg {
-					case Var(name, t, expr, const):
-						a.push(unique(name, arg))
-						types.push(t)
-						if expr != null {
-							defaults.push(nodeToExpression(expr))
-						} else {
-							defaults.push(null)
-						}
-				}}
-				return Expression.Function(name!=null? unique(name, e) : null as! String, nodeToStatement(expr), a, defaults, typer.types.get(e), isAsync: project.mapAsync.get(e) == true)
 
-				case Arrow(expr, vars, rettype):
+				for arg in vars { switch arg {
+						case Var(name, t, expr, const):
+							a.push(unique(name, arg))
+							types.push(t)
+
+							if expr != null {
+								defaults.push(nodeToExpression(expr))
+							} else {
+								defaults.push(null)
+							}
+					} }
+				return Expression.Function(name != null? unique(name, e) : null as!String, nodeToStatement(expr), a, defaults, typer.types.get(e), isAsync: project.mapAsync.get(e) == true)
+
+			case Arrow(expr, vars, rettype):
 				let a = []
 				let defaults = []
 				let types = []
+
 				for arg in vars { switch arg {
-					case Var(name, t, expr, const):
-						a.push(unique(name, arg))
-						types.push(t)
-						if expr != null {
-							defaults.push(nodeToExpression(expr))
-						} else {
-							defaults.push(null)
-						}
-				}}
+						case Var(name, t, expr, const):
+							a.push(unique(name, arg))
+							types.push(t)
+
+							if expr != null {
+								defaults.push(nodeToExpression(expr))
+							} else {
+								defaults.push(null)
+							}
+					} }
 				return Expression.Arrow(nodeToExpression(expr), a, defaults, types, rettype, typer.types.get(e), isAsync: project.mapAsync.get(e) == true)
 
-				case Block(el):
+			case Block(el):
 				if el.length == 0 {
 					return Expression.Object([], [], [])
 				}
+
 				if el.length == 1 {
 					return nodeToExpression(el[0])
 				}
 				let block = []
 				var i = 0
+
 				while i < el.length - 1 {
 					if let s = nodeToStatement(el[i]) {
 						block.push(s)
@@ -834,18 +996,19 @@ class Normalizer {
 				}
 				let result = el[el.length - 1]
 				block.push(Statement.Return(nodeToExpression(result)))
-				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], null, isAsync: false)), [], typer.types.get(result), CallKind.Function)
+				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], null, isAsync: false)), [], typer.types.get(result), CallKind.Function, [])
 
-				case Object(names, el):
+			case Object(names, el):
 				let els = []
 				let types = []
+
 				for e in el {
 					els.push(nodeToExpression(e))
 					types.push(typer.types.get(e))
 				}
 				return Expression.Object(names, els, types)
 
-				case Parenthesis(inner):
+			case Parenthesis(inner):
 				let value = nodeToExpression(unwrapParens(inner))
 
 				// Don't keep () for single (expr)
@@ -860,127 +1023,155 @@ class Normalizer {
 
 				return Expression.Parenthesis(value)
 
-				case Array(el):
+			case Array(el):
 				if el.length == 1 { switch el[0] {
-					// TODO remove this feature
-					case For(name, over, by, range):
-					let block = []
-					let result = unique('result')
-					let resultType = typer.types.get(e) // TODO refactor to use this var below
-					block.push(Statement.Const(result, Expression.Array([], typer.types.get(e)), typer.types.get(e)))
-					let value = unique('value')
-					let valueType = typer.types.get(el[0])
-					block.push(Statement.Const(value, nodeToExpression(over), valueType))
+						// TODO remove this feature
+						case For(name, over, by, range):
+							let block = []
+							let result = unique('result')
+							let resultType = typer.types.get(e) // TODO refactor to use this var below
+							block.push(Statement.Const(result, Expression.Array([], typer.types.get(e)), typer.types.get(e)))
+							let value = unique('value')
+							let valueType = typer.types.get(el[0])
+							block.push(Statement.Const(value, nodeToExpression(over), valueType))
 
-					let atts2 = project.mapDecorators.get(el[0])
-					let isReverse2 = Decorator.getDecorator(atts2, 'reverse') != null
+							let atts2 = project.mapDecorators.get(el[0])
+							let isReverse2 = Decorator.getDecorator(atts2, 'reverse') != null
 
-					let push = Statement.Call(Expression.Dot(Expression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
-					fun fillLoop() {
-						switch over {
-							case Int(s):
-							let i = name
-							if isReverse2 {
-								block.push(Statement.Const(i, Expression.Int(s), typer.typeInt))
-								block.push(Statement.While(
-									Expression.Binop(Expression.Ident(i, typer.typeInt), Token.Greater, Expression.Int(0), typer.typeBool),
-									Statement.Block([
-										Statement.Decrement(Expression.Ident(i, typer.typeInt)),
-										push
-									]),
-									true))
-								return
+							let push = Statement.Call(Expression.Dot(Expression.Ident(result, typer.types.get(e)), 'push', null), [nodeToExpression(by)], [], CallKind.VirtualMethod)
+							fun fillLoop() {
+								switch over {
+									case Int(s):
+										let i = name
+
+										if isReverse2 {
+											block.push(Statement.Const(i, Expression.Int(s), typer.typeInt))
+											block.push(Statement.While(
+													Expression.Binop(Expression.Ident(i, typer.typeInt), Token.Greater, Expression.Int(0), typer.typeBool),
+													Statement.Block([
+															Statement.Decrement(Expression.Ident(i, typer.typeInt)),
+															push
+														]),
+														true))
+											return
+										}
+										block.push(Statement.Const(i, Expression.Int(-1), typer.typeInt))
+										block.push(Statement.While(
+												Expression.Binop(
+													Expression.Parenthesis(Expression.Binop(Expression.Ident(i, typer.typeInt), Token.Add, Expression.Int(1), typer.typeInt)),
+													Token.Less,
+													Expression.Ident(value, valueType),
+													typer.typeBool),
+													Statement.Block([
+														Statement.Increment(Expression.Ident(i, typer.typeInt)),
+														push
+													]),
+													true))
+										return
+								}
+
+								block.push(Statement.For(name, Expression.Ident(value, valueType), push, reverse: false))
 							}
-							block.push(Statement.Const(i, Expression.Int(-1), typer.typeInt))
-							block.push(Statement.While(
-								Expression.Binop(
-									Expression.Parenthesis(Expression.Binop(Expression.Ident(i, typer.typeInt), Token.Add, Expression.Int(1), typer.typeInt)),
-									Token.Less,
-									Expression.Ident(value, valueType),
-									typer.typeBool),
-								Statement.Block([
-									Statement.Increment(Expression.Ident(i, typer.typeInt)),
-									push
-								]),
-								true))
-							return
-						}
 
-						block.push(Statement.For(name, Expression.Ident(value, valueType), push, reverse: false))
-					}
-
-					fillLoop()
-					block.push(Statement.Return(Expression.Ident(result, resultType)))
-					return Expression.Call(
-						Expression.Parenthesis(
-							Expression.Function(null, Statement.Block(block), [], [], Type.Function([], typer.types.get(e), variadic: false), isAsync: false)
-						)
-						, [],
-						typer.types.get(e),
-						CallKind.Function
-					) // TODO resultType?
-				}}
+							fillLoop()
+							block.push(Statement.Return(Expression.Ident(result, resultType)))
+							return Expression.Call(
+								Expression.Parenthesis(
+									Expression.Function(null, Statement.Block(block), [], [], Type.Function([], typer.types.get(e), variadic: false), isAsync: false)
+								)
+								, [],
+								typer.types.get(e),
+								CallKind.Function,
+								[]
+							) // TODO resultType?
+					} }
 
 				let els = []
-				let types = []
+				let types: [Type?] = []
+
 				for e in el {
 					els.push(nodeToExpression(e))
 					types.push(typer.types.get(e))
 				}
-				return Expression.Array(els, typer.types.get(e))
 
-				// `nullable ?? otherwise`
-				case Elvis(nullable, otherwise):
-					let result = unique('result')
-					let resultType = typer.types.get(nullable)
-					return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block([
-						Statement.Const(result, nodeToExpression(nullable), resultType),
-						Statement.If(Expression.Binop(Expression.Ident(result, resultType), Token.Unequal, Expression.Null(resultType), typer.typeBool), Statement.Return(Expression.Ident(result, resultType)), null),
-						Statement.Return(nodeToExpression(otherwise))
-						]), [], [], Type.Function([], typer.types.get(otherwise), false), isAsync: false)), [], typer.types.get(otherwise),
-						CallKind.Function
-					)
-					return Expression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
+				// D8: box Int elements where Array<Any> is expected (hexaItems
+				// C4312). Uses explicit UnsafeBitCast so genC prints Any_fromInt.
+				var elemT: Type? = null
 
-				case Unop(op, postfix, e):
-					switch op {
-						case Increment | Decrement:
-							var source: Node? = typer.parents.get(e)
-							if let source = source {
-								switch source {
-									case Var(name, _):
-										neverReassignedLocal.set(source, false)
+				switch typer.types.get(e) as!Type {
+					case ClassInstance(c, generics):
+						if c.name == 'Array', generics.length > 0 {
+							elemT = generics[0]
+						}
+					case _:
+				}
+
+				if let et = elemT {
+					if et == typer.typeAny {
+						for i in els.length {
+							if let t = types[i] {
+								if t == typer.typeInt {
+									els[i] = Expression.UnsafeBitCast(els[i], et)
 								}
 							}
+						}
 					}
+				}
 
-					let expression = nodeToExpression(e)
-					switch op {
-						case Exclamation if postfix:
-							// TODO probably better introduce PostfixUnop or just Node.Postfix/Suffix Node.Prefix
-							return Expression.RemoveNullability(expression, typer.types.get(e))
-						case KNot:
-							switch expression {
-								// `not true = false`
-								case True: return Expression.False
-								// `not false = true`
-								case False: return Expression.True
-								//	return Expression.True
-								//case False:
-									return Expression.True // TODO bug!
+				return Expression.Array(els, typer.types.get(e))
+
+				// `nullable ?? otherwise` — kept as Elvis (no IIFE): JS prints
+				// native `??`, native lowers in reflect (simple lhs → If,
+				// complex → genC metaBlock temp, single eval, no closure)
+			case Elvis(nullable, otherwise):
+				return Expression.Elvis(nodeToExpression(nullable), nodeToExpression(otherwise))
+
+			case Unop(op, postfix, e):
+				switch op {
+					case Increment | Decrement:
+						var source: Node? = typer.parents.get(e)
+
+						if let source = source {
+							switch source {
+								case Var(name, _):
+									neverReassignedLocal.set(source, false)
 							}
-					}
-					return Expression.Unop(op, postfix, expression)
+						}
+				}
 
-				case This:
-					return Expression.This(typer.types.get(e))
+				let expression = nodeToExpression(e)
 
-				case Map(keys, values):
+				switch op {
+					case Exclamation if postfix:
+						// TODO probably better introduce PostfixUnop or just Node.Postfix/Suffix Node.Prefix
+						return Expression.RemoveNullability(expression, typer.types.get(e))
+					case KNot:
+						switch expression {
+							// `not true = false`
+							case True: return Expression.False
+								// case True: return Expression.False
+								// `not false = true`
+							case False: return Expression.True
+								// console.log('dat bruh')
+								// return Expression.True
+								// case False:
+								console.log('dat bruh')
+								return Expression.True // TODO bug!
+						}
+				}
+				return Expression.Unop(op, postfix, expression)
+
+			case This:
+				return Expression.This(typer.types.get(e))
+
+			case Map(keys, values):
 				let k = []
 				let v = []
+
 				for key in keys {
 					k.push(nodeToExpression(key))
 				}
+
 				for value in values {
 					v.push(nodeToExpression(value))
 				}
@@ -988,35 +1179,43 @@ class Normalizer {
 				// TODO transfer `<k, V>`, not `typer.types.get(keys[0])`, also may have zero keys
 				return Expression.Map(k, v, typer.types.get(keys[0]), typer.types.get(values[0]), typer.types.get(e))
 
-				case AssignOp(a, op, b):
-					var source: Node? = typer.parents.get(a)
-					if let source = source {
-						switch source {
-							case Var(name, _):
-								neverReassignedLocal.set(source, false)
-						}
-					}
-					return Expression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+			case AssignOp(a, op, b):
+				var source: Node? = typer.parents.get(a)
 
-				case If(econd, eif, eelse):
+				if let source = source {
+					switch source {
+						case Var(name, _):
+							neverReassignedLocal.set(source, false)
+					}
+				}
+				// let left = nodeToExpression(a)
+				// if let parent = neverReassignedLocalParent.get(element), neverReassignedLocal.get(parent) == true {
+				return Expression.Assignop(nodeToExpression(a), op, nodeToExpression(b))
+
+			case If(econd, eif, eelse):
 				// Check if it contains if-let bindings
 				var binds = false
 				for cond in econd { switch cond {
-					case Var(_):
-					binds = true
-				}}
+						case Var(_):
+							binds = true
+					} }
 
 				if not binds {
 					if econd.length == 1 {
-						return Expression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse))
+						let ifRes = Expression.If(nodeToExpression(econd[0]), nodeToExpression(eif), nodeToExpression(eelse), typer.types.get(e))
+						niceProject.expressionType.set(ifRes, typer.types.get(e))
+						return ifRes
 					}
 					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
+
 					while i < econd.length {
 						parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
 					}
-					return Expression.If(parens, nodeToExpression(eif), nodeToExpression(eelse))
+					let ifResMulti = Expression.If(parens, nodeToExpression(eif), nodeToExpression(eelse), typer.types.get(e))
+					niceProject.expressionType.set(ifResMulti, typer.types.get(e))
+					return ifResMulti
 				}
 
 				// Expression if-let: wrap in IIFE to contain bindings
@@ -1028,86 +1227,90 @@ class Normalizer {
 				var ifNullable = false
 				var ifLast = ''
 				var ifLastType = typer.types.get(econd[0])
+
 				switch econd[0] {
 					case Var(name, t, expr, const):
-					ifLast = unique(name, econd[0])
-					ifNullable = true
-					iifeBlock.push(Statement.Const(ifLast, nodeToExpression(expr), typer.types.get(econd[0])))
-					ifLastType = ifLastType ?? typer.types.get(expr)
-					case _:
-					ifLast = unique('temp')
-					iifeBlock.push(Statement.Const(ifLast, nodeToExpression(econd[0]), typer.types.get(econd[0])))
-				}
-				while ifCurrent < econd.length - 1 { switch econd[ifCurrent + 1] {
-					case Var(vname, t, expr, const):
-					let ifName = unique(vname, econd[ifCurrent + 1])
-					iifeBlock.push(Statement.Var(ifName, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
-					iifeBlock.push(Statement.If(
-						Expression.Binop(
-							Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(ifCurrent + 0), typer.typeBool),
-							Token.LogicalAnd,
-							Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
-							typer.typeBool
-						),
-						Statement.Block([
-							Statement.Assign(Expression.Ident(ifName, typer.types.get(expr)), nodeToExpression(expr), null),
-							Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(ifCurrent + 1), null)
-						]), null))
-						ifCurrent++
-						ifLast = ifName
-						ifLastType = typer.types.get(expr)
+						ifLast = unique(name, econd[0])
 						ifNullable = true
+						iifeBlock.push(Statement.Const(ifLast, nodeToExpression(expr), typer.types.get(econd[0])))
+						ifLastType = ifLastType ?? typer.types.get(expr)
 					case _:
-					let ifNext = unique('temp')
-					let ifNextType = typer.types.get(econd[ifCurrent + 1])
-					iifeBlock.push(Statement.Var(ifNext, Expression.Null(ifNextType), ifNextType))
-					iifeBlock.push(Statement.If(
+						ifLast = unique('temp')
+						iifeBlock.push(Statement.Const(ifLast, nodeToExpression(econd[0]), typer.types.get(econd[0])))
+				}
+
+				while ifCurrent < econd.length - 1 { switch econd[ifCurrent + 1] {
+						case Var(vname, t, expr, const):
+							let ifName = unique(vname, econd[ifCurrent + 1])
+							iifeBlock.push(Statement.Var(ifName, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
+							iifeBlock.push(Statement.If(
+									Expression.Binop(
+										Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(ifCurrent + 0), typer.typeBool),
+										Token.LogicalAnd,
+										Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
+										typer.typeBool
+									),
+									Statement.Block([
+											Statement.Assign(Expression.Ident(ifName, typer.types.get(expr)), nodeToExpression(expr), null),
+											Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(ifCurrent + 1), null)
+										]), null))
+							ifCurrent++
+							ifLast = ifName
+							ifLastType = typer.types.get(expr)
+							ifNullable = true
+						case _:
+							let ifNext = unique('temp')
+							let ifNextType = typer.types.get(econd[ifCurrent + 1])
+							iifeBlock.push(Statement.Var(ifNext, Expression.Null(ifNextType), ifNextType))
+							iifeBlock.push(Statement.If(
+									Expression.Binop(
+										Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(ifCurrent + 0), typer.typeBool),
+										Token.LogicalAnd,
+										Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
+										typer.typeBool
+									),
+									Statement.Block([
+											Statement.Assign(Expression.Ident(ifNext, ifNextType), nodeToExpression(econd[ifCurrent + 1]), null),
+											Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(ifCurrent + 1), null)
+										]), null))
+							ifCurrent++
+							ifLast = ifNext
+							ifLastType = ifNextType
+							ifNullable = false
+					} }
+					// Last step
+				iifeBlock.push(Statement.If(
 						Expression.Binop(
-							Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(ifCurrent + 0), typer.typeBool),
+							Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
 							Token.LogicalAnd,
 							Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
 							typer.typeBool
 						),
-						Statement.Block([
-							Statement.Assign(Expression.Ident(ifNext, ifNextType), nodeToExpression(econd[ifCurrent + 1]), null),
-							Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(ifCurrent + 1), null)
-						]), null))
-						ifCurrent++
-						ifLast = ifNext
-						ifLastType = ifNextType
-						ifNullable = false
-				}}
-				// Last step
-				iifeBlock.push(Statement.If(
-					Expression.Binop(
-						Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
-						Token.LogicalAnd,
-						Expression.Binop(Expression.Ident(ifLast, ifLastType), Token.Unequal, ifNullable? Expression.Null(ifLastType) : Expression.False, ifNullable? ifLastType : typer.typeBool),
-						typer.typeBool
-					),
-					Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(econd.length), null), null))
-				// Return result based on step
+						Statement.Assign(Expression.Ident(ifStep, typer.typeInt), Expression.Int(econd.length), null), null))
+					// Return result based on step
 				var ifElseReturn: Statement = Statement.Return(Expression.Null(resultType))
+
 				if eelse != null {
 					ifElseReturn = Statement.Return(nodeToExpression(eelse))
 				}
 				iifeBlock.push(Statement.If(
-					Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(econd.length), typer.typeBool),
-					Statement.Return(nodeToExpression(eif)),
-					ifElseReturn))
-				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(iifeBlock), [], [], Type.Function([], resultType, false), isAsync: false)), [], resultType, CallKind.Function)
+						Expression.Binop(Expression.Ident(ifStep, typer.typeInt), Token.Equal, Expression.Int(econd.length), typer.typeBool),
+						Statement.Return(nodeToExpression(eif)),
+						ifElseReturn))
+				return Expression.Call(Expression.Parenthesis(Expression.Function(null, Statement.Block(iifeBlock), [], [], Type.Function([], resultType, false), isAsync: false)), [], resultType, CallKind.Function, [])
 
-				case Await(e):
-					return Expression.Await(nodeToExpression(e))
+			case Await(e):
+				return Expression.Await(nodeToExpression(e))
 
-				case Index(expr, index):
-					let exprType = typer.types.get(expr)
-					if exprType == typer.typeString {
-						return Expression.StringIndex(nodeToExpression(expr), nodeToExpression(index), typer.types.get(e))
-					}
+			case Index(expr, index):
+				let exprType = typer.types.get(expr)
+
+				if exprType == typer.typeString {
+					return Expression.StringIndex(nodeToExpression(expr), nodeToExpression(index), typer.types.get(e))
+				}
 				return Expression.Index(nodeToExpression(expr), nodeToExpression(index), typer.types.get(e))
 
-				case As(e, kind, t): switch kind {
+			case As(e, kind, t): switch kind {
 					case Question:
 						// console.log('`as?` is not yet supported by normalizer, only `as!`')
 						// TODO error/implement
@@ -1120,56 +1323,59 @@ class Normalizer {
 						return Expression.UnsafeBitCast(nodeToExpression(e), typer.types.get(t))
 				}
 
-				case Is(e, t):
-					return Expression.Is(nodeToExpression(e), typer.types.get(t))
+			case Is(e, t):
+				return Expression.Is(nodeToExpression(e), typer.types.get(t))
 
 				// Wraps switch into function and adds `return` on every case
-				case Switch(exprs, conds, guards, cases):
-					let block = []
-					let caseRet = []
-					var funcType = typer.typeVoid
-					var resultType = typer.typeVoid
-					for c in cases {
-						resultType = typer.types.get(c)
-						funcType = Type.Function([], resultType, false)
-						caseRet.push(Node.Return(c))
-					}
-					block.push(nodeToStatement(Node.Switch(exprs, conds, guards, caseRet)))
-					return Expression.Call(
-						Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], funcType, isAsync: false)),
-						[],
-						resultType,
-						CallKind.Function
-					)
+			case Switch(exprs, conds, guards, cases):
+				let block = []
+				let caseRet = []
+				var funcType = typer.typeVoid
+				var resultType = typer.typeVoid
 
-				case Spread(value):
-					return Expression.Spread(nodeToExpression(value))
+				for c in cases {
+					resultType = typer.types.get(c)
+					funcType = Type.Function([], resultType, false)
+					caseRet.push(Node.Return(c))
+				}
+				block.push(nodeToStatement(Node.Switch(exprs, conds, guards, caseRet)))
+				return Expression.Call(
+					Expression.Parenthesis(Expression.Function(null, Statement.Block(block), [], [], funcType, isAsync: false)),
+					[],
+					resultType,
+					CallKind.Function,
+					[]
+				)
 
-				case Module(_):
-				case Import(_):
-				case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
-				case TypeAlias(_):
-			}
+			case Spread(value):
+				return Expression.Spread(nodeToExpression(value))
 
+			case Module(_):
+			case Import(_):
+			case _: console.error('(internal warning) Unknown node type for expression:', e, project.data.get(e))
+			case TypeAlias(_):
+		}
+
+		return null
+	}
+
+	fun nodeToStatement(e: Node): Statement? {
+		let result = nodeToStatementWithoutPosition(e)
+
+		if result != null {
+			niceProject.statementPosition.set(result, project.data.get(e))
+		}
+		return result
+	}
+
+	fun nodeToStatementWithoutPosition(e: Node): Statement? {
+		if e == null {
 			return null
 		}
 
-		fun nodeToStatement(e: Node): Statement? {
-			let result = nodeToStatementWithoutPosition(e)
-			if result != null {
-				niceProject.statementPosition.set(result, project.data.get(e))
-			}
-			return result
-		}
-
-		fun nodeToStatementWithoutPosition(e: Node): Statement? {
-			if e == null {
-				return null
-			}
-
-			switch e {
-				case Block(el):
-				//var els = [] // TODO
+		switch e {
+			case Block(el):
+				// var els = [] // TODO
 				var els: [Statement] = []
 				// Ignore after: break, continue, return, throw...
 				var ignore = false
@@ -1183,18 +1389,18 @@ class Normalizer {
 					switch statement {
 						// `null` statement optimized away
 						case null:
-						// Empty block `{}` optimized away too
-						// case If: // TODO error `If` requires `(_)` binds
+							// Empty block `{}` optimized away too
+							// case If: // TODO error `If` requires `(_)` binds
 						case Block(sub):
 							switch sub.length {
 								// TODO `case []` and `case [one]` patterns
 								case 0: // Empty
-								//case 1: els.push(els[0]) TODO this typo would be avoided if `els` readonly
+									// case 1: els.push(els[0]) TODO this typo would be avoided if `els` readonly
 								case 1: els.push(sub[0])
 								case _: els.push(statement)
 							}
 
-						// TODO case other:
+							// TODO case other:
 						case Break:
 							els.push(statement)
 							ignore = true
@@ -1219,9 +1425,11 @@ class Normalizer {
 				// Promote local to constant
 				for i in els.length {
 					let element = els[i]
+
 					switch element {
 						case Var(name, expr, dataType):
 							if let parent = neverReassignedLocalParent.get(element), neverReassignedLocal.get(parent) == true {
+								// console.log(name, 'promoted to const')
 								els[i] = Statement.Const(name, expr, dataType)
 							}
 					}
@@ -1230,33 +1438,33 @@ class Normalizer {
 				// Collect RC cleanups (in reverse order for LIFO unwind)
 				// let cleanups: [Statement] = []
 				// for s in els {  // Scan backwards to collect in reverse (last declared first)
-				// 	switch s {
-				// 		// TODO case Var(name, expr, type) | Const(name, expr, type):
-				// 		case Var(name, expr, type):
-				// 			if type.needsRefCount {  // Assume this check; adjust as needed
-				// 				cleanups.unshift(  // Unshift to reverse: inner-most first
-				// 					Statement.RefDec(Expression.Ident(name, type))  // Your new node
-				// 				)
-				// 			}
-				// 		case _: {}  // Ignore non-decls
-				// 	}
+				// switch s {
+				// // TODO case Var(name, expr, type) | Const(name, expr, type):
+				// case Var(name, expr, type):
+				// if type.needsRefCount {  // Assume this check; adjust as needed
+				// cleanups.unshift(  // Unshift to reverse: inner-most first
+				// Statement.RefDec(Expression.Ident(name, type))  // Your new node
+				// )
+				// }
+				// case _: {}  // Ignore non-decls
+				// }
 				// }
 
 				// Append cleanups if any (as sub-block to avoid empty-block opt)
 				// if cleanups.length > 0 {
-				// 	els.push(Statement.Block(cleanups))
+				// els.push(Statement.Block(cleanups))
 				// }
 
 				// Unwrap `{{{{block}}}}`
 				if els.length == 1 { switch els[0] {
-					case Block(_):
-						return els[0]
-				}}
+						case Block(_):
+							return els[0]
+					} }
 
 				return Statement.Block(els)
 
 				// Types
-				case Enum(t, fields, valuesType):
+			case Enum(t, fields, valuesType):
 				renameClassFields(fields, getRenamingStrategy(project.mapDecorators.get(e)))
 				let isComplexEnum = valuesType == null
 				if isComplexEnum {
@@ -1280,142 +1488,161 @@ class Normalizer {
 					let constructors = []
 					let constructorsTypes = []
 					let types = []
+
 					for f in fields { switch f {
-						case NodeTypeValue(t): switch t {
-							case Type(name):
-							names.push(name)
-							constructors.push(null)
-							constructorsTypes.push(null)
-							types.push(null)
-						}
-						case Call(e, args, argNames):
-							switch e {
-								case NodeTypeValue(t): switch t {
-									case Type(name): names.push(name)
+							case NodeTypeValue(t): switch t {
+									case Type(name):
+										names.push(name)
+										constructors.push(null)
+										constructorsTypes.push(null)
+										types.push(null)
 								}
-							}
-							constructors.push([for arg in argNames unique(arg as! String)])
-							// TODO as! String
-							constructorsTypes.push([for arg in args typer.toType(Typer.nodeToNodeType(arg), arg)])
-							types.push([for arg in args unique(arg as! String)])
-							// TODO as! String
-						case Var(name, t, expr, const):
-							if project.mapStatic.get(f) == true {
-								let uname = parentNames.get(f) ?? unique(name, f)
-								if const {
-									let value = nodeToExpression(expr)
-									saveInlineIfViable(f, value)
-									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
-								} else {
-									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
-								}
-							}
-						case Function(name, expr, vars, rettype, external, variadic):
-							if project.mapStatic.get(f) == true {
-								let uname = parentNames.get(f) ?? unique(name, f)
-								let a = []
-								let defaults = []
-								let types = []
-								for arg in vars { switch arg {
-									case Var(name, t, expr, const):
-										a.push(unique(name, arg))
-										types.push(t)
-										if expr != null {
-											defaults.push(nodeToExpression(expr))
-										} else {
-											defaults.push(null)
+							case Call(e, args, argNames):
+								switch e {
+									case NodeTypeValue(t): switch t {
+											case Type(name): names.push(name)
 										}
-								}}
-								let variadicKind = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
-							}
-						case _: console.error("(internal warning) Unknown complex enum field kind:", f)
-					}}
+								}
+								constructors.push([for arg in argNames unique(arg as!String)])
+								// TODO as! String
+								constructorsTypes.push([for arg in args typer.toType(Typer.nodeToNodeType(arg), arg)])
+								types.push([for arg in args unique(arg as!String)])
+								// TODO as! String
+							case Var(name, t, expr, const):
+								if project.mapStatic.get(f) == true {
+									let uname = parentNames.get(f) ?? unique(name, f)
+
+									if const {
+										let value = nodeToExpression(expr)
+										saveInlineIfViable(f, value)
+										niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
+									} else {
+										niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+									}
+								}
+							case Function(name, expr, vars, rettype, external, variadic):
+								if project.mapStatic.get(f) == true {
+									if Decorator.getDecorator(project.mapDecorators.get(f), 'destructor') != null {
+										throw '@destructor is only allowed on instance methods'
+									}
+
+									let uname = parentNames.get(f) ?? unique(name, f)
+									let a = []
+									let defaults = []
+									let types = []
+
+									for arg in vars { switch arg {
+											case Var(name, t, expr, const):
+												a.push(unique(name, arg))
+												types.push(t)
+
+												if expr != null {
+													defaults.push(nodeToExpression(expr))
+												} else {
+													defaults.push(null)
+												}
+										} }
+										// Hexa rest (no @nativeVariadic) is fixed `(count, ptr)`, not C `...`.
+									let variadicKind = variadicKindOf(typer.types.get(f), variadic)
+									niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
+								}
+							case _: console.error("(internal warning) Unknown complex enum field kind:", f)
+						} }
 					niceEnum.names = names
 					niceEnum.constructors = constructors
 					niceEnum.constructorsTypes = constructorsTypes
 					niceEnum.types = types
 					niceProject.enumsComplex.push(niceEnum)
-					return null //type
+					return null // type
 				} else {
 					let niceEnum = new NiceSimpleEnum()
 					niceEnum.name = DataHelper.extractTypeName(t)
 					let names = []
 					// TODO must error cause type of `[]` is unknown
 					let values = []
+
 					for f in fields { switch f {
-						// `ValueName = b`
-						case Binop(a, op, b): // op == Assign
-							switch a {
-								case NodeTypeValue(t): switch t {
+							// `ValueName = b`
+							case Binop(a, op, b): // op == Assign
+								switch a {
+									case NodeTypeValue(t): switch t {
+											case Type(name):
+												names.push(name)
+										}
+								}
+
+								switch b {
+									case String(s): values.push(Expression.String(s))
+									case Int(s): values.push(Expression.Int(s))
+									case MetaInt(v, kind): values.push(Expression.MetaInt(v, kind, typer.types.get(e)))
+										// TODO ^ typer must ensure same precision/meta for all tags' values
+
+										// `Alias = B`
+									case NodeTypeValue(dataType): {
+											switch dataType {
+												case Type(name, path): {
+														values.push(values[names.indexOf(name)])
+													}
+												case _: {
+														console.error("(internal warning) Unknown node alias value kind:", b)
+													}
+											}
+										}
+
+									case _: console.error("(internal warning) Unknown node field value kind:", b)
+								}
+								// Just `ValueName`
+							case NodeTypeValue(t): switch t {
 									case Type(name):
 										names.push(name)
 								}
-							}
-							switch b {
-								case String(s): values.push(Expression.String(s))
-								case Int(s): values.push(Expression.Int(s))
-								case MetaInt(v, kind): values.push(Expression.MetaInt(v, kind, typer.types.get(e)))
-								// TODO ^ typer must ensure same precision/meta for all tags' values
+							case Var(name, t, expr, const):
+								if project.mapStatic.get(f) == true {
+									let uname = parentNames.get(f) ?? unique(name, f)
 
-								// `Alias = B`
-								case NodeTypeValue(dataType): {
-									switch dataType {
-										case Type(name, path): {
-											values.push(values[names.indexOf(name)])
-										}
-										case _: {
-											console.error("(internal warning) Unknown node alias value kind:", b)
-										}
+									if const {
+										let value = nodeToExpression(expr)
+										saveInlineIfViable(f, value)
+										niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
+									} else {
+										niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
 									}
 								}
+							case Function(name, expr, vars, rettype, external, variadic):
+								if project.mapStatic.get(f) == true {
+									if Decorator.getDecorator(project.mapDecorators.get(f), 'destructor') != null {
+										throw '@destructor is only allowed on instance methods'
+									}
 
-								case _: console.error("(internal warning) Unknown node field value kind:", b)
-							}
-						// Just `ValueName`
-						case NodeTypeValue(t): switch t {
-							case Type(name):
-								names.push(name)
-						}
-						case Var(name, t, expr, const):
-							if project.mapStatic.get(f) == true {
-								let uname = parentNames.get(f) ?? unique(name, f)
-								if const {
-									let value = nodeToExpression(expr)
-									saveInlineIfViable(f, value)
-									niceEnum.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
-								} else {
-									niceEnum.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+									let uname = parentNames.get(f) ?? unique(name, f)
+									let a = []
+									let defaults = []
+									let types = []
+
+									for arg in vars { switch arg {
+											case Var(name, t, expr, const):
+												a.push(unique(name, arg))
+												types.push(t)
+
+												if expr != null {
+													defaults.push(nodeToExpression(expr))
+												} else {
+													defaults.push(null)
+												}
+										} }
+										// Hexa rest (no @nativeVariadic) is fixed `(count, ptr)`, not C `...`.
+									let variadicKind = variadicKindOf(typer.types.get(f), variadic)
+									niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
 								}
-							}
-						case Function(name, expr, vars, rettype, external, variadic):
-							if project.mapStatic.get(f) == true {
-								let uname = parentNames.get(f) ?? unique(name, f)
-								let a = []
-								let defaults = []
-								let types = []
-								for arg in vars { switch arg {
-									case Var(name, t, expr, const):
-										a.push(unique(name, arg))
-										types.push(t)
-										if (expr != null) {
-											defaults.push(nodeToExpression(expr))
-										} else {
-											defaults.push(null)
-										}
-								}}
-								let variadicKind = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
-								niceEnum.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
-							}
-						case _: console.error("(internal warning) Unknown simple enum field kind:", f)
-					}}
+							case _: console.error("(internal warning) Unknown simple enum field kind:", f)
+						} }
 					niceEnum.names = names
 					niceEnum.values = values
 					niceProject.enumsSimple.push(niceEnum)
-					return null //type
+					return null // type
 				}
 
-				case Class(t, ext, impl, fields, external):
+			case Class(t, ext, impl, fields, external):
 				let atts = project.mapDecorators.get(e)
 				renameClassFields(fields, getRenamingStrategy(atts))
 				let niceClass = new NiceClass()
@@ -1424,6 +1651,7 @@ class Normalizer {
 				niceClass.extend = DataHelper.extractTypeName(ext)
 				niceClass.classType = typer.types.get(e) // TODO better `type` naming
 				thisType = niceClass.classType
+
 				switch niceClass.classType {
 					case Class(c):
 						if let instanceParams = c.instanceParams {
@@ -1431,17 +1659,18 @@ class Normalizer {
 							thisType = niceClass.classType
 						}
 
+						// type.template = c.genericParams.length > 0
 						niceClass.template = c.instances != null and c.instances.length > 0
 						niceClass.usedByValueDepth = c.usedByValueDepth
 				}
 
 				for implement in impl { switch implement {
-					case Type(name):
-						niceClass.implement = name
-					case ParametricType(name, params):
-						niceClass.implement = name
-						niceClass.implementParams = [for param in params DataHelper.extractTypeName(param)]
-				}}
+						case Type(name):
+							niceClass.implement = name
+						case ParametricType(name, params):
+							niceClass.implement = name
+							niceClass.implementParams = [for param in params DataHelper.extractTypeName(param)]
+					} }
 
 				switch t {
 					case Type(name): // this name
@@ -1452,32 +1681,37 @@ class Normalizer {
 				// `@require`
 
 				if let require = Decorator.getDecorator(atts, 'require') { switch require.values[0] {
-					case String(s): niceClass.jsRequire = s
-					case _: throw '@require takes string as argument'
-				}}
+						case String(s): niceClass.jsRequire = s
+						case _: throw '@require takes string as argument'
+					} }
 
-				// `@struct`
+					// `@struct`
 
-				// type.api = ClassBinaryInterface // TODO why compiles
+					// type.api = ClassBinaryInterface // TODO why compiles
 				niceClass.api = ClassBinaryInterface.Normal
 
 				if let struct = Decorator.getDecorator(atts, 'struct') {
 					switch struct.values[0] {
 						case null: // Ok
-						// TODO `switch struct.values { [] empty array }`
+							// TODO `switch struct.values { [] empty array }`
 						case _: throw '@struct takes no arguments'
 					}
+
+					// type.api = ClassBinaryInterface.StructureNoVirtual
 				}
 
 				// `@rename` TODO strategy
 
 				if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-					case String(s):
-						niceClass.jsNative = s
-						niceClass.name = unique(s, e)
-					case _: throw '@rename takes string as argument'
-				}} else {
-					switch typer.types.get(e) as! Type {
+						case String(s):
+							niceClass.jsNative = s
+							// unique(s, e) // Register this name
+							// unique(s, Node.Null) // Register this name
+							// type.name = s
+							niceClass.name = unique(s, e)
+						case _: throw '@rename takes string as argument'
+					} } else {
+					switch typer.types.get(e) as!Type {
 						case Class(the):
 							niceClass.name = unique(the.name, e)
 						case _:
@@ -1488,71 +1722,120 @@ class Normalizer {
 				globals.push(niceClass.name)
 
 				for f in fields { switch f {
-					case Var(name, t, expr, const):
-						// TODO all those `??` would be useless if `getClassDotField` combined with field id holder instead of name
-						let uname = getClassDotField(e, name) ?? parentNames.get(f) ?? unique(name, f)
-						if project.mapStatic.get(f) == true {
-							if const {
-								let value = nodeToExpression(expr)
-								saveInlineIfViable(f, value)
-								niceClass.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
+						case Var(name, t, expr, const):
+							// TODO all those `??` would be useless if `getClassDotField` combined with field id holder instead of name
+							let uname = getClassDotField(e, name) ?? parentNames.get(f) ?? unique(name, f)
+
+							if project.mapStatic.get(f) == true {
+								if const {
+									let value = nodeToExpression(expr)
+									saveInlineIfViable(f, value)
+									niceClass.staticVars.push(Statement.Const(uname, value, typer.types.get(f)))
+								} else {
+									niceClass.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+								}
 							} else {
-								niceClass.staticVars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
-							}
-						} else {
-							if const {
-								let value = nodeToExpression(expr)
-								saveInlineIfViable(f, value)
-								niceClass.vars.push(Statement.Const(uname, value, typer.types.get(f)))
-							} else {
-								niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
-								let atts = project.mapDecorators.get(f)
-								if let native = Decorator.getDecorator(atts, 'bits') {
-									switch native.values[0] {
-										case Int(v): niceClass.varBits[niceClass.vars.length - 1] = v
+								if const {
+									let value = nodeToExpression(expr)
+									saveInlineIfViable(f, value)
+									niceClass.vars.push(Statement.Const(uname, value, typer.types.get(f)))
+
+									if Decorator.getDecorator(project.mapDecorators.get(f), 'weak') != null {
+										niceClass.weakFields.push(uname)
+									}
+								} else {
+									niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(f)))
+									let atts = project.mapDecorators.get(f)
+
+									if let native = Decorator.getDecorator(atts, 'bits') {
+										switch native.values[0] {
+											case Int(v): niceClass.varBits[niceClass.vars.length - 1] = v
+										}
+									}
+
+									if Decorator.getDecorator(atts, 'weak') != null {
+										niceClass.weakFields.push(uname)
 									}
 								}
 							}
-						}
-					case Property(field, _, _):
-						switch field {
-							case Var(name, t, expr, const):
-								let uname = parentNames.get(f) ?? unique(name, f)
-								if const {
-									niceClass.vars.push(Statement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
-								} else {
-									niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+						case Property(field, _, _):
+							switch field {
+								case Var(name, t, expr, const):
+									let uname = parentNames.get(f) ?? unique(name, f)
+
+									if const {
+										niceClass.vars.push(Statement.Const(uname, nodeToExpression(expr), typer.types.get(field)))
+									} else {
+										niceClass.vars.push(Statement.Var(uname, nodeToExpression(expr), typer.types.get(field)))
+									}
+									niceClass.property.push(uname)
+							}
+						case Function(name, expr, vars, rettype, external, variadic):
+							// TODO `getClassDotField`
+							let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
+							let a = []
+							let defaults = []
+							let types = []
+							// TODO better unify this args logic with other functions
+							for arg in vars { switch arg {
+									case Var(name, t, expr, const):
+										a.push(unique(name, arg))
+										types.push(t)
+
+										if (expr != null) {
+											defaults.push(nodeToExpression(expr))
+										} else {
+											defaults.push(null)
+										}
+								} }
+								// Hexa rest (no @nativeVariadic) is fixed `(count, ptr)`, not C `...`.
+							let variadicKind = variadicKindOf(typer.types.get(f), variadic)
+							// `@destructor` (instance-only, zero args): recorded under its
+							// renamed name for the ARC sweep; validated here, not later.
+							if Decorator.getDecorator(project.mapDecorators.get(f), 'destructor') != null {
+								if project.mapStatic.get(f) == true {
+									throw '@destructor must be an instance method'
 								}
-								niceClass.property.push(uname)
-						}
-					case Function(name, expr, vars, rettype, external, variadic):
-						// TODO `getClassDotField`
-						let uname = (name == 'new')? 'new' : (parentNames.get(f) ?? unique(name, f))
-						let a = []
-						let defaults = []
-						let types = []
-						// TODO better unify this args logic with other functions
-						for arg in vars { switch arg {
-							case Var(name, t, expr, const):
-								a.push(unique(name, arg))
-								types.push(t)
-								if (expr != null) {
-									defaults.push(nodeToExpression(expr))
-								} else {
-									defaults.push(null)
+
+								if external {
+									throw '@destructor requires a body'
 								}
-						}}
-						let variadicKind = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
-						if project.mapStatic.get(f) == true {
-							niceClass.staticMethods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
-						} else {
-							niceClass.methods.push(Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true))
-						}
-					case _: console.error("(internal warning) Unknown class field kind:", f)
-				}}
+
+								if name == 'new' {
+									throw '@destructor cannot be a constructor'
+								}
+
+								if vars.length > 0 {
+									throw '@destructor takes no arguments'
+								}
+
+								// `atts` here is the class-level decorator set: struct
+								// layouts have no header for ARC to call through.
+								if Decorator.getDecorator(atts, 'struct') != null or Decorator.getDecorator(atts, 'union') != null {
+									throw '@destructor requires a managed (non-struct) class'
+								}
+
+								if niceClass.destructor != null {
+									throw 'duplicate @destructor in class'
+								}
+
+								niceClass.destructor = uname
+							}
+
+							if project.mapStatic.get(f) == true {
+								let fn = Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true)
+								carryFunctionDecorators(f, fn, niceClass.name + '_$')
+								niceClass.staticMethods.push(fn)
+							} else {
+								let fn = Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(f), variadicKind, isAsync: project.mapAsync.get(f) == true)
+								carryFunctionDecorators(f, fn, niceClass.name + '_$')
+								niceClass.methods.push(fn)
+							}
+						case _: console.error("(internal warning) Unknown class field kind:", f)
+					} }
 				niceProject.classes.push(niceClass)
 
-				switch typer.types.get(e) as! Type {
+				switch typer.types.get(e) as!Type {
 					case Class(the):
 						niceClass.useless = the.useless
 
@@ -1562,31 +1845,36 @@ class Normalizer {
 									// TODO safe/renamed name
 									// TODO nested names
 									if let native = getNative(classType.parent) {
+										// console.log('native::::::::', native)
 										signature.push(native)
 									} else {
 										signature.push(classType.name)
 									}
 
 									let generic = generic ?? []
+
 									for param in generic {
 										fillSignature(signature, param)
 									}
-
-								// TODO are enum instances support generic-ness now?
+									// TODO are enum instances support generic-ness now?
 								case EnumInstance(enumType):
 									signature.push(enumType.name)
 									// TODO this syntax should work `let generic = generic ?? []`
-									//let generic = generic ?? ([] as! [Type])
-									//for param in generic {
+									// let generic = generic ?? ([] as! [Type])
+									// for param in generic {
 									// TODO this syntax should work `for param in generic ?? [] {`
-									//	fillSignature(signature, param)
-									//}
+									// fillSignature(signature, param)
+									// }
 								case Class(classType):
 									signature.push(classType.name)
+									// if let native = getNative(type.parent) {
+									// console.log('native~~~~~~~~~', native)
+									// }
 								case Enum(enumType):
 									signature.push(enumType.name)
 								case Nullable(handle):
 									// TODO inconsistent with generator
+									//
 									signature.push('Null')
 									fillSignature(signature, handle)
 								case Unknown(handle):
@@ -1597,6 +1885,7 @@ class Normalizer {
 									}
 								case UnknownNullable(handle):
 									signature.push('Null')
+
 									if let valueType = handle.value {
 										fillSignature(signature, valueType)
 									} else {
@@ -1610,167 +1899,202 @@ class Normalizer {
 									signature.push('struct')
 								case Generic(index, name):
 									signature.push('generic' + index + name)
+								case null:
+									// LENIENT: uninferrable param degrades to Unknown instead of throwing the whole build.
+									signature.push('Unknown')
 								case _:
 									throw ofType
 							}
 						}
 
+						// niceClass.template = the.instances != null and the.instances.length > 0
 						for instance in the.instances {
 							var signature = ['_']
+
 							if let instanceParams = instance.instanceParams {
 								for param in instanceParams {
 									fillSignature(signature, param)
 								}
+								// (instance.instanceParams ?? []).forEach(param => DataHelper.extractTypeName(param))
 							}
 							// TODO do not save it like this? also `unique(name)`
+							// instance.name += signature.join('$')
 							instance.useless = the.useless
+							// type.type = the.instantiateGeneric(instance.instanceParams)
+							// type.type = Type.ClassInstance(the, instance.instanceParams)
+							// niceProject.renamedTypes.set(the.instantiateGeneric(instance.instanceParams), instance.name)
 							nodeToStatement(instance.parent)
+
+							/*if instance.type == null {
+								throw instance.name
+							}*/
+							// i++
 						}
 				}
 
-				return null //niceClass
+				return null // niceClass
 
-				case TypeAlias(_): {
+			case TypeAlias(_): {
 					// TODO
 				}
 
 				// Expressions
-				case New(path, t, args, fields, values, _):
-					// Create temporal variable to store constructed value
-					return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
+			case New(path, t, args, fields, values, _):
+				// Create temporal variable to store constructed value
+				return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 
 				// TODO just use `Expression.Call`, cause doesn't fills defaults etc
-				case Call(e, args, argNames):
+			case Call(e, args, argNames):
 
 				var kind = CallKind.Function
 				switch e {
 					// `super()` in `new(){}`
 					case Super:
 						let a = []
+
 						for arg in args {
 							a.push(nodeToExpression(arg))
 						}
 						return Statement.SuperConstructor(a)
-					// Call kind
+						// Call kind
 					case Dot(expr, name):
-						switch typer.types.get(expr) as! Type {
-							case ClassInstance(c, _):
-								if c.fields.get(name) == ClassTypeField.Method {
-									kind = CallKind.VirtualMethod
-								}
-							case Class(_): kind = CallKind.Static
-						}
+						kind = callKindOf(expr, name)
 				}
 
 				let v = nodeToExpression(e)
 				let a = []
+
 				for arg in args {
 					a.push(nodeToExpression(arg))
 				}
 
-				switch typer.parents.get(e) as! Node {
+				switch typer.parents.get(e) as!Node {
 					case Function(_, _, vars): {
-						if vars.length > a.length {
-							// Fill default arg values
-							for i in vars.length {
-								if i < a.length {
-									continue
-								}
+							if vars.length > a.length {
+								// Fill default arg values
+								for i in vars.length {
+									if i < a.length {
+										continue
+									}
 
-								switch vars[i] as! Node {
-									case Var(_, _, value): if let value = value {
-										a.push(nodeToExpression(value))
-									} // TODO else `break`? cause not args have values?
+									switch vars[i] as!Node {
+										case Var(_, _, value): if let value = value {
+												a.push(nodeToExpression(value))
+											} // TODO else `break`? cause not args have values?
+									}
 								}
 							}
 						}
-					}
 				}
 
 				// TODO shouldn't be allowed
 				var expects = []
 				var expects: [Type] = []
-				switch typer.types.get(e) as! Type {
+
+				switch typer.types.get(e) as!Type {
 					case Function(args, _): expects = args.map(arg => arg.dataType)
 				}
 
 				switch v {
 					case Dot(expr, _): switch expr {
-						case This(_): kind = CallKind.VirtualMethod
-					}
+							case This(_): kind = CallKind.VirtualMethod
+						}
 				}
 
 				return Statement.Call(v, a, expects, kind)
 
-				case Var(name, t, expr, const, external):
+			case Var(name, t, expr, const, external):
 				let uname = parentNames.get(e) ?? unique(name, e)
+
 				if external {
 					return null
 				}
 
 				if const {
 					let value = nodeToExpression(expr)
-				//	switch value {
-				//		case Int(_): inline.set(e, value)
-				//		case String(_): inline.set(e, value)
-				//		case Float(_): inline.set(e, value)
-				//		case True(_): inline.set(e, value)
-				//		case False(_): inline.set(e, value)
-				//		case Null(_): inline.set(e, value)
-				//	}
+					// switch value {
+					// case Int(_): inline.set(e, value)
+					// case String(_): inline.set(e, value)
+					// case Float(_): inline.set(e, value)
+					// case True(_): inline.set(e, value)
+					// case False(_): inline.set(e, value)
+					// case Null(_): inline.set(e, value)
+					// }
 
 					saveInlineIfViable(e, value)
 
-					return Statement.Const(uname, value, typer.types.get(e))
+					let statement = Statement.Const(uname, value, typer.types.get(e))
+					carryLocalDecorators(e, statement)
+					return statement
 				}
 
 				let result = Statement.Var(uname, nodeToExpression(expr), typer.types.get(e))
+				carryLocalDecorators(e, result)
 				neverReassignedLocal.set(e, true)
 				neverReassignedLocalParent.set(result, e)
 				return result
 
-				case Function(name, expr, vars, rettype, external, variadic):
+			case Function(name, expr, vars, rettype, external, variadic):
 				var uname: String? = null
 
 				// TODO wrap getting `native` into function, also validate it takes only 1 argument
 				let atts = project.mapDecorators.get(e)
-				if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-						case String(s): if (parentNames.get(e) == null) {
-							uniqueNative(s, e)
-						}
-						uname = parentNames.get(e)
-						case _: throw '@rename takes string as argument'
-				}} else {
-					uname = (name!=null)?(parentNames.get(e) ?? unique(name, e)):null as! String
+				// `@destructor` only makes sense on instance methods (recorded
+				// at the class site); anywhere else it is a typo — fail loudly.
+				if Decorator.getDecorator(atts, 'destructor') != null {
+					throw '@destructor is only allowed on instance methods'
 				}
 
+				// let native = getDec(atts, 'rename')
+				if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
+						case String(s): if (parentNames.get(e) == null) {
+								uniqueNative(s, e)
+							}
+							uname = parentNames.get(e)
+							// console.log(name + ' renamed to ' + parentNames.get(e))
+						case _: throw '@rename takes string as argument'
+					} } else {
+					uname = (name != null)? (parentNames.get(e) ?? unique(name, e)): null as!String
+				}
+				// if (parentNames.get(field) == null) unique(name, field)
+
+				// let uname: String? = (name!=null)?(parentNames.get(e) ?? unique(name, e)):null as! String
+				// if external {
+				// // return null
+				// }
 				var rettype = rettype
 				let a = []
 				let defaults = []
 				var types = []
-				for arg in vars { switch arg {
-					case Var(name, t, expr, const):
-						a.push(unique(name, arg))
-						types.push(t)
-						if expr != null {
-							defaults.push(nodeToExpression(expr))
-						} else {
-							defaults.push(null)
-						}
-				}}
 
-				let variadic = variadic? VariadicKind.NativeVariadic : VariadicKind.NotVariadic
+				for arg in vars { switch arg {
+						case Var(name, t, expr, const):
+							a.push(unique(name, arg))
+							types.push(t)
+
+							if expr != null {
+								defaults.push(nodeToExpression(expr))
+							} else {
+								defaults.push(null)
+							}
+					} }
+
+					// Hexa rest (no @nativeVariadic) is fixed `(count, ptr)`, not C `...`.
+				let variadic = variadicKindOf(typer.types.get(e), variadic)
 
 				if external {
 					return Statement.Function(uname, null, a, defaults, typer.types.get(e), variadic, isAsync: project.mapAsync.get(e) == true)
 				}
 
 				if name == 'new' {
+					// TODO dude, typpe chek enum args TYPES!!!! and names
 					// TODO just keep `new` as name or whatever
 					return Statement.Function(null, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic, isAsync: project.mapAsync.get(e) == true)
 				}
 
-				return Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic, isAsync: project.mapAsync.get(e) == true)
+				let fn = Statement.Function(uname, unwrapNestingBlocks(nodeToStatement(expr)), a, defaults, typer.types.get(e), variadic, isAsync: project.mapAsync.get(e) == true)
+				carryFunctionDecorators(e, fn)
+				return fn
 
 			case For(name, over, by, range):
 				let atts = project.mapDecorators.get(e)
@@ -1778,110 +2102,123 @@ class Normalizer {
 
 				if range == null {
 					switch over {
-					// TODO compare not `Node.Int` but instead propagate whatever constant *Nice* Int/MetaInt
-					case Int(s):
-					let i = unique(name, e)
-					// This allows to call `continue` within loop body,
-					// otherwise infinite loop happens
-					let it = unique('it')
-					if isReverse {
-						return Statement.Block([
-							Statement.Var(i, Expression.Int(0), typer.typeInt),
-							Statement.Var(it, Expression.Int(s), typer.typeInt),
-							Statement.While(
-								Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Greater, Expression.Int(0), typer.typeBool),
-								Statement.Block([
-									Statement.Decrement(Expression.Ident(it, typer.typeInt)),
-									Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
-									nodeToStatement(by)
-								]),
-								true)
-						])
-					}
-					return Statement.Block([
-						Statement.Var(i, Expression.Int(0), typer.typeInt),
-						Statement.Var(it, Expression.Int(0), typer.typeInt),
-						Statement.While(
-							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Int(s), typer.typeBool),
-							Statement.Block([
-								Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
-								Statement.Increment(Expression.Ident(it, typer.typeInt)),
-								nodeToStatement(by)
-							]),
-							true)
-					])
-					case _: // Iterate over non-constant Int:
-
-					let overType = typer.types.get(over)
-					var iteratorOverInt =
-						overType == typer.typeInt
-						or
-						overType == typer.typeInt32
-						or
-						overType == typer.typeUInt32
-						or
-						overType == typer.typeInt8
-						or
-						overType == typer.typeUInt8
-						or
-						overType == typer.typeInt16
-						or
-						overType == typer.typeUInt16
-						or
-						overType == typer.typeInt64
-						or
-						overType == typer.typeUInt64
-						// TODO more
-
-					if iteratorOverInt {
-						if isReverse {
+						// TODO compare not `Node.Int` but instead propagate whatever constant *Nice* Int/MetaInt
+						case Int(s):
 							let i = unique(name, e)
+							// This allows to call `continue` within loop body,
+							// otherwise infinite loop happens
 							let it = unique('it')
 
+							if isReverse {
+								return Statement.Block([
+										Statement.Var(i, Expression.Int(0), typer.typeInt),
+										Statement.Var(it, Expression.Int(s), typer.typeInt),
+										Statement.While(
+											Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Greater, Expression.Int(0), typer.typeBool),
+											Statement.Block([
+													Statement.Decrement(Expression.Ident(it, typer.typeInt)),
+													Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+													nodeToStatement(by)
+												]),
+												true)
+									])
+							}
 							return Statement.Block([
-								Statement.Var(i, Expression.Int(0), overType),
-								Statement.Var(it, nodeToExpression(over), overType),
-								Statement.While(
-									Expression.Binop(
-										Expression.Ident(it, overType),
-										Token.Greater,
-										Expression.Int(0),
-										typer.typeBool
-									),
-									Statement.Block([
-										Statement.Decrement(Expression.Ident(it, overType)),
-										Statement.Assign(Expression.Ident(i, overType), Expression.Ident(it, overType), null),
-										nodeToStatement(by)
-									]),
-									true)
-							])
-						}
-						let i = unique(name, e)
-						let it = unique('it') // TODO why this var is needed? Control flow of `it++`? Then use `do while`?
-						let finish = unique('at')
+									Statement.Var(i, Expression.Int(0), typer.typeInt),
+									Statement.Var(it, Expression.Int(0), typer.typeInt),
+									Statement.While(
+										Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Int(s), typer.typeBool),
+										Statement.Block([
+												Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+												Statement.Increment(Expression.Ident(it, typer.typeInt)),
+												nodeToStatement(by)
+											]),
+											true)
+								])
+						case _: // Iterate over non-constant Int:
 
-						return Statement.Block([
-							Statement.Var(i, Expression.Int(0), overType),
-							Statement.Var(it, Expression.Int(0), overType),
-							Statement.Var(finish, nodeToExpression(over), overType),
-							Statement.While(
-								Expression.Binop(
-									Expression.Ident(it, overType),
-									Token.Less,
-									Expression.Ident(finish, overType),
-									typer.typeBool
-								),
-								Statement.Block([
-									Statement.Assign(Expression.Ident(i, overType), Expression.Ident(it, overType), null),
-									Statement.Increment(Expression.Ident(it, overType)),
-									nodeToStatement(by)
-								]),
-								true)
-						])
-					}
-				}}
+							let overType = typer.types.get(over)
+							var iteratorOverInt =
+								overType == typer.typeInt
+								or
+								overType == typer.typeInt32
+								or
+								overType == typer.typeUInt32
+								or
+								overType == typer.typeInt8
+								or
+								overType == typer.typeUInt8
+								or
+								overType == typer.typeInt16
+								or
+								overType == typer.typeUInt16
+								or
+								overType == typer.typeInt64
+								or
+								overType == typer.typeUInt64
+								// TODO more
+								// switch typer.types.get(over) as! Type {
+								// case ClassInstance(type, generic):
+								// if generic == null || generic.length == 0, type.name == 'Int' {
+								// iteratorOverInt = true
+								// }
+								// }
+
+								// if not iteratorOverInt {
+								// console.log('not iteratorOverInt!', overType)
+								// }
+
+							if iteratorOverInt {
+								// console.log('iteratorOverInt!')
+								if isReverse {
+									let i = unique(name, e)
+									let it = unique('it')
+
+									return Statement.Block([
+											Statement.Var(i, Expression.Int(0), overType),
+											Statement.Var(it, nodeToExpression(over), overType),
+											Statement.While(
+												Expression.Binop(
+													Expression.Ident(it, overType),
+													Token.Greater,
+													Expression.Int(0),
+													typer.typeBool
+												),
+												Statement.Block([
+														Statement.Decrement(Expression.Ident(it, overType)),
+														Statement.Assign(Expression.Ident(i, overType), Expression.Ident(it, overType), null),
+														nodeToStatement(by)
+													]),
+													true)
+										])
+								}
+								let i = unique(name, e)
+								let it = unique('it') // TODO why this var is needed? Control flow of `it++`? Then use `do while`?
+								let finish = unique('at')
+
+								return Statement.Block([
+										Statement.Var(i, Expression.Int(0), overType),
+										Statement.Var(it, Expression.Int(0), overType),
+										Statement.Var(finish, nodeToExpression(over), overType),
+										Statement.While(
+											Expression.Binop(
+												Expression.Ident(it, overType),
+												Token.Less,
+												Expression.Ident(finish, overType),
+												typer.typeBool
+											),
+											Statement.Block([
+													Statement.Assign(Expression.Ident(i, overType), Expression.Ident(it, overType), null),
+													Statement.Increment(Expression.Ident(it, overType)),
+													nodeToStatement(by)
+												]),
+												true)
+									])
+							}
+					} }
 
 				if let range = range {
+
 					/*
 						let i = 0
 						let it = over
@@ -1893,25 +2230,24 @@ class Normalizer {
 							by
 						}
 					*/
-
 					if isReverse {
 						let i = unique(name, e)
 						let it = unique('it')
 						let finish = unique('at')
 
 						return Statement.Block([
-							Statement.Var(i, Expression.Int(0), typer.typeInt),
-							Statement.Var(it, nodeToExpression(range), typer.typeInt),
-							Statement.Var(finish, nodeToExpression(over), typer.typeInt),
-							Statement.While(
-								Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Greater, Expression.Ident(finish, typer.typeInt), typer.typeBool),
-								Statement.Block([
-									Statement.Decrement(Expression.Ident(it, typer.typeInt)),
-									Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
-									nodeToStatement(by)
-								]),
-								true)
-						])
+								Statement.Var(i, Expression.Int(0), typer.typeInt),
+								Statement.Var(it, nodeToExpression(range), typer.typeInt),
+								Statement.Var(finish, nodeToExpression(over), typer.typeInt),
+								Statement.While(
+									Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Greater, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+									Statement.Block([
+											Statement.Decrement(Expression.Ident(it, typer.typeInt)),
+											Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+											nodeToStatement(by)
+										]),
+										true)
+							])
 					}
 
 					let i = unique(name, e)
@@ -1919,150 +2255,155 @@ class Normalizer {
 					let finish = unique('at')
 
 					return Statement.Block([
-						Statement.Var(i, Expression.Int(0), typer.typeInt),
-						Statement.Var(it, nodeToExpression(over), typer.typeInt),
-						Statement.Var(finish, nodeToExpression(range), typer.typeInt),
-						Statement.While(
-							Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Ident(finish, typer.typeInt), typer.typeBool),
-							Statement.Block([
-								Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
-								Statement.Increment(Expression.Ident(it, typer.typeInt)),
-								nodeToStatement(by)
-							]),
-							true)
-					])
+							Statement.Var(i, Expression.Int(0), typer.typeInt),
+							Statement.Var(it, nodeToExpression(over), typer.typeInt),
+							Statement.Var(finish, nodeToExpression(range), typer.typeInt),
+							Statement.While(
+								Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+								Statement.Block([
+										Statement.Assign(Expression.Ident(i, typer.typeInt), Expression.Ident(it, typer.typeInt), null),
+										Statement.Increment(Expression.Ident(it, typer.typeInt)),
+										nodeToStatement(by)
+									]),
+									true)
+						])
 				}
 
 				// TODO limit current implementation not only to arrays
 				// TODO support optional native iterators per-type if supported by target
 				let overTypeForArray = typer.types.get(over)
+
 				switch overTypeForArray {
 					case ClassInstance(kind, generic) if kind.name == 'Array': {
-						if isReverse {
-							// Lower reverse array iteration to while loop when native iterators
-							// are disabled or native reverse iterators are not supported
-							if not nativeIterators or not nativeReverseIterators {
-								let i = unique(name, e)
-								let it = unique('it')
-								let finish = unique('at')
-								let storage = unique('over')
+							if isReverse {
+								// Lower reverse array iteration to while loop when native iterators
+								// are disabled or native reverse iterators are not supported
+								if not nativeIterators or not nativeReverseIterators {
+									let i = unique(name, e)
+									let it = unique('it')
+									let finish = unique('at')
+									let storage = unique('over')
 
-								return Statement.Block([
-									// `var over = ...expression...`
-									Statement.Var(storage, nodeToExpression(over), overTypeForArray),
-									// `var it = over.length`
-									Statement.Var(
-										it,
-										Expression.Dot(
-											Expression.Ident(storage, overTypeForArray),
-											'length',
-											typer.typeInt
-										),
-										typer.typeInt
-									),
-									// `var at = 0`
-									Statement.Var(finish, Expression.Int(0), typer.typeInt),
-									Statement.While(
-										// `while it > at`
-										Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Greater, Expression.Ident(finish, typer.typeInt), typer.typeBool),
-										// `{`
-										Statement.Block([
-											// `it--`
-											Statement.Decrement(Expression.Ident(it, typer.typeInt)),
-											// `var name = over[it]`
+									return Statement.Block([
+											// `var over = ...expression...`
+											Statement.Var(storage, nodeToExpression(over), overTypeForArray),
+											// `var it = over.length`
 											Statement.Var(
-												i,
-												Expression.Index(
+												it,
+												Expression.Dot(
 													Expression.Ident(storage, overTypeForArray),
-													Expression.Ident(it, typer.typeInt),
-													generic[0]
+													'length',
+													typer.typeInt
 												),
-												generic[0]
+												typer.typeInt
 											),
-											// `by }`
-											nodeToStatement(by)
-										]),
-										true)
-								])
-							}
-							// else: nativeIterators && nativeReverseIterators — fall through to Statement.For with reverse: true
-						} else {
-							if not nativeIterators {
-								let i = unique(name, e)
-								let it = unique('it')
-								let finish = unique('at')
-								let storage = unique('over')
+											// `var at = 0`
+											Statement.Var(finish, Expression.Int(0), typer.typeInt),
+											Statement.While(
+												// `while it > at`
+												Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Greater, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+												// `{`
+												Statement.Block([
+														// `it--`
+														Statement.Decrement(Expression.Ident(it, typer.typeInt)),
+														// `var name = over[it]`
+														Statement.Var(
+															i,
+															Expression.Index(
+																Expression.Ident(storage, overTypeForArray),
+																Expression.Ident(it, typer.typeInt),
+																generic[0]
+															),
+															generic[0]
+														),
+														// `by }`
+														nodeToStatement(by)
+													]),
+													true)
+										])
+								}
+								// else: nativeIterators && nativeReverseIterators — fall through to Statement.For with reverse: true
+							} else {
+								if not nativeIterators {
+									let i = unique(name, e)
+									let it = unique('it')
+									let finish = unique('at')
+									let storage = unique('over')
 
-								return Statement.Block([
-									// `var over = ...expression...` TODO do not do if coming from `let` ident
-									Statement.Var(storage, nodeToExpression(over), overTypeForArray),
-									// `var it = 0`
-									Statement.Var(it, Expression.Int(0), typer.typeInt),
-									// `var at = over.length`
-									Statement.Var(
-										finish,
-										Expression.Dot(
-											Expression.Ident(storage, overTypeForArray),
-											'length',
-											typer.typeInt
-										),
-										typer.typeInt
-									),
-									Statement.While(
-										// `while it < at`
-										Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Ident(finish, typer.typeInt), typer.typeBool),
-										// `{`
-										Statement.Block([
-											// `var name = over[it]` TODO `name` must be nullable
+									return Statement.Block([
+											// `var over = ...expression...` TODO do not do if coming from `let` ident
+											Statement.Var(storage, nodeToExpression(over), overTypeForArray),
+											// `var it = 0`
+											Statement.Var(it, Expression.Int(0), typer.typeInt),
+											// `var at = over.length`
 											Statement.Var(
-												i,
-												Expression.Index(
+												finish,
+												Expression.Dot(
 													Expression.Ident(storage, overTypeForArray),
-													Expression.Ident(it, typer.typeInt),
-													generic[0]
+													'length',
+													typer.typeInt
 												),
-												generic[0]
+												typer.typeInt
 											),
-											// `it++`
-											Statement.Increment(Expression.Ident(it, typer.typeInt)),
-											// `by }`
-											nodeToStatement(by)
-										]),
-										true)
-								])
+											Statement.While(
+												// `while it < at`
+												Expression.Binop(Expression.Ident(it, typer.typeInt), Token.Less, Expression.Ident(finish, typer.typeInt), typer.typeBool),
+												// `{`
+												Statement.Block([
+														// `var name = over[it]` TODO `name` must be nullable
+														Statement.Var(
+															i,
+															Expression.Index(
+																Expression.Ident(storage, overTypeForArray),
+																Expression.Ident(it, typer.typeInt),
+																generic[0]
+															),
+															generic[0]
+														),
+														// `it++`
+														Statement.Increment(Expression.Ident(it, typer.typeInt)),
+														// `by }`
+														nodeToStatement(by)
+													]),
+													true)
+										])
+								}
 							}
 						}
-					}
 				}
 
 				return Statement.For(name, nodeToExpression(over), nodeToStatement(by), isReverse)
 
-				case Return(e):
+			case Return(e):
 				if (e == null) {
 					return Statement.Return(null)
 				}
 				return Statement.Return(nodeToExpression(e))
 
 				// TODO this.name
-				case Dot(expr, name):
-					return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
-				case DotUpper(expr, name):
-					return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
+			case Dot(expr, name):
+				return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
+			case DotUpper(expr, name):
+				return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
 
-				case If(econd, eif, eelse):
+				// case Dot(expr, name): return Statement.Dot(nodeToExpression(expr), name)
+				// case DotUpper(expr, name): return Statement.Dot(nodeToExpression(expr), name)
+
+			case If(econd, eif, eelse):
 				// Check if it contains if-let bindings
 				var binds = false
 				for cond in econd { switch cond {
-					case Var(_):
-					binds = true
-				}}
+						case Var(_):
+							binds = true
+					} }
 
-				// Just plain `if`
+					// Just plain `if`
 				if not binds, econd.length == 1 {
 					let value = nodeToExpression(unwrapParens(econd[0]))
 					// Always evaluate all expressions TODO really required?
 					let ei = nodeToStatement(eif)
 					let ee = nodeToStatement(eelse)
+
 					switch value {
 						case True:
 							return ei
@@ -2077,6 +2418,7 @@ class Normalizer {
 				if not binds {
 					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
 					var i = 1
+
 					while i < econd.length {
 						parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
 						i++
@@ -2093,75 +2435,76 @@ class Normalizer {
 				var nullable = false
 				var last = ''
 				var lastType = typer.types.get(econd[0])
- 				switch econd[0] {
+
+				switch econd[0] {
 					case Var(name, t, expr, const):
-					last = unique(name, econd[0])
-					nullable = true
-					block.push(Statement.Const(last, nodeToExpression(expr), typer.types.get(econd[0])))
-					lastType = lastType ?? typer.types.get(expr)
+						last = unique(name, econd[0])
+						nullable = true
+						block.push(Statement.Const(last, nodeToExpression(expr), typer.types.get(econd[0])))
+						lastType = lastType ?? typer.types.get(expr)
 					case _:
-					last = unique('temp')
-					block.push(Statement.Const(last, nodeToExpression(econd[0]), typer.types.get(econd[0])))
+						last = unique('temp')
+						block.push(Statement.Const(last, nodeToExpression(econd[0]), typer.types.get(econd[0])))
 				}
 
 				while current < econd.length - 1 { switch econd[current + 1] {
-					case Var(vname, t, expr, const):
-					let name = unique(vname, econd[current + 1])
-					block.push(Statement.Var(name, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
-					block.push(Statement.If(
+						case Var(vname, t, expr, const):
+							let name = unique(vname, econd[current + 1])
+							block.push(Statement.Var(name, Expression.Null(typer.types.get(expr)), typer.types.get(expr)))
+							block.push(Statement.If(
+									Expression.Binop(
+										Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
+										Token.LogicalAnd,
+										Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
+										typer.typeBool
+									),
+									Statement.Block([
+											Statement.Assign(Expression.Ident(name, typer.types.get(expr)), nodeToExpression(expr), null),
+											Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(current + 1), null)
+										]), null))
+							current++
+							last = name
+							lastType = typer.types.get(expr)
+							nullable = true
+						case _:
+							let next = unique('temp')
+							let nextType = typer.types.get(econd[current + 1])
+							block.push(Statement.Var(next, Expression.Null(nextType), nextType))
+							block.push(Statement.If(
+									Expression.Binop(
+										Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
+										Token.LogicalAnd,
+										Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
+										typer.typeBool
+									),
+									Statement.Block([
+											Statement.Assign(Expression.Ident(next, nextType), nodeToExpression(econd[current + 1]), null),
+											Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(current + 1), null)
+										]), null))
+							current++
+							last = next
+							lastType = nextType
+							nullable = false
+					} }
+
+					// Last step
+				block.push(Statement.If(
 						Expression.Binop(
-							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
+							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
 							Token.LogicalAnd,
 							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
 							typer.typeBool
 						),
-						Statement.Block([
-							Statement.Assign(Expression.Ident(name, typer.types.get(expr)), nodeToExpression(expr), null),
-							Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(current + 1), null)
-						]), null))
-					current++
-					last = name
-					lastType = typer.types.get(expr)
-					nullable = true
-					case _:
-					let next = unique('temp')
-					let nextType = typer.types.get(econd[current + 1])
-					block.push(Statement.Var(next, Expression.Null(nextType), nextType))
-					block.push(Statement.If(
-						Expression.Binop(
-							Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(current + 0), typer.typeBool),
-							Token.LogicalAnd,
-							Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
-							typer.typeBool
-						),
-						Statement.Block([
-							Statement.Assign(Expression.Ident(next, nextType), nodeToExpression(econd[current + 1]), null),
-							Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(current + 1), null)
-						]), null))
-					current++
-					last = next
-					lastType = nextType
-					nullable = false
-				}}
+						Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(econd.length), null), null))
 
-				// Last step
+					// if (step == steps)
 				block.push(Statement.If(
-					Expression.Binop(
-						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length - 1), typer.typeBool),
-						Token.LogicalAnd,
-						Expression.Binop(Expression.Ident(last, lastType), Token.Unequal, nullable? Expression.Null(lastType) : Expression.False, nullable? lastType : typer.typeBool),
-						typer.typeBool
-					),
-					Statement.Assign(Expression.Ident(step, typer.typeInt), Expression.Int(econd.length), null), null))
-
-				// if (step == steps)
-				block.push(Statement.If(
-					Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length), typer.typeBool),
-					nodeToStatement(eif), nodeToStatement(eelse)))
+						Expression.Binop(Expression.Ident(step, typer.typeInt), Token.Equal, Expression.Int(econd.length), typer.typeBool),
+						nodeToStatement(eif), nodeToStatement(eelse)))
 
 				return Statement.Block(block)
 
-				case Try(expr, t, v, catches):
+			case Try(expr, t, v, catches):
 				var temp = unique('temp') // Used for `catch (temp)` in JS
 				var tt = []
 				var vv = []
@@ -2176,20 +2519,23 @@ class Normalizer {
 					}
 				}
 				var cc = []
+
 				for c in catches {
 					cc.push(nodeToStatement(c))
 				}
+
 				for c in t {
 					tt.push(typer.types.get(c))
 				}
 				return Statement.Try(nodeToStatement(expr), tt, vv, cc, temp)
 
-				case Throw(value):
+			case Throw(value):
 				return Statement.Throw(nodeToExpression(value))
 
-				case Guard(conditions, otherwise):
+			case Guard(conditions, otherwise):
 				let block [Statement] = []
 				let checks [Expression] = []
+
 				for cond in conditions {
 					switch cond {
 						case Var(name, t, expr, const):
@@ -2206,88 +2552,100 @@ class Normalizer {
 				}
 				// Combine all checks with &&
 				var combined = checks[0]
-				for i in 1...checks.length - 1 {
+
+				for i in 1... checks.length - 1 {
 					combined = Expression.Binop(combined, Token.LogicalAnd, checks[i], typer.typeBool)
 				}
 				// If all checks pass, do nothing; otherwise execute else block
 				block.push(Statement.If(combined, Statement.Block([]), nodeToStatement(otherwise)))
+
 				if block.length == 1 {
 					return block[0]
 				}
 				return Statement.Statements(block)
 
-				case AssignOp(a, op, b): {
+			case AssignOp(a, op, b): {
 					var source: Node? = typer.parents.get(a)
-						if let source = source {
-							switch source {
-								case Var(name, _):
-									neverReassignedLocal.set(source, false)
-							}
+
+					if let source = source {
+						switch source {
+							case Var(name, _):
+								// console.log('neverReassignedLocal', name)
+								neverReassignedLocal.set(source, false)
 						}
+					}
 					return Statement.Assignop(nodeToExpression(a), op, nodeToExpression(b))
 				}
 
-				case Binop(a, op, b):
+			case Binop(a, op, b):
 				switch op {
 					case Assign:
 						var source: Node? = typer.parents.get(a)
+
 						if let source = source {
 							switch source {
 								case Var(name, _):
+									// console.log('neverReassignedLocal', name)
 									neverReassignedLocal.set(source, false)
 							}
 						}
-					return Statement.Assign(nodeToExpression(a), nodeToExpression(b), null)
+						return Statement.Assign(nodeToExpression(a), nodeToExpression(b), null)
 					case _:
-					let sa = nodeToStatement(a)
-					let sb = nodeToStatement(b)
-					if sa == null, sb == null {
-						return null
-					}
-					if ((sa == null) || (sb == null)) {
-						return sa ?? sb
-					}
-					return Statement.Statements([sa, sb])
+						let sa = nodeToStatement(a)
+						let sb = nodeToStatement(b)
+
+						if sa == null, sb == null {
+							return null
+						}
+
+						if ((sa == null) or (sb == null)) {
+							return sa ?? sb
+						}
+						return Statement.Statements([sa, sb])
 				}
 
-				case Continue: return Statement.Continue
-				case Break: return Statement.Break
+			case Continue: return Statement.Continue
+			case Break: return Statement.Break
 
-				case While(econd, e, pre):
-					// Handle array of conditions - combine with && for simple cases
-					// TODO `if let first = econd.firstIfSingle`
-					if econd.length == 1 {
-						return Statement.While(nodeToExpression(econd[0]), nodeToStatement(e), pre)
-					}
-					// Multiple conditions: combine with && TODO bindings
-					var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
-					var i = 1
-					while i < econd.length {
-						parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
-						i++
-					}
-					return Statement.While(parens, nodeToStatement(e), pre)
+			case While(econd, e, pre):
+				// Handle array of conditions - combine with && for simple cases
+				// TODO `if let first = econd.firstIfSingle`
+				if econd.length == 1 {
+					return Statement.While(nodeToExpression(econd[0]), nodeToStatement(e), pre)
+				}
+				// Multiple conditions: combine with && TODO bindings
+				var parens = Expression.Parenthesis(nodeToExpression(econd[0]))
+				var i = 1
 
-				case Unop(op, postfix, e):
-					switch op {
-						case Increment | Decrement:
-							var source: Node? = typer.parents.get(e)
-							if let source = source {
-								switch source {
-									case Var(name, _):
-										neverReassignedLocal.set(source, false)
-								}
+				while i < econd.length {
+					parens = Expression.Binop(parens, Token.LogicalAnd, Expression.Parenthesis(nodeToExpression(econd[i])), typer.typeBool)
+					i++
+				}
+				return Statement.While(parens, nodeToStatement(e), pre)
+
+			case Unop(op, postfix, e):
+				switch op {
+					case Increment | Decrement:
+						var source: Node? = typer.parents.get(e)
+
+						if let source = source {
+							switch source {
+								case Var(name, _):
+									// console.log('neverReassignedLocal', name)
+									neverReassignedLocal.set(source, false)
 							}
-					}
-					switch op {
-						case Increment: return Statement.Increment(nodeToExpression(e))
-						case Decrement: return Statement.Decrement(nodeToExpression(e))
-						case _: // Optimize away
-					}
-				case Parenthesis(inner):
-					return nodeToStatement(unwrapParens(inner))
+						}
+				}
 
-				case Switch(exprs, conds, guards, cases):
+				switch op {
+					case Increment: return Statement.Increment(nodeToExpression(e))
+					case Decrement: return Statement.Decrement(nodeToExpression(e))
+					case _: // Optimize away
+				}
+			case Parenthesis(inner):
+				return nodeToStatement(unwrapParens(inner))
+
+			case Switch(exprs, conds, guards, cases):
 				if (exprs.length > 1) {
 					console.error('Multiple switch values not yet supported:', e, project.data.get(e))
 				}
@@ -2297,44 +2655,46 @@ class Normalizer {
 
 				if nativeEnums {
 					let index = nodeToExpression(exprs[0])
+
 					for i in cases.length {
 
 						fun toCase(co: Node) { switch co {
-							case Null: return Expression.Null(typer.typeAny)
-							case Underscore: return Expression.Underscore
-							case String(v): return Expression.String(v)
-							case Int(v): return Expression.Int(v)
-							case Float(v): return Expression.Float(v)
-							case Bool(v):
-								if v {
-									return Expression.True
-								}
-								return Expression.False
-							case Dot(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
-							case DotUpper(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
-							case Binop(a, op, b): switch op {
-							case BitwiseOr: return Expression.Binop(toCase(a), Token.BitwiseOr, toCase(b), null)
-								case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
-							}
-							case Call(e, args, argNames): switch e {
-								case DotUpper(expr, name):
-									let a = []
-									for arg in args.length { switch args[arg] {
-										case Ident(name): a.push(Expression.Ident(unique(name, args[arg]), null))
-										case Underscore: a.push(Expression.Underscore)
-										case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
-									}}
-									return Expression.Call(nodeToExpression(e), a, null, CallKind.Function)
-								case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
-							}
-							case _:
-							console.error('(internal warning) Unknown native enum case kind:', co, project.data.get(co))
-						}}
+								case Null: return Expression.Null(typer.typeAny)
+								case Underscore: return Expression.Underscore
+								case String(v): return Expression.String(v)
+								case Int(v): return Expression.Int(v)
+								case Float(v): return Expression.Float(v)
+								case Bool(v):
+									if v {
+										return Expression.True
+									}
+									return Expression.False
+								case Dot(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
+								case DotUpper(expr, name): return Expression.Dot(nodeToExpression(expr), name, null)
+								case Binop(a, op, b): switch op {
+										case BitwiseOr: return Expression.Binop(toCase(a), Token.BitwiseOr, toCase(b), null)
+										case _: console.error('(internal warning) Unknown native case binop kind:', e, typer.parents.get(e))
+									}
+								case Call(e, args, argNames): switch e {
+										case DotUpper(expr, name):
+											let a = []
+
+											for arg in args.length { switch args[arg] {
+													case Ident(name): a.push(Expression.Ident(unique(name, args[arg]), null))
+													case Underscore: a.push(Expression.Underscore)
+													case _: console.log('(internal warning) Unknown native case extract value kind:', args[arg])
+												} }
+											return Expression.Call(nodeToExpression(e), a, null, CallKind.Function, [])
+										case _: console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
+									}
+								case _:
+									console.error('(internal warning) Unknown native enum case kind:', co, project.data.get(co))
+							} }
 
 						c.push([toCase(conds[i])])
 						s.push(nodeToStatement(cases[i]))
 					}
-					return Statement.Switch(index, c, s, [], [])
+					return Statement.PlainSwitch(index, c, s)
 				}
 
 				let temp = unique('temp')
@@ -2368,73 +2728,82 @@ class Normalizer {
 					binds.push(binders)
 
 					fun addTag(co: Node) { switch co {
-						case Null: cx.push(Expression.Null)
-						case Underscore:
-						case String(v): cx.push(Expression.String(v))
-						case Int(v): cx.push(Expression.Int(v))
-						case Float(v): cx.push(Expression.Float(v))
-						case Bool(v):
-							if v {
-								cx.push(Expression.True)
-							} else {
-								cx.push(Expression.False)
-							}
-						case Call(e, args, argNames):
-							switch e {
-								case DotUpper(expr, name):
-								let parent = typer.parents.get(expr)
-								let tag = getTag(parent, name)
-								cx.push(tag)
-								case NodeTypeValue(t):
-									switch t {
-										case Type(name):
-											if let enumType = enumType {
-												cx.push(getTag(enumType.parent, name))
-											}
-									}
-								case _:
-									console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
-							}
-							// Promote to complex enum
-							if not promoted {
-								index = Expression.EnumTag(index)
-							}
-							promoted = true
-							for arg in args.length { switch args[arg] {
-								case Ident(name):
-									binders.push(
-										Statement.Const(
-											unique(name, args[arg]),
-											Expression.EnumParameter(
-												Expression.Ident(temp, typer.types.get(args[arg])),
-												arg
-											),
-											typer.types.get(args[arg])
-										)
-									)
-								case Underscore: {}
-								case Interval: {}
-								case _: console.log('(internal warning) Unknown case extract value kind:', arg)
-							}}
-						case DotUpper(expr, name):
-							cx.push(getTag(typer.parents.get(expr), name))
-						case Binop(a, op, b):
-						switch op {
-							case BitwiseOr:
-							addTag(a)
-							addTag(b)
-							case _: console.error('(internal warning) Unknown case binop kind:', e, typer.parents.get(e))
-						}
-						case NodeTypeValue(t):
-							switch t {
-								case Type(name):
-									if let enumType = enumType {
-										cx.push(getTag(enumType.parent, name))
-									}
-							}
-						case _:
-						console.error('(internal warning) Unknown case kind:', co, project.data.get(co))
-					}}
+							case Null: cx.push(Expression.Null)
+							case Underscore:
+							case String(v): cx.push(Expression.String(v))
+							case Int(v): cx.push(Expression.Int(v))
+							case Float(v): cx.push(Expression.Float(v))
+							case Bool(v):
+								if v {
+									cx.push(Expression.True)
+								} else {
+									cx.push(Expression.False)
+								}
+							case Call(e, args, argNames):
+								switch e {
+									case DotUpper(expr, name):
+										let parent = typer.parents.get(expr)
+										let tag = getTag(parent, name)
+										cx.push(tag)
+									case NodeTypeValue(t):
+										switch t {
+											case Type(name):
+												if let enumType = enumType {
+													cx.push(getTag(enumType.parent, name))
+												}
+										}
+									case _:
+										console.error('(internal warning) Unknown case extract kind:', e, typer.parents.get(e))
+								}
+								// Promote to complex enum
+								if not promoted {
+									index = Expression.EnumTag(index)
+								}
+								promoted = true
+								for arg in args.length { switch args[arg] {
+										case Ident(name):
+											binders.push(
+												Statement.Const(
+													unique(name, args[arg]),
+													Expression.EnumParameter(
+														Expression.Ident(temp, typer.types.get(args[arg])),
+														arg
+													),
+													typer.types.get(args[arg])
+												)
+											)
+										case Underscore: { }
+										case Interval: { }
+										case _: console.log('(internal warning) Unknown case extract value kind:', arg)
+									} }
+							case DotUpper(expr, name):
+								cx.push(getTag(typer.parents.get(expr), name))
+							case Binop(a, op, b):
+								switch op {
+									case BitwiseOr:
+										addTag(a)
+										addTag(b)
+									case _: console.error('(internal warning) Unknown case binop kind:', e, typer.parents.get(e))
+								}
+							case NodeTypeValue(t):
+								switch t {
+									case Type(name):
+										if let enumType = enumType {
+											let tag = getTag(enumType.parent, name)
+											// if name == 'Other' {
+											// console.log('null getTag for ' + name)
+											// console.log(tag)
+											// }
+											cx.push(tag)
+										}
+
+										if enumType == null {
+											console.log('null enumType for ' + name)
+										}
+								}
+							case _:
+								console.error('(internal warning) Unknown case kind:', co, project.data.get(co))
+						} }
 
 					addTag(co)
 
@@ -2451,215 +2820,288 @@ class Normalizer {
 					i++
 				}
 
+				if typer.types.get(exprs[0]) == null {
+					console.error(exprs[0])
+				}
+
+				// Switches without guards/binds are plain C-like switches; only
+				// pattern-matching ones (guards, payload binds) keep the old shape
+				var hasPattern = false
+
+				for g in guardians { if g != null { hasPattern = true } }
+
+				for b in binds { if b.length > 0 { hasPattern = true } }
+
+				var switched: Statement = Statement.PlainSwitch(index, c, s)
+
+				if hasPattern {
+					switched = Statement.PatternSwitch(index, c, s, guardians, binds)
+				}
+
 				return Statement.Block([
-					Statement.Const(temp, value, typer.types.get(exprs[0])),
-					Statement.Switch(index, c, s, guardians, binds)
-				])
+						Statement.Const(temp, value, typer.types.get(exprs[0])),
+						switched
+					])
 
+					// case Vars(vars):
+					// let s = []
+					// for v in vars {
+					// if (let st = nodeToStatement(v)) {
+					// s.push(st)
+					// }
+					// }
+					// return Statement.Statements(s)
 
-				// Optimize away
-				case Index(v, index):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', project.data.get(e)))
-					// No need to compute constant index
-					switch index {
-						case String(_): return nodeToStatement(v)
-						case Int(_): return nodeToStatement(v)
-						case Bool(_): return nodeToStatement(v)
-						case Float(_): return nodeToStatement(v)
-					}
+					// Optimize away
+			case Index(v, index):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused value of index `\(Node.stringify(e))`', project.data.get(e)))
+				// No need to compute constant index
+				switch index {
+					case String(_): return nodeToStatement(v)
+					case Int(_): return nodeToStatement(v)
+					case Bool(_): return nodeToStatement(v)
+					case Float(_): return nodeToStatement(v)
+				}
 				return Statement.Statements([nodeToStatement(v), nodeToStatement(index)])
 
 				// Optimize away
-				case Ident(name):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', project.data.get(e)))
-				case Arrow(_):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', project.data.get(e)))
-				case String(v):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', project.data.get(e)))
-				case Bool(v):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', project.data.get(e)))
-				case Int(v):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', project.data.get(e)))
-				case Float(v):
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
-				case Null:
-					project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
-				case Module(_):
-				case null:
-					console.log('(internal warning) seems like null node passed to normalizer')
-				case _:
-					return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
-					//return Statement.UnusedExpression(nodeToExpression(e))
-			}
-
-			return null
+			case Ident(name):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused value `\(name)`', project.data.get(e)))
+			case Arrow(_):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused arrow => function', project.data.get(e)))
+			case String(v):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused string `"\(v)"`', project.data.get(e)))
+			case Bool(v):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused boolean `\(v)`', project.data.get(e)))
+			case Int(v):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused number `\(v)`', project.data.get(e)))
+			case Float(v):
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused float `\(v)`', project.data.get(e)))
+			case Null:
+				project.hints.push(new Hint(Hints.UnusedValue, 'Unused `null`', project.data.get(e)))
+			case Module(_):
+			case null:
+				console.log('(internal warning) seems like null node passed to normalizer')
+			case _:
+				return Statement.Const(unique('temp'), nodeToExpression(e), typer.types.get(e))
+				// return Statement.UnusedExpression(nodeToExpression(e))
 		}
 
-		fun getTag(enumNode: Node, name: String): Expression? {
-			switch enumNode {
-				case Enum(t, fields, valuesType):
-				var typed: EnumType = null as! EnumType
-				switch typer.types.get(enumNode) as! Type {
+		return null
+	}
+
+	fun getTag(enumNode: Node, name: String): Expression? {
+		switch enumNode {
+			case Enum(t, fields, valuesType):
+				var typed: EnumType = null as!EnumType
+				switch typer.types.get(enumNode) as!Type {
 					case Enum(kind): typed = kind
 				}
 
 				var i = 0
+
 				for f in fields {
 					switch f {
 						case NodeTypeValue(t): switch t {
-							case Type(n):
-								if n == name {
-									if typed.fieldsTypeSimple == typer.typeString {
-										return Expression.String(n)
-									}
-								}
-
-								if n == name {
-									let atts = project.mapDecorators.get(enumNode)
-									if let rename = Decorator.getDecorator(atts, 'castTo') {
-										return Expression.UnsafeBitCast(Expression.Int(i), typer.types.get(enumNode))
-									}
-									return Expression.Int(i)
-								}
-						}
-						case Call(e, _): switch e {
-							case NodeTypeValue(t): switch t {
 								case Type(n):
 									if n == name {
+										if typed.fieldsTypeSimple == typer.typeString {
+											return Expression.String(n)
+										}
+									}
+
+									if n == name {
+										let atts = project.mapDecorators.get(enumNode)
+
+										if let rename = Decorator.getDecorator(atts, 'castTo') {
+											return Expression.UnsafeBitCast(Expression.Int(i), typer.types.get(enumNode))
+										}
 										return Expression.Int(i)
 									}
 							}
-						}
-						case Binop(a, op, b): switch a {
-							case NodeTypeValue(t): switch t {
-								case Type(n):
-									if n == name {
-										// `TagB = TagA`
-										switch b {
-											case NodeTypeValue(kind):
-												switch kind {
-													case Type(name):
-														return getTag(enumNode, name)
-												}
-										}
-										return nodeToExpression(b)
+						case Call(e, _): switch e {
+								case NodeTypeValue(t): switch t {
+										case Type(n):
+											if n == name {
+												return Expression.Int(i)
+											}
 									}
 							}
-						}
+						case Binop(a, op, b): switch a {
+								case NodeTypeValue(t): switch t {
+										case Type(n):
+											if n == name {
+												// `TagB = TagA`
+												switch b {
+													case NodeTypeValue(kind):
+														switch kind {
+															case Type(name):
+																return getTag(enumNode, name)
+														}
+												}
+												return nodeToExpression(b)
+											}
+									}
+							}
 						case Function(_): if project.mapStatic.get(f) == true {
-							return null // Not a tag
-						}
+								return null // Not a tag
+							}
 						case Var(_): if project.mapStatic.get(f) == true {
-							return null // Not a tag
-						}
+								return null // Not a tag
+							}
 						case _:
 							console.error('(internal warning) Unknown enum tag kind:', f)
 					}
 					i++
 				}
 				throw 'Enum has no tag or field `\(name)` ' + t
+		}
+	}
+
+	fun getNative(e: Node): String? {
+		let atts = project.mapDecorators.get(e)
+
+		if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
+				case String(s):
+					return s
+				case _: throw '@rename takes string as argument'
+			} }
+		return null
+	}
+
+	let scopes: [[String : Bool]] = [[:]]
+	let globals: [String] = [] // Type names are global
+
+	// Randomization for the un-hack-ability
+	var id = Math.round(Math.random() * 123.0)
+
+	fun pushScope() {
+		scopes.push(([:]))
+	}
+
+	fun popScope() {
+		scopes.pop()
+	}
+
+	fun hasInScope(name: String) {
+		for scope in scopes {
+			if (scope.get(name) != null) {
+				return true
 			}
 		}
+		return false
+	}
 
-		fun getNative(e: Node): String? {
-			let atts = project.mapDecorators.get(e)
-			if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-					case String(s):
-						return s
-					case _: throw '@rename takes string as argument'
-			}}
-			return null
+	fun addToScope(name: String) {
+		scopes[scopes.length - 1].set(name, true)
+	}
+
+	// Allows to find renamed node
+	// TODO `[:]` type is unknown!
+	let parentNames: [Node : String] = [:]
+
+	// Returns new name if name occupied or reserved
+	// Returns same name and calls addToScope if name is free
+	// TODO `= null` should not work here
+	fun unique(name: String, node: Node = null): String {
+		var uname = name
+
+		while
+			hasInScope(uname) or
+			(keywords.indexOf(uname) != -1) or
+			(globals.indexOf(uname) != -1)
+		{
+			uname = (name + '_') + (++ id)
 		}
+		// ) uname = name + '_' + (++id)
 
-		let scopes: [[String : Bool]] = [[:]]
-		let globals: [String] = [] // Type names are global
+		// let sname = name + '_' + (++id)
+		addToScope(uname)
 
-		// Randomization for the un-hack-ability
-		var id = Math.round(Math.random() * 123.0)
-
-		fun pushScope() {
-			scopes.push(([:]))
+		if node != null { // TODO Inline hint (like error on the right) Always true (node is not nullable)
+			parentNames.set(node, uname)
 		}
+		// var uname = name
+		// var uname = name
+		// var uname = name
+		// var uname = name
+		// let uname = name
+		return uname
+	}
 
-		fun popScope() {
-			scopes.pop()
-		}
+	// Sets name without renaming for `@rename`
+	fun uniqueNative(name: String, node: Node) {
+		addToScope(name)
+		parentNames.set(node, name)
+	}
 
-		fun hasInScope(name: String) {
-			for scope in scopes {
-				if (scope.get(name) != null) {
-					return true
-				}
+	/// Body-less `declare fun` has no Nice `globalFuncs` entry to read expects
+	/// from, so record its typer signature keyed by the renamed Nice name.
+	/// Read by genC `callExpects` Ident fallback (D8-style, small).
+	fun recordDeclareType(e: Node) {
+		if let t = typer.types.get(e) {
+			if let n = parentNames.get(e) {
+				niceProject.declareTypes.set(n, t)
 			}
-			return false
+		}
+	}
+
+	fun fillStatement(e: Node): Statement {
+		// TODO better error message for `return call()` where `call()` returns `Void`
+		return nodeToStatement(e)
+	}
+
+	/// Records the emitted name of a class member. INSTANCE members are
+	/// per-class (`this->name_`) so they keep a STABLE name — a scope-unique
+	/// suffix would desync the declaration from accesses (which print the
+	/// source name, e.g. `path_20_` vs `path_`). STATIC members live in the
+	/// flattened `Type_$name_` global namespace and keep the
+	/// collision-avoiding `unique` rename (both sides resolve it already)
+	fun setMemberName(f: Node, finalName: String) {
+		// Avoids double-renaming, `renameClassFields` is called twice
+		if parentNames.get(f) != null {
+			return
 		}
 
-		fun addToScope(name: String) {
-			scopes[scopes.length-1].set(name, true)
+		if project.mapStatic.get(f) == true {
+			unique(finalName, f)
+		} else {
+			parentNames.set(f, finalName)
 		}
+	}
 
-		// Allows to find renamed node
-		// TODO `[:]` type is unknown!
-		let parentNames: [Node : String] = [:]
+	fun renameClassFields(fields: [Node], renaming: FieldRenaming?) {
+		// TODO pre-add `_` suffix to avoid String allocations on every .dot
+		pushScope()
 
-		// Returns new name if name occupied or reserved
-		// Returns same name and calls addToScope if name is free
-		// TODO `= null` should not work here
-		fun unique(name: String, node: Node = null): String {
-			var uname = name
-			while
-				hasInScope(uname) ||
-				(keywords.indexOf(uname) != -1) ||
-				(globals.indexOf(uname) != -1)
-			{
-				uname = (name + '_') + (++id)
-			}
-
-			addToScope(uname)
-			if node != null { // TODO Inline hint (like error on the right) Always true (node is not nullable)
-				parentNames.set(node, uname)
-			}
-			return uname
-		}
-
-		// Sets name without renaming for `@rename`
-		fun uniqueNative(name: String, node: Node) {
-			addToScope(name)
-			parentNames.set(node, name)
-		}
-
-		fun fillStatement(e: Node): Statement {
-			// TODO better error message for `return call()` where `call()` returns `Void`
-			return nodeToStatement(e)
-		}
-
-		fun renameClassFields(fields: [Node], renaming: FieldRenaming?) {
-			// TODO pre-add `_` suffix to avoid String allocations on every .dot
-			pushScope()
-			for f in fields { switch f {
+		for f in fields { switch f {
 				case Var(name, t, expr, const):
 					let atts = project.mapDecorators.get(f)
 					let renamingStrategy = getRenamingStrategy(atts) ?? renaming
 
+					if name == 'key' {
+						// console.log('####', name, atts, renamingStrategy)
+					}
+
 					if let native = Decorator.getDecorator(atts, 'rename') {
 						switch native.values[0] {
-						case String(s):
-						// TODO what that `parentNames` thing even means here? Elaborate in comment!
-						// Cause new rename has higher priority
-						// oooohhh it just avoids double-renaming, cause `renameClassFields` called twice
-						if parentNames.get(f) == null {
-							unique(s, f) // TODO `uniqueNative`?
+							case String(s):
+								setMemberName(f, s)
+							case _: throw '@rename takes string as argument'
 						}
-						case _: throw '@rename takes string as argument'
-					}} else {
-
-					if parentNames.get(f) == null {
+					} else {
 						switch renamingStrategy {
-							case AsTitleCase: unique(Hint.toTitleCase(name), f)
-							case AsIs: unique(name, f) // TODO what?
-							case null: unique(name, f)
+							case AsTitleCase: setMemberName(f, Hint.toTitleCase(name))
+							case AsIs: setMemberName(f, name)
+							case null: setMemberName(f, name)
 						}
 					}
+				case Property(field, _, _):
+					// Properties are members too — same stable/static rule
+					switch field {
+						case Var(name, t, expr, const):
+							setMemberName(f, name)
+						case _:
 					}
 				case Function(name, expr, vars, rettype):
 					if name == 'new' {
@@ -2667,75 +3109,76 @@ class Normalizer {
 					} else {
 						let atts = project.mapDecorators.get(f)
 
-						if let native = Decorator.getDecorator(atts, 'rename') { switch native.values[0] {
-							case String(s): if parentNames.get(f) == null {
-								unique(s, f)
+						if let native = Decorator.getDecorator(atts, 'rename') {
+							switch native.values[0] {
+								case String(s): setMemberName(f, s)
+								case _: throw '@rename takes string as argument'
 							}
-							case _: throw '@rename takes string as argument'
-						}} else
-
-						if parentNames.get(f) == null {
-							unique(name, f)
+						} else {
+							setMemberName(f, name)
 						}
 					}
 				case _: // Ok, skip non-field nodes, typer already verified them
-			}}
-			popScope()
-		}
+			} }
+		popScope()
+	}
 
-		// Used for `something.name`
-		fun getClassDotField(expr: Node, name: String): String? {
-			if let dataType = typer.types.get(expr) {
-				switch dataType as! Type {
-					case Class(kind):
-						let renamed = kind.fieldRenames[kind.fieldNames.indexOf(name)]
-						if let rename = renamed {
-							return rename
-						}
-					case _:
+	/// Used for `something.name`
+	fun getClassDotField(expr: Node, name: String): String? {
+		if let dataType = typer.types.get(expr) {
+			switch dataType as!Type {
+				case Class(kind):
+					let renamed = kind.fieldRenames[kind.fieldNames.indexOf(name)]
+
+					if let rename = renamed {
+						// console.log('renamed', renamed)
+						return rename
+					}
+				case _:
 					// TODO Enum
-				}
+					// console.log('dataType', dataType)
 			}
-
-			switch expr {
-				case Class(t, ext, impl, fields, external): for f in fields { switch f {
-					case Var(n, _):
-					if n == name {
-						// Check if this is a static field
-						//if project.mapStatic.get(f) == true {
-							return parentNames.get(f) ?? name
-						//}
-					}
-					case Function(n, _):
-					if n == name {
-						// Check if this is a static method
-						//if project.mapStatic.get(f) == true {
-							return parentNames.get(f) ?? name
-						//}
-					}
-				}}
-				case Enum(t, fields, valuesType): for f in fields { switch f {
-					case Var(n, _):
-					if n == name {
-						// Check if this is a static field
-						//if project.mapStatic.get(f) == true {
-							return parentNames.get(f) ?? name
-						//}
-					}
-					case Function(n, _):
-					if n == name {
-						// Check if this is a static method
-						//if project.mapStatic.get(f) == true {
-							return parentNames.get(f) ?? name
-						//}
-					}
-				}}
-			}
-			return null
 		}
 
-		// Converts `{ { { ... } } }` into just `...`
-		fun unwrapNestingBlocks(block: Statement): Statement { switch block {
+		switch expr {
+			case Class(t, ext, impl, fields, external): for f in fields { switch f {
+						case Var(n, _):
+							if n == name {
+								// Check if this is a static field
+								// if project.mapStatic.get(f) == true {
+								return parentNames.get(f) ?? name
+								// }
+							}
+						case Function(n, _):
+							if n == name {
+								// Check if this is a static method
+								// if project.mapStatic.get(f) == true {
+								return parentNames.get(f) ?? name
+								// }
+							}
+					} }
+			case Enum(t, fields, valuesType): for f in fields { switch f {
+						case Var(n, _):
+							if n == name {
+								// Check if this is a static field
+								// if project.mapStatic.get(f) == true {
+								return parentNames.get(f) ?? name
+								// }
+							}
+						case Function(n, _):
+							if n == name {
+								// Check if this is a static method
+								// if project.mapStatic.get(f) == true {
+								return parentNames.get(f) ?? name
+								// }
+							}
+					} }
+		}
+		return null
+	}
+
+	// Converts `{ { { ... } } }` into just `...`
+	fun unwrapNestingBlocks(block: Statement): Statement { switch block {
 			case Block(el):
 				if (el.length == 1) {
 					return unwrapNestingBlocks(el[0])
@@ -2743,26 +3186,92 @@ class Normalizer {
 				return block
 			case _:
 				return block
-		}}
+		} }
 
 		// Saves if value viable for constant propagation
-		fun saveInlineIfViable(e: Node, value: Expression) {
-			switch value {
-				case Int(_): inline.set(e, value)
-				case MetaInt(_): inline.set(e, value)
-				case String(_): inline.set(e, value)
-				case Float(_): inline.set(e, value)
-				case True: inline.set(e, value)
-				case False: inline.set(e, value)
-				case Null: inline.set(e, value)
+	fun saveInlineIfViable(e: Node, value: Expression) {
+		switch value {
+			case Int(_): inline.set(e, value)
+			case MetaInt(_): inline.set(e, value)
+			case String(_): inline.set(e, value)
+			case Float(_): inline.set(e, value)
+			case True: inline.set(e, value)
+			case False: inline.set(e, value)
+			case Null: inline.set(e, value)
+		}
+	}
+
+	/// Carries a function's `@inline` decorator into `niceProject.inlineFuncs`,
+	/// keyed by the EMITTED C name (`prefix + name + '_'`) — genC's function
+	/// printers only know that name, and a `Map` keyed by the Nice statement does
+	/// not round-trip between passes. `prefix` carries the class part for methods
+	/// (`String_$`), empty for globals.
+	fun carryFunctionDecorators(e: Node, s: Statement, prefix: String = '') {
+		let atts = project.mapDecorators.get(e)
+
+		if atts == null {
+			return
+		}
+
+		if Decorator.getDecorator(atts, 'inline') != null {
+			switch s {
+				case Function(fname, _, _, _, _, _, _):
+					if let fn = fname {
+						let key = prefix + fn + '_'
+						niceProject.inlineFuncs.set(key, true)
+						carryTrace.push('CARRY-FN ' + key)
+					}
+				case _:
+			}
+		}
+	}
+
+	/// Carries a LOCAL declaration's decorators into the NiceProject, so the
+	/// later passes (ArcInserter, genC) can honour them. Typed nodes are the only
+	/// ones `project.mapDecorators` is keyed by; Nice statements are fresh nodes,
+	/// so without this every per-local decorator would silently vanish:
+	/// * `@weak`  — borrowed, non-owning local (no ARC retain/release; the
+	///   intern-table chain walk uses it so a bucket hop costs no counter
+	///   traffic). Read `@weak` handling in `arc.hexa`.
+	/// Name-keyed (`weakLocals`): Nice local names are already `unique()`d per
+	/// declaration, and a statement-keyed map does not round-trip between passes.
+	fun carryLocalDecorators(e: Node, s: Statement) {
+		let atts = project.mapDecorators.get(e)
+
+		if atts == null {
+			return
+		}
+
+		if Decorator.getDecorator(atts, 'weak') != null {
+			switch s {
+				case Var(n, _, _):
+					niceProject.weakLocals.set(n, true)
+					carryTrace.push('CARRY-LOCAL-WEAK ' + n)
+				case Const(n, _, _):
+					niceProject.weakLocals.set(n, true)
+					carryTrace.push('CARRY-LOCAL-WEAK ' + n)
+				case _:
 			}
 		}
 
-		// TODO move this to Node as method
-		fun unwrapParens(inner: Node) {
-			switch inner {
-				case Parenthesis(i): return unwrapParens(i)
-				case _: return inner
+		if Decorator.getDecorator(atts, 'inline') != null {
+			switch s {
+				case Function(fname, _, _, _, _, _, _):
+					if let fn = fname {
+						let key = fn + '_'
+						niceProject.inlineFuncs.set(key, true)
+						carryTrace.push('CARRY-FN ' + key)
+					}
+				case _:
 			}
 		}
+	}
+
+	// TODO move this to Node as method
+	fun unwrapParens(inner: Node) {
+		switch inner {
+			case Parenthesis(i): return unwrapParens(i)
+			case _: return inner
+		}
+	}
 }
