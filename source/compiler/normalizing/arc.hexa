@@ -282,7 +282,6 @@ class ArcInserter {
 				wtab.push(nc.name + ': ' + nc.weakFields.join(','))
 			}
 		}
-		Fs.writeFileSync('arc-weak.log', 'WEAK-TABLE ' + wtab.join(' | ') + '\nMISSES ' + arcWeakMisses.join(' ; '))
 		return niceProject // Return mutated
 	}
 
@@ -291,6 +290,27 @@ class ArcInserter {
 			case Block(els):
 				// `@weak` locals live for the duration of this block only
 				let weakMark = this.weakLocals.length
+
+				// Register THIS block's `@weak` declarations BEFORE recursing:
+				// nested statements are fully processed first (loop below), so
+				// an assignment to an OUTER-block weak local would otherwise run
+				// before the name was on the scope stack — exactly the intern
+				// walk shape (`@weak var cursor` in the function body, `cursor =
+				// ...` inside the `while` body) and it silently took the strong
+				// store path (`temp_old` + `hexaRef` + guard). Names are
+				// `unique()`d project-wide, so registering early cannot collide
+				// with a nested declaration; `takeWeakLocal` is idempotent, the
+				// phase-2 arm below re-checks the same map entry.
+				var wp = 0
+
+				while wp < els.length {
+					switch els[wp] {
+						case Const(name, _, _): this.takeWeakLocal(els[wp], name)
+						case Var(name, _, _): this.takeWeakLocal(els[wp], name)
+						case _:
+					}
+					wp++
+				}
 
 				for el in els { this.processStatement(el) } // Recurse first to handle nested
 				var i = 0
