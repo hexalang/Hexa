@@ -653,12 +653,12 @@ class GenCxx {
 
 				for v in c.staticMethods { switch v {
 						case Function(name, expr, args, defaults, funcType, variadic, isAsync):
-							forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+							forwardFunctions.push(linkagePrefixFor(isAsync, c.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
 							forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 							forwardFunctions.push(';\n')
 
-							out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+							out.push(linkagePrefixFor(isAsync, c.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							out.push(' ' + c.name + '_$' + name + '_')
 							out.push(printFunctionArguments(args, funcType, variadic))
 							let _currentReturnType = currentReturnType
@@ -1094,7 +1094,7 @@ class GenCxx {
 							vtable.push(';')
 							nonEmptyTable = true
 
-							forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+							forwardFunctions.push(linkagePrefixFor(isAsync, c.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 							forwardFunctions.push(' ' + c.name + '_$' + name + '_')
 							forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 							forwardFunctions.push(';\n')
@@ -1354,7 +1354,7 @@ class GenCxx {
 					let ft = htypes[i]
 
 					if isFatValueType(ft) {
-						out.push('\tif (Any_objectStringEquals_(k_, String_$fromUTF16z_((const uint16_t*)L' + hq + fn + hq + '))) ' + hlb + ' if (v_ == nullptr) return; FatPair_* fp = (FatPair_*)v_; self->' + fn + '$f_ = reinterpret_cast<' + stringifyType(ft) + '>((size_t)(fp->impl_)); self->' + fn + '$e_ = fp->env_; return; ' + hrb + hnl)
+						out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(fn)) + ')) ' + hlb + ' if (v_ == nullptr) return; FatPair_* fp = (FatPair_*)v_; self->' + fn + '$f_ = reinterpret_cast<' + stringifyType(ft) + '>((size_t)(fp->impl_)); self->' + fn + '$e_ = fp->env_; return; ' + hrb + hnl)
 					} else {
 						let mb1 = metaBlock.length
 						let conv = printTypeConverter('v_', project.typer.typeAny, ft)
@@ -5352,7 +5352,7 @@ class GenCxx {
 		r += 'const struct FatPair_vt FatPair_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &FatPair_hiddenClassName_, &FatPair_hiddenDynGet_, &FatPair_hiddenDynSet_, &FatPair_hiddenHas_, &FatPair_hiddenDelete_, &FatPair_hiddenKeyAt_, &FatPair_hiddenKeyCount_, &FatPair_hiddenIndexGet_, &FatPair_hiddenIndexSet_, &FatPair_hiddenIndexCount_, &FatPair_hiddenReflect_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
 		r += '#define FatPair__$ (FatPair_vt$.public_)' + nl
 		r += '_Static_assert(offsetof(struct FatPair_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
-		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
+		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ if (impl == nullptr) return (Any_*)(size_t)(&HexaNone_); FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
 		r += 'uint8_t Any_isFatPair_(Any_* p) \{ if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (uint8_t)0; return (uint8_t)(((const void**)(p))[0] == (const void*)(&FatPair__$)) ? 1 : 0; \}\n'
 		// F10.5: forward-declare the per-signature fat adapters (their bodies
 		// are emitted after `printAnyObject` — they need `Any_toBool_` and the
@@ -5512,7 +5512,7 @@ class GenCxx {
 		r += 'const char* AnyObject_hiddenClassName_(void);' + nl
 		r += 'const char* AnyObject_hiddenClassName_(void) ' + lb + ' return "Object"; ' + rb + nl
 		r += 'Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_);' + nl
-		r += 'Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return nullptr; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) return o_->entries_[at_].v_; return nullptr; ' + rb + nl
+		r += 'Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) return o_->entries_[at_].v_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_);' + nl
 		r += 'void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) ' + lb + ' Any_* old_ = o_->entries_[at_].v_; o_->entries_[at_].v_ = v_; if (Any_isCounted_(v_)) hexaRef((void*)v_); if (Any_isCounted_(old_)) hexaUnref((void*)old_); return; ' + rb + ' if (o_->count_ >= o_->cap_) ' + lb + ' int32_t ncap_ = o_->cap_ <= (int32_t)0 ? (int32_t)4 : o_->cap_ * (int32_t)2; struct AnyObjectEntry_* ne_ = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap_)); for (int32_t i_ = (int32_t)0; i_ < o_->count_; i_++) ' + lb + ' ne_[i_].k_ = o_->entries_[i_].k_; ne_[i_].v_ = o_->entries_[i_].v_; ' + rb + ' o_->entries_ = ne_; o_->cap_ = ncap_; ' + rb + ' o_->entries_[o_->count_].k_ = k_; if (Any_isCounted_((Any_*)(k_))) hexaRef((void*)(k_)); o_->entries_[o_->count_].v_ = v_; if (Any_isCounted_(v_)) hexaRef((void*)v_); o_->count_++; ' + rb + nl
 		r += 'uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_);' + nl
@@ -5558,7 +5558,7 @@ class GenCxx {
 		r += 'uint8_t Any_isCounted_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr) return (uint8_t)0; return hexaTagIsCounted_(tag_); ' + rb + nl
 		r += '#ifdef __cplusplus' + nl
 		r += 'extern "C++" ' + lb + nl
-		r += 'template <typename T> struct HexaDeferCountedDec_ ' + lb + ' T o_; HexaDeferCountedDec_(T o): o_(o) ' + lb + ' ' + rb + ' ~HexaDeferCountedDec_() ' + lb + ' if (Any_isCounted_((Any_*)(o_))) hexaUnref((void*)o_); ' + rb + ' ' + rb + ';' + nl
+		r += 'struct HexaDeferCountedDec_ ' + lb + ' void* o_; HEXA_FORCEINLINE HexaDeferCountedDec_(void* o): o_(o) ' + lb + ' ' + rb + ' HEXA_FORCEINLINE ~HexaDeferCountedDec_() ' + lb + ' Any_unrefCounted_((Any_*)(o_)); ' + rb + ' ' + rb + ';' + nl
 		// Pointer-captured twin (Ident operands): live-value release — see
 		// HexaDeferDecPtr_ in the compile prologue (double-release fix).
 		r += 'struct HexaDeferCountedDecPtr_ ' + lb + ' void** p_; HEXA_FORCEINLINE HexaDeferCountedDecPtr_(void** p): p_(p) ' + lb + ' ' + rb + ' HEXA_FORCEINLINE ~HexaDeferCountedDecPtr_() ' + lb + ' Any_unrefCounted_((Any_*)(*p_)); ' + rb + ' ' + rb + ';' + nl
@@ -5569,9 +5569,9 @@ class GenCxx {
 		r += 'HEXA_FORCEINLINE uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
 		// D7 scalar/string shape predicates (F10 index dispatch): `true`/`false`
 		// singletons and boxed scalars are values, never keys.
-		r += 'uint8_t Any_isString_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&String__$)) ? 1 : 0); ' + rb + nl
-		r += 'uint8_t Any_isInt_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)1; const void* t_ = ((const void**)(p))[0]; if (t_ == (const void*)(&AnyInt__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
-		r += 'uint8_t Any_isNumber_(Any_* p) ' + lb + ' if (Any_isInt_(p)) return (uint8_t)1; if (p == nullptr) return (uint8_t)0; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
+		r += 'HEXA_FORCEINLINE uint8_t Any_isString_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&String__$)) ? 1 : 0); ' + rb + nl
+		r += 'HEXA_FORCEINLINE uint8_t Any_isInt_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (uint8_t)0; if ((int64_t)(p) >= (int64_t)-65535 && (int64_t)(p) <= (int64_t)65535) return (uint8_t)1; const void* t_ = ((const void**)(p))[0]; if (t_ == (const void*)(&AnyInt__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
+		r += 'HEXA_FORCEINLINE uint8_t Any_isNumber_(Any_* p) ' + lb + ' if (Any_isInt_(p)) return (uint8_t)1; if (p == nullptr) return (uint8_t)0; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (uint8_t)1; return (uint8_t)0; ' + rb + nl
 		// Reflection thin forwarders: every `Any_*` dynamic op is ONE hidden
 		// vtable call. Immediates (small ints) and Bool singletons have no
 		// tag word, so they guard up front; everything else (bags, boxes,
