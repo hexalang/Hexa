@@ -536,32 +536,8 @@ inline Any_* AnyValue_::operator->() const {
 // dynSet asserts below can use it — was `static`, which would clash here).
 HEXA_C uint8_t hexaTagIsArray_(const void* tag_);
 struct HexaHeader_ { const void* _; int32_t rc_; };
-// Instrumentation (rc triage): host-provided rc==0 reporter — the sweep frees
-// rc==0 entries, so a LIVE object reaching 0 names the missing-retain site.
-// Perfide's main-hexa.cpp provides it; other hosts can stub it.
-HEXA_C void Perfide_OnUnrefZero(void* p, void* caller);
-// Batch-1 double-release pin: fires on rc<0 with the release-site return
-// address (the guard dtor or direct caller). Perfide symbolizes + filters;
-// every other host falls back to the raw-pointer default below via
-// /alternatename (no link requirement beyond this TU).
-HEXA_C void Perfide_OnUnrefNeg(void* p, void* caller);
-HEXA_C void Perfide_OnUnrefNeg_Default(void* p, void* caller) {
-	static int n_ = 0;
-	if (n_ >= 32) return;
-	n_++;
-	fprintf(stderr, "HEXA_RCNEG %p caller=%p (link Perfide host for symbols)\n", p, caller);
-	fflush(stderr);
 // Owner is a plain counter: EVERY counted slot holds a real header, because
 // `null` is an object (the `HexaNone_` sentinel, emitted in the Forward
-// section) — never a null pointer. So retain/release are literally `rc_++` /
-// `rc_--`, one macro line each: no pointer-shape test, no null test, no
-// `rc == 0` free (deferred free is the sweep's job, F11), no bookkeeping.
-// Macros (not functions) so a `/Od` build pays no call per counter op.
-// TEMPORARY (D2 migration): a managed slot can still hold a raw zero when its
-// producer has not been converted yet (`Array<T>` element clears in
-// `library/c/array.hexa`, `Any_*` helper misses). Such a slot must not fault
-// here, so the increment skips it — remove the `nullptr` test as soon as those
-// producers emit the sentinel (the end state is literally `rc_++` / `rc_--`).
 // D2 producers are converted: `Array<T>` slot clears (`data[i] = null`),
 // `slotsAlloc<T>` fills, class/struct/interface literal field defaults (incl.
 // omitted fields), global initializers, generic-erased `= null` field defaults
@@ -619,6 +595,7 @@ HEXA_C void* hexaResizeScalar(void* p, size_t elemSize, size_t oldCount, size_t 
 	if (newCount > oldCount) memset((char*)(q_) + (oldCount * elemSize), 0, (newCount - oldCount) * elemSize);
 	return q_;
 }
+HEXA_C HEXA_FORCEINLINE uint64_t hexaHashSeed(void) { return (uint64_t)2166136261; }
 // ── rc triage (opt-in: /DHEXA_RC_TRACE) ────────────────────────────────────
 // Nothing below is part of the ownership contract; it only NAMES the site when
 // the contract is already broken. Shipping builds compile it out entirely (no
