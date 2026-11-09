@@ -617,7 +617,14 @@ HEXA_C void Perfide_OnUnrefNeg(void* p, void* caller);
 // legitimately drives it below 0. Keep the assert meaningful for everything
 // else by exempting strings here — triage only.
 HEXA_C uint8_t hexaTagIsString_(const void* tag_);
+// Static / non-sweepable singletons (`_true`/`_false`, `HexaNone_`, the
+// 4096-byte env-sentinel store, the BSS int/float box caches — defined later
+// in the TU, where their addresses exist): their counters are ADVISORY
+// (never registered, never freed), so triage must not report rczero/rcneg on
+// them — same policy as the string-tag exemption below.
+HEXA_C uint8_t hexaAddrIsImmortal_(const void* p_);
 HEXA_C void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
+	if (hexaAddrIsImmortal_((const void*)p) != (uint8_t)0) return;
 	if (rc_after_ < (int32_t)0) {
 		if (hexaTagIsString_(((const void**)p)[0]) == (uint8_t)0) {
 			HEXA_ASSERT(rc_after_ >= (int32_t)0, "rc went negative: double release (stale value-captured guard or unbalanced transfer)");
@@ -761,9 +768,9 @@ struct IUnknown_ {
 //AnyTrue* _true = new AnyTrue();
 //AnyFalse* _false = new AnyFalse();
 
-struct AnyTrue {};
+struct AnyTrue { const void* _; int32_t rc_; };
 struct AnyTrue _true;
-struct AnyFalse {};
+struct AnyFalse { const void* _; int32_t rc_; };
 struct AnyFalse _false;
 struct Any_* _bool[3] = {(struct Any_*)&_false, (struct Any_*)&_true, nullptr};
 struct Any_* Any_fromBool(const uint8_t this_) {
