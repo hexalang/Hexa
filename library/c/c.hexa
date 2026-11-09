@@ -482,6 +482,9 @@ class FetchResponse {
 	}
 	fun text(): String { return bodyBytes.toString('utf8', 0, bodyBytes.length) }
 	fun json(): Any { return JSON.parse(text()) }
+	fun text(): Promise<String> { return Promise.resolve(bodyTextSync()) }
+	fun bodyTextSync(): String { return bodyBytes.toString('utf8', 0, bodyBytes.length) }
+	fun json(): Any { return JSON.parse(bodyTextSync()) }
 	fun headersGet(name: String): String {
 		for line in headersText.split('\r\n') {
 			let idx = line.indexOf(':')
@@ -494,10 +497,6 @@ class FetchResponse {
 		return ''
 	}
 }
-// Sync-under-the-hood fetch (WinHTTP core in process.hexa). Returns the
-// response directly — `await` passes it through, matching every call site.
-// Failures come back as status-0 responses carrying the message as text
-// (throwing would abort the process pre-F5; callers check response.ok).
 fun fetch(url: String, options: Any? = null): Any {
 	var method = 'GET'
 	var headers: Any? = null
@@ -2179,12 +2178,11 @@ class JsonReader {
 		return v
 	}
 }
-// JSON string escaping (control chars → short or \u00XX forms)
 fun jsonEscape(s: String): String {
 	var out = '"'
 	for i in s.length {
 		if let c = s.charCodeAt(i) {
-			if c == 34 { out = out + '"' } else if c == 92 { out = out + '\\\\' } else if c == 10 { out = out + '\\n' } else if c == 13 { out = out + '\\r' } else if c == 9 { out = out + '\\	' } else if c == 8 { out = out + '\\b' } else if c == 12 { out = out + '\\f' } else if c < 32 { out = out + '\\u00' + hexDigitUpper(c \ 16) + hexDigitUpper(c % 16) } else { out = out + String.fromCharCode(c) }
+			if c == 34 { out = out + '\\\"' } else if c == 92 { out = out + '\\\\' } else if c == 10 { out = out + '\\n' } else if c == 13 { out = out + '\\r' } else if c == 9 { out = out + '\\t' } else if c == 8 { out = out + '\\b' } else if c == 12 { out = out + '\\f' } else if c < 32 { out = out + '\\u00' + hexDigitUpper(c \ 16) + hexDigitUpper(c % 16) } else { out = out + String.fromCharCode(c) }
 		}
 	}
 	return out + '"'
@@ -2229,24 +2227,35 @@ fun stringifyInner(value: Any, replacer: (Any, Any) => Any?, gap: String, depth:
 	if v is Array<Any> {
 		if let arr = v as!Array<Any> {
 			if arr.length == 0 { return '[]' }
-			if gap.length == 0 {
-				var out = '['
-				for i in arr.length {
-					if i > 0 { out = out + ',' }
 					out = out + stringifyInner(arr[i], replacer, gap, depth + 1, String.fromInt32(i))
-				}
-				return out + ']'
-			}
-			let pad = jsonIndent(gap, depth + 1)
-			let close = jsonIndent(gap, depth)
-			var out = '[\n' + pad
-			for i in arr.length {
-				if i > 0 { out = out + ',\n' + pad }
 				out = out + stringifyInner(arr[i], replacer, gap, depth + 1, String.fromInt32(i))
+	if anyArrayIsArray(v) {
+		let count = anyArrayCount(v)
+
+		if count == 0 { return '[]' }
+
+		if gap.length == 0 {
+			var out = '['
+			var i = 0
+
+			while i < count {
+				if i > 0 { out = out + ',' }
+				out = out + stringifyInner(anyArrayGet(v, i), replacer, gap, depth + 1, String.fromInt32(i))
+				i += 1
 			}
-			return out + '\n' + close + ']'
+			return out + ']'
 		}
-		return '[]'
+		let pad = jsonIndent(gap, depth + 1)
+		let close = jsonIndent(gap, depth)
+		var out = '[\n' + pad
+		var i = 0
+
+		while i < count {
+			if i > 0 { out = out + ',\n' + pad }
+			out = out + stringifyInner(anyArrayGet(v, i), replacer, gap, depth + 1, String.fromInt32(i))
+			i += 1
+		}
+		return out + '\n' + close + ']'
 	}
 	if v is Map<String, Any> {
 		if let obj = v as!Map<String, Any> {
@@ -3231,11 +3240,16 @@ fun anyToString(value: Any?): String {
 // (unlike the host-owned shims above). `declare` emits no prototype and the
 // calls resolve to the generated definitions.
 @rename('Any_objectNew_') declare fun anyObjectNew(): Any
+@rename('Any_delete_') declare fun anyDeleteField(obj: Any, key: String): Void
 @rename('Any_objectSet_') declare fun anyObjectSet(obj: Any, key: String, value: Any): Void
 @rename('Any_objectGet_') declare fun anyObjectGet(obj: Any, key: String): Any?
 @rename('Any_isObject_') declare fun anyIsObject(v: Any): Bool
 @rename('Any_objectCount_') declare fun anyObjectCount(obj: Any): Int
 @rename('Any_objectKeyAt_') declare fun anyObjectKeyAt(obj: Any, index: Int): String
+
+@rename('hexaAnyIsArray_') declare fun anyArrayIsArray(v: Any): Bool
+@rename('hexaAnyArrayCount_') declare fun anyArrayCount(v: Any): Int
+@rename('hexaAnyArrayGet_') declare fun anyArrayGet(v: Any, index: Int): Any
 
 // Global
 // C declarations for the host-owned runtime globals (`declare` statements
