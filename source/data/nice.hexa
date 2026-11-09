@@ -117,7 +117,7 @@ enum Expression {
 	// ^ but instead something precise like `ClassStaticField`, `LocalVar`, `CapturedVar`
 	// Field(expr Expression, field Int)
 	// DynamicField(expr Expression, name String, result Type)
-	Call(e Expression, args [Expression], result Type, kind CallKind)
+	Call(e Expression, args [Expression], result Type, kind CallKind, expects [Type])
 	// CallMethod(e, name, rags)
 	// ^ todo expects
 	New(e Expression, args [Expression], result Type)
@@ -133,6 +133,7 @@ enum Expression {
 	Await(e Expression)
 	Elvis(nullable Node, otherwise Node)
 	If(econd Expression, eif Expression, eelse Expression) // TODO Null?
+	If(econd Expression, eif Expression, eelse Expression, result Type)
 	Index(expr Expression, index Expression, result Type)
 
 	// TODO rename to `UnsafeCast`
@@ -255,6 +256,8 @@ class NiceProject {
 	let statementPosition [Statement : NodeData] = [:]
 	let native [Expression : Bool] = [:]
 	var mapDecorators [Node : [Decorator]] = [:]
+	let weakLocals [String : Bool] = [:]
+	let inlineFuncs [String : Bool] = [:]
 	var memory = Memory.Modern64
 	/// S3b: env globals whose creation fills were dropped (field/global/var
 	/// initializers have no owning statement list). Pair/direct uses of these
@@ -323,12 +326,6 @@ class NiceClass {
 	// `@destructor` instance method (renamed Nice name) — called by the ARC
 	// sweep before freeing the object. Null when the class declares none.
 	var destructor String?
-	// Synthesized container destroy (F11.2, ARC-marked): 0 none, 1 Array
-	// element walk + buffer free, 2 Array buffer free only (unmanaged
-	// elements), 3 Map inner-array release. The sweep calls the destroy via
-	// the destroy table before freeing the struct (additive dead code until
-	// the sweep lands, like the S4 thunks).
-	var destroyKind Int = 0
 	// TODO native kind: class, union, struct
 
 	var staticMethods [Statement] = []
