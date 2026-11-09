@@ -23,11 +23,6 @@
 /// stored/indirect single-var values until F1.6 pairs (S3b) thread
 /// per-instance envs and drop the globals.
 ///
-/// NOTE Phase 1 limitation (recorded in docs/target-c.md): the env instance is
-/// a global per closure SITE — two live closures created at the same site (e.g.
-/// in a loop) share it, and `var` captures copy instead of sharing cells.
-/// Real per-instance envs (heap helper objects + fat values per D1) replace the
-/// global slot inside this pass later, with no generator changes.
 ///
 /// Production pass (F1.3/S3b/S4): free-variable analysis with isolated
 /// nested scopes + creation-order checks (`Var` init/`for-over`/`try` body
@@ -120,6 +115,27 @@ class ClosureLifter {
 	// Local twins (`closureEnvL$N`) stay dropped (out of scope at init) and
 	// use the recorded global fallback via `droppedClosureEnvs`.
 	let pendingInitFills: [Statement] = []
+
+	// ── Capture by reference (S5) ───────────────────────────────────────────
+	// A `var` that a nested closure mutates cannot live as a value inside the
+	// env: every env instance (and the global/local twins) would hold its own
+	// SNAPSHOT, so writes through one copy are invisible through another —
+	// that is the "capture by value" stopgap. Instead the binding becomes a
+	// one-field heap cell (`Cell$N`), the env stores the CELL (a managed
+	// pointer, shared by every instance), and all reads/writes of the name —
+	// inside and outside the closure — go through `cell.value`. That is the
+	// JS capture contract, implemented entirely in Nice IR: genC/ARC/reflect
+	// see ordinary classes, fields and assignments.
+	//
+	// `name -> the cell object in scope` (an `Ident` in the owning function,
+	// a `Dot(envT$N, name)` inside a closure that captured it).
+	var cellOf: [String : Expression] = [:]
+	// Names whose DECLARATION lives in the body currently being rewritten.
+	var cellOwners: [String : Type] = [:]
+	var cellOwnerClassOf: [String : String] = [:]
+	var cellOwnerValueType: [String : Type] = [:]
+	// Monotonic id for the synthesized `Cell$N` classes.
+	var cellId: Int = 0
 
 	new (niceProject: NiceProject) {
 		this.niceProject = niceProject
@@ -234,6 +250,9 @@ class ClosureLifter {
 		}
 
 		if niceProject.init.length > 0 {
+			// Capture-by-reference scope for the module init list (closures
+			// there can mutate top-level temporaries too).
+			beginCellScope(Statement.Block(niceProject.init))
 			let wrapped = processStatementList(niceProject.init)
 			niceProject.init.splice(0, niceProject.init.length)
 
@@ -350,7 +369,28 @@ class ClosureLifter {
 			case Function(name, body, args, defaults, funcType, variadic, isAsync):
 				let saved = hoisted
 				hoisted = []
+				// Capture-by-reference scope for THIS function: a top-level
+				// function/method has no enclosing closure, so the cell maps
+				// start empty and are restored on the way out.
+				let savedRenames = renames
+				let savedCellOf = cellOf
+				let savedCellOwners = cellOwners
+				let savedCellOwnerClassOf = cellOwnerClassOf
+				let savedCellOwnerValueType = cellOwnerValueType
+				let freshRenames: [String : Expression] = [:]
+				let freshCellOf: [String : Expression] = [:]
+				let freshOwners: [String : Type] = [:]
+				let freshOwnerClass: [String : String] = [:]
+				let freshOwnerValue: [String : Type] = [:]
+				renames = freshRenames
+				cellOf = freshCellOf
+				cellOwners = freshOwners
+				cellOwnerClassOf = freshOwnerClass
+				cellOwnerValueType = freshOwnerValue
 				let newDefaults = rewriteExprList(defaults)
+				// Cell scope is opened AFTER the defaults: a default expression
+				// is evaluated at the CALL site and must not see `cell.value`.
+				beginCellScope(body, args)
 				let newBodyRaw = rewriteStmt(body)
 				var newBody = newBodyRaw
 
@@ -370,6 +410,11 @@ class ClosureLifter {
 
 				let result = Statement.Function(name, newBody, args, newDefaults, funcType, variadic, isAsync)
 				hoisted = saved
+				renames = savedRenames
+				cellOf = savedCellOf
+				cellOwners = savedCellOwners
+				cellOwnerClassOf = savedCellOwnerClassOf
+				cellOwnerValueType = savedCellOwnerValueType
 
 				// NOTE `globalLink` is keyed by the STATEMENT object — the
 				// rebuilt statement must inherit its link info (`@rename`,
@@ -446,8 +491,29 @@ class ClosureLifter {
 				let newCallee = rewriteExpr(e)
 				return Statement.Call(newCallee, rewriteExprList(args), expects, closureCallKind(newCallee, kind))
 			case Var(name, expr, dataType):
+				// Capture by reference: the binding owns a heap cell, so the
+				// declaration becomes `var name = Cell$N(); name.value = init`
+				// and every read/write elsewhere goes through `.value`.
+				// `Statements` (scope-less sequence, no C braces) keeps the
+				// variable visible in the enclosing block.
+				if let cellType = cellOwners.get(name) {
+					let className = cellOwnerClassOf.get(name) ?? ''
+					let valueType = cellOwnerValueType.get(name) ?? dataType
+					let alloc = Statement.Var(name, Expression.New(Expression.Ident(className, null), [], cellType), cellType)
+					let store = Statement.Assign(Expression.Dot(Expression.Ident(name, cellType), 'value', valueType), rewriteExpr(expr), valueType)
+					return Statement.Statements([alloc, store])
+				}
+
 				return Statement.Var(name, rewriteExpr(expr), dataType)
 			case Const(name, expr, dataType):
+				if let cellType = cellOwners.get(name) {
+					let className = cellOwnerClassOf.get(name) ?? ''
+					let valueType = cellOwnerValueType.get(name) ?? dataType
+					let alloc = Statement.Const(name, Expression.New(Expression.Ident(className, null), [], cellType), cellType)
+					let store = Statement.Assign(Expression.Dot(Expression.Ident(name, cellType), 'value', valueType), rewriteExpr(expr), valueType)
+					return Statement.Statements([alloc, store])
+				}
+
 				return Statement.Const(name, rewriteExpr(expr), dataType)
 			case Function(name, body, args, defaults, funcType, variadic, isAsync):
 				// Nested named function — lift like a closure and bind its name
@@ -703,6 +769,583 @@ class ClosureLifter {
 				return e
 		} }
 
+		// ── Capture-by-reference helpers (S5) ───────────────────────────────────
+
+	/// Type carried by a Nice expression (only the shapes the cell machinery
+	/// produces/consumes: a cell is `Ident` in its owner, `Dot(envT$N, …)`
+	/// inside a closure that captured it).
+	fun exprType(e: Expression): Type { switch e {
+			case Ident(_, t):
+				return t
+			case Dot(_, _, t):
+				return t
+			case Parenthesis(inner):
+				return exprType(inner)
+			case _:
+				return niceProject.typer.typeAny
+		} }
+
+	fun copyExprMap(src: [String : Expression]): [String : Expression] {
+		let out: [String : Expression] = [:]
+
+		for k in src.keys() {
+			if let v = src.get(k) {
+				out.set(k, v)
+			}
+		}
+
+		return out
+	}
+
+	/// Installs the cell for `name` (one-field `Cell$N` class + scope renames)
+	/// and returns nothing — the caller owns the map save/restore.
+	fun cellify(name: String, valueType: Type) {
+		this.cellId = this.cellId + 1
+		let className: String = 'Cell$' + this.cellId
+		let kind = new ClassType()
+		kind.name = className
+		kind.kind = ClassKind.Class
+		// Fabricated node: only feeds decorator lookups (-> none), same trick
+		// as the `Env$N` synthesis above.
+		kind.parent = Node.Ident(className, null)
+		kind.useless = false
+		let instanceType: Type = Type.ClassInstance(kind, null)
+		let nc = new NiceClass()
+		nc.external = false
+		nc.useless = false
+		nc.name = className
+		nc.extend = null
+		nc.genericParams = []
+		// NOT `Closure`: a cell is an ordinary class with one field (no fat
+		// pair, no Any-callable thunk).
+		nc.api = ClassBinaryInterface.Normal
+		nc.usedByValueDepth = 0
+		nc.template = false
+		nc.classType = instanceType
+		nc.implement = ''
+		nc.implementParams = []
+		nc.rename = 0
+		nc.constructor = -1
+		nc.methods = []
+		nc.staticMethods = []
+		nc.vars = []
+		nc.staticVars = []
+		// `new () {}` — genC emits `$new_`/`$this_` from it; the empty body
+		// zero-inits via HEXA_NEW. The initial value is stored by the owner
+		// (`Statements([Var(cell), Assign(cell.value, init)])`) — a `Block`
+		// there would shrink the C variable's scope.
+		nc.methods.push(Statement.Function('new', Statement.Block([]), [], [], Type.Function([], instanceType, false), VariadicKind.NotVariadic, false))
+		kind.fieldNames.push('value')
+		kind.fieldRenames.push('value')
+		kind.fieldStatic.push(false)
+		kind.fieldInitialized.push(false)
+		kind.protected.push(false)
+		kind.immutable.push(false)
+		kind.fields.set('value', ClassTypeField.Variable)
+		nc.vars.push(Statement.Var('value', null, valueType))
+		pendingClasses.push(nc)
+		markGlobal(className, 'cellClass')
+		let cellIdent: Expression = Expression.Ident(name, instanceType)
+		cellOf.set(name, cellIdent)
+		cellOwners.set(name, instanceType)
+		cellOwnerClassOf.set(name, className)
+		cellOwnerValueType.set(name, valueType)
+		// Every read/write of the name now dereferences the cell.
+		renames.set(name, Expression.Dot(cellIdent, 'value', valueType))
+		traceLog('CELL           `' + name + '` -> `' + className + '` (capture by reference)')
+	}
+
+	/// Capture-by-reference analysis for ONE function body: every OWN local
+	/// that (a) is touched by a nested closure and (b) is mutated somewhere
+	/// (in the function or in a closure) becomes a cell. Over-approximation
+	/// is safe — a false positive only costs one allocation.
+	fun beginCellScope(body: Statement, params: [String] = []) {
+		let locals: [String : Type] = [:]
+
+		collectCellLocals(body, locals, false)
+
+		let mutated: [String : Bool] = [:]
+
+		collectCellMutated(body, mutated)
+
+		let inClosure: [String : Bool] = [:]
+
+		collectCellUses(body, inClosure, false)
+
+		// Params are not cellified yet (their storage is the call-site slot,
+		// so a cell needs a renamed local + a prologue store). Surface the
+		// gap instead of silently keeping the by-value copy.
+		for p in params {
+			if mutated.get(p) != null, inClosure.get(p) != null {
+				traceLog('CELL-SKIP-PARAM `' + p + '` (mutated in a closure; param cells not implemented)')
+			}
+		}
+
+		if locals.keys().length == 0 { return }
+
+		if mutated.keys().length == 0 { return }
+
+		if inClosure.keys().length == 0 { return }
+
+		for name in locals.keys() {
+			if mutated.get(name) == null { continue }
+
+			if inClosure.get(name) == null { continue }
+
+			if let t = locals.get(name) {
+				// Fat (function) values are a two-slot ABI; a plain field
+				// holds them as a pair already, so a cell would double-wrap.
+				// No known site mutates a captured function value — keep the
+				// by-value capture there.
+				var isFat = false
+
+				switch t {
+					case Function(_, _, _): isFat = true
+					case _:
+				}
+
+				if isFat {
+					traceLog('CELL-SKIP-FAT  `' + name + '`')
+					continue
+				}
+				cellify(name, t)
+			}
+		}
+	}
+
+	/// `Var`/`Const` names declared in this body's OWN scope (nested closure
+	/// locals belong to the closure, not here).
+	fun collectCellLocals(s: Statement, out: [String : Type], inside: Bool) { switch s {
+			case Statements(els):
+				for el in els { collectCellLocals(el, out, inside) }
+			case Block(els):
+				for el in els { collectCellLocals(el, out, inside) }
+			case Var(name, expr, dataType):
+				collectCellLocalsExpr(expr, out)
+
+				if not inside { out.set(name, dataType) }
+			case Const(name, expr, dataType):
+				collectCellLocalsExpr(expr, out)
+
+				if not inside { out.set(name, dataType) }
+			case Function(_, body, _, defaults, _, _, _):
+				for d in defaults { collectCellLocalsExpr(d, out) }
+				collectCellLocals(body, out, true)
+			case Call(e, args, _, _):
+				collectCellLocalsExpr(e, out)
+
+				for a in args { collectCellLocalsExpr(a, out) }
+			case If(c, a, b):
+				collectCellLocalsExpr(c, out)
+				collectCellLocals(a, out, inside)
+
+				if b != null { collectCellLocals(b, out, inside) }
+			case While(c, b, _):
+				collectCellLocalsExpr(c, out)
+				collectCellLocals(b, out, inside)
+			case For(_, over, by, _):
+				collectCellLocalsExpr(over, out)
+				collectCellLocals(by, out, inside)
+			case Try(expr, _, _, catches, _):
+				collectCellLocals(expr, out, inside)
+
+				for c in catches { collectCellLocals(c, out, inside) }
+			case PatternSwitch(expr, cases, statements, guards, binds):
+				collectCellLocalsExpr(expr, out)
+
+				for st in statements { collectCellLocals(st, out, inside) }
+
+				for b in binds { for st in b { collectCellLocals(st, out, inside) } }
+			case PlainSwitch(expr, _, statements):
+				collectCellLocalsExpr(expr, out)
+
+				for st in statements { collectCellLocals(st, out, inside) }
+			case Return(e):
+				collectCellLocalsExpr(e, out)
+			case Throw(e):
+				collectCellLocalsExpr(e, out)
+			case Assign(a, b, _):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case Assignop(a, _, b):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case Increment(e):
+				collectCellLocalsExpr(e, out)
+			case Decrement(e):
+				collectCellLocalsExpr(e, out)
+			case SuperConstructor(args):
+				for a in args { collectCellLocalsExpr(a, out) }
+			case RefInc(names):
+				for n in names { collectCellLocalsExpr(n, out) }
+			case DeferRefDec(names):
+				for n in names { collectCellLocalsExpr(n, out) }
+			case _:
+		} }
+
+	fun collectCellLocalsExpr(e: Expression, out: [String : Type]) { switch e {
+			case Function(_, body, _, defaults, _, _):
+				for d in defaults { collectCellLocalsExpr(d, out) }
+				collectCellLocals(body, out, true)
+			case Arrow(inner, _, defaults, _, _, _, _):
+				for d in defaults { collectCellLocalsExpr(d, out) }
+				collectCellLocalsExpr(inner, out)
+			case Parenthesis(inner):
+				collectCellLocalsExpr(inner, out)
+			case Dot(inner, _, _):
+				collectCellLocalsExpr(inner, out)
+			case Index(a, b, _):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case StringIndex(a, b, _):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case Call(callee, args, _, _, _):
+				collectCellLocalsExpr(callee, out)
+
+				for a in args { collectCellLocalsExpr(a, out) }
+			case New(callee, args, _):
+				collectCellLocalsExpr(callee, out)
+
+				for a in args { collectCellLocalsExpr(a, out) }
+			case Binop(a, _, b, _):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case Unop(_, _, inner):
+				collectCellLocalsExpr(inner, out)
+			case Array(values, _):
+				for v in values { collectCellLocalsExpr(v, out) }
+			case Object(_, el, _):
+				for v in el { collectCellLocalsExpr(v, out) }
+			case Map(keys, values, _, _, _):
+				for v in keys { collectCellLocalsExpr(v, out) }
+
+				for v in values { collectCellLocalsExpr(v, out) }
+			case If(c, a, b, _):
+				collectCellLocalsExpr(c, out)
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case Elvis(a, b):
+				collectCellLocalsExpr(a as!Expression, out)
+				collectCellLocalsExpr(b as!Expression, out)
+			case Await(inner):
+				collectCellLocalsExpr(inner, out)
+			case UnsafeBitCast(inner, _):
+				collectCellLocalsExpr(inner, out)
+			case Is(inner, _):
+				collectCellLocalsExpr(inner, out)
+			case RemoveNullability(inner, _):
+				collectCellLocalsExpr(inner, out)
+			case Assignop(a, _, b):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case EnumTag(inner):
+				collectCellLocalsExpr(inner, out)
+			case EnumParameter(inner, _):
+				collectCellLocalsExpr(inner, out)
+			case Spread(inner):
+				collectCellLocalsExpr(inner, out)
+			case StringConcatenation(a, b):
+				collectCellLocalsExpr(a, out)
+				collectCellLocalsExpr(b, out)
+			case NativeOperator(_, args, _, _, _):
+				for a in args { collectCellLocalsExpr(a, out) }
+			case _:
+		} }
+
+	/// Assignment targets in this body (`x = …`, `x op= …`, `x++`/`x--`),
+	/// at ANY depth — a mutation inside a closure still mutates the binding.
+	fun collectCellMutated(s: Statement, out: [String : Bool]) { switch s {
+			case Statements(els):
+				for el in els { collectCellMutated(el, out) }
+			case Block(els):
+				for el in els { collectCellMutated(el, out) }
+			case Assign(target, value, _):
+				collectCellTarget(target, out)
+				collectCellMutatedExpr(value, out)
+			case Assignop(target, _, value):
+				collectCellTarget(target, out)
+				collectCellMutatedExpr(value, out)
+			case Increment(e):
+				collectCellTarget(e, out)
+			case Decrement(e):
+				collectCellTarget(e, out)
+			case Var(_, expr, _):
+				collectCellMutatedExpr(expr, out)
+			case Const(_, expr, _):
+				collectCellMutatedExpr(expr, out)
+			case Function(_, body, _, defaults, _, _, _):
+				for d in defaults { collectCellMutatedExpr(d, out) }
+				collectCellMutated(body, out)
+			case Call(e, args, _, _):
+				collectCellMutatedExpr(e, out)
+
+				for a in args { collectCellMutatedExpr(a, out) }
+			case Return(e):
+				collectCellMutatedExpr(e, out)
+			case Throw(e):
+				collectCellMutatedExpr(e, out)
+			case If(c, a, b):
+				collectCellMutatedExpr(c, out)
+				collectCellMutated(a, out)
+
+				if b != null { collectCellMutated(b, out) }
+			case While(c, b, _):
+				collectCellMutatedExpr(c, out)
+				collectCellMutated(b, out)
+			case For(_, over, by, _):
+				collectCellMutatedExpr(over, out)
+				collectCellMutated(by, out)
+			case Try(expr, _, _, catches, _):
+				collectCellMutated(expr, out)
+
+				for c in catches { collectCellMutated(c, out) }
+			case PatternSwitch(expr, _, statements, _, binds):
+				collectCellMutatedExpr(expr, out)
+
+				for st in statements { collectCellMutated(st, out) }
+
+				for b in binds { for st in b { collectCellMutated(st, out) } }
+			case PlainSwitch(expr, _, statements):
+				collectCellMutatedExpr(expr, out)
+
+				for st in statements { collectCellMutated(st, out) }
+			case SuperConstructor(args):
+				for a in args { collectCellMutatedExpr(a, out) }
+			case RefInc(names):
+				for n in names { collectCellMutatedExpr(n, out) }
+			case DeferRefDec(names):
+				for n in names { collectCellMutatedExpr(n, out) }
+			case _:
+		} }
+
+	fun collectCellTarget(e: Expression, out: [String : Bool]) { switch e {
+			case Ident(name, _):
+				out.set(name, true)
+			case Parenthesis(inner):
+				collectCellTarget(inner, out)
+			case _:
+		} }
+
+	fun collectCellMutatedExpr(e: Expression, out: [String : Bool]) { switch e {
+			case Assignop(target, _, value):
+				collectCellTarget(target, out)
+				collectCellMutatedExpr(value, out)
+			case Unop(_, _, inner):
+				collectCellTarget(inner, out)
+				collectCellMutatedExpr(inner, out)
+			case Function(_, body, _, defaults, _, _):
+				for d in defaults { collectCellMutatedExpr(d, out) }
+				collectCellMutated(body, out)
+			case Arrow(inner, _, defaults, _, _, _, _):
+				for d in defaults { collectCellMutatedExpr(d, out) }
+				collectCellMutatedExpr(inner, out)
+			case Parenthesis(inner):
+				collectCellMutatedExpr(inner, out)
+			case Dot(inner, _, _):
+				collectCellMutatedExpr(inner, out)
+			case Index(a, b, _):
+				collectCellMutatedExpr(a, out)
+				collectCellMutatedExpr(b, out)
+			case StringIndex(a, b, _):
+				collectCellMutatedExpr(a, out)
+				collectCellMutatedExpr(b, out)
+			case Call(callee, args, _, _, _):
+				collectCellMutatedExpr(callee, out)
+
+				for a in args { collectCellMutatedExpr(a, out) }
+			case New(callee, args, _):
+				collectCellMutatedExpr(callee, out)
+
+				for a in args { collectCellMutatedExpr(a, out) }
+			case Binop(a, _, b, _):
+				collectCellMutatedExpr(a, out)
+				collectCellMutatedExpr(b, out)
+			case Array(values, _):
+				for v in values { collectCellMutatedExpr(v, out) }
+			case Object(_, el, _):
+				for v in el { collectCellMutatedExpr(v, out) }
+			case Map(keys, values, _, _, _):
+				for v in keys { collectCellMutatedExpr(v, out) }
+
+				for v in values { collectCellMutatedExpr(v, out) }
+			case If(c, a, b, _):
+				collectCellMutatedExpr(c, out)
+				collectCellMutatedExpr(a, out)
+				collectCellMutatedExpr(b, out)
+			case Elvis(a, b):
+				collectCellMutatedExpr(a as!Expression, out)
+				collectCellMutatedExpr(b as!Expression, out)
+			case Await(inner):
+				collectCellMutatedExpr(inner, out)
+			case UnsafeBitCast(inner, _):
+				collectCellMutatedExpr(inner, out)
+			case Is(inner, _):
+				collectCellMutatedExpr(inner, out)
+			case RemoveNullability(inner, _):
+				collectCellMutatedExpr(inner, out)
+			case EnumTag(inner):
+				collectCellMutatedExpr(inner, out)
+			case Enum(_, _, tag, args):
+				collectCellMutatedExpr(tag, out)
+
+				for a in args { collectCellMutatedExpr(a, out) }
+			case EnumParameter(inner, _):
+				collectCellMutatedExpr(inner, out)
+			case Spread(inner):
+				collectCellMutatedExpr(inner, out)
+			case StringConcatenation(a, b):
+				collectCellMutatedExpr(a, out)
+				collectCellMutatedExpr(b, out)
+			case NativeOperator(_, args, _, _, _):
+				for a in args { collectCellMutatedExpr(a, out) }
+			case _:
+		} }
+
+	/// Bare idents touched INSIDE nested closure bodies (conservative capture
+	/// over-approximation — the caller intersects with its own locals).
+	fun collectCellUses(s: Statement, out: [String : Bool], inside: Bool) { switch s {
+			case Statements(els):
+				for el in els { collectCellUses(el, out, inside) }
+			case Block(els):
+				for el in els { collectCellUses(el, out, inside) }
+			case Var(_, expr, _):
+				collectCellUsesExpr(expr, out, inside)
+			case Const(_, expr, _):
+				collectCellUsesExpr(expr, out, inside)
+			case Function(_, body, _, defaults, _, _, _):
+				for d in defaults { collectCellUsesExpr(d, out, true) }
+				collectCellUses(body, out, true)
+			case Call(e, args, _, _):
+				collectCellUsesExpr(e, out, inside)
+
+				for a in args { collectCellUsesExpr(a, out, inside) }
+			case Return(e):
+				collectCellUsesExpr(e, out, inside)
+			case Throw(e):
+				collectCellUsesExpr(e, out, inside)
+			case Assign(a, b, _):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case Assignop(a, _, b):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case Increment(e):
+				collectCellUsesExpr(e, out, inside)
+			case Decrement(e):
+				collectCellUsesExpr(e, out, inside)
+			case If(c, a, b):
+				collectCellUsesExpr(c, out, inside)
+				collectCellUses(a, out, inside)
+
+				if b != null { collectCellUses(b, out, inside) }
+			case While(c, b, _):
+				collectCellUsesExpr(c, out, inside)
+				collectCellUses(b, out, inside)
+			case For(_, over, by, _):
+				collectCellUsesExpr(over, out, inside)
+				collectCellUses(by, out, inside)
+			case Try(expr, _, _, catches, _):
+				collectCellUses(expr, out, inside)
+
+				for c in catches { collectCellUses(c, out, inside) }
+			case PatternSwitch(expr, _, statements, _, binds):
+				collectCellUsesExpr(expr, out, inside)
+
+				for st in statements { collectCellUses(st, out, inside) }
+
+				for b in binds { for st in b { collectCellUses(st, out, inside) } }
+			case PlainSwitch(expr, _, statements):
+				collectCellUsesExpr(expr, out, inside)
+
+				for st in statements { collectCellUses(st, out, inside) }
+			case SuperConstructor(args):
+				for a in args { collectCellUsesExpr(a, out, inside) }
+			case RefInc(names):
+				for n in names { collectCellUsesExpr(n, out, inside) }
+			case DeferRefDec(names):
+				for n in names { collectCellUsesExpr(n, out, inside) }
+			case _:
+		} }
+
+	fun collectCellUsesExpr(e: Expression, out: [String : Bool], inside: Bool) { switch e {
+			case Ident(name, _):
+				if inside { out.set(name, true) }
+			case Function(_, body, _, defaults, _, _):
+				for d in defaults { collectCellUsesExpr(d, out, true) }
+				collectCellUses(body, out, true)
+			case Arrow(inner, _, defaults, _, _, _, _):
+				for d in defaults { collectCellUsesExpr(d, out, true) }
+				collectCellUsesExpr(inner, out, true)
+			case Parenthesis(inner):
+				collectCellUsesExpr(inner, out, inside)
+			case Dot(inner, _, _):
+				collectCellUsesExpr(inner, out, inside)
+			case Index(a, b, _):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case StringIndex(a, b, _):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case Call(callee, args, _, _, _):
+				collectCellUsesExpr(callee, out, inside)
+
+				for a in args { collectCellUsesExpr(a, out, inside) }
+			case New(callee, args, _):
+				collectCellUsesExpr(callee, out, inside)
+
+				for a in args { collectCellUsesExpr(a, out, inside) }
+			case Binop(a, _, b, _):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case Unop(_, _, inner):
+				collectCellUsesExpr(inner, out, inside)
+			case Array(values, _):
+				for v in values { collectCellUsesExpr(v, out, inside) }
+			case Object(_, el, _):
+				for v in el { collectCellUsesExpr(v, out, inside) }
+			case Map(keys, values, _, _, _):
+				for v in keys { collectCellUsesExpr(v, out, inside) }
+
+				for v in values { collectCellUsesExpr(v, out, inside) }
+			case If(c, a, b, _):
+				collectCellUsesExpr(c, out, inside)
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case Elvis(a, b):
+				collectCellUsesExpr(a as!Expression, out, inside)
+				collectCellUsesExpr(b as!Expression, out, inside)
+			case Await(inner):
+				collectCellUsesExpr(inner, out, inside)
+			case UnsafeBitCast(inner, _):
+				collectCellUsesExpr(inner, out, inside)
+			case Is(inner, _):
+				collectCellUsesExpr(inner, out, inside)
+			case RemoveNullability(inner, _):
+				collectCellUsesExpr(inner, out, inside)
+			case Assignop(a, _, b):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case EnumTag(inner):
+				collectCellUsesExpr(inner, out, inside)
+			case Enum(_, _, tag, args):
+				collectCellUsesExpr(tag, out, inside)
+
+				for a in args { collectCellUsesExpr(a, out, inside) }
+			case EnumParameter(inner, _):
+				collectCellUsesExpr(inner, out, inside)
+			case Spread(inner):
+				collectCellUsesExpr(inner, out, inside)
+			case StringConcatenation(a, b):
+				collectCellUsesExpr(a, out, inside)
+				collectCellUsesExpr(b, out, inside)
+			case NativeOperator(_, args, _, _, _):
+				for a in args { collectCellUsesExpr(a, out, inside) }
+			case CapturedVar(name, _):
+				if inside { out.set(name, true) }
+			case _:
+		} }
+
 	/// Lowers one closure to a global function + env variables; returns the
 	/// function-name expression that replaces the closure value.
 	/// `selfName` (named nested functions) resolves to the lifted function
@@ -843,6 +1486,12 @@ class ClosureLifter {
 					ftype = niceProject.typer.typeAny
 				}
 
+				// Capture by reference: the env holds the CELL object (shared
+				// by every instance), not a copy of the value.
+				if let cellBase = cellOf.get(name) {
+					ftype = exprType(cellBase)
+				}
+
 				kind.fieldNames.push(name)
 				kind.fieldRenames.push(name)
 				kind.fieldStatic.push(false)
@@ -877,6 +1526,11 @@ class ClosureLifter {
 			renames2.set(key, renames.get(key))
 		}
 
+		// Cell objects in scope for the closure BODY: what the outer scope
+		// had, plus the env field for every cell-backed capture (a nested
+		// closure inside this one must capture the CELL through this env).
+		var cellOf2: [String : Expression] = copyExprMap(cellOf)
+
 		// Self-recursion goes straight to the lifted function — the local
 		// alias is declared AFTER the closure body is built
 		if let me = selfName {
@@ -907,11 +1561,25 @@ class ClosureLifter {
 					ftype = niceProject.typer.typeAny
 				}
 
+				// Capture by reference: the value type stays in `valueType`,
+				// the env field type becomes the cell class and the fill
+				// stores the CELL (one object shared by every env instance).
+				var valueType = ftype
+				var cellBase: Expression? = cellOf.get(name)
+
+				if let cb = cellBase {
+					ftype = exprType(cb)
+				}
+
 				// Nested-`this` fix: prefer an outer env slot when the
 				// enclosing scope already captured it (the fill below lands
 				// in a context that may itself be a lifted global with no
 				// `this` in scope — bare `this` there is C2355)
 				var source = renames.get(name)
+
+				if let cb = cellBase {
+					source = cb
+				}
 
 				if source == null {
 					if name == 'this' {
@@ -925,7 +1593,16 @@ class ClosureLifter {
 				hoisted.push(Statement.Assign(Expression.Dot(envIdent, name, ftype), source, ftype))
 				traceLog('FILL-LOCAL     closure$' + id + ' `' + name + '` -> `' + envLocalName + '.' + name + '`')
 				hoisted.push(Statement.Assign(Expression.Dot(envLocalIdent, name, ftype), source, ftype))
-				renames2.set(name, Expression.Dot(envTIdent, name, ftype))
+
+				if let cb = cellBase {
+					// Reads/writes inside the body dereference the cell that
+					// lives in the env (`envT$N.name.value`).
+					let fieldExpr = Expression.Dot(envTIdent, name, ftype)
+					renames2.set(name, Expression.Dot(fieldExpr, 'value', valueType))
+					cellOf2.set(name, fieldExpr)
+				} else {
+					renames2.set(name, Expression.Dot(envTIdent, name, ftype))
+				}
 			}
 		}
 
@@ -933,6 +1610,20 @@ class ClosureLifter {
 		// recursively and capture from this closure's env/locals
 		let outerRenames = renames
 		renames = renames2
+		let outerCellOf = cellOf
+		cellOf = cellOf2
+		let outerCellOwners = cellOwners
+		let outerCellOwnerClassOf = cellOwnerClassOf
+		let outerCellOwnerValueType = cellOwnerValueType
+		let freshCellOwners: [String : Type] = [:]
+		let freshCellOwnerClass: [String : String] = [:]
+		let freshCellOwnerValue: [String : Type] = [:]
+		cellOwners = freshCellOwners
+		cellOwnerClassOf = freshCellOwnerClass
+		cellOwnerValueType = freshCellOwnerValue
+		// This closure's OWN mutable locals touched by ITS nested closures
+		// become cells too (analysed on the ORIGINAL body, before renames).
+		beginCellScope(body, args)
 		let outerDeclared = currentDeclared
 		currentDeclared = declared
 		insideLift = insideLift + 1
@@ -960,6 +1651,10 @@ class ClosureLifter {
 		liftIdStack.pop()
 		insideLift = insideLift - 1
 		renames = outerRenames
+		cellOf = outerCellOf
+		cellOwners = outerCellOwners
+		cellOwnerClassOf = outerCellOwnerClassOf
+		cellOwnerValueType = outerCellOwnerValueType
 		// NOTE restore the declared-set too — nested lifts overwrite it and
 		// stale entries would mis-flag the outer body's locals
 		currentDeclared = outerDeclared
