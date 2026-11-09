@@ -178,6 +178,42 @@ class ClassType {
 
 	/// Generic `Type.ClassInstance` with `<params>`
 	fun instantiateGeneric(params: [Type]): Type {
+
+		// Normalize params for a STABLE cache identity (RangeError fix):
+		// fresh Unknown handles / fresh nested instances never `==`, so the
+		// dedup loop below always missed and recursive generics (Array/Map/
+		// Set/Promise in std, reached via enum tag-arg typing) re-fired
+		// on-demand clone fills forever. Resolve what's known; uninferrable
+		// params normalize to null (nulls compare equal → one shared
+		// unfilled instance, terminates). Mirrors the outer generics pass,
+		// which skips exactly these instead of filling ("Again for generics").
+		fun normParam(p: Type): Type? {
+			switch p {
+				case Unknown(handle): return handle.value
+				case UnknownNullable(handle):
+					if let v = handle.value { return normParam(Type.unwrapNullable(v)) }
+					return null
+				case Nullable(t): return normParam(t)
+				// NOTE: Generic stubs must SURVIVE (returned as-is by `case _`
+				// below) — `new`'s return inside `class Map<K,V>` instantiates
+				// `Map<K,V>` with its OWN stubs; nulling them here baked
+				// `Map<null,null>` into the constructor return and poisoned
+				// every later genericFixup (recvGen=[null,null] cascade).
+				// Unbound Generic at a USE site is resolved by genericFixup
+				// BEFORE instantiateGeneric is reached.
+				case _: return p
+			}
+		}
+		var norm [Type] = []
+		var fillable = true
+		for p in params {
+			if let r = normParam(p) { norm.push(r) }
+			else {
+				fillable = false
+				norm.push(null as!Type)
+			}
+		}
+
 		/* So, how it works:
 			genericCache is array of [type, param1, param2, ...]
 			i.e. [0] element is a resulting cached Type to be returned
@@ -186,12 +222,12 @@ class ClassType {
 		*/
 
 		for cached in genericCache {
-			if cached.length != (params.length + 1) {
+			if cached.length != (norm.length + 1) {
 				continue
 			}
 			var found = true
 			for i in cached.length - 1 {
-				if params[i] != cached[i + 1] {
+				if norm[i] != cached[i + 1] {
 					found = false
 					break
 				}
@@ -230,21 +266,26 @@ Array<type {}> error T must be class or interface: set flag inferred from T usag
 		// ^ keep the fact in the type that it's from generic
 		// ^ (set it into a ClassType.static/Typer.non static genericMap as meta data)
 		// TODO remember who did instantiation, for better error messages (as linked list to simulate a stack)
-		let result = Type.ClassInstance(this, params)
+		let result = Type.ClassInstance(this, norm)
 		// Save self instance for reuse
 		// TODO also save `new ClassType` for accessing instance fields and methods
 		let cache = [result]
-		for param in params {
+		for param in norm {
 			// Save instance parameters
 			cache.push(param)
 		}
 		genericCache.push(cache)
 		if parent != null { // TODO why it may be null?
-			if let delayedInstance = Typer.delayedInstance {
-				// TODO ^ support syntax `if let Typer.delayedInstance`? meh weird hard to read and guess var name
-				// TODO well seems like type is not inferred `delayedInstance(this, false)`
-				delayedInstance(parent, params, this)
-				// TODO `params.slice()`?
+			// Only fill on demand when every param is known: uninferrable
+			// params get the shared unfilled instance above (terminates;
+			// the outer pass fills them once they resolve).
+			if fillable {
+				if let delayedInstance = Typer.delayedInstance {
+					// TODO ^ support syntax `if let Typer.delayedInstance`? meh weird hard to read and guess var name
+					// TODO well seems like type is not inferred `delayedInstance(this, false)`
+					delayedInstance(parent, norm, this)
+					// TODO `params.slice()`?
+				}
 			}
 		}
 		return result
