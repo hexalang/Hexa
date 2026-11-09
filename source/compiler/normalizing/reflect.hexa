@@ -627,6 +627,28 @@ class ReflectLowerer {
 				return s
 		} }
 
+	fun deleteArgsOf(callee: Expression, args: [Expression]): [Expression]? {
+		switch unwrapParen(callee) {
+			case Ident(dname, _):
+				if dname != 'delete' or args.length != 1 { return null }
+
+				switch unwrapParen(args[0]) {
+					case Dot(base, field, _):
+						if not isAnyExpr(base) { return null }
+						return [rewriteExpr(base), Expression.String(field)]
+					case _:
+				}
+			case _:
+		}
+		return null
+	}
+
+	fun deleteCallee(): Expression {
+		let id = Expression.Ident('Any_delete_', null)
+		niceProject.native.set(id, true)
+		return id
+	}
+
 	/// Rewrites a statement list, no hoisting in this pass
 	fun processStatementList(els: [Statement]): [Statement] {
 		let out: [Statement] = []
@@ -646,6 +668,11 @@ class ReflectLowerer {
 			case Block(els):
 				return Statement.Block(processStatementList(els))
 			case Call(e, args, expects, kind):
+				// `delete(obj.field)` — see deleteArgsOf
+				if let delArgs = deleteArgsOf(e, args) {
+					return Statement.Call(deleteCallee(), delArgs, [], kind)
+				}
+
 				if isAnyExpr(e) {
 					anyCalls++
 				}
@@ -1095,6 +1122,11 @@ class ReflectLowerer {
 				let callee = Expression.Dot(Expression.Ident('String', stringClass), 'stringAt', result)
 				return Expression.Call(callee, [s2, i2], result, CallKind.Static, [])
 			case Call(callee, args, result, kind, expects):
+				// `delete(obj.field)` — see deleteArgsOf
+				if let delArgs2 = deleteArgsOf(callee, args) {
+					return Expression.Call(deleteCallee(), delArgs2, result, kind, [])
+				}
+
 				if isAnyExpr(callee) {
 					anyCalls++
 				}
