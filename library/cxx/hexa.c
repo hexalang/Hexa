@@ -303,16 +303,21 @@ struct HexaPromiseBase {
 	struct Any_* value_;
 	struct Any_* reason_;
 };
+HEXA_C void hexaThrowAwaitReason_(struct Any_* reason_);
+HEXA_C uint8_t hexaPromiseCatch_(void* promise_);
 struct HexaAwaiter {
 	void* promise_;
+	struct Any_* passthrough_;
 	bool await_ready() noexcept {
 		if (promise_ == nullptr) return true;
 		return ((HexaPromiseBase*)promise_)->state_ != 0;
 	}
 	void await_suspend(std::coroutine_handle<> h) noexcept;
-	struct Any_* await_resume() noexcept {
-		if (promise_ == nullptr) return nullptr;
-		return ((HexaPromiseBase*)promise_)->value_;
+	struct Any_* await_resume() {
+		if (promise_ == nullptr) return passthrough_;
+		HexaPromiseBase* pb_ = (HexaPromiseBase*)promise_;
+		if (pb_->state_ == 2) hexaThrowAwaitReason_(pb_->reason_);
+		return pb_->value_;
 	}
 };
 // Pending `co_await`s: `{promise, handle}` pairs suspended on pending
@@ -367,7 +372,7 @@ extern "C" inline void hexaPumpResumes() noexcept {
 // void `co_return;` is emitted as `co_return (Any_*)nullptr` by genC).
 // `operator co_await(S&)` takes a class-type reference (C2803 rejects `S*`
 // pointer params); genC emits `co_await (*p)` (deref).
-#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; HexaPromiseBase* pb_ = (HexaPromiseBase*)mem; pb_->rc_ = 1; pb_->state_ = 0; pb_->value_ = nullptr; pb_->reason_ = nullptr; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } std::suspend_never final_suspend() noexcept { return {}; } void unhandled_exception() noexcept { ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
+#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; HexaPromiseBase* pb_ = (HexaPromiseBase*)mem; pb_->rc_ = 1; pb_->state_ = 0; pb_->value_ = nullptr; pb_->reason_ = nullptr; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } std::suspend_never final_suspend() noexcept { return {}; } void unhandled_exception() noexcept { if (!hexaPromiseCatch_(promise_)) ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
 #endif
 /*
 #ifdef __cplusplus
