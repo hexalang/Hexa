@@ -937,7 +937,11 @@ class GenCxx {
 													out.push('\t$this->' + name + '$f_ = ' + fatPtrAs(expr, dataType) + ';' + '\n')
 													out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '\n')
 												} else {
-													out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '\n')
+													let savedStaticF = inStaticInit
+													inStaticInit = true
+													let fInit = printInitializer(dataType, expr)
+													inStaticInit = savedStaticF
+													out.push('\t$this->' + name + '_ = ' + fInit + ';' + '\n')
 												}
 											} else {
 												// TODO
@@ -951,7 +955,11 @@ class GenCxx {
 												out.push('\t$this->' + name + '$f_ = ' + fatPtrAs(expr, dataType) + ';' + '\n')
 												out.push('\t$this->' + name + '$e_ = ' + fatEnvStr(expr) + ';' + '\n')
 											} else {
-												out.push('\t$this->' + name + '_ = ' + printInitializer(dataType, expr) + ';' + '\n')
+												let savedStaticFc = inStaticInit
+												inStaticInit = true
+												let fInitC = printInitializer(dataType, expr)
+												inStaticInit = savedStaticFc
+												out.push('\t$this->' + name + '_ = ' + fInitC + ';' + '\n')
 											}
 										}
 								} }
@@ -1267,7 +1275,7 @@ class GenCxx {
 						case Function(mname, _, _, mdefaults, funcType, _, isAsync):
 							if isBoxableMethod(mname, funcType, isAsync) {
 								let implName = c.name + '_$' + mname
-								out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(mname)) + ')) ' + hlb + ' return Any_boxFatPair_((void(*)())(&' + implName + '_), self, ' + implName + '$call_); ' + hrb + hnl)
+								out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(mname)) + ')) ' + hlb + ' hexaFpNote_(HEXA_RET_ADDR(), "' + c.name + '.' + mname + '"); return Any_boxFatPairOwned_((void(*)())(&' + implName + '_), self, ' + implName + '$call_); ' + hrb + hnl)
 
 								if not fatPairMethodNames.includes(implName) {
 									fatPairMethodNames.push(implName)
@@ -1761,7 +1769,7 @@ class GenCxx {
 							// as global inits (C2065 otherwise)
 							let savedMbSimple = metaBlock
 							metaBlock = []
-							let initStrSimple = printInitializer(dataType, expr)
+							let initStrSimple = printInitializerStored(dataType, expr)
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -1773,7 +1781,7 @@ class GenCxx {
 						if (expr != null) {
 							let savedMbSimpleC = metaBlock
 							metaBlock = []
-							let initStrSimpleC = printInitializer(dataType, expr)
+							let initStrSimpleC = printInitializerStored(dataType, expr)
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -1790,7 +1798,7 @@ class GenCxx {
 						if expr != null {
 							let savedMbComplex = metaBlock
 							metaBlock = []
-							let initStrComplex = printInitializer(dataType, expr)
+							let initStrComplex = printInitializerStored(dataType, expr)
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -1802,7 +1810,7 @@ class GenCxx {
 						if expr != null {
 							let savedMbComplexC = metaBlock
 							metaBlock = []
-							let initStrComplexC = printInitializer(dataType, expr)
+							let initStrComplexC = printInitializerStored(dataType, expr)
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -1819,7 +1827,7 @@ class GenCxx {
 						if expr != null {
 							let savedMbClass = metaBlock
 							metaBlock = []
-							let initStrClass = printInitializer(dataType, expr)
+							let initStrClass = printInitializerStored(dataType, expr)
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -1831,7 +1839,7 @@ class GenCxx {
 						if expr != null {
 							let savedMbClassC = metaBlock
 							metaBlock = []
-							let initStrClassC = printInitializer(dataType, expr)
+							let initStrClassC = printInitializerStored(dataType, expr)
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -2007,7 +2015,10 @@ class GenCxx {
 									// otherwise the temp is used undeclared (C2065).
 									let savedMb = metaBlock
 									metaBlock = []
+									let savedStatic = inStaticInit
+									inStaticInit = true
 									let initStr = printInitializer(dataType, expr)
+									inStaticInit = savedStatic
 
 									for line in metaBlock {
 										out.push('\t' + line + ';\n')
@@ -2042,7 +2053,10 @@ class GenCxx {
 						if expr != null {
 							let savedMbConst = metaBlock
 							metaBlock = []
+							let savedStatic = inStaticInit
+							inStaticInit = true
 							let initStrConst = printInitializer(dataType, expr)
+							inStaticInit = savedStatic
 
 							for line in metaBlock {
 								out.push('\t' + line + ';\n')
@@ -2341,6 +2355,7 @@ class GenCxx {
 	/// handler (C2304), so `await` there falls back to the settled `.value`
 	/// read (no suspension, M1-safe; full catch suspension is later work).
 	var insideCatch = false
+	var inStaticInit = false
 	/// Extended class name in scope for `super(...)` → `Parent_$this_(...)`
 	var currentSuperType: String? = null
 	/// Asks Main to run the ARC inserter between normalize and codegen
@@ -2609,7 +2624,7 @@ class GenCxx {
 						}
 				}
 
-				return stringifyType(dataType) + ' ' + name + '_' + (expr == null? '' : ' = ' + printInitializer(dataType, expr))
+				return stringifyType(dataType) + ' ' + name + '_' + (expr == null? '' : ' = ' + printInitializerStored(dataType, expr))
 
 				// case Function(name, expr, args, defaults, types, returns):
 				// return printType(returns) + ' _x' + name + printFunctionArguments(args, defaults, types) + ' ' + printBlock(expr)
@@ -2909,7 +2924,7 @@ class GenCxx {
 								case Ident(named): {
 										if DataHelper.isTitleCase(named) {
 											// TODO proper conversion type in `printTypeConverter` of assigned field
-											return printExpression(expr) + '$' + name + '_ = ' + printInitializer(getType(a), v)
+											return printExpression(expr) + '$' + name + '_ = ' + printInitializerStored(getType(a), v)
 											// printExpression(v)
 										}
 									}
@@ -3074,7 +3089,7 @@ class GenCxx {
 						return printExpression(expr) + '[' + printTypeConverter(printExpression(index), getType(index), project.typer.typeInt) + ']'
 						+ ' = ' + printExpression(v)
 				}
-				return printExpression(a) + ' = ' + printInitializer(getType(a), v)
+				return printExpression(a) + ' = ' + printInitializerStored(getType(a), v)
 				// printExpression(v)
 				// return printExpression(a) + ' = ' + printTypeConverter(printExpression(v), getType(v), getType(a))
 
@@ -5519,7 +5534,7 @@ class GenCxx {
 		var r = '// F10.3 fat-pair boxing (replaces env-dropping `Any` casts)' + nl
 		// Structs first (hidden bodies deref them), then hidden impls, then vt.
 		r += 'struct FatPair__ ' + lb + ' int32_t (*QueryInterface_)(void*, void*, void**); uint32_t (*AddRef_)(void*); uint32_t (*Release_)(void*); ' + rb + ';' + nl
-		r += 'struct FatPair_ ' + lb + ' const struct FatPair__* _; int32_t rc_; void (*impl_)(); void* env_; Any_* (*call_)(struct FatPair_*, Any_**, int32_t); ' + rb + ';' + nl
+		r += 'struct FatPair_ ' + lb + ' const struct FatPair__* _; int32_t rc_; void (*impl_)(); void* env_; Any_* (*call_)(struct FatPair_*, Any_**, int32_t); int32_t owned_; ' + rb + ';' + nl
 		r += 'const char* FatPair_hiddenClassName_(void);' + nl
 		r += 'Any_* FatPair_hiddenDynGet_(void*, struct String_*);' + nl
 		r += 'void FatPair_hiddenDynSet_(void*, struct String_*, Any_*);' + nl
@@ -5546,7 +5561,9 @@ class GenCxx {
 		r += 'const struct FatPair_vt FatPair_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &FatPair_hiddenClassName_, &FatPair_hiddenDynGet_, &FatPair_hiddenDynSet_, &FatPair_hiddenHas_, &FatPair_hiddenDelete_, &FatPair_hiddenKeyAt_, &FatPair_hiddenKeyCount_, &FatPair_hiddenIndexGet_, &FatPair_hiddenIndexSet_, &FatPair_hiddenIndexCount_, &FatPair_hiddenReflect_, hexaFieldsEmpty_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
 		r += '#define FatPair__$ (FatPair_vt$.public_)' + nl
 		r += '_Static_assert(offsetof(struct FatPair_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
-		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ if (impl == nullptr) return (Any_*)(size_t)(&HexaNone_); FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
+		r += 'Any_* Any_boxFatPairFlag_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t), int32_t owned) \{ if (impl == nullptr) return (Any_*)(size_t)(&HexaNone_); hexaFpNote_(HEXA_RET_ADDR(), nullptr); FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; p->owned_ = owned; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
+		r += 'Any_* Any_boxFatPair_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ return Any_boxFatPairFlag_(impl, env, call, (int32_t)0); \}\n'
+		r += 'Any_* Any_boxFatPairOwned_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ return Any_boxFatPairFlag_(impl, env, call, (int32_t)1); \}\n'
 		r += 'uint8_t Any_isFatPair_(Any_* p) \{ if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (uint8_t)0; return (uint8_t)(((const void**)(p))[0] == (const void*)(&FatPair__$)) ? 1 : 0; \}\n'
 		// F10.5: forward-declare the per-signature fat adapters (their bodies
 		// are emitted after `printAnyObject` — they need `Any_toBool_` and the
@@ -5733,7 +5750,7 @@ class GenCxx {
 		r += 'const struct AnyObject_vt AnyObject_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &AnyObject_hiddenClassName_, &AnyObject_hiddenDynGet_, &AnyObject_hiddenDynSet_, &AnyObject_hiddenHas_, &AnyObject_hiddenDelete_, &AnyObject_hiddenKeyAt_, &AnyObject_hiddenKeyCount_, &AnyObject_hiddenIndexGet_, &AnyObject_hiddenIndexSet_, &AnyObject_hiddenIndexCount_, &AnyObject_hiddenReflect_, hexaFieldsEmpty_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
 		r += '#define AnyObject__$ (AnyObject_vt$.public_)' + nl
 		r += '_Static_assert(offsetof(struct AnyObject_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
-		r += 'Any_* Any_objectNew_() ' + lb + ' AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; hexaRegisterLive_((void*)o); return (Any_*)(o); ' + rb + nl
+		r += 'Any_* Any_objectNew_() ' + lb + ' hexaFpNote_(HEXA_RET_ADDR(), nullptr); AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; hexaRegisterLive_((void*)o); return (Any_*)(o); ' + rb + nl
 		r += 'uint8_t Any_objectStringEquals_(String_* a, String_* b) ' + lb + ' if (a == b) return (uint8_t)1; if (a == nullptr || b == nullptr) return (uint8_t)0; if (a->length_ != b->length_) return (uint8_t)0; for (int32_t i = (int32_t)0; i < a->length_; i++) ' + lb + ' if (a->bytes_[i] != b->bytes_[i]) return (uint8_t)0; ' + rb + ' return (uint8_t)1; ' + rb + nl
 		r += 'int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; HEXA_ASSERT(o->count_ <= o->cap_, "Any_objectFind_: count exceeds cap - corrupt bag (entries_ overrun)"); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
 		r += 'HEXA_FORCEINLINE void Any_refCounted_(Any_* p) ' + lb + ' hexaRef((void*)p); ' + rb + nl
@@ -5774,7 +5791,7 @@ class GenCxx {
 		// everything else stays referential (JS object identity).
 		r += 'HEXA_FORCEINLINE uint8_t Any_equals_(Any_* a, Any_* b) ' + lb + ' if (a == b) return (uint8_t)1; uint8_t an_ = (uint8_t)(a == nullptr || a == (Any_*)(&HexaNone_)); uint8_t bn_ = (uint8_t)(b == nullptr || b == (Any_*)(&HexaNone_)); if (an_ != (uint8_t)0 || bn_ != (uint8_t)0) return (uint8_t)((an_ != (uint8_t)0 && bn_ != (uint8_t)0) ? 1 : 0); uint8_t an2_ = (uint8_t)(Any_isNumber_(a) || a == (Any_*)(&_true) || a == (Any_*)(&_false)); uint8_t bn2_ = (uint8_t)(Any_isNumber_(b) || b == (Any_*)(&_true) || b == (Any_*)(&_false)); if (an2_ && bn2_) return (uint8_t)(Any_unboxFloat_(a) == Any_unboxFloat_(b)); return (uint8_t)0; ' + rb + nl
 		r += 'Any_* Any_add_(Any_* a, Any_* b) ' + lb + ' if (Any_isString_(a) != (uint8_t)0 || Any_isString_(b) != (uint8_t)0) return (Any_*)(size_t)(String_$combine_(Any_unboxString_(a), Any_unboxString_(b))); return Any_boxFloat_(Any_unboxFloat_(a) + Any_unboxFloat_(b)); ' + rb + nl
-		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (Any_*)(size_t)(&HexaNone_); if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (Any_*)(size_t)(&HexaNone_); const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (Any_*)(size_t)(&HexaNone_); return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
+		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (k != nullptr && k->length_ == (int32_t)10 && k->bytes_[0] == 99) hexaFpNote_(HEXA_RET_ADDR(), nullptr); if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (Any_*)(size_t)(&HexaNone_); if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (Any_*)(size_t)(&HexaNone_); const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (Any_*)(size_t)(&HexaNone_); return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
 		r += 'void Any_delete_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) ' + lb + ' return; ' + rb + ' if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' return; ' + rb + ' HexaReflectFor_(tag_)->delete_((void*)p, k); ' + rb + nl
 		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: immediate receiver - field write dropped (box the receiver through Any first)\"); return; ' + rb + ' if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: receiver has no reflection - field write dropped (convert at the Any boundary)\"); return; ' + rb + ' HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); ' + rb + nl
 		// `obj[key]`: key shape picks the hidden slot (Int -> index_*,
@@ -6211,6 +6228,7 @@ class GenCxx {
 		let fok = '_$fok' + t
 		metaBlock.push('Any_* ' + ftmp + ' = ' + printExpression(callee))
 		var boxes: [String] = []
+		var freshSlots: [Int] = []
 
 		for a in args {
 			// F10: interface-based args print a TYPED value (fat members
@@ -6226,14 +6244,23 @@ class GenCxx {
 				boxes.push(objArg)
 			} else if isBoxableFat(a) {
 				boxes.push(boxFatPair(a))
+				freshSlots.push(boxes.length - 1)
 			} else {
-				boxes.push(printToAnyConverter(printExpression(a), valueType(a)))
+				let conv = printToAnyConverter(printExpression(a), valueType(a))
+				if anyConvMints(conv) { freshSlots.push(boxes.length) }
+				boxes.push(conv)
 			}
 		}
 		var argvUse = 'nullptr'
 
 		if boxes.length > 0 {
 			metaBlock.push('Any_* ' + fargv + '[] = \{' + boxes.join(', ') + '\}')
+
+			for slot in freshSlots {
+				if not inStaticInit {
+					metaBlock.push('HexaDeferCountedDecPtr_ ' + fargv + 'g' + slot + '((void**)&(' + fargv + '[' + slot + ']))')
+				}
+			}
 			argvUse = fargv
 		}
 		metaBlock.push('Any_* ' + fres + ' = nullptr')
@@ -6250,6 +6277,7 @@ class GenCxx {
 		}
 		var legacy = 'AnyValue_\{' + ftmp + '\}(' + refs.join(', ') + ')'
 		metaBlock.push('HEXA_ASSERT(!Any_isFatPair_(' + ftmp + ') || ' + fok + ' != 0, "dynamic call: fat pair without a call thunk - falls into the legacy proxy (F10.5)")')
+		metaBlock.push('if (' + ftmp + ' != nullptr && Any_isFatPair_(' + ftmp + ') && ((FatPair_*)(' + ftmp + '))->owned_ != (int32_t)0) hexaUnref((void*)(' + ftmp + '))')
 		return '(' + fok + ' ? ' + fres + ' : ' + legacy + ')'
 	}
 
@@ -6627,10 +6655,20 @@ class GenCxx {
 					} else {
 						vstr = printToAnyConverter('(' + sp + '->' + names[i] + '_)', fieldTypes[i])
 					}
+
+					if anyConvMints(vstr) and not inStaticInit {
+						let vt = '_$sbv' + tid + '_' + i
+						metaBlock.push('Any_* ' + vt + ' = ' + vstr)
+						metaBlock.push('HexaDeferCountedDecPtr_ ' + vt + 'g((void**)&(' + vt + '))')
+						vstr = vt
+					}
 					metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 				}
 
 				if guarded { metaBlock.push(gcc) }
+				if not inStaticInit {
+					metaBlock.push('HexaDeferCountedDecPtr_ _$sbg' + tid + '((void**)&(' + tmp + '))')
+				}
 				return tmp
 			case _:
 		}
@@ -9466,6 +9504,17 @@ class GenCxx {
 		return tmp
 	}
 
+	fun anyConvMints(s: String): Bool {
+		let t = s.trim()
+
+		if t.startsWith('Any_boxInt_(') { return true }
+
+		if t.startsWith('Any_boxFloat_(') { return true }
+
+		if t.startsWith('Any_boxFatPair_(') { return true }
+		return false
+	}
+
 	/// F10.2: heap-construct an `AnyObject_*` bag from an object literal into
 	/// an `Any`-shaped slot (see printObjectAs). Values convert to `Any`
 	/// (fat values box as pairs so closures survive dispatch); keys are the
@@ -9484,13 +9533,17 @@ class GenCxx {
 		let tmp = '_$obj' + tid
 		metaBlock.push('Any_* ' + tmp + ' = Any_objectNew_()')
 
+		if not inStaticInit {
+			metaBlock.push('HexaDeferCountedDecPtr_ _$objg' + tid + '((void**)&(' + tmp + '))')
+		}
 		for i in names.length {
-			var vstr = printToAnyConverter(printExpression(els[i]), valueType(els[i]))
-
-			if isBoxableFat(els[i]) {
-				vstr = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(els[i]) + '), ' + fatEnvStr(els[i]) + ')'
-			}
 			var vstr = anyBox(els[i])
+			if anyConvMints(vstr) and not inStaticInit {
+				let vt = '_$obv' + tid + '_' + i
+				metaBlock.push('Any_* ' + vt + ' = ' + vstr)
+				metaBlock.push('HexaDeferCountedDecPtr_ ' + vt + 'g((void**)&(' + vt + '))')
+				vstr = vt
+			}
 			metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 		}
 		return tmp
@@ -9730,8 +9783,15 @@ class GenCxx {
 		return printTypeConverter(printExpression(val), valueType(val), ftype)
 	}
 
-	fun printInitializer(ofType: Type, v: Expression) {
-		// D2: `= null` on a managed shape must be the sentinel OBJECT. The
+	fun printInitializerStored(ofType: Type, v: Expression): String {
+		let savedStaticInit = inStaticInit
+		inStaticInit = true
+		let result = printInitializer(ofType, v)
+		inStaticInit = savedStaticInit
+		return result
+	}
+
+	fun printInitializer(ofType: Type, v: Expression) { // D2: `= null` on a managed shape must be the sentinel OBJECT. The
 		// converter's `/*T? = null*\/` arm needs a *known* nullable type, but
 		// this path also serves generic-erased slots (`Map.nullValue = null`,
 		// `var x = null` at file scope, untyped field defaults) where the
@@ -10442,7 +10502,7 @@ class GenCxx {
 				}
 
 				if el.length == 0 {
-					return '\(omitPointer(typeName))$new_(0)'
+					return omitPointer(typeName) + '$new_(0)'
 				}
 
 				switch arrayType {
@@ -10465,18 +10525,18 @@ class GenCxx {
 						// C++ has no compound literals (C4576) — the runtime
 						// helper builds the initializer buffer instead
 						if cpp {
-							return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), hexaItems<\(elType)>(\(items)))'
+							return omitPointer(typeName) + '$from_(' + omitPointer(typeName) + '$new_(' + el.length + '), hexaItems<' + elType + '>(' + items + '))'
 						}
 
-						return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), (\(elType)[])\{' + items + '\})'
+						return omitPointer(typeName) + '$from_(' + omitPointer(typeName) + '$new_(' + el.length + '), (' + elType + '[])\{' + items + '\})'
 				}
 
 				if cpp {
 					let items = [for a in el printExpression(a)].join(', ')
-					return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), hexaItems<Any_*>(\(items)))'
+					return omitPointer(typeName) + '$from_(' + omitPointer(typeName) + '$new_(' + el.length + '), hexaItems<Any_*>(' + items + '))'
 				}
 
-				return '\(omitPointer(typeName))$from_(\(omitPointer(typeName))$new_(\(el.length)), \{' + [for a in el printExpression(a)].join(', ') + '\})'
+				return omitPointer(typeName) + '$from_(' + omitPointer(typeName) + '$new_(' + el.length + '), \{' + [for a in el printExpression(a)].join(', ') + '\})'
 
 			case Unop(op, postfix, e):
 				if postfix {
