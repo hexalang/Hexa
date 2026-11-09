@@ -5188,6 +5188,10 @@ class GenCxx {
 		for i in argvApplyTypes.length {
 			r += 'HEXA_C ' + argvApplySignatureStr(i) + ';' + nl
 		}
+
+		for i in argvApplyNoEnvTypes.length {
+			r += 'HEXA_C ' + argvApplyNoEnvSignatureStr(i) + ';' + nl
+		}
 		return r
 	}
 
@@ -5202,6 +5206,10 @@ class GenCxx {
 
 		for i in argvApplyTypes.length {
 			r += printArgvApplyAdapter(i, argvApplyTypes[i])
+		}
+
+		for i in argvApplyNoEnvTypes.length {
+			r += printArgvApplyNoEnvAdapter(i, argvApplyNoEnvTypes[i])
 		}
 		return r
 	}
@@ -5333,6 +5341,80 @@ class GenCxx {
 		return 'Any_* argvapply$' + idx + '_(struct FatPair_* self_, Any_** argv_, int32_t argc_)'
 	}
 
+	var argvApplyNoEnvKeys: [String] = []
+	var argvApplyNoEnvTypes: [Type] = []
+
+	fun argvApplyNoEnvName(t: Type): String? {
+		if not isDynFatSignature(t) {
+			return null
+		}
+		let key = dynFatKey(t)
+
+		for i in argvApplyNoEnvKeys.length {
+			if argvApplyNoEnvKeys[i] == key {
+				return 'argvapplyNE$' + i + '_'
+			}
+		}
+		argvApplyNoEnvKeys.push(key)
+		argvApplyNoEnvTypes.push(t)
+		return 'argvapplyNE$' + (argvApplyNoEnvKeys.length - 1) + '_'
+	}
+
+	fun argvApplyNoEnvSignatureStr(idx: Int): String {
+		return 'Any_* argvapplyNE$' + idx + '_(struct FatPair_* self_, Any_** argv_, int32_t argc_)'
+	}
+
+	fun fatFnTypeStrNoEnv(t: Type): String {
+		var fargs: [FunctionArgument] = []
+		var frets: Type = project.typer.typeAny
+
+		switch t {
+			case Function(fa, fr, _):
+				fargs = fa
+				frets = fr
+		}
+		var params = ''
+
+		for k in fargs.length {
+			if k > 0 { params += ', ' }
+			params += stringifyType(fargs[k].dataType)
+		}
+		return '(' + stringifyType(frets) + ' (' + defaultCallingConvention + '*)(' + params + '))'
+	}
+
+	fun printArgvApplyNoEnvAdapter(idx: Int, t: Type): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var fargs: [FunctionArgument] = []
+		var frets: Type = project.typer.typeAny
+
+		switch t {
+			case Function(fa, fr, _):
+				fargs = fa
+				frets = fr
+		}
+		let retT = stringifyType(frets)
+		var callArgs: [String] = []
+
+		for k in fargs.length {
+			callArgs.push(unboxAnyToStr('((argc_ > ' + k + ') ? argv_[' + k + '] : nullptr)', fargs[k].dataType))
+		}
+		let call = '(' + fatFnTypeStrNoEnv(t) + '(size_t)(fp_->impl_))(' + callArgs.join(', ') + ')'
+		var r = 'HEXA_C ' + argvApplyNoEnvSignatureStr(idx) + ' ' + lb + nl
+		r += '\tFatPair_* fp_ = (FatPair_*)self_;' + nl
+		r += '\tif (fp_ == nullptr) return nullptr;' + nl
+
+		if retT == 'void' {
+			r += '\t(' + call + ');' + nl
+			r += '\treturn nullptr;' + nl
+		} else {
+			r += '\treturn ' + printToAnyConverter('(' + call + ')', frets) + ';' + nl
+		}
+		r += rb + nl + nl
+		return r
+	}
+
 	/// `Any` -> one C value of type `t` (inverse of `printToAnyConverter`).
 	fun unboxAnyToStr(x: String, t: Type): String {
 		let s = stringifyType(t)
@@ -5410,14 +5492,14 @@ class GenCxx {
 		}
 		let call = '(' + fatFnTypeStr(t) + '(size_t)(fp_->impl_))(' + callArgs.join(', ') + ')'
 		var r = 'HEXA_C ' + argvApplySignatureStr(idx) + ' ' + lb + nl
-		r += '\tFatPair_* fp_ = (FatPair_*)self_;' + nl
-		r += '\tif (fp_ == nullptr) return nullptr;' + nl
+		r += '	FatPair_* fp_ = (FatPair_*)self_;' + nl
+		r += '	if (fp_ == nullptr) return nullptr;' + nl
 
 		if retT == 'void' {
-			r += '\t(' + call + ');' + nl
-			r += '\treturn nullptr;' + nl
+			r += '	(' + call + ');' + nl
+			r += '	return nullptr;' + nl
 		} else {
-			r += '\treturn ' + printToAnyConverter('(' + call + ')', frets) + ';' + nl
+			r += '	return ' + printToAnyConverter('(' + call + ')', frets) + ';' + nl
 		}
 		r += rb + nl + nl
 		return r
@@ -6347,17 +6429,43 @@ class GenCxx {
 	/// spec (any args: `this`, env-first closures, methods). `HEXA_CPP`
 	/// linkage (C++), zero host edits (callers resolve via updated C++ forwards).
 	fun printCoroutines(): String {
-		if promiseStructs.length == 0 {
-			return ''
-		}
 		let lb = String.fromCharCode(123)
 		let rb = String.fromCharCode(125)
 		let nl = String.fromCharCode(10)
 		var r = '#ifdef __cplusplus' + nl
 		r += 'extern "C++" ' + lb + nl
+		r += 'HEXA_C void hexaThrowAwaitReason_(struct Any_* reason_) ' + lb + nl
+		r += '  HEXA_ASSERT(reason_ != nullptr, "await: rejected promise without a reason");' + nl
+		r += '  if (reason_ == nullptr) return;' + nl
+		r += '  throw (struct Error_*)reason_;' + nl
+		r += rb + nl
+		r += 'HEXA_C uint8_t hexaPromiseCatch_(void* promise_) ' + lb + nl
+		r += '  try ' + lb + ' throw; ' + rb + nl
+		r += '  catch (struct Error_* e_) ' + lb + ' HexaPromiseBase* pb_ = (HexaPromiseBase*)promise_; pb_->reason_ = (struct Any_*)e_; pb_->state_ = 2; return (uint8_t)1; ' + rb + nl
+		r += '  catch (...) ' + lb + ' return (uint8_t)0; ' + rb + nl
+		r += rb + nl
+		r += 'inline bool hexaIsPromiseTag_(const void* tag_) ' + lb + nl
+		r += '  if (tag_ == nullptr) return false;' + nl
 
 		for s in promiseStructs {
-			r += 'HEXA_PROMISE_CORO(' + s + ')' + nl
+			r += '  if (tag_ == (const void*)(&' + s + '_$)) return true;' + nl
+		}
+		r += '  return false;' + nl
+		r += rb + nl
+		r += 'inline HexaAwaiter hexaAwaitAny_(struct Any_* p_) ' + lb + nl
+		r += '  if (p_ != nullptr) ' + lb + nl
+		r += '    int64_t v_ = (int64_t)p_;' + nl
+		r += '    if (v_ < (int64_t)-65536 || v_ > (int64_t)65536) ' + lb + nl
+		r += '      if (hexaIsPromiseTag_(((const void**)p_)[0])) return HexaAwaiter' + lb + '(void*)p_, (struct Any_*)nullptr' + rb + ';' + nl
+		r += '    ' + rb + nl
+		r += '  ' + rb + nl
+		r += '  return HexaAwaiter' + lb + '(void*)nullptr, p_' + rb + ';' + nl
+		r += rb + nl
+
+		if promiseStructs.length > 0 {
+			for s in promiseStructs {
+				r += 'HEXA_PROMISE_CORO(' + s + ')' + nl
+			}
 		}
 		r += rb + ' // extern "C++"' + nl
 		r += '#endif' + nl
@@ -6512,10 +6620,10 @@ class GenCxx {
 					var vstr = ''
 
 					if isFatValueType(fieldTypes[i]) {
-						// Struct fat fields are thin single values (Phase 1)
-						// — box as pair with a sentinel env (dynamic calls on
-						// them keep the legacy proxy, as before).
-						vstr = 'Any_boxFatPair_((void(*)())(' + sp + '->' + names[i] + '_), hexaSentinelEnv_, nullptr)'
+						var fatThunk = 'nullptr'
+
+						if let ne = argvApplyNoEnvName(fieldTypes[i]) { fatThunk = ne }
+						vstr = 'Any_boxFatPair_((void(*)())(' + sp + '->' + names[i] + '_), hexaSentinelEnv_, ' + fatThunk + ')'
 					} else {
 						vstr = printToAnyConverter('(' + sp + '->' + names[i] + '_)', fieldTypes[i])
 					}
@@ -11283,6 +11391,10 @@ class GenCxx {
 							return '(' + base + ')->_toBool()'
 						}
 						return '((' + stringifyType(t) + ')(size_t)(' + base + '))'
+					}
+
+					if stringifyType(awaitedAsync) == 'Any_*' {
+						return '((struct Any_*)(size_t)(co_await hexaAwaitAny_((struct Any_*)(size_t)(' + printExpression(e) + '))))'
 					}
 				}
 				// The C value is still the PROMISE pointer while `getType`
