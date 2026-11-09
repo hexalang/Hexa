@@ -1235,6 +1235,8 @@ class GenCxx {
 							// pass can fill it in one place.
 							hiddenDestroy = 'nullptr /*INHERIT-DESTROY*/'
 						}
+					if c.extend != null {
+						hiddenDestroy = 'nullptr /*INHERIT-DESTROY*/'
 					}
 				}
 				// Per-class `toBool`: `String` is falsy when empty (JS), everything
@@ -1298,6 +1300,9 @@ class GenCxx {
 						}
 						boxed = 'Any_boxFatPair_((void(*)())(self->' + fn + '$f_), self->' + fn + '$e_, ' + thunk + ')'
 					} else {
+						if not this.canBoxFieldToAny(ft) {
+							continue
+						}
 						boxed = printToAnyConverter('self->' + fn + '_', ft)
 					}
 
@@ -1570,6 +1575,7 @@ class GenCxx {
 				let vtMacro = '#define ' + c.name + '__$ (' + c.name + '_vt$.public_)\n'
 				let vtAssert = '_Static_assert(offsetof(struct ' + c.name + '_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");\n'
 				types.unshift(vtable.join('') + vtDef + vtVal + vtMacro + vtAssert)
+				this.emitFieldsTable(c, forward)
 			}
 			vtableClasses.push(c.name)
 
@@ -1784,6 +1790,7 @@ class GenCxx {
 		// `ArrayByValue<T?, N>` (the intern table) BEFORE any string is
 		// interned — `String_$fromUTF16_` retains a bucket head unconditionally.
 		out.push('\thexaInstallNone_();\n')
+		out.push('\thexaInitBoxCache_();\n')
 		out.push('\thexaInitNoneSlots_();\n')
 		out.push('%%%HEXA_STRINGS@@@\n')
 		// out.push('\tString_Strings = (String_**)HEXA_NEW(HEXA_STRINGS * sizeof(String_*));\n')
@@ -2176,6 +2183,8 @@ class GenCxx {
 			+ '\n// Types\n' +
 			structBodies +
 			types.join('')
+
+			fieldTableDefs.join('\n')
 
 			+ '\n// Live registry (F11 side-table of live heap objects, no layout change)\n' +
 			printLiveRegistry()
@@ -4135,13 +4144,20 @@ class GenCxx {
 							fatPairGlobalNames.push(base)
 							fatPairGlobalTypes.push(ft)
 						}
-						return 'Any_boxFatPair_((void(*)())(' + cname + '), nullptr, ' + base + '$call_)'
+						return 'Any_boxFatPair_((void(*)())(' + cname + '), hexaSentinelEnv_, ' + base + '$call_)'
 					}
 				}
 			case _:
 		}
 
 		return printToAnyConverter(printExpression(e), valueType(e))
+	}
+
+	fun anyArgBox(e: Expression): String {
+		if closureBaseName(e) != null, not isBoxableFat(e) {
+			return boxFatPair(e)
+		}
+		return anyBox(e)
 	}
 
 	/// F10 (target-c.md): TypeScript-like interface semantics — the value
@@ -4376,12 +4392,13 @@ class GenCxx {
 			return null
 		}
 
-		// Only "more dynamic callee" adapts (target concrete → closure `Any`),
-		// and only for plain data parameters — fat/`void` slots have their own
-		// ABI halves and keep the cast.
 		var needed = false
 
 		for i in fargs.length {
+			if i >= targs.length {
+				needed = true
+				continue
+			}
 			let fS = stringifyType(fargs[i].dataType)
 			let tS = stringifyType(targs[i].dataType)
 
@@ -4397,21 +4414,33 @@ class GenCxx {
 				continue
 			}
 
-			if fS != 'Any_*' {
+			if fS != 'Any_*', tS != 'Any_*' {
 				return null
 			}
 			needed = true
-		}
-
-		if not needed {
-			return null
 		}
 
 		if isFatValueType(fret) or isFatValueType(tret) {
 			return null
 		}
 
-		if stringifyType(fret) != stringifyType(tret) {
+		let fretS = stringifyType(fret)
+		let tretS = stringifyType(tret)
+		var nullRet = ''
+
+		if fretS != tretS {
+			if fretS != 'void' or tretS == 'void' {
+				return null
+			}
+			nullRet = nullReturnFor(tretS)
+
+			if nullRet == '' {
+				return null
+			}
+			needed = true
+		}
+
+		if not needed {
 			return null
 		}
 		let key = eName + '|' + stringifyType(toT)
@@ -4425,13 +4454,17 @@ class GenCxx {
 		var args2: [String] = []
 
 		for i in fargs.length {
+			if i >= targs.length {
+				args2.push(padValue(fargs[i].dataType))
+				continue
+			}
 			let fS = stringifyType(fargs[i].dataType)
 			let tS = stringifyType(targs[i].dataType)
 
 			if fS == tS {
 				args2.push('a' + i)
 			} else {
-				args2.push(printToAnyConverter('a' + i, targs[i].dataType))
+				args2.push(printTypeConverter('a' + i, targs[i].dataType, fargs[i].dataType))
 			}
 		}
 		let setup = metaBlock.slice(mb0, metaBlock.length)
@@ -4463,6 +4496,9 @@ class GenCxx {
 
 		if retS == 'void' {
 			body += ' ' + eName + '_(' + callArgs.join(', ') + ');' + nl
+		} else if nullRet != '' {
+			body += ' ' + eName + '_(' + callArgs.join(', ') + ');' + nl
+			body += ' return ' + nullRet + ';' + nl
 		} else {
 			body += ' return ' + eName + '_(' + callArgs.join(', ') + ');' + nl
 		}
@@ -4470,6 +4506,27 @@ class GenCxx {
 		globalFunctions.push(body)
 		fatBridgeCache.set(key, bid)
 		return bid
+	}
+
+	fun nullReturnFor(cname: String): String {
+		if cname.endsWith('*') {
+			return '(' + cname + ')(size_t)(&HexaNone_)'
+		}
+
+		if cname == 'Bool_' {
+			return 'false_'
+		}
+
+		if cname == 'double' or cname == 'float' {
+			return '(double)0.0'
+		}
+
+		if cname == 'int8_t' or cname == 'int16_t' or cname == 'int32_t' or cname == 'int64_t'
+			or cname == 'uint8_t' or cname == 'uint16_t' or cname == 'uint32_t' or cname == 'uint64_t' {
+			return '0'
+		}
+
+		return ''
 	}
 
 	/// S3b: on-demand thin wrapper for a PLAIN global function flowing to a
@@ -5444,7 +5501,7 @@ class GenCxx {
 		r += 'void AnyInt_hiddenReflect_(void*, HexaReflectOp_*);' + nl
 		r += 'void AnyInt_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + lb + ' if (self_ == nullptr || op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)AnyInt_hiddenToBool_(self_); break; case (int32_t)3: op_->resultCStr_ = AnyInt_hiddenClassName_(); break; default: break; ' + rb + rb + nl
 		r += 'struct AnyInt_vt ' + lb + ' struct HexaReflect_ hidden; struct AnyInt__ public_; ' + rb + ';' + nl
-		r += 'const struct AnyInt_vt AnyInt_vt$ = ' + lb + ' ' + lb + 'nullptr, &AnyInt_hiddenToBool_, &Hexa_GenericToString_, &AnyInt_hiddenClassName_, &AnyInt_hiddenDynGet_, &AnyInt_hiddenDynSet_, &AnyInt_hiddenHas_, &AnyInt_hiddenDelete_, &AnyInt_hiddenKeyAt_, &AnyInt_hiddenKeyCount_, &AnyInt_hiddenIndexGet_, &AnyInt_hiddenIndexSet_, &AnyInt_hiddenIndexCount_, &AnyInt_hiddenReflect_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
+		r += 'const struct AnyInt_vt AnyInt_vt$ = ' + lb + ' ' + lb + 'nullptr, &AnyInt_hiddenToBool_, &Hexa_GenericToString_, &AnyInt_hiddenClassName_, &AnyInt_hiddenDynGet_, &AnyInt_hiddenDynSet_, &AnyInt_hiddenHas_, &AnyInt_hiddenDelete_, &AnyInt_hiddenKeyAt_, &AnyInt_hiddenKeyCount_, &AnyInt_hiddenIndexGet_, &AnyInt_hiddenIndexSet_, &AnyInt_hiddenIndexCount_, &AnyInt_hiddenReflect_, hexaFieldsEmpty_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
 		r += '#define AnyInt__$ (AnyInt_vt$.public_)' + nl
 		r += '_Static_assert(offsetof(struct AnyInt_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
 		r += 'uint8_t AnyFloat_hiddenToBool_(void* self_);' + nl
@@ -5699,7 +5756,7 @@ class GenCxx {
 		r += 'static struct String_* HexaNone_hiddenToString_(void* self_);' + nl
 		r += 'static void HexaNone_hiddenReflect_(void* self_, struct HexaReflectOp_* op_);' + nl
 		// Reflection half: compiled here, wired into `HexaNone_vt_` at boot.
-		r += 'static const struct HexaReflect_ HexaNone_hidden_ = ' + lb + ' nullptr, &HexaNone_hiddenToBool_, &HexaNone_hiddenToString_, &HexaNone_hiddenClassName_, &HexaNone_hiddenDynGet_, &HexaNone_hiddenDynSet_, &HexaNone_hiddenHas_, &HexaNone_hiddenDelete_, &HexaNone_hiddenKeyAt_, &HexaNone_hiddenKeyCount_, &HexaNone_hiddenIndexGet_, &HexaNone_hiddenIndexSet_, &HexaNone_hiddenIndexCount_, &HexaNone_hiddenReflect_ ' + rb + ';' + nl
+		r += 'static const struct HexaReflect_ HexaNone_hidden_ = ' + lb + ' nullptr, &HexaNone_hiddenToBool_, &HexaNone_hiddenToString_, &HexaNone_hiddenClassName_, &HexaNone_hiddenDynGet_, &HexaNone_hiddenDynSet_, &HexaNone_hiddenHas_, &HexaNone_hiddenDelete_, &HexaNone_hiddenKeyAt_, &HexaNone_hiddenKeyCount_, &HexaNone_hiddenIndexGet_, &HexaNone_hiddenIndexSet_, &HexaNone_hiddenIndexCount_, &HexaNone_hiddenReflect_, hexaFieldsEmpty_ ' + rb + ';' + nl
 		r += 'static void HexaNone_hiddenReflect_(void* self_, struct HexaReflectOp_* op_) ' + lb + ' if (op_ == nullptr) return; switch (op_->code_) ' + lb + ' case (int32_t)1: op_->resultInt_ = (int32_t)0; break; case (int32_t)2: op_->resultStr_ = HexaNone_hiddenToString_(self_); break; case (int32_t)3: op_->resultCStr_ = HexaNone_hiddenClassName_(); break; default: break; ' + rb + ' ' + rb + nl
 		return r
 	}
@@ -5722,12 +5779,12 @@ class GenCxx {
 		// A plain slot array (not `struct String__`): String's method members are
 		// `const` function pointers, so the struct has no default constructor and
 		// cannot host a mutable table. 14 = the reflect head, 64 = method slots.
-		r += 'static void* HexaNone_vt$_[14 + 64];' + nl
-		r += '#define HexaNone__$ (*(void**)(&(HexaNone_vt$_[14])))' + nl
-		r += '_Static_assert(sizeof(struct HexaReflect_) / sizeof(void*) == 14, "reflect: head must stay 14 slots");' + nl
+		r += 'static void* HexaNone_vt$_[15 + 64];' + nl
+		r += '#define HexaNone__$ (*(void**)(&(HexaNone_vt$_[15])))' + nl
+		r += '_Static_assert(sizeof(struct HexaReflect_) / sizeof(void*) == 15, "reflect: head must stay 15 slots");' + nl
 		r += '_Static_assert(sizeof(struct String__) / sizeof(void*) <= 64, "reflect: HexaNone_ needs more method slots");' + nl
 		r += 'static void* HexaNone_stringStub_(void) ' + lb + ' return (void*)String_1; ' + rb + nl
-		r += 'HEXA_C void hexaInstallNone_(void) ' + lb + ' memcpy(&(HexaNone_vt$_[0]), &HexaNone_hidden_, sizeof(struct HexaReflect_)); size_t n_ = sizeof(struct String__) / sizeof(void*); void** s_ = (void**)(&(HexaNone_vt$_[14])); for (size_t i_ = (size_t)0; i_ < n_; i_++) s_[i_] = (void*)(&HexaNone_stringStub_); HexaNone_._ = (const void*)(&HexaNone__$); ' + rb + nl
+		r += 'HEXA_C void hexaInstallNone_(void) ' + lb + ' memcpy(&(HexaNone_vt$_[0]), &HexaNone_hidden_, sizeof(struct HexaReflect_)); size_t n_ = sizeof(struct String__) / sizeof(void*); void** s_ = (void**)(&(HexaNone_vt$_[15])); for (size_t i_ = (size_t)0; i_ < n_; i_++) s_[i_] = (void*)(&HexaNone_stringStub_); HexaNone_._ = (const void*)(&HexaNone__$); ' + rb + nl
 		return r
 	}
 
@@ -6363,13 +6420,15 @@ class GenCxx {
 				}
 
 				for i in names.length {
-					var vstr = printToAnyConverter('(' + sp + '->' + names[i] + '_)', fieldTypes[i])
+					var vstr = ''
 
 					if isFatValueType(fieldTypes[i]) {
 						// Struct fat fields are thin single values (Phase 1)
 						// — box as pair with a sentinel env (dynamic calls on
 						// them keep the legacy proxy, as before).
 						vstr = 'Any_boxFatPair_((void(*)())(' + sp + '->' + names[i] + '_), hexaSentinelEnv_, nullptr)'
+					} else {
+						vstr = printToAnyConverter('(' + sp + '->' + names[i] + '_)', fieldTypes[i])
 					}
 					metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 				}
@@ -7846,6 +7905,354 @@ class GenCxx {
 		}
 	}
 
+	fun isRcSlotType(dataType: Type?): Bool {
+		if dataType == null {
+			return false
+		}
+
+		if this.isFatValueType(dataType) {
+			return false // the env half is picked per-member by the walker
+		}
+
+		if this.stringifyType(dataType) == 'Any_*' {
+			return true
+		}
+
+		if not this.isNullSentinelType(dataType) {
+			return false
+		}
+		if not this.stringifyType(dataType).endsWith('*') {
+			return false
+		}
+
+		switch dataType {
+			case Nullable(inner):
+				return this.isRcSlotType(inner)
+			case Unknown(handle):
+				return this.isRcSlotType(handle.value)
+			case UnknownNullable(handle):
+				return this.isRcSlotType(handle.value)
+			case ClassInstance(c, _):
+				return this.isRcClassPayload(c)
+			case Class(c):
+				return this.isRcClassPayload(c)
+			case _:
+				return dataType == project.typer.typeAny
+		}
+	}
+	/// Class-side gates of `isRcSlotType` (payload of `Class`/`ClassInstance`).
+	fun isRcClassPayload(c: ClassType): Bool {
+		if c.external {
+			return false // `declare`/host objects: word0 is a foreign vtable
+		}
+		let atts = project.mapDecorators.get(c.parent)
+
+		if Decorator.getDecorator(atts, 'struct') != null {
+			return false
+		}
+
+		if Decorator.getDecorator(atts, 'union') != null {
+			return false
+		}
+		return true
+	}
+	fun isUncountedShape(dataType: Type?): Bool {
+		if dataType == null {
+			return true
+		}
+
+		switch dataType {
+			case Nullable(inner):
+				return this.isUncountedShape(inner)
+			case Unknown(handle):
+				return this.isUncountedShape(handle.value)
+			case UnknownNullable(handle):
+				return this.isUncountedShape(handle.value)
+			case ClassInstance(c, _):
+				return not this.isRcClassPayload(c)
+			case Class(c):
+				return not this.isRcClassPayload(c)
+			case _:
+				return true
+		}
+	}
+	fun isForeignPointerType(dataType: Type?): Bool {
+		if dataType == null {
+			return true
+		}
+
+		switch dataType {
+			case Nullable(inner):
+				return this.isForeignPointerType(inner)
+			case Unknown(handle):
+				return this.isForeignPointerType(handle.value)
+			case UnknownNullable(handle):
+				return this.isForeignPointerType(handle.value)
+			case _:
+		}
+
+		if not this.stringifyType(dataType).endsWith('*') {
+			return false
+		}
+		return not this.isRcSlotType(dataType)
+	}
+	fun canBoxFieldToAny(dataType: Type?): Bool {
+		if dataType == null {
+			return false
+		}
+
+		if this.isFatValueType(dataType) {
+			return true // boxed as a pair — the converter's own branch
+		}
+		let printed = this.stringifyType(dataType)
+
+		if printed == 'Any_*' {
+			return true
+		}
+
+		if printed.endsWith('*') {
+			return this.isRcSlotType(dataType)
+		}
+
+		if dataType == project.typer.typeBool {
+			return true // converter: `Any_fromBool`
+		}
+
+		if printed == 'int8_t' or printed == 'int16_t' or printed == 'int32_t' or printed == 'int64_t' {
+			return true
+		}
+
+		if printed == 'uint8_t' or printed == 'uint16_t' or printed == 'uint32_t' or printed == 'uint64_t' {
+			return true
+		}
+
+		if printed == 'float' or printed == 'double' {
+			return true
+		}
+		return false
+	}
+	fun alignUpOffset(off: Int, a: Int): Int {
+		if a <= 1 {
+			return off
+		}
+		return off + (a - (off % a)) % a
+	}
+	fun memberShapeOf(dataType: Type?, path: String): [Int] {
+		let ptrS = project.memory == Memory.Modern64 ? 8 : 4
+
+		if dataType == null {
+			throw 'fields table: untyped member at ' + path
+		}
+
+		if this.isFatValueType(dataType) {
+			return [ptrS, ptrS] // `$f_` (code) and `$e_` (env) are pointers
+		}
+
+		switch dataType {
+			case ClassInstance(k, gens):
+				if k.name == 'ArrayByValue' {
+					if gens.length < 2 or gens[1] == null {
+						return [0, 1] // `T name_[];` flexible tail — zero bytes here
+					}
+					let es = this.memberShapeOf(gens[0], path)
+					var count = 0
+
+					switch gens[1] {
+						case Constant(value): count = parseInt(value)
+						case _: throw 'fields table: non-constant ArrayByValue length at ' + path
+					}
+					return [es[0] * count, es[1]]
+				}
+			case _:
+		}
+		let printed = this.stringifyType(dataType)
+		if printed.endsWith('*') {
+			return [ptrS, ptrS]
+		}
+		if printed == 'HANDLE' or printed == 'HMODULE' or printed == 'HLOCAL' or printed == 'HINSTANCE' or printed == 'HWND' {
+			return [ptrS, ptrS]
+		}
+
+		if printed == 'LPSECURITY_ATTRIBUTES' or printed == 'LPOVERLAPPED' or printed == 'LPDWORD' or printed == 'LPFILETIME' or printed == 'LPTIME_ZONE_INFORMATION' or printed == 'HINTERNET' {
+			return [ptrS, ptrS]
+		}
+		if printed == 'int8_t' or printed == 'uint8_t' or printed == 'char' or printed == 'Bool_' {
+			return [1, 1]
+		}
+		if printed == 'wchar_t' {
+			return [2, 2]
+		}
+
+		if printed == 'int16_t' or printed == 'uint16_t' {
+			return [2, 2]
+		}
+
+		if printed == 'int32_t' or printed == 'uint32_t' or printed == 'float' {
+			return [4, 4]
+		}
+
+		if printed == 'int64_t' or printed == 'uint64_t' or printed == 'double' {
+			return [8, 8]
+		}
+
+		if printed == 'int8_t$' or printed == 'uint8_t$' {
+			return [2, 2]
+		}
+
+		if printed == 'int16_t$' or printed == 'uint16_t$' {
+			return [4, 4]
+		}
+
+		if printed == 'int32_t$' or printed == 'uint32_t$' {
+			return [8, 8]
+		}
+
+		if printed == 'Null$Float32' {
+			return [8, 4]
+		}
+
+		if printed == 'Null$Float64' or printed == 'Null$UInt64' or printed == 'Null$Int64' {
+			return [16, 8]
+		}
+
+		if printed == 'size_t' or printed == 'intptr_t' or printed == 'uintptr_t' {
+			return [ptrS, ptrS]
+		}
+
+		if printed == 'void' {
+			throw 'fields table: `void` member at ' + path
+		}
+		throw 'fields table: unsupported member C type "' + printed + '" at ' + path + ' — add a size/align rule to `memberShapeOf` (an unknown type cannot be skipped: it may shift a refcountable slot)'
+	}
+	fun collectRcSlots(c: NiceClass, rcOffsets: [Int], rcMembers: [String]) {
+		var lastRc = -1
+
+		for i in c.vars.length {
+			var rc = false
+			switch c.vars[i] {
+				case Var(_, _, t): rc = this.isRcSlotType(t) or this.isFatValueType(t)
+				case Const(_, _, t): rc = this.isRcSlotType(t) or this.isFatValueType(t)
+				case _:
+			}
+
+			if rc { lastRc = i }
+		}
+
+		if lastRc < 0 {
+			return // no counted slots — terminator-only table
+		}
+		let ptrS = project.memory == Memory.Modern64 ? 8 : 4
+		var offset = 12
+		var bitRunStart = 0
+		var bitUsed = 0
+		var bitUnitSize = 0
+		var bitUnitAlign = 4
+
+		for i in (lastRc + 1) {
+			var name = ''
+			var t: Type? = null
+			switch c.vars[i] {
+				case Var(n, _, tt):
+					name = n
+					t = tt
+				case Const(n, _, tt):
+					name = n
+					t = tt
+				case _:
+			}
+
+			if name == '' or t == null {
+				continue
+			}
+			let bitsAt = c.varBits[i]
+			if this.isFatValueType(t) {
+				if c.varBits[i] != null {
+					throw 'fields table: @bits on a function-typed field (' + c.name + '.' + name + ')'
+				}
+
+				if bitUsed > 0 {
+					offset = bitRunStart + bitUnitSize
+					bitUsed = 0
+				}
+				offset = this.alignUpOffset(offset, ptrS) // `$f_` code half — never counted
+				offset = offset + ptrS
+				offset = this.alignUpOffset(offset, ptrS)
+				rcOffsets.push(offset)
+				rcMembers.push(name + '$e_')
+				offset = offset + ptrS
+				continue
+			}
+			let path = c.name + '.' + name
+			let shape = this.memberShapeOf(t, path)
+
+			if let bits = c.varBits[i] {
+				let unitSize = shape[0]
+				let unitAlign = shape[1]
+				let unitBits = unitSize * 8
+
+				if bitUsed > 0 and (unitSize != bitUnitSize or bitUsed + bits > unitBits) {
+					offset = bitRunStart + bitUnitSize // flush the full/changed unit
+					bitUsed = 0
+				}
+
+				if bitUsed == 0 {
+					offset = this.alignUpOffset(offset, unitAlign)
+					bitRunStart = offset
+					bitUnitSize = unitSize
+					bitUnitAlign = unitAlign
+				}
+				bitUsed = bitUsed + bits
+
+				if bitUsed > unitBits {
+					offset = bitRunStart + bitUnitSize // over-unit flush
+					bitUsed = 0
+					offset = this.alignUpOffset(offset, bitUnitAlign)
+					bitRunStart = offset
+					bitUnitSize = unitSize
+					bitUnitAlign = unitAlign
+				}
+				continue // bitfield members are values — never counted
+			}
+			if bitUsed > 0 {
+				offset = bitRunStart + bitUnitSize
+				bitUsed = 0
+			}
+			offset = this.alignUpOffset(offset, shape[1])
+			let memberStart = offset
+			offset = offset + shape[0]
+
+			if not this.isWeakFieldOf(c, name), this.isRcSlotType(t) {
+				rcOffsets.push(memberStart)
+				rcMembers.push(name + '_')
+			}
+		}
+	}
+	fun isWeakFieldOf(c: NiceClass, name: String): Bool {
+		return c.weakFields.includes(name)
+	}
+	fun emitFieldsTable(c: NiceClass, forwardOut: [String]) {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let rcOffsets: [Int] = []
+		let rcMembers: [String] = []
+		this.collectRcSlots(c, rcOffsets, rcMembers)
+		let deltas: [String] = []
+		var prev = 0
+
+		for i in rcOffsets.length {
+			let d = rcOffsets[i] - prev
+
+			if d > 255 {
+				throw 'fields table: uint8 delta overflow in class "' + c.name + '" at field "' + rcMembers[i + 0] + '" — ' + d + ' bytes behind the previous refcountable slot; widen the delta encoding (uint16 or an escape byte) before this class can compile'
+			}
+			deltas.push('' + d)
+			prev = rcOffsets[i]
+			fieldTableDefs.push('_Static_assert(offsetof(struct ' + c.name + '_, ' + rcMembers[i] + ') == ' + rcOffsets[i] + ', "fields-table: manual offset mismatch for ' + c.name + '.' + rcMembers[i] + '");')
+		}
+		forwardOut.push('extern const uint8_t hexaFields_' + c.name + '[];')
+		let body = deltas.length > 0 ? (deltas.join(', ') + ', 0') : '0'
+		fieldTableDefs.push('const uint8_t hexaFields_' + c.name + '[] = ' + lb + ' ' + body + ' ' + rb + ';')
+	}
 	/// Whether a call callee must go through the `AnyValue_` call proxy:
 	/// an `Any_*`-SHAPED callee is a raw pointer and `ptr(args)` is not valid
 	/// C++ even with `Any_::operator()`. DECLARED types win over use-node
@@ -8754,7 +9161,7 @@ class GenCxx {
 						// Borrowed source (`{ a: localTemp }`): the literal must
 						// take its own reference — see retainLiteralField.
 						if isBorrowedValue(oels[k]) {
-							metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_'))
+							metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_', ftypes[i]))
 						}
 					}
 				}
@@ -8838,7 +9245,7 @@ class GenCxx {
 					// Borrowed source: the struct literal owns its own reference
 					// (see retainLiteralField).
 					if isBorrowedValue(oels[k]) {
-						metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_'))
+						metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_', fieldTypes[i]))
 					}
 				}
 			}
@@ -8936,7 +9343,7 @@ class GenCxx {
 						// rczero UAF): an interface literal owns what it stores,
 						// so take the reference here (retainLiteralField).
 						if isBorrowedValue(oels[k]) {
-							metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_'))
+							metaBlock.push(retainLiteralField(tmp + '->' + names[i] + '_', ftypes[i]))
 						}
 					}
 				}
@@ -8971,10 +9378,11 @@ class GenCxx {
 	/// owned by the receiving object; without a `destroy_` that releases fields
 	/// (most interfaces emit `nullptr /*INHERIT-DESTROY*/`) it leaks instead of
 	/// corrupting — same trade-off as the `Assign(Dot)` arm in `arc.hexa`.
-	/// The `Any_isCounted_` tag check keeps this type-agnostic: scalars,
-	/// immediates and bare sentinels are no-ops.
-	fun retainLiteralField(slot: String): String {
-		return 'if (Any_isCounted_((Any_*)(size_t)(' + slot + '))) hexaRef((void*)(size_t)(' + slot + '));'
+	fun retainLiteralField(slot: String, ftype: Type?): String {
+		if not this.isRcSlotType(ftype) {
+			return ''
+		}
+		return 'hexaRef((void*)(size_t)(' + slot + '));'
 	}
 
 	/// One struct field value, converted to its declared type (recursing into
@@ -9113,6 +9521,15 @@ class GenCxx {
 		if isBoxableFat(v), stringifyType(ofType) == 'Any_*' {
 			return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
 			return boxFatPair(v)
+		}
+		if stringifyType(ofType) == 'Any_*' {
+			switch v {
+				case If(_, eif, eelse):
+					if isBoxableFat(eif) or isBoxableFat(eelse) {
+						return printExpression(v)
+					}
+				case _:
+			}
 		}
 		// A BARE global function designator is a fat value too, but it has no
 		// addressable pair halves, so `isBoxableFat` misses it and the slot got
@@ -9500,7 +9917,7 @@ class GenCxx {
 				}
 
 				if closureBaseName(e) != null {
-					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, exprCallExpects(callExpectsField, e))
+					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, expectsOrDerived(exprCallExpects(callExpectsField, e), e))
 				}
 				// S3b: struct-field calls print thin-member + explicit env.
 				if isStructDotCall(e) {
@@ -9628,7 +10045,7 @@ class GenCxx {
 				}
 
 				if closureBaseName(e) != null {
-					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, exprCallExpects(callExpectsField, e))
+					return (closureBaseName(e) as!String) + '_' + printCallArguments(args, expectsOrDerived(exprCallExpects(callExpectsField, e), e))
 				}
 				// NOTE same proxy rule as statements (declared types decide).
 				// F10.3 pair dispatch replaces the proxy when the callee
@@ -9637,7 +10054,7 @@ class GenCxx {
 					return printDynamicCall(e, args, exprCallExpects(callExpectsField, e))
 				}
 
-				return '/*DYNRAW*/' + printExpression(e) + printCallArguments(args, exprCallExpects(callExpectsField, e))
+				return '/*DYNRAW*/' + printExpression(e) + printCallArguments(args, expectsOrDerived(exprCallExpects(callExpectsField, e), e))
 
 			case Arrow(expr, args, defaults, types, returns, funcType, isAsync): {
 					return printExpression(
@@ -9942,16 +10359,8 @@ class GenCxx {
 								return '((double)(' + printExpression(a) + ') ' + op2 + ' (double)(' + printExpression(b) + '))'
 							}
 						}
-						// D7/JS VALUE equality when a dynamic side is involved:
-						// `Any_boxInt_` keeps the immediate form only for
-						// NON-ZERO values, so a boxed `0` is a heap object and a
-						// pointer compare against `Any_boxInt_(0)` is false —
-						// that is how `state.activePanel == 0` silently became
-						// FALSE (Perfide drew the sidebar header but never a
-						// panel body: the missing OPEN EDITORS list), and every
-						// `Any == 0/1/…` in any project broke the same way.
-						let boxedA = printToAnyConverter(printExpression(a), binopFromType(a))
-						let boxedB = printToAnyConverter(printExpression(b), binopFromType(b))
+						var boxedA: String? = null
+						var boxedB: String? = null
 
 						// `null` against a statically typed operand: compare against
 						// that operand's OWN null representation — the `&HexaNone_`
@@ -9988,8 +10397,6 @@ class GenCxx {
 								let v = printExpression(operand)
 								// twin form: `null` is the sentinel OBJECT for every
 								// managed slot, but raw-zero producers still exist
-								// (same reason the Elvis temp test covers both)
-								nullTest = '(' + v + ' == nullptr || ' + v + ' == (' + operandC + ')(void*)(&HexaNone_))'
 								if isPureIsReceiver(operand) {
 									nullTest = '((void*)(' + v + ') == nullptr || (void*)(' + v + ') == (void*)(&HexaNone_))'
 								} else {
@@ -10011,7 +10418,7 @@ class GenCxx {
 								let resC = stringifyType(getType(e))
 
 								if resC == 'Any_*' {
-									return '(struct Any_ *)(size_t)(' + cmp + ')'
+									return '(struct Any_ *)(size_t)(Any_boxInt_((int64_t)(' + cmp + ')))'
 								}
 
 								return '(' + resC + ')(' + cmp + ')'
@@ -10019,11 +10426,15 @@ class GenCxx {
 						}
 
 						if aName == 'Any_*' or bName == 'Any_*' {
-							let eqCall = 'Any_equals_(' + boxedA + ', ' + boxedB + ')'
+							let ba = boxedA ?? printToAnyConverter(printExpression(a), binopFromType(a))
+							let bb = boxedB ?? printToAnyConverter(printExpression(b), binopFromType(b))
+							let eqCall = 'Any_equals_(' + ba + ', ' + bb + ')'
 							return op2 == '!=' ? '(!' + eqCall + ')' : eqCall
 						}
 
-						return boxedA + ' ' + op2 + ' ' + boxedB
+						let fa = boxedA ?? printToAnyConverter(printExpression(a), binopFromType(a))
+						let fb = boxedB ?? printToAnyConverter(printExpression(b), binopFromType(b))
+						return fa + ' ' + op2 + ' ' + fb
 					}
 				}
 
@@ -10190,7 +10601,7 @@ class GenCxx {
 							// a dynamic Nice result must stay `Any_*`-shaped (callers
 							// unbox it), everything else takes the static shape.
 							if resultSide == 'Any_*' {
-								return '(struct Any_ *) (size_t) (' + cmp + ')'
+								return '(struct Any_ *) (size_t) (Any_boxInt_((int64_t)(' + cmp + ')))'
 							}
 
 							return '(' + resultSide + ')(' + cmp + ')'
@@ -10223,7 +10634,7 @@ class GenCxx {
 					// Proxy operators return scalars (int64_t/uint8_t) —
 					// re-box when the Nice result claims dynamic
 					if resultSide == 'Any_*' {
-						return '(struct Any_ *) (size_t) (' + proxy + ')'
+						return '(struct Any_ *) (size_t) (Any_boxInt_((int64_t)(' + proxy + ')))'
 					}
 
 					return '(' + resultSide + ')(' + proxy + ')'
@@ -10371,17 +10782,25 @@ class GenCxx {
 						let t = tempId++
 						let tmp = '_$ftn' + t
 						metaBlock.push('Any_* ' + tmp + ' = nullptr')
-						var ba = printTypeConverter(printExpression(eif), valueType(eif), project.typer.typeAny)
-						var bb = printTypeConverter(printExpression(eelse), valueType(eelse), project.typer.typeAny)
+						var ba = ''
 
 						if isBoxableFat(eif) {
-							ba = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eif) + '), ' + fatEnvStr(eif) + ')'
 							ba = boxFatPair(eif)
+						} else {
+							switch eif {
+								case Null(_): ba = '(Any_*)((size_t)(&HexaNone_))'
+								case _: ba = printTypeConverter(printExpression(eif), valueType(eif), project.typer.typeAny)
+							}
 						}
+						var bb = ''
 
 						if isBoxableFat(eelse) {
-							bb = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eelse) + '), ' + fatEnvStr(eelse) + ')'
 							bb = boxFatPair(eelse)
+						} else {
+							switch eelse {
+								case Null(_): bb = '(Any_*)((size_t)(&HexaNone_))'
+								case _: bb = printTypeConverter(printExpression(eelse), valueType(eelse), project.typer.typeAny)
+							}
 						}
 						metaBlock.push('if (' + printExpression(econd) + ') ' + tmp + ' = ' + ba + '; else ' + tmp + ' = ' + bb)
 						return tmp
@@ -10409,17 +10828,27 @@ class GenCxx {
 					if aName != bName {
 						// F10.3: fat branches into the `Any` box pair (leaf
 						// shapes only — composites keep the legacy drop).
-						var boxA = printToAnyConverter(printExpression(eif), valueType(eif))
-						var boxB = printToAnyConverter(printExpression(eelse), valueType(eelse))
+						var boxA = ''
 
-						if isBoxableFat(eif) {
-							boxA = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eif) + '), ' + fatEnvStr(eif) + ')'
-							boxA = boxFatPair(eif)
+						try {
+							if isBoxableFat(eif) {
+								boxA = boxFatPair(eif)
+							} else {
+								boxA = printToAnyConverter(printExpression(eif), valueType(eif))
+							}
+						} catch e2: Any {
+							boxA = printExpression(eif)
 						}
+						var boxB = ''
 
-						if isBoxableFat(eelse) {
-							boxB = 'Any_boxFatPair_((void(*)())(' + fatPtrStr(eelse) + '), ' + fatEnvStr(eelse) + ')'
-							boxB = boxFatPair(eelse)
+						try {
+							if isBoxableFat(eelse) {
+								boxB = boxFatPair(eelse)
+							} else {
+								boxB = printToAnyConverter(printExpression(eelse), valueType(eelse))
+							}
+						} catch e2: Any {
+							boxB = printExpression(eelse)
 						}
 						return '(' + printExpression(econd) + ')?(' + boxA + '):(' + boxB + ')'
 					}
