@@ -114,6 +114,8 @@ class GenCxx {
 	/// F10.4: C receiver type per boxed method (`Name_`), so the thunk casts
 	/// the `void* env_` back to the typed `$this` slot.
 	var fatPairMethodSelf: [String] = []
+	var fatPairGlobalDefaults: [[Expression]] = []
+	var fatPairMethodDefaults: [[Expression]] = []
 	/// Declared type per LOCAL/param base name of the function being printed
 	/// (cleared at each function signature — see `printFunctionArguments`)
 	var localDecls: [String : Type] = [:]
@@ -326,6 +328,7 @@ class GenCxx {
 	// declaring `@destructor`. Read by the future F11 sweep via the lookup
 	// below; backends never consult it today.
 	let destroyTable: [String] = []
+	let fieldTableDefs: [String] = []
 	// Vtable-managed class names (every class that actually emits a `__$`
 	// tag global), for the sweep victim-name table. Collected at vtable
 	// emission so the table can only reference symbols that exist.
@@ -335,6 +338,7 @@ class GenCxx {
 	// sweep bisect: `hexaArrayTags_` lets `HEXA_SWEEP_MODE=2` skip exactly
 	// the storage-release cascade while freeing everything else.
 	let arrayDestroyTags: [String] = []
+	let arrayCtorTags: [String] = []
 	// D2: `ArrayByValue<T?, N>` globals whose BSS zero-fill is not `null` —
 	// each entry is one `hexaFillNone_` statement for the boot prologue.
 	let noneSlotInitLines: [String] = []
@@ -689,6 +693,14 @@ class GenCxx {
 			}
 
 			c.name = cName
+
+			switch c.classType {
+				case ClassInstance(kind, generics):
+					if kind.name == 'Array' and arrayCtorTags.indexOf(cName) < 0 {
+						arrayCtorTags.push(cName)
+					}
+				case _:
+			}
 
 			if c.name == 'Array' {
 				// console.log(c.dataType)
@@ -1252,7 +1264,7 @@ class GenCxx {
 				// nothing. `env_` carries the receiver (a method thunk is
 				// `withEnv` = true, so param 0 is the hidden `self`).
 				for v in c.methods { switch v {
-						case Function(mname, _, _, _, funcType, _, isAsync):
+						case Function(mname, _, _, mdefaults, funcType, _, isAsync):
 							if isBoxableMethod(mname, funcType, isAsync) {
 								let implName = c.name + '_$' + mname
 								out.push('\tif (Any_objectStringEquals_(k_, ' + printExpression(Expression.String(mname)) + ')) ' + hlb + ' return Any_boxFatPair_((void(*)())(&' + implName + '_), self, ' + implName + '$call_); ' + hrb + hnl)
@@ -1261,6 +1273,7 @@ class GenCxx {
 									fatPairMethodNames.push(implName)
 									fatPairMethodTypes.push(funcType)
 									fatPairMethodSelf.push(c.name + '_')
+									fatPairMethodDefaults.push(mdefaults)
 								}
 
 								if not fatPairImpls.includes(implName) {
@@ -1381,6 +1394,7 @@ class GenCxx {
 				var idxGetBody = ''
 				var idxSetBody = ''
 				var idxCountBody = ''
+				let idxGetPrelude: [String] = []
 
 				for v in c.methods { switch v {
 						case Function(mn, _, margs, _, mfType, _, _):
@@ -1393,8 +1407,15 @@ class GenCxx {
 											let mbGet = metaBlock.length
 											let boxed = printToAnyConverter('self->_->get_(self, i_)', mret)
 
-											if metaBlock.length == mbGet, boxed.indexOf('%') < 0 {
+											if boxed.indexOf('%') < 0 {
 												idxGetBody = boxed
+
+												var mk = mbGet
+
+												while mk < metaBlock.length {
+													idxGetPrelude.push(metaBlock[mk])
+													mk += 1
+												}
 											}
 
 											while metaBlock.length > mbGet {
@@ -1435,6 +1456,8 @@ class GenCxx {
 				out.push('Any_* ' + c.name + '_hiddenIndexGet_(void* self_, int32_t i_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				out.push('\t(void)self_; (void)i_;' + hnl)
+
+				for line in idxGetPrelude { out.push('\t' + line + ';' + hnl) }
 
 				if idxGetBody != '' {
 					out.push('\treturn (Any_*)(' + idxGetBody + ');' + hnl)
@@ -2136,6 +2159,8 @@ class GenCxx {
 
 			+ '\n// Destroy table (ARC: tag -> destructor for the F11 sweep)\n' +
 			printDestroyTable()
+
+			printArrayAnyBridge()
 
 			+ '\n// Global variables\n' +
 			printAnyObject() + globalVariables.join('')
@@ -4067,6 +4092,7 @@ class GenCxx {
 						if not fatPairGlobalNames.includes(base) {
 							fatPairGlobalNames.push(base)
 							fatPairGlobalTypes.push(ft)
+							fatPairGlobalDefaults.push(globalFuncDefaults(name))
 						}
 						return 'Any_boxFatPair_((void(*)())(' + cname + '), hexaSentinelEnv_, ' + base + '$call_)'
 					}
@@ -4484,6 +4510,51 @@ class GenCxx {
 			} }
 		return null
 	}
+	fun globalFuncDefaults(name: String): [Expression] {
+		for g in project.globalFuncs { switch g {
+				case Function(gname, _, _, gdefaults, _, _, _):
+					if gname == name {
+						return gdefaults
+					}
+			} }
+		return []
+	}
+	fun defaultAt(defaults: [Expression], k: Int): Expression? {
+		if k < 0 or k >= defaults.length {
+			return null
+		}
+		let d: Expression? = defaults[k]
+
+		if d == null {
+			return null
+		}
+		return d
+	}
+
+	/// May this DEFAULT expression be printed inside an argv thunk?
+	fun isThunkSafeDefault(e: Expression): Bool {
+		switch e {
+			case Int(_):
+				return true
+			case MetaInt(_, _, _):
+				return true
+			case Float(_):
+				return true
+			case True:
+				return true
+			case False:
+				return true
+			case Null(_):
+				return true
+			case Unop(_, _, inner):
+				return isThunkSafeDefault(inner)
+			case Parenthesis(inner):
+				return isThunkSafeDefault(inner)
+			case _:
+		}
+		return false
+	}
+
 	/// S3b: true if a call ARG (or any value) flows to a fat position: typed
 	/// function OR plain global function (wrapper pair). Centralizes the
 	/// `printCallArguments`/`Virtual` expansion decision.
@@ -4777,11 +4848,12 @@ class GenCxx {
 	/// return +1, env borrowed; missing->null-Any/0, extras ignored). Emitted
 	/// for every lifted `closure$N` (even empty ones, env ignored) so every
 	/// function-typed value is uniformly Any-callable.
-	fun printClosureThunk(cName: String, funcType: Type, withEnv: Bool = true, envCast: String = '', skipFirst: Bool = true): String {
+	fun printClosureThunk(cName: String, funcType: Type, withEnv: Bool = true, envCast: String = '', skipFirst: Bool = true, defaults: [Expression] = []): String {
 		let base = cName.substr(0, cName.length - 1)
 		let thunk = base + '$call_'
 		var fargs: [FunctionArgument] = []
 		var frets: Type = project.typer.typeAny
+		var thunkPre: [String] = []
 
 		switch funcType {
 			case Function(fa, fr, _):
@@ -4856,20 +4928,53 @@ class GenCxx {
 			if ti == 'void' {
 				continue
 			}
+			var fb = ''
+
+			if not (withEnv and skipFirst) {
+				if let dv = defaultAt(defaults, k) {
+					if isThunkSafeDefault(dv) {
+						let mb0d = metaBlock.length
+						let raw = printExpression(dv)
+						let conv = printTypeConverter(raw, valueType(dv), fargs[k].dataType)
+
+						if conv == raw {
+							fb = raw
+						} else {
+							while metaBlock.length > mb0d {
+								metaBlock.pop()
+							}
+						}
+					}
+				}
+			}
+
+			if fb.length == 0 {
+				if ti.endsWith('*') or ti.startsWith('_$') {
+					fb = 'nullptr'
+				} else if ti == 'int32_t' {
+					fb = '(int32_t)0'
+				} else if ti == 'double' or ti == 'float' {
+					fb = '(double)0.0'
+				} else if ti == 'Bool_' {
+					fb = 'false_'
+				} else {
+					fb = '(' + ti + ')0'
+				}
+			}
 			var u = ''
 
 			if ti.endsWith('*') {
-				u = '(' + ti + ')(size_t)(((argc_ > ' + ai + ') ? argv_[' + ai + '] : nullptr))'
+				u = '(' + ti + ')(size_t)(((argc_ > ' + ai + ') ? (size_t)(argv_[' + ai + ']) : (size_t)(' + fb + ')))'
 			} else if ti == 'int32_t' {
-				u = '((argc_ > ' + ai + ') ? Any_unboxInt_(argv_[' + ai + ']) : (int32_t)0)'
+				u = '((argc_ > ' + ai + ') ? Any_unboxInt_(argv_[' + ai + ']) : ' + fb + ')'
 			} else if ti == 'double' or ti == 'float' {
-				u = '((argc_ > ' + ai + ') ? Any_unboxFloat_(argv_[' + ai + ']) : (double)0.0)'
+				u = '((argc_ > ' + ai + ') ? Any_unboxFloat_(argv_[' + ai + ']) : ' + fb + ')'
 			} else if ti == 'Bool_' {
-				u = '((argc_ > ' + ai + ') ? (argv_[' + ai + '] )->_toBool() : false_)'
+				u = '((argc_ > ' + ai + ') ? (argv_[' + ai + '] )->_toBool() : ' + fb + ')'
 			} else if ti.startsWith('_$') {
-				u = '(' + ti + ')(size_t)(((argc_ > ' + ai + ') ? argv_[' + ai + '] : nullptr))'
+				u = '(' + ti + ')(size_t)(((argc_ > ' + ai + ') ? (size_t)(argv_[' + ai + ']) : (size_t)(' + fb + ')))'
 			} else {
-				u = '(' + ti + ')(((argc_ > ' + ai + ') ? Any_unboxInt_(argv_[' + ai + ']) : (' + ti + ')0))'
+				u = '(' + ti + ')(((argc_ > ' + ai + ') ? Any_unboxInt_(argv_[' + ai + ']) : (' + ti + ')(' + fb + ')))'
 			}
 			unboxed.push(u)
 			ai++
@@ -4898,6 +5003,10 @@ class GenCxx {
 		// `argvapply$N_` adapter needs both halves (`impl_` + `env_`) to
 		// reconstruct the statically typed fat value it is adapting.
 		var r = 'Any_* ' + thunk + '(struct FatPair_* self_, Any_** argv_, int32_t argc_) \{\n'
+
+		for st in thunkPre {
+			r += '\t' + st + ';\n'
+		}
 
 		if retName == 'void' {
 			r += call + ';\n'
@@ -5386,7 +5495,7 @@ class GenCxx {
 		var r = ''
 
 		for i in fatPairGlobalNames.length {
-			r += printClosureThunk(fatPairGlobalNames[i] + '_', fatPairGlobalTypes[i], withEnv: false)
+			r += printClosureThunk(fatPairGlobalNames[i] + '_', fatPairGlobalTypes[i], false, '', true, fatPairGlobalDefaults[i])
 		}
 
 		// F10.4: instance-method thunks. A bound method pair stores the
@@ -5394,7 +5503,7 @@ class GenCxx {
 		// first parameter (`$this`) — the same shape `withEnv` emits for
 		// lifted closures, so param 0 is skipped and `env_` is pushed.
 		for i in fatPairMethodNames.length {
-			r += printClosureThunk(fatPairMethodNames[i] + '_', fatPairMethodTypes[i], withEnv: true, envCast: fatPairMethodSelf[i], skipFirst: false)
+			r += printClosureThunk(fatPairMethodNames[i] + '_', fatPairMethodTypes[i], true, fatPairMethodSelf[i], false, fatPairMethodDefaults[i])
 		}
 
 		return r
@@ -5488,6 +5597,7 @@ class GenCxx {
 		r += 'HEXA_FORCEINLINE int64_t Any_unboxInt64_(Any_* p) \{ if (p == nullptr) return (int64_t)0; if (p == (Any_*)(&_true)) return (int64_t)1; if (p == (Any_*)(&_false)) return (int64_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return ((AnyInt_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int64_t)(((AnyFloat_*)(p))->v_); return (int64_t)0; \}\n'
 		r += 'HEXA_FORCEINLINE double Any_unboxFloat_(Any_* p) \{ if (p == nullptr) return (double)0.0; if (p == (Any_*)(&_true)) return (double)1.0; if (p == (Any_*)(&_false)) return (double)0.0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (double)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return ((AnyFloat_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (double)(((AnyInt_*)(p))->v_); return (double)0.0; \}\n'
 		r += 'String_* Any_$toString_(Any_*);\n'
+		r += 'String_* String_$combine_(String_*, String_*);\n'
 		r += 'String_* String_$fromInt32_(int32_t);\n'
 		r += 'String_* String_$fromFloat_(double);\n'
 		r += 'HEXA_FORCEINLINE String_* Any_unboxString_(Any_* p) \{ if (p == nullptr) return Any_$toString_(p); if (p == (Any_*)(&_true)) return Any_$toString_(p); if (p == (Any_*)(&_false)) return Any_$toString_(p); if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return String_$fromInt32_((int32_t)(int64_t)(p)); if (((const void**)(p))[0] == (const void*)(&String__$)) return (String_*)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return String_$fromInt32_((int32_t)(((AnyInt_*)(p))->v_)); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return String_$fromFloat_((double)(((AnyFloat_*)(p))->v_)); return Any_$toString_(p); \}\n'
@@ -5524,7 +5634,7 @@ class GenCxx {
 		r += 'uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_);' + nl
 		r += 'uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return (uint8_t)0; return (uint8_t)(Any_objectFind_((AnyObject_*)(self_), k_) >= (int32_t)0); ' + rb + nl
 		r += 'void AnyObject_hiddenDelete_(void* self_, struct String_* k_);' + nl
-		r += 'void AnyObject_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' (void)self_; (void)k_; ' + rb + nl
+		r += 'void AnyObject_hiddenDelete_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ < (int32_t)0) return; Any_* oldv_ = o_->entries_[at_].v_; String_* oldk_ = o_->entries_[at_].k_; for (int32_t i_ = at_; i_ + (int32_t)1 < o_->count_; i_++) o_->entries_[i_] = o_->entries_[i_ + (int32_t)1]; o_->count_--; o_->entries_[o_->count_].k_ = nullptr; o_->entries_[o_->count_].v_ = nullptr; if (oldv_ != nullptr) hexaUnref((void*)oldv_); if (oldk_ != nullptr) hexaUnref((void*)oldk_); ' + rb + nl
 		r += 'struct String_* AnyObject_hiddenKeyAt_(void* self_, int32_t i_);' + nl
 		r += 'struct String_* AnyObject_hiddenKeyAt_(void* self_, int32_t i_) ' + lb + ' if (self_ == nullptr || i_ < (int32_t)0) return nullptr; AnyObject_* o_ = (AnyObject_*)(self_); if (i_ >= o_->count_) return nullptr; return o_->entries_[i_].k_; ' + rb + nl
 		r += 'int32_t AnyObject_hiddenKeyCount_(void* self_);' + nl
@@ -5581,7 +5691,9 @@ class GenCxx {
 		// (strings are interned, bools are singletons), then numeric by value;
 		// everything else stays referential (JS object identity).
 		r += 'HEXA_FORCEINLINE uint8_t Any_equals_(Any_* a, Any_* b) ' + lb + ' if (a == b) return (uint8_t)1; uint8_t an_ = (uint8_t)(a == nullptr || a == (Any_*)(&HexaNone_)); uint8_t bn_ = (uint8_t)(b == nullptr || b == (Any_*)(&HexaNone_)); if (an_ != (uint8_t)0 || bn_ != (uint8_t)0) return (uint8_t)((an_ != (uint8_t)0 && bn_ != (uint8_t)0) ? 1 : 0); uint8_t an2_ = (uint8_t)(Any_isNumber_(a) || a == (Any_*)(&_true) || a == (Any_*)(&_false)); uint8_t bn2_ = (uint8_t)(Any_isNumber_(b) || b == (Any_*)(&_true) || b == (Any_*)(&_false)); if (an2_ && bn2_) return (uint8_t)(Any_unboxFloat_(a) == Any_unboxFloat_(b)); return (uint8_t)0; ' + rb + nl
+		r += 'Any_* Any_add_(Any_* a, Any_* b) ' + lb + ' if (Any_isString_(a) != (uint8_t)0 || Any_isString_(b) != (uint8_t)0) return (Any_*)(size_t)(String_$combine_(Any_unboxString_(a), Any_unboxString_(b))); return Any_boxFloat_(Any_unboxFloat_(a) + Any_unboxFloat_(b)); ' + rb + nl
 		r += 'Any_* Any_dynGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); int64_t v_ = (int64_t)(p); if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) return (Any_*)(size_t)(&HexaNone_); if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return (Any_*)(size_t)(&HexaNone_); const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) return (Any_*)(size_t)(&HexaNone_); return HexaReflectFor_(tag_)->dyn_get_((void*)p, k); ' + rb + nl
+		r += 'void Any_delete_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) ' + lb + ' return; ' + rb + ' if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' return; ' + rb + ' HexaReflectFor_(tag_)->delete_((void*)p, k); ' + rb + nl
 		r += 'void Any_dynSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr || k == nullptr) return; int64_t vv_ = (int64_t)(p); if (vv_ >= (int64_t)-65535 && vv_ <= (int64_t)65535) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: immediate receiver - field write dropped (box the receiver through Any first)\"); return; ' + rb + ' if (p == (Any_*)(&_true) || p == (Any_*)(&_false)) return; const void* tag_ = ((const void**)(p))[0]; if (tag_ == nullptr || !HexaHasReflect_(tag_)) ' + lb + ' HEXA_ASSERT(0, \"Any_dynSet_: receiver has no reflection - field write dropped (convert at the Any boundary)\"); return; ' + rb + ' HexaReflectFor_(tag_)->dyn_set_((void*)p, k, v); ' + rb + nl
 		// `obj[key]`: key shape picks the hidden slot (Int -> index_*,
 		// String -> dyn_*). The receiver/key hoist at the call site, so both
@@ -5652,6 +5764,9 @@ class GenCxx {
 		r += 'uint32_t Hexa_AddRef_(void* self) ' + lb + ' if (self == nullptr) return (uint32_t)0; hexaRef(self); return (uint32_t)(((struct HexaHeader_*)(self))->rc_); ' + rb + nl
 		r += 'uint32_t Hexa_Release_(void* self) ' + lb + ' if (self == nullptr) return (uint32_t)0; uint32_t rc = (uint32_t)(((struct HexaHeader_*)(self))->rc_); hexaUnref(self); return rc > (uint32_t)0 ? rc - (uint32_t)1 : (uint32_t)0; ' + rb + nl
 		r += 'static inline struct HexaReflect_* HexaReflectFor_(const void* tag) ' + lb + ' return (struct HexaReflect_*)((char*)tag - sizeof(struct HexaReflect_)); ' + rb + nl
+		r += 'HEXA_C uint8_t hexaAnyIsArray_(struct Any_* v_);' + nl
+		r += 'HEXA_C int32_t hexaAnyArrayCount_(struct Any_* v_);' + nl
+		r += 'HEXA_C struct Any_* hexaAnyArrayGet_(struct Any_* v_, int32_t i_);' + nl
 		return r
 	}
 
@@ -5742,6 +5857,45 @@ class GenCxx {
 		}
 		r += rb + ';' + nl
 		r += 'static void (*HexaDestroyLookup_(const void* tag))(void*) ' + lb + ' for (size_t i_ = 0; i_ < sizeof(hexaDestroyTable_)/sizeof(hexaDestroyTable_[0]); i_++) ' + lb + ' if (hexaDestroyTable_[i_].tag_ != nullptr && hexaDestroyTable_[i_].tag_ == tag) return hexaDestroyTable_[i_].destroy_; ' + rb + ' return nullptr; ' + rb + nl
+		return r
+	}
+
+	fun printArrayAnyBridge(): String {
+		let lb = String.fromCharCode(123)
+		let rb = String.fromCharCode(125)
+		let nl = String.fromCharCode(10)
+		var r = '// Typed-array bridge (any Array<T> boxed into Any, T-independent)' + nl
+		r += 'static const void* hexaArrayCtorTags_[] = ' + lb
+
+		var arrayTagRows: [String] = []
+
+		for n in arrayCtorTags {
+			if vtableClasses.indexOf(n) >= 0, arrayTagRows.indexOf(n) < 0 { arrayTagRows.push(n) }
+		}
+
+		if arrayTagRows.length == 0 {
+			r += 'nullptr'
+		} else {
+			var rows: [String] = []
+
+			for n in arrayTagRows { rows.push('(const void*)&' + n + '__$') }
+			r += rows.join(', ')
+		}
+		r += rb + ';' + nl
+		r += 'static const void* hexaArrayTagOf_(struct Any_* v_) ' + lb
+		r += ' if (v_ == nullptr) return nullptr; int64_t w_ = (int64_t)v_; if (w_ >= (int64_t)-65535 && w_ <= (int64_t)65535) return nullptr; '
+		r += 'if (v_ == (struct Any_*)(&_true) || v_ == (struct Any_*)(&_false)) return nullptr; '
+		r += 'const void* tag_ = ((const void**)v_)[0]; if (tag_ == nullptr) return nullptr; '
+		r += 'for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayCtorTags_)/sizeof(hexaArrayCtorTags_[0]); i_++) ' + lb + ' if (hexaArrayCtorTags_[i_] != nullptr && hexaArrayCtorTags_[i_] == tag_) return tag_; ' + rb + ' return nullptr; ' + rb + nl
+		r += 'HEXA_C uint8_t hexaAnyIsArray_(struct Any_* v_) ' + lb + ' return (uint8_t)(hexaArrayTagOf_(v_) != nullptr); ' + rb + nl
+		r += 'HEXA_C int32_t hexaAnyArrayCount_(struct Any_* v_) ' + lb
+		r += ' const void* tag_ = hexaArrayTagOf_(v_); if (tag_ == nullptr) return (int32_t)0; '
+		r += 'struct HexaReflect_* rf_ = HexaReflectFor_(tag_); return rf_->index_count_ != nullptr ? rf_->index_count_((void*)v_) : (int32_t)0; ' + rb + nl
+		r += 'HEXA_C struct Any_* hexaAnyArrayGet_(struct Any_* v_, int32_t i_) ' + lb
+		r += ' const void* tag_ = hexaArrayTagOf_(v_); if (tag_ == nullptr) return (struct Any_*)(size_t)(&HexaNone_); '
+		r += 'struct HexaReflect_* rf_ = HexaReflectFor_(tag_); '
+		r += 'if (rf_->index_get_ == nullptr) return (struct Any_*)(size_t)(&HexaNone_); '
+		r += 'struct Any_* e_ = rf_->index_get_((void*)v_, i_); return e_ != nullptr ? e_ : (struct Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		return r
 	}
 
@@ -10499,6 +10653,18 @@ class GenCxx {
 
 					if cShape(b) == 'String_*' {
 						return 'String_$combine_(' + printTypeConverter(printExpression(a), valueType(a), project.typer.typeString) + ', ' + printExpression(b) + ')'
+					}
+
+					if cShape(a) == 'Any_*' and cShape(b) == 'Any_*' {
+						let addSide = stringifyType(getType(e))
+
+						if addSide == 'Any_*' {
+							return 'Any_add_((Any_*)(size_t)(' + printExpression(a) + '), (Any_*)(size_t)(' + printExpression(b) + '))'
+						}
+
+						if addSide == 'String_*' {
+							return 'String_$combine_(Any_unboxString_((Any_*)(size_t)(' + printExpression(a) + ')), Any_unboxString_((Any_*)(size_t)(' + printExpression(b) + ')))'
+						}
 					}
 				}
 
