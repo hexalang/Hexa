@@ -2040,7 +2040,7 @@ class JsonReader {
 	}
 	fun parseString(): String {
 		pos++
-		var out = ''
+		var out [String] = []
 		while pos < s.length {
 			if let c = s.charCodeAt(pos) {
 				if c == 34 {
@@ -2051,33 +2051,33 @@ class JsonReader {
 					pos++
 					if let e = s.charCodeAt(pos) {
 						if e == 34 {
-							out = out + '"'
+							out.push('"')
 							pos++
 						} else if e == 92 {
-							out = out + '\\'
+							out.push('\\')
 							pos++
 						} else if e == 47 {
-							out = out + '/'
+							out.push('/')
 							pos++
 						} else if e == 98 {
-							out = out + String.fromCharCode(8)
+							out.push(String.fromCharCode(8))
 							pos++
 						} else if e == 102 {
-							out = out + String.fromCharCode(12)
+							out.push(String.fromCharCode(12))
 							pos++
 						} else if e == 110 {
-							out = out + String.fromCharCode(10)
+							out.push(String.fromCharCode(10))
 							pos++
 						} else if e == 114 {
-							out = out + String.fromCharCode(13)
+							out.push(String.fromCharCode(13))
 							pos++
 						} else if e == 116 {
-							out = out + String.fromCharCode(9)
+							out.push(String.fromCharCode(9))
 							pos++
 						} else if e == 117 {
 							let h = parseHex4(pos + 1)
 							if h < 0 {
-								out = out + 'u'
+								out.push('u')
 								pos++
 							} else {
 								pos = pos + 5
@@ -2088,27 +2088,28 @@ class JsonReader {
 												if b2 == 117 {
 													let lo = parseHex4(pos + 2)
 													if lo >= 56320 and lo <= 57343 {
-														out = out + String.fromCharCode(h) + String.fromCharCode(lo)
+														out.push(String.fromCharCode(h))
+														out.push(String.fromCharCode(lo))
 														pos = pos + 6
-													} else { out = out + String.fromCharCode(h) }
-												} else { out = out + String.fromCharCode(h) }
-											} else { out = out + String.fromCharCode(h) }
-										} else { out = out + String.fromCharCode(h) }
-									} else { out = out + String.fromCharCode(h) }
-								} else { out = out + String.fromCharCode(h) }
+													} else { out.push(String.fromCharCode(h)) }
+												} else { out.push(String.fromCharCode(h)) }
+											} else { out.push(String.fromCharCode(h)) }
+										} else { out.push(String.fromCharCode(h)) }
+									} else { out.push(String.fromCharCode(h)) }
+								} else { out.push(String.fromCharCode(h)) }
 							}
 						} else {
-							out = out + String.fromCharCode(e)
+							out.push(String.fromCharCode(e))
 							pos++
 						}
 					} else { break }
 				} else {
-					out = out + String.fromCharCode(c)
+					out.push(String.fromCharCode(c))
 					pos++
 				}
 			} else { break }
 		}
-		return out
+		return out.join('')
 	}
 	fun parseLiteral(word: String, value: Any): Any {
 		if s.substring(pos, pos + word.length) == word { pos = pos + word.length }
@@ -2179,19 +2180,24 @@ class JsonReader {
 	}
 }
 fun jsonEscape(s: String): String {
-	var out = '"'
+	var parts [String] = ['"']
 	for i in s.length {
 		if let c = s.charCodeAt(i) {
-			if c == 34 { out = out + '\\\"' } else if c == 92 { out = out + '\\\\' } else if c == 10 { out = out + '\\n' } else if c == 13 { out = out + '\\r' } else if c == 9 { out = out + '\\t' } else if c == 8 { out = out + '\\b' } else if c == 12 { out = out + '\\f' } else if c < 32 { out = out + '\\u00' + hexDigitUpper(c \ 16) + hexDigitUpper(c % 16) } else { out = out + String.fromCharCode(c) }
+			if c == 34 { parts.push('\\\"') } else if c == 92 { parts.push('\\\\') } else if c == 10 { parts.push('\\n') } else if c == 13 { parts.push('\\r') } else if c == 9 { parts.push('\\t') } else if c == 8 { parts.push('\\b') } else if c == 12 { parts.push('\\f') 			} else if c < 32 {
+				parts.push('\\u00')
+				parts.push(hexDigitUpper(c \ 16))
+				parts.push(hexDigitUpper(c % 16))
+			} else { parts.push(String.fromCharCode(c)) }
 		}
 	}
-	return out + '"'
+	parts.push('"')
+	return parts.join('')
 }
 // Gap repeated per depth (pretty indent unit)
 fun jsonIndent(gap: String, depth: Int): String {
-	var out = ''
-	for k in depth { out = out + gap }
-	return out
+	var parts [String] = []
+	for k in depth { parts.push(gap) }
+	return parts.join('')
 }
 // F10.2: enumerate an AnyObject bag's keys (insertion order) for JSON.
 fun anyObjectKeys(v: Any): [String] {
@@ -2235,58 +2241,77 @@ fun stringifyInner(value: Any, replacer: (Any, Any) => Any?, gap: String, depth:
 		if count == 0 { return '[]' }
 
 		if gap.length == 0 {
-			var out = '['
+			var parts [String] = ['[']
 			var i = 0
 
 			while i < count {
-				if i > 0 { out = out + ',' }
-				out = out + stringifyInner(anyArrayGet(v, i), replacer, gap, depth + 1, String.fromInt32(i))
+				if i > 0 { parts.push(',') }
+				parts.push(stringifyInner(anyArrayGet(v, i), replacer, gap, depth + 1, String.fromInt32(i)))
 				i += 1
 			}
-			return out + ']'
+			parts.push(']')
+			return parts.join('')
 		}
 		let pad = jsonIndent(gap, depth + 1)
 		let close = jsonIndent(gap, depth)
-		var out = '[\n' + pad
+		var parts [String] = ['[\n', pad]
 		var i = 0
 
 		while i < count {
-			if i > 0 { out = out + ',\n' + pad }
 			out = out + stringifyInner(anyArrayGet(v, i), replacer, gap, depth + 1, String.fromInt32(i))
+			if i > 0 {
+				parts.push(',\n')
+				parts.push(pad)
+			}
+			parts.push(stringifyInner(anyArrayGet(v, i), replacer, gap, depth + 1, String.fromInt32(i)))
 			i += 1
 		}
-		return out + '\n' + close + ']'
+		parts.push('\n')
+		parts.push(close)
+		parts.push(']')
+		return parts.join('')
 	}
 	if v is Map<String, Any> {
 		if let obj = v as!Map<String, Any> {
 			let keys = obj.keys()
 			if keys.length == 0 { return '\{\}' }
 			if gap.length == 0 {
-				var out = '\{'
+				var parts [String] = ['\{']
 				var first = true
 				for i in keys.length {
 					let k = keys[i]
 					if let prop = obj.get(k) {
-						if not first { out = out + ',' }
+						if not first { parts.push(',') }
 						first = false
-						out = out + jsonEscape(k) + ':' + stringifyInner(prop, replacer, gap, depth + 1, k)
+						parts.push(jsonEscape(k))
+						parts.push(':')
+						parts.push(stringifyInner(prop, replacer, gap, depth + 1, k))
 					}
 				}
-				return out + '\}'
+				parts.push('\}')
+				return parts.join('')
 			}
 			let pad = jsonIndent(gap, depth + 1)
 			let close = jsonIndent(gap, depth)
-			var out = '\{\n' + pad
+			var parts [String] = ['\{\n', pad]
 			var first = true
 			for i in keys.length {
 				let k = keys[i]
 				if let prop = obj.get(k) {
-					if not first { out = out + ',\n' + pad }
+					if not first {
+						parts.push(',\n')
+						parts.push(pad)
+					}
 					first = false
-					out = out + jsonEscape(k) + ': ' + stringifyInner(prop, replacer, gap, depth + 1, k)
+					parts.push(jsonEscape(k))
+					parts.push(': ')
+					parts.push(stringifyInner(prop, replacer, gap, depth + 1, k))
 				}
 			}
-			return out + '\n' + close + '\}'
+			parts.push('\n')
+			parts.push(close)
+			parts.push('\}')
+			return parts.join('')
 		}
 		return '\{\}'
 	}
@@ -2298,31 +2323,43 @@ fun stringifyInner(value: Any, replacer: (Any, Any) => Any?, gap: String, depth:
 		let keys = anyObjectKeys(v)
 		if keys.length == 0 { return String.fromCharCode(123) + String.fromCharCode(125) }
 		if gap.length == 0 {
-			var out = String.fromCharCode(123)
+			var parts [String] = [String.fromCharCode(123)]
 			var first = true
 			for i in keys.length {
 				let k = keys[i]
 				if let prop = anyObjectGet(v, k) {
-					if not first { out = out + ',' }
+					if not first { parts.push(',') }
 					first = false
-					out = out + jsonEscape(k) + ':' + stringifyInner(prop, replacer, gap, depth + 1, k)
+					parts.push(jsonEscape(k))
+					parts.push(':')
+					parts.push(stringifyInner(prop, replacer, gap, depth + 1, k))
 				}
 			}
-			return out + String.fromCharCode(125)
+			parts.push(String.fromCharCode(125))
+			return parts.join('')
 		}
 		let pad = jsonIndent(gap, depth + 1)
 		let close = jsonIndent(gap, depth)
-		var out = String.fromCharCode(123) + String.fromCharCode(10) + pad
+		var parts [String] = [String.fromCharCode(123), String.fromCharCode(10), pad]
 		var first = true
 		for i in keys.length {
 			let k = keys[i]
 			if let prop = anyObjectGet(v, k) {
-				if not first { out = out + ',' + String.fromCharCode(10) + pad }
+				if not first {
+					parts.push(',')
+					parts.push(String.fromCharCode(10))
+					parts.push(pad)
+				}
 				first = false
-				out = out + jsonEscape(k) + ': ' + stringifyInner(prop, replacer, gap, depth + 1, k)
+				parts.push(jsonEscape(k))
+				parts.push(': ')
+				parts.push(stringifyInner(prop, replacer, gap, depth + 1, k))
 			}
 		}
-		return out + String.fromCharCode(10) + close + String.fromCharCode(125)
+		parts.push(String.fromCharCode(10))
+		parts.push(close)
+		parts.push(String.fromCharCode(125))
+		return parts.join('')
 	}
 	return '\{\}'
 }
@@ -2383,9 +2420,12 @@ class Console {
 	// fun log(str: Any): Void {
 	fun log(any: Any,...args): Void {
 	fun log(...message: Any?): Void {
-		var out = ''
-		for m in message { out = out + anyToString(m) + ' ' }
-		logString(out.trim())
+		var parts [String] = []
+		for m in message {
+			if parts.length > 0 { parts.push(' ') }
+			parts.push(anyToString(m))
+		}
+		logString(parts.join('').trim())
 	}
 
 	fun trace(message: String): Void {
@@ -2411,21 +2451,32 @@ class Console {
 	fun error(data: Any, message: Any?): Void { }
 	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
 	fun error(...message: Any?): Void {
-		var out = ''
 		for m in message { out = out + anyToString(m) + ' ' }
-		logString(out.trim())
+		var parts [String] = []
+		for m in message {
+			if parts.length > 0 { parts.push(' ') }
+			parts.push(anyToString(m))
+		}
+		logString(parts.join('').trim())
 	}
 	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
 	fun warn(...message: Any?): Void {
 		var out = ''
 		for m in message { out = out + anyToString(m) + ' ' }
 		logString(out.trim())
+		var parts [String] = []
+		for m in message {
+			parts.push(anyToString(m))
+		}
 	}
 	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
 	fun info(...message: Any?): Void {
-		var out = ''
-		for m in message { out = out + anyToString(m) + ' ' }
-		logString(out.trim())
+		var parts [String] = []
+		for m in message {
+			if parts.length > 0 { parts.push(' ') }
+			parts.push(anyToString(m))
+		}
+		logString(parts.join('').trim())
 	}
 	fun dir(value: Any?): Void { logString(stringifyInner(value, null, '', 0, '')) }
 	fun time(label: String? = 'default'): Void {
@@ -2465,9 +2516,15 @@ class Console {
 	}
 	// Hexa rest (count+ptr) — body iterates, so NOT @nativeVariadic.
 	fun group(...label: Any?): Void {
-		var out = ''
-		for m in label { out = out + anyToString(m) + ' ' }
-		if out.length > 0 { logString(out.trim()) }
+		var parts [String] = []
+		for m in label {
+			if parts.length > 0 { parts.push(' ') }
+			parts.push(anyToString(m))
+		}
+		if parts.length > 0 {
+			let out = parts.join('')
+			if out.length > 0 { logString(out.trim()) }
+		}
 		consoleGroupDepth = consoleGroupDepth + 1
 	}
 	fun groupEnd(): Void {
@@ -2477,9 +2534,15 @@ class Console {
 	fun assert(condition: Bool,...message: Any?): Void {
 		if condition { return }
 		var out = 'Assertion failed'
-		var extra = ''
-		for m in message { extra = extra + anyToString(m) + ' ' }
-		if extra.length > 0 { out = out + ': ' + extra.trim() }
+		var extra [String] = []
+		for m in message {
+			if extra.length > 0 { extra.push(' ') }
+			extra.push(anyToString(m))
+		}
+		if extra.length > 0 {
+			let text = extra.join('')
+			if text.length > 0 { out = out + ': ' + text.trim() }
+		}
 		logString(out)
 		throw Error(out)
 	}
@@ -3148,31 +3211,33 @@ class Buffer /*implements ArrayAccess<T>*/ {
 			return base64Encode(arr)
 		}
 		if enc == 'hex' {
-			var out = ''
+			var parts [String] = []
 			for i in (e - s) {
 				let b = bytes[s + i] as!Int
-				out = out + hexDigitUpper(b \ 16).toLowerCase() + hexDigitUpper(b % 16).toLowerCase()
+				parts.push(hexDigitUpper(b \ 16).toLowerCase())
+				parts.push(hexDigitUpper(b % 16).toLowerCase())
 			}
-			return out
+			return parts.join('')
 		}
 		if enc == 'utf16le' or enc == 'ucs2' or enc == 'utf-16le' {
-			var out = ''
+			var parts [String] = []
 			var i = s
 			while i + 1 < e {
-				out = out + String.fromCharCode((bytes[i] as!Int) + (bytes[i + 1] as!Int) * 256)
+				parts.push(String.fromCharCode((bytes[i] as!Int) + (bytes[i + 1] as!Int) * 256))
 				i = i + 2
 			}
-			return out
+			return parts.join('')
 		}
 		if enc == 'binary' or enc == 'latin1' {
-			var out = ''
-			for i in (e - s) { out = out + String.fromCharCode(bytes[s + i] as!Int) }
-			return out
+			var parts [String] = []
+			for i in (e - s) { parts.push(String.fromCharCode(bytes[s + i] as!Int)) }
+			return parts.join('')
 		}
 		// ascii + unknown: 7-bit mask
-		var out = ''
 		for i in (e - s) { out = out + String.fromCharCode((bytes[s + i] as!Int) % 128) }
-		return out
+		var parts [String] = []
+		for i in (e - s) { parts.push(String.fromCharCode((bytes[s + i] as!Int) % 128)) }
+		return parts.join('')
 	}
 	static fun fromBytes(data: ArrayPointer<UInt8>, length: Int): Buffer {
 		let out = Buffer.alloc(length)
