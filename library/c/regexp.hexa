@@ -138,7 +138,128 @@ class RegexProgram {
 	var argB [Int] = []
 	var sets [String] = []
 	var groups Int = 0
+	// First-consumed-character prefilter (see `regexBuildFirstSet`): the codes
+	// a match attempt can consume at its FIRST position. `firstAny` disables
+	// the filter (char-agnostic atom, backreference, negated class, or the
+	// pattern can match the empty string) — `exec` then tries every offset,
+	// which is the old behaviour.
+	var firstAny Bool = true
+	// 256-entry membership table for codes < 256 (`0`/`1`, NOT a bitmap: keeps
+	// the hot lookup free of shifts and of Int32 sign questions) + a small list
+	// for higher codes.
+	var firstBytes [Int] = []
+	var firstHigh [Int] = []
 	new () { }
+}
+
+// Build `firstAny`/`firstBytes`/`firstHigh` for a compiled program.
+//
+// WHY: `exec` retries the whole program at every start offset, so a quantified
+// alternative that has to walk to the end of the line before failing was
+// O(n²) — the 1745-char reasoning line took ~2 s and Perfide re-tokenizes on
+// every bubble layout. Real engines solve this with a "leading char" set: an
+// offset whose character cannot begin a match is skipped without running the
+// matcher. The set is a SUPERSET (the walk ignores what the asserts do), so
+// skipping is always sound; anything not character-bound sets `firstAny` and
+// nothing changes.
+fun regexBuildFirstSet(prog RegexProgram, ignoreCase Bool): Void {
+	let n = prog.ops.length
+
+	if n == 0 { return }
+	// Visited flags: `rxJmp` loops (`a*`) would otherwise walk forever.
+	var seen [Int] = []
+	var i = 0
+
+	while i < n {
+		seen.push(0)
+		i++
+	}
+	var bytes [Int] = []
+
+	while bytes.length < 256 { bytes.push(0) }
+	var high [Int] = []
+	var any = false
+	var empty = false
+	var members = 0
+	var work [Int] = [0]
+
+	while work.length > 0 {
+		let pc = work[work.length - 1]
+
+		work.pop()
+
+		if pc < 0 or pc >= n { continue }
+
+		if seen[pc] == 1 { continue }
+		seen[pc] = 1
+		let op = prog.ops[pc]
+
+		if op == rxMatch {
+			// Reachable without consuming: an empty match is possible at ANY
+			// offset, so no offset may be skipped.
+			empty = true
+		} else if op == rxChar {
+			var c = prog.argA[pc]
+
+			if ignoreCase { c = rxFold(c) }
+
+			if c >= 0 and c < 256 {
+				if bytes[c] == 0 {
+					bytes[c] = 1
+					members++
+				}
+			} else { high.push(c) }
+		} else if op == rxClass {
+			if prog.argA[pc] == 1 {
+				any = true
+			} else {
+				let set = prog.sets[pc]
+				var k = 0
+
+				while k < set.length {
+					let mc = set.charCodeAt(k)
+
+					if mc != null {
+						var c = mc !
+
+						if ignoreCase { c = rxFold(c) }
+
+						if c >= 0 and c < 256 {
+							if bytes[c] == 0 {
+								bytes[c] = 1
+								members++
+							}
+						} else { high.push(c) }
+					}
+					k++
+				}
+			}
+		} else if op == rxAny {
+			any = true
+		} else if op == rxBackref {
+			// Whatever group it points at — unknown statically.
+			any = true
+		} else if op == rxSplit {
+			work.push(prog.argA[pc])
+			work.push(prog.argB[pc])
+		} else if op == rxJmp {
+			work.push(prog.argA[pc])
+		} else if op == rxSave or op == rxAssertStart or op == rxAssertEnd or op == rxAssertWord {
+			// Zero-width: the first consumed character comes after them.
+			work.push(pc + 1)
+		} else {
+			// Unknown/new opcode: it may well consume characters, so the set is
+			// not character-bound. Be conservative — a too-small set would skip
+			// offsets that really match.
+			any = true
+		}
+	}
+	// Nothing to speak of (all asserts, or no consuming atom reachable): fall
+	// back rather than silently skipping every offset.
+	if any or empty or (members == 0 and high.length == 0) { return }
+	prog.firstAny = false
+	prog.firstBytes = bytes
+	prog.firstHigh = high
 }
 
 var regexProgramCache = Map<String, RegexProgram>()
@@ -629,6 +750,9 @@ class RegExp {
 	var sets [String] = []
 	var compiled Bool = false
 	var flagText String = ''
+	var firstAny Bool = true
+	var firstBytes [Int] = []
+	var firstHigh [Int] = []
 	new (pattern String, flags String?) {
 		this.source = pattern
 
@@ -662,6 +786,9 @@ class RegExp {
 			this.argB = cached.argB
 			this.sets = cached.sets
 			this.groupCount = cached.groups
+			this.firstAny = cached.firstAny
+			this.firstBytes = cached.firstBytes
+			this.firstHigh = cached.firstHigh
 			return
 		}
 		let counter = RegexGroupCounter()
@@ -673,12 +800,31 @@ class RegExp {
 		prog.argB = frag.argB
 		prog.sets = frag.sets
 		prog.groups = counter.groups
+		regexBuildFirstSet(prog, this.ignoreCase)
 		regexProgramCache.set(key, prog)
 		this.ops = prog.ops
 		this.argA = prog.argA
 		this.argB = prog.argB
 		this.sets = prog.sets
 		this.groupCount = prog.groups
+		this.firstAny = prog.firstAny
+		this.firstBytes = prog.firstBytes
+		this.firstHigh = prog.firstHigh
+	}
+	// Can a match attempt that consumes its first character at `c` succeed?
+	// Only meaningful when `firstAny` is false (see `regexBuildFirstSet`).
+	fun firstHas(c Int): Bool {
+		if c >= 0 and c < 256 {
+			if firstBytes[c] == 1 { return true }
+			return false
+		}
+		var i = 0
+
+		while i < firstHigh.length {
+			if firstHigh[i] == c { return true }
+			i++
+		}
+		return false
 	}
 	fun exec(str String): RegExpMatch? {
 		this.ensureCompiled()
@@ -703,16 +849,36 @@ class RegExp {
 		var sb [Int] = []
 
 		while start <= str.length {
-			for i in caps.length { caps[i] = -1 }
-			let end = this.tryPc(0, str, start, caps, sk, sa, sb)
+			var viable = true
 
-			if end >= 0 {
-				if this.global {
-					this.lastIndex = end
+			if not this.firstAny {
+				viable = false
 
-					if end == start { this.lastIndex = start + 1 }
+				if start < str.length {
+					let code = str.charCodeAt(start)
+
+					if code != null {
+						var c = code !
+
+						if this.ignoreCase { c = rxFold(c) }
+
+						if this.firstHas(c) { viable = true }
+					}
 				}
-				return RegExpMatch(this, str, start, end, caps)
+			}
+
+			if viable {
+				for i in caps.length { caps[i] = -1 }
+				let end = this.tryPc(0, str, start, caps, sk, sa, sb)
+
+				if end >= 0 {
+					if this.global {
+						this.lastIndex = end
+
+						if end == start { this.lastIndex = start + 1 }
+					}
+					return RegExpMatch(this, str, start, end, caps)
+				}
 			}
 			start++
 		}
