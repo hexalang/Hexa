@@ -39,8 +39,9 @@
 // capturing, `(?:...)` non-capturing, `|`, `* + ? {n} {n,} {n,m}` greedy AND
 // lazy (`*?` etc.), backreferences `\1`..`\9`, flags `g i m`.
 // Unsupported (unused by the app): lookahead/lookbehind, named groups,
-// unicode property classes. Backtracking is recursive with a depth fuse;
-// `rxSave` restores its own slot on failure, so no per-SPLIT capture copy.
+// unicode property classes. Backtracking runs on an EXPLICIT stack (three
+// `[Int]` scratch arrays) with a step fuse — never on the C stack; see
+// `tryPc` for the STATUS_STACK_OVERFLOW this replaced.
 
 let rxMatch Int = 0
 let rxChar Int = 1
@@ -53,7 +54,12 @@ let rxAssertStart Int = 7
 let rxAssertEnd Int = 8
 let rxAssertWord Int = 9
 let rxBackref Int = 10
-let rxMaxDepth Int = 30000
+// `tryPc` choice-point record kinds (see the matcher): try the alternative
+// branch, or undo one capture write when backtracking past it.
+let rxStackTry Int = 0
+let rxStackUndo Int = 1
+// Matcher step budget (a TIME fuse, never a stack one).
+let rxMaxSteps Int = 30000000
 
 // One-shot buffer: codes -> interned String via a single malloc + copy.
 // All class-member and replacement building funnels here (never per-char `+`).
@@ -688,10 +694,17 @@ class RegExp {
 		var caps [Int] = []
 
 		for i in (this.groupCount + 1) * 2 { caps.push(-1) }
+		// Backtracking scratch for `tryPc` (choice points + capture undo
+		// records): allocated once per `exec` and reused for every start
+		// offset, so a matcher run costs zero recursion and a handful of
+		// heap slots instead of one C frame per opcode step.
+		var sk [Int] = []
+		var sa [Int] = []
+		var sb [Int] = []
 
 		while start <= str.length {
 			for i in caps.length { caps[i] = -1 }
-			let end = this.tryPc(0, str, start, caps, 0)
+			let end = this.tryPc(0, str, start, caps, sk, sa, sb)
 
 			if end >= 0 {
 				if this.global {
@@ -715,166 +728,242 @@ class RegExp {
 	fun toString(): String {
 		return '/' + this.source + '/'
 	}
-	fun tryPc(pc Int, str String, pos Int, caps [Int], depth Int): Int {
-		if depth > rxMaxDepth { return -1 }
+	// Explicit-stack backtracking matcher — NO recursion.
+	//
+	// Record kinds — `sk[i]` says what `sa[i]`/`sb[i]` mean:
+	// rxStackTry  : `sa` = pc of the alternative branch, `sb` = its pos
+	// rxStackUndo : `sa` = capture slot, `sb` = the value it had before
+	// Popping is LIFO, so backtracking to a Try first undoes every capture
+	// written by the failed subtree above it — exactly the recursive version's
+	// `if r < 0 … caps[slot] = previous` unwinding, in O(1) C frames.
+	fun tryPc(startPc Int, str String, startPos Int, caps [Int], sk [Int], sa [Int], sb [Int]): Int {
+		var pc = startPc
+		var pos = startPos
+		var stackLen = 0
+		var steps = 0
 
-		if pc < 0 or pc >= this.ops.length { return -1 }
-		let op = this.ops[pc]
+		while true {
+			steps += 1
 
-		if op == rxMatch { return pos }
+			if steps > rxMaxSteps { return -1 }
+			var advance = false
 
-		if op == rxChar {
-			if pos >= str.length { return -1 }
-			let code = str.charCodeAt(pos)
+			if pc >= 0 and pc < this.ops.length {
+				let op = this.ops[pc]
 
-			if code == null { return -1 }
-			var c = code !
-			var want = this.argA[pc]
+				if op == rxMatch { return pos }
 
-			if this.ignoreCase {
-				c = rxFold(c)
-				want = rxFold(want)
-			}
+				if op == rxChar {
+					if pos < str.length {
+						let code = str.charCodeAt(pos)
 
-			if c != want { return -1 }
-			return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1)
-		}
+						if code != null {
+							var c = code !
+							var want = this.argA[pc]
 
-		if op == rxAny {
-			if pos >= str.length { return -1 }
-			let code = str.charCodeAt(pos)
+							if this.ignoreCase {
+								c = rxFold(c)
+								want = rxFold(want)
+							}
 
-			if code == null { return -1 }
+							if c == want {
+								pc += 1
+								pos += 1
+								advance = true
+							}
+						}
+					}
+				} else if op == rxAny {
+					if pos < str.length {
+						let code = str.charCodeAt(pos)
 
-			if code ! != 10 and code ! != 13 { return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1) }
-			return -1
-		}
+						if code != null {
+							if code ! != 10 and code ! != 13 {
+								pc += 1
+								pos += 1
+								advance = true
+							}
+						}
+					}
+				} else if op == rxClass {
+					if pos < str.length {
+						let code = str.charCodeAt(pos)
 
-		if op == rxClass {
-			if pos >= str.length { return -1 }
-			let code = str.charCodeAt(pos)
+						if code != null {
+							var c = code !
 
-			if code == null { return -1 }
-			var c = code !
-			if this.ignoreCase { c = rxFold(c) }
-			var members = this.sets[pc]
-			var found = false
-			for i in members.length {
-				let mc = members.charCodeAt(i)
+							if this.ignoreCase { c = rxFold(c) }
+							let members = this.sets[pc]
+							var found = false
+							var i = 0
 
-				if mc != null {
-					var m = mc !
-					if this.ignoreCase { m = rxFold(m) }
+							while i < members.length {
+								let mc = members.charCodeAt(i)
 
-					if m == c {
-						found = true
-						break
+								if mc != null {
+									var m = mc !
+
+									if this.ignoreCase { m = rxFold(m) }
+
+									if m == c {
+										found = true
+										break
+									}
+								}
+								i += 1
+							}
+
+							if this.argA[pc] == 1 { found = not found }
+
+							if found {
+								pc += 1
+								pos += 1
+								advance = true
+							}
+						}
+					}
+				} else if op == rxSplit {
+					// Push the alternative branch, then run the first one now.
+					if stackLen >= sk.length {
+						sk.push(0)
+						sa.push(0)
+						sb.push(0)
+					}
+					sk[stackLen] = rxStackTry
+					sa[stackLen] = this.argB[pc]
+					sb[stackLen] = pos
+					stackLen += 1
+					pc = this.argA[pc]
+					advance = true
+				} else if op == rxJmp {
+					pc = this.argA[pc]
+					advance = true
+				} else if op == rxSave {
+					let slot = this.argA[pc]
+
+					if slot < caps.length {
+						// Remember the previous value so a failed subtree can
+						// put it back (the recursive version restored it in
+						// its own frame).
+						if stackLen >= sk.length {
+							sk.push(0)
+							sa.push(0)
+							sb.push(0)
+						}
+						sk[stackLen] = rxStackUndo
+						sa[stackLen] = slot
+						sb[stackLen] = caps[slot]
+						stackLen += 1
+						caps[slot] = pos
+					}
+					pc += 1
+					advance = true
+				} else if op == rxAssertStart {
+					if pos == 0 or (this.multiline and rxCharBeforeIsNewline(str, pos)) {
+						pc += 1
+						advance = true
+					}
+				} else if op == rxAssertEnd {
+					if pos == str.length or (this.multiline and rxCharAtIsNewline(str, pos)) {
+						pc += 1
+						advance = true
+					}
+				} else if op == rxAssertWord {
+					var before = false
+					var after = false
+
+					if pos > 0 {
+						let b = str.charCodeAt(pos - 1)
+
+						if b != null { before = rxIsWordCode(b !) }
+					}
+
+					if pos < str.length {
+						let a = str.charCodeAt(pos)
+
+						if a != null { after = rxIsWordCode(a !) }
+					}
+					var boundary = before != after
+
+					if this.argA[pc] == 1 { boundary = not boundary }
+
+					if boundary {
+						pc += 1
+						advance = true
+					}
+				} else if op == rxBackref {
+					let gi = this.argA[pc]
+					let startSlot = gi * 2
+					let endSlot = gi * 2 + 1
+
+					if startSlot < caps.length and endSlot < caps.length {
+						let capturedStart = caps[startSlot]
+						let capturedEnd = caps[endSlot]
+
+						if capturedStart >= 0 and capturedEnd >= capturedStart {
+							let text = str.substring(capturedStart, capturedEnd)
+
+							if text.length == 0 {
+								pc += 1
+								advance = true
+							} else if pos + text.length <= str.length {
+								var i = 0
+								var same = true
+
+								while i < text.length {
+									let a = str.charCodeAt(pos + i)
+									let b = text.charCodeAt(i)
+
+									if a == null or b == null {
+										same = false
+										break
+									}
+									var ac = a !
+									var bc = b !
+
+									if this.ignoreCase {
+										ac = rxFold(ac)
+										bc = rxFold(bc)
+									}
+
+									if ac != bc {
+										same = false
+										break
+									}
+									i += 1
+								}
+
+								if same {
+									pc += 1
+									pos += text.length
+									advance = true
+								}
+							}
+						}
 					}
 				}
 			}
 
-			if this.argA[pc] == 1 { found = not found }
+			if not advance {
+				// Backtrack: undo capture writes until an alternative is found.
+				var resumed = false
 
-			if not found { return -1 }
-			return this.tryPc(pc + 1, str, pos + 1, caps, depth + 1)
-		}
+				while stackLen > 0 {
+					stackLen -= 1
 
-		if op == rxSplit {
-			let first = this.tryPc(this.argA[pc], str, pos, caps, depth + 1)
-
-			if first >= 0 { return first }
-			return this.tryPc(this.argB[pc], str, pos, caps, depth + 1)
-		}
-
-		if op == rxJmp {
-			return this.tryPc(this.argA[pc], str, pos, caps, depth + 1)
-		}
-
-		if op == rxSave {
-			let slot = this.argA[pc]
-			var previous = -1
-
-			if slot < caps.length {
-				previous = caps[slot]
-				caps[slot] = pos
-			}
-			let r = this.tryPc(pc + 1, str, pos, caps, depth + 1)
-
-			if r < 0 and slot < caps.length { caps[slot] = previous }
-			return r
-		}
-
-		if op == rxAssertStart {
-			let okStart = pos == 0 or (this.multiline and rxCharBeforeIsNewline(str, pos))
-
-			if not okStart { return -1 }
-			return this.tryPc(pc + 1, str, pos, caps, depth + 1)
-		}
-
-		if op == rxAssertEnd {
-			let okEnd = pos == str.length or (this.multiline and rxCharAtIsNewline(str, pos))
-
-			if not okEnd { return -1 }
-			return this.tryPc(pc + 1, str, pos, caps, depth + 1)
-		}
-
-		if op == rxAssertWord {
-			var before = false
-			var after = false
-			if pos > 0 {
-				let b = str.charCodeAt(pos - 1)
-
-				if b != null { before = rxIsWordCode(b !) }
-			}
-
-			if pos < str.length {
-				let a = str.charCodeAt(pos)
-
-				if a != null { after = rxIsWordCode(a !) }
-			}
-			var boundary = before != after
-
-			if this.argA[pc] == 1 { boundary = not boundary }
-
-			if not boundary { return -1 }
-			return this.tryPc(pc + 1, str, pos, caps, depth + 1)
-		}
-
-		if op == rxBackref {
-			let gi = this.argA[pc]
-			let startSlot = gi * 2
-			let endSlot = gi * 2 + 1
-
-			if startSlot >= caps.length or endSlot >= caps.length { return -1 }
-			let capturedStart = caps[startSlot]
-			let capturedEnd = caps[endSlot]
-
-			if capturedStart < 0 or capturedEnd < capturedStart { return -1 }
-			let text = str.substring(capturedStart, capturedEnd)
-
-			if text.length == 0 { return this.tryPc(pc + 1, str, pos, caps, depth + 1) }
-
-			if pos + text.length > str.length { return -1 }
-			var i = 0
-
-			while i < text.length {
-				let a = str.charCodeAt(pos + i)
-				let b = text.charCodeAt(i)
-
-				if a == null or b == null { return -1 }
-				var ac = a !
-				var bc = b !
-				if this.ignoreCase {
-					ac = rxFold(ac)
-					bc = rxFold(bc)
+					if sk[stackLen] == rxStackUndo {
+						caps[sa[stackLen]] = sb[stackLen]
+					} else {
+						pc = sa[stackLen]
+						pos = sb[stackLen]
+						resumed = true
+						break
+					}
 				}
 
-				if ac != bc { return -1 }
-				i++
+				if not resumed { return -1 }
 			}
-			return this.tryPc(pc + 1, str, pos + text.length, caps, depth + 1)
 		}
-		return -1
 	}
 }
 
