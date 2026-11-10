@@ -3488,12 +3488,26 @@ class GenCxx {
 		return null
 	}
 
+	fun arraySpreadInner(arg: Expression): Expression? {
+		switch arg {
+			case Spread(inner):
+				switch Type.unwrapNullable(valueType(inner)) {
+					case ClassInstance(classType, _):
+						if classType.name == 'Array' { return inner }
+					case _:
+				}
+			case _:
+		}
+		return null
+	}
+
 	fun isRestSpread(arg: Expression): Bool { switch arg {
 			case Spread(inner):
 				switch valueType(inner) {
 					case Rest(_, _): return true
 					case _:
 				}
+				if arraySpreadInner(arg) != null { return true }
 			case _:
 		} return false }
 
@@ -3529,8 +3543,37 @@ class GenCxx {
 						prefix.push(padValue(exp[i]))
 					}
 				}
-				prefix.push('$nrest_')
-				prefix.push('$rest_')
+				if let inner = arraySpreadInner(a) {
+					var arrayElem: Type = project.typer.typeAny
+
+					switch Type.unwrapNullable(valueType(inner)) {
+						case ClassInstance(_, generic):
+							if generic != null, generic.length == 1 {
+								if let first = generic[0] { arrayElem = first }
+							}
+						case _:
+					}
+
+					let elemC = stringifyType(arrayElem)
+					let restC = stringifyType(restElem)
+
+					if elemC != restC {
+						throw 'Spread `...array` of element type `' + Type.stringify(arrayElem) + '` (`' + elemC + '`) cannot feed the rest parameter of element type `' + Type.stringify(restElem) + '` (`' + restC + '`)'
+					}
+
+					if args.length - 1 > fixedCount {
+						throw 'Literal arguments combined with a `...array` spread are not supported yet — pass the array alone (add a TODO when the first caller needs it)'
+					}
+					let t = tempId++
+					let tmp = '_$sp' + t
+					let arrC = stringifyType(valueType(inner))
+					metaBlock.push(arrC + ' ' + tmp + ' = (' + arrC + ')(' + printExpression(inner) + ')')
+					prefix.push('(int32_t)((' + tmp + ')->length_)')
+					prefix.push('(' + elemC + '*)((' + tmp + ')->data_)')
+				} else {
+					prefix.push('$nrest_')
+					prefix.push('$rest_')
+				}
 
 				if me != null { return '(' + prefix.join(', ') + ') ' }
 				return '(' + prefix.join(', ') + ') '
@@ -10802,7 +10845,7 @@ class GenCxx {
 
 					if collectStringAddLeaves(e, leaves) {
 						if leaves.length == 2 {
-							return 'String_$concat_(' + printExpression(leaves[0]) + ', ' + printExpression(leaves[1]) + ')'
+							return 'String_$concat2_(' + printExpression(leaves[0]) + ', ' + printExpression(leaves[1]) + ')'
 						}
 
 						if leaves.length >= 3 and leaves.length <= 8 {
