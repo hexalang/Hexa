@@ -1328,6 +1328,11 @@ class Normalizer {
 
 				// Wraps switch into function and adds `return` on every case
 			case Switch(exprs, conds, guards, cases):
+				var isTypeSwitch = false
+
+				if let typeSwitch = project.mapSwitchType.get(e), typeSwitch { isTypeSwitch = true }
+
+				if isTypeSwitch { return typeSwitchToExpression(e, guards, cases) }
 				let block = []
 				let caseRet = []
 				var funcType = typer.typeVoid
@@ -1357,6 +1362,80 @@ class Normalizer {
 		}
 
 		return null
+	}
+
+	fun isDroppedTypeCase(caseBody: Node): Bool {
+		if let dropped = project.mapSwitchDroppedCase.get(caseBody), dropped { return true }
+		return false
+	}
+
+	fun lastReachableTypeCase(guards: [Node], cases: [Node]): Int {
+		var last = 0 - 1
+		var i = 0
+
+		while i < cases.length {
+			if not isDroppedTypeCase(cases[i]) {
+				last = i
+				var unguarded = true
+
+				if let _guard = guards[i] { unguarded = false }
+
+				if unguarded { break }
+			}
+			i++
+		}
+		return last
+	}
+
+	fun typeSwitchToStatement(node: Node, guards: [Node], cases: [Node]): Statement? {
+		let last = lastReachableTypeCase(guards, cases)
+
+		if last < 0 { return null }
+		var chain: Statement? = null
+		var i = last
+
+		while i >= 0 {
+			if not isDroppedTypeCase(cases[i]) {
+				if let body = nodeToStatement(cases[i]) {
+					if let guardian = guards[i] {
+						let then = Statement.Block([body])
+
+						if let otherwise = chain {
+							chain = Statement.If(nodeToExpression(guardian), then, otherwise)
+						} else {
+							chain = Statement.If(nodeToExpression(guardian), then, Statement.Block([]))
+						}
+					} else {
+						chain = body
+					}
+				}
+			}
+			i--
+		}
+		return chain
+	}
+
+	fun typeSwitchToExpression(node: Node, guards: [Node], cases: [Node]): Expression? {
+		let resultType = typer.types.get(node) ?? typer.typeAny
+		let last = lastReachableTypeCase(guards, cases)
+
+		if last < 0 { return Expression.Null(resultType) }
+		var chain: Expression = Expression.Null(resultType)
+		var i = last
+
+		while i >= 0 {
+			if not isDroppedTypeCase(cases[i]) {
+				if let value = nodeToExpression(cases[i]) {
+					if let guardian = guards[i] {
+						chain = Expression.If(nodeToExpression(guardian), value, chain, typer.types.get(cases[i]) ?? typer.typeAny)
+					} else {
+						chain = value
+					}
+				}
+			}
+			i--
+		}
+		return chain
 	}
 
 	fun nodeToStatement(e: Node): Statement? {
@@ -2646,6 +2725,12 @@ class Normalizer {
 				return nodeToStatement(unwrapParens(inner))
 
 			case Switch(exprs, conds, guards, cases):
+				var isTypeSwitch = false
+
+				if let typeSwitch = project.mapSwitchType.get(e), typeSwitch { isTypeSwitch = true }
+
+				if isTypeSwitch { return typeSwitchToStatement(e, guards, cases) }
+
 				if (exprs.length > 1) {
 					console.error('Multiple switch values not yet supported:', e, project.data.get(e))
 				}

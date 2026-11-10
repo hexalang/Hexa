@@ -4653,6 +4653,28 @@ class Typer {
 				switch eType {
 					case Function(args, returns, variadic):
 						let provided = el.length
+
+						var spreadAt = 0 - 1
+
+						for i in el.length { switch el[i] {
+								case Spread(_): spreadAt = i
+								case _:
+							} }
+
+						if spreadAt >= 0 {
+							if not variadic {
+								fail('Spread `...value` argument requires a variadic `...rest` parameter in the callee signature', el[spreadAt])
+							}
+
+							if spreadAt != el.length - 1 {
+								fail('Spread `...value` argument must be the last argument', el[spreadAt])
+							}
+
+							if el.length - 1 < args.length - 1 {
+								fail('Spread `...value` argument cannot fill fixed parameters — pass all ' + ('' + (args.length - 1)) + ' fixed parameter(s) explicitly', el[spreadAt])
+							}
+						}
+
 						// TODO actually those things must be a part of function type itself
 						var expectedAtMax = args.length
 						var expectedAtLeast = 0
@@ -5620,10 +5642,107 @@ class Typer {
 		return inputType
 	}
 
+	fun isSameType(a: Type, b: Type): Bool {
+		return Type.stringify(a) == Type.stringify(b)
+	}
+
+	fun fillTypeSwitch(node: Node, exprs: [Node], conds: [Node], guards: [Node], cases: [Node], value: Bool): Bool {
+		if exprs.length != 1 { return false }
+		var subjectPattern: NodeType? = null
+
+		switch exprs[0] {
+			case NodeTypeValue(t): subjectPattern = t
+			case _:
+		}
+
+		if subjectPattern == null { return false }
+		var subject: Type = typeAny
+
+		if let sp = subjectPattern { subject = toType(sp, exprs[0]) }
+		types.set(exprs[0], subject)
+		project.mapSwitchType.set(node, true)
+		var kept = 0
+		var i = 0
+
+		while i < cases.length {
+			let alternatives: [Node] = []
+
+			fun collectAlternative(n: Node) {
+				switch n {
+					case Parenthesis(inner): collectAlternative(inner)
+					case Binop(a, op, b):
+						if op == Token.BitwiseOr {
+							collectAlternative(a)
+							collectAlternative(b)
+						} else {
+							fail('This case pattern is not supported in a type switch', n)
+						}
+					case _: alternatives.push(n)
+				}
+			}
+			collectAlternative(conds[i])
+			var matched = false
+			pushScope()
+
+			for alternative in alternatives { switch alternative {
+					case Underscore: matched = true
+					case NodeTypeValue(t):
+						let patternType = toType(t, alternative)
+						types.set(alternative, patternType)
+
+						if isSameType(subject, patternType) { matched = true }
+
+					case _:
+						fail('A type switch case must be a type name (`case String:`) or `_`, got `' + Node.stringify(alternative) + '`', alternative)
+				} }
+
+			if not matched {
+				project.mapSwitchDroppedCase.set(cases[i], true)
+				popScope()
+				i++
+				continue
+			}
+
+			if let guardian = guards[i] {
+				fillExpression(guardian)
+
+				if types.get(guardian) != typeBool {
+					fail('Case `if` guard must be a simple boolean expression', guardian)
+				}
+			}
+
+			if value == true {
+				fillExpression(cases[i])
+
+				if let caseType = types.get(cases[i]) {
+					if let current = types.get(node) {
+						types.set(node, unify(current, caseType, cases[i]))
+					} else {
+						types.set(node, caseType)
+					}
+				}
+			} else {
+				fill(cases[i])
+			}
+
+			popScope()
+			kept++
+			i++
+		}
+
+		if value == true, kept == 0 {
+			fail('No matching case in type switch `' + Node.stringify(node) + '` — add `case _:`', node)
+		}
+
+		return true
+	}
+
 	fun fillSwitch(node: Node, value: Bool) {
 		switch node {
 			// TODO extracting like this is weird, Just pass arguments to fillSwitch
 			case Switch(exprs, conds, guards, cases):
+				if fillTypeSwitch(node, exprs, conds, guards, cases, value) { return }
+
 				for e in exprs { pushScope() fillExpression(e) popScope() }
 
 				if let expr = exprs[1] {

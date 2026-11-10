@@ -1022,8 +1022,8 @@ class String {
 
 	// TODO disallow String? + String (i.e. left/this cannot be null)
 	// TODO with may be null
-	// TODO also add variadic version - do this one variadic (same as JS), and introduce concat2 instead
-	fun concat(with: String): String {
+	fun concat2(with: String): String {
+
 		if this.length == 0 { return with }
 
 		if with.length == 0 { return this }
@@ -1046,16 +1046,57 @@ class String {
 		return fromUTF16OwnH(buf, length, hash)
 	}
 
+	fun concat(...args: String?): String {
+		if args.length == 0 { return this }
+
+		if this.length == 0, args.length == 1 {
+			if let only = args[0] { return only }
+			return this
+		}
+		var total = this.length
+
+		for a in args {
+			if let s = a { total = total + s.length }
+		}
+
+		if total == 0 { return this }
+		var hash = hashUpdate(hashSeed(), this.bytes, this.length)
+
+		if total <= 255 {
+			var scratch: ArrayByValue<UInt16, 256> = [0]
+			let buf = scratch.address as!ArrayPointer<UInt16>
+			var o = appendBytes(buf, 0, this.bytes, this.length)
+
+			for a in args {
+				if let s = a {
+					o = appendBytes(buf, o, s.bytes, s.length)
+					hash = hashUpdate(hash, s.bytes, s.length)
+				}
+			}
+			return fromUTF16H(buf as!ConstArrayPointer<UInt16>, 0, total, hashFinish(hash))
+		}
+		let buf = bufferAlloc(total)
+		var o = appendBytes(buf, 0, this.bytes, this.length)
+
+		for a in args {
+			if let s = a {
+				o = appendBytes(buf, o, s.bytes, s.length)
+				hash = hashUpdate(hash, s.bytes, s.length)
+			}
+		}
+		return fromUTF16OwnH(buf, total, hashFinish(hash))
+	}
+
 	// N-ary concat: genC flattens `a + b + c + …` (statically-`String` chains)
 	// into ONE call — one allocation, one intern instead of N-1 nested
 	// `concat`s where each step copied the whole prefix again.
 	// TODO ^ should be done in the proper pass
 	static fun concat3(a: String, b: String, c: String): String {
-		if a.length == 0 { return b.concat(c) }
+		if a.length == 0 { return b.concat2(c) }
 
-		if b.length == 0 { return a.concat(c) }
+		if b.length == 0 { return a.concat2(c) }
 
-		if c.length == 0 { return a.concat(b) }
+		if c.length == 0 { return a.concat2(b) }
 		let total = a.length + b.length + c.length
 		let hash = hashFinish(hashUpdate(hashUpdate(hashUpdate(hashSeed(), a.bytes, a.length), b.bytes, b.length), c.bytes, c.length))
 		let buf = bufferAlloc(total)
@@ -1210,15 +1251,15 @@ class String {
 	// TODO version that supports ArrayPointer<String> for multi-combine
 	static fun combine(a: String?, b: String?): String {
 		if let a = a, let b = b {
-			return a.concat(b)
+			return a.concat2(b)
 		}
 
 		if let a = a {
-			return a.concat("null")
+			return a.concat2("null")
 		}
 
 		if let b = b {
-			return "null".concat(b)
+			return "null".concat2(b)
 		}
 
 		return "null" + "null"

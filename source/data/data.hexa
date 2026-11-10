@@ -351,16 +351,17 @@ enum Node {
 			case JSXElement(tag, attrs, children):
 				return 'JSXElement(' + tag + ',[' + [for a in attrs Node.stringify(a)].join(',') + '],[' + [for c in children Node.stringify(c)].join(',') + '])'
 			case Var(name, t, expr, const, external): {
-				var body = ''
-				if let expr = expr {
-					body = ' = ' + Node.stringify(expr)
+					var body = ''
+
+					if let expr = expr {
+						body = ' = ' + Node.stringify(expr)
+					}
+					return (
+						external? 'declare ' : ''
+					) + (
+						const? 'let ' : 'var '
+					) + name + ' ' + NodeType.stringify(t) + body
 				}
-				return (
-					external? 'declare ' : ''
-				) + (
-					const? 'let ' : 'var '
-				) + name + ' ' + NodeType.stringify(t) + body
-			}
 			case Function(name):
 				if name == null {
 					// TODO `// Anonymous`
@@ -410,17 +411,17 @@ enum Node {
 				))
 			case Index2D(expr, x, y):
 				return cloneData(p, node, Node.Index2D(
-					cloneData(p, expr, clone(p, expr)),
-					cloneData(p, x, clone(p, x)),
-					cloneData(p, y, clone(p, y))
-				))
+						cloneData(p, expr, clone(p, expr)),
+						cloneData(p, x, clone(p, x)),
+						cloneData(p, y, clone(p, y))
+					))
 			case Index3D(expr, x, y, z):
 				return cloneData(p, node, Node.Index3D(
-					cloneData(p, expr, clone(p, expr)),
-					cloneData(p, x, clone(p, x)),
-					cloneData(p, y, clone(p, y)),
-					cloneData(p, z, clone(p, z))
-				))
+						cloneData(p, expr, clone(p, expr)),
+						cloneData(p, x, clone(p, x)),
+						cloneData(p, y, clone(p, y)),
+						cloneData(p, z, clone(p, z))
+					))
 			case Dot(expr, name):
 				return cloneData(p, node, Node.Dot(cloneData(p, expr, clone(p, expr)), name))
 			case DotUpper(expr, name):
@@ -431,21 +432,21 @@ enum Node {
 					clonedArgs = args.map(arg => cloneData(p, arg, clone(p, arg)))
 				}
 				return cloneData(p, node, Node.DotMeta(
-					cloneData(p, expr, clone(p, expr)),
-					name,
-					clonedArgs,
-					argNames
-				))
+						cloneData(p, expr, clone(p, expr)),
+						name,
+						clonedArgs,
+						argNames
+					))
 			case Meta(name, args, argNames):
 				var clonedArgs: [Node]? = null
 				if let args = args {
 					clonedArgs = args.map(arg => cloneData(p, arg, clone(p, arg)))
 				}
 				return cloneData(p, node, Node.Meta(
-					name,
-					clonedArgs,
-					argNames
-				))
+						name,
+						clonedArgs,
+						argNames
+					))
 			case Call(e, args, argNames):
 				return cloneData(p, node, Node.Call(cloneData(p, e, clone(p, e)), args.map(arg => cloneData(p, arg, clone(p, arg))), argNames))
 			case Array(elements):
@@ -456,139 +457,149 @@ enum Node {
 				return cloneData(p, node, Node.AssignOp(cloneData(p, storage, clone(p, storage)), op, cloneData(p, value, clone(p, value))))
 			case For(name, over, by, range):
 				return cloneData(p, node, Node.For(
-					name: name,
-					over: cloneData(p, over, clone(p, over)),
-					by: cloneData(p, by, clone(p, by)),
-					range: cloneData(p, range, clone(p, range))
-				))
+						name: name,
+						over: cloneData(p, over, clone(p, over)),
+						by: cloneData(p, by, clone(p, by)),
+						range: cloneData(p, range, clone(p, range))
+					))
 			case While(reason, e, pre):
 				return cloneData(p, node, Node.While(
-					reason.map(arg => cloneData(p, arg, clone(p, arg))),
-					cloneData(p, e, clone(p, e)),
-					pre
-				))
+						reason.map(arg => cloneData(p, arg, clone(p, arg))),
+						cloneData(p, e, clone(p, e)),
+						pre
+					))
 			case Switch(exprs, conds, guards, cases):
 				return cloneData(p, node, Node.Switch(
-					// TODO replace to `cloneNodes([Node])`
-					exprs.map(arg => cloneData(p, arg, clone(p, arg))),
-					conds.map(arg => cloneData(p, arg, clone(p, arg))),
-					guards.map(arg => cloneData(p, arg, clone(p, arg))),
-					cases.map(arg => cloneData(p, arg, clone(p, arg)))
-				))
+						// TODO replace to `cloneNodes([Node])`
+						exprs.map(arg => cloneData(p, arg, clone(p, arg))),
+						conds.map(arg => cloneData(p, arg, clone(p, arg))),
+						guards.map(arg => cloneData(p, arg, clone(p, arg))),
+						cases.map(arg => cloneData(p, arg, clone(p, arg)))
+					))
 			case Object(names, el):
 				return cloneData(p, node, Node.Object(names, el.map(arg => cloneData(p, arg, clone(p, arg)))))
 			case NodeTypeValue(t):
 				return cloneData(p, node, Node.NodeTypeValue(t))
 			case As(expr, kind, toType): {
-				return cloneData(p, node, Node.As(
-					expr: cloneData(p, expr, clone(p, expr)),
-					kind: kind,
-					toType: NodeType.clone(toType)
-				))
-			}
+					return cloneData(p, node, Node.As(
+							expr: cloneData(p, expr, clone(p, expr)),
+							kind: kind,
+							toType: NodeType.clone(toType)
+						))
+				}
 			case Cast(expr, toType, castKind): {
-				return cloneData(p, node, Node.Cast(
-					expr: cloneData(p, expr, clone(p, expr)),
-					toType: NodeType.clone(toType),
-					castKind: castKind == null ? null : cloneData(p, castKind, clone(p, castKind))
-				))
-			}
+					return cloneData(p, node, Node.Cast(
+							expr: cloneData(p, expr, clone(p, expr)),
+							toType: NodeType.clone(toType),
+							castKind: castKind == null ? null : cloneData(p, castKind, clone(p, castKind))
+						))
+				}
 			case JSXElement(tag, attrs, children): {
-				return cloneData(p, node, Node.JSXElement(
-					tag: tag,
-					attrs: attrs.map(a => cloneData(p, a, clone(p, a))),
-					children: children.map(c => cloneData(p, c, clone(p, c)))
-				))
-			}
+					return cloneData(p, node, Node.JSXElement(
+							tag: tag,
+							attrs: attrs.map(a => cloneData(p, a, clone(p, a))),
+							children: children.map(c => cloneData(p, c, clone(p, c)))
+						))
+				}
 			case New(path, t, args, fields, el, argNames): {
-				return cloneData(p, node, Node.New(
-					path: path,
-					t: t,
-					args: args.map(arg => cloneData(p, arg, clone(p, arg))),
-					fields: fields,
-					el: el.map(arg => cloneData(p, arg, clone(p, arg))),
-					argNames: argNames
-				))
-			}
+					return cloneData(p, node, Node.New(
+							path: path,
+							t: t,
+							args: args.map(arg => cloneData(p, arg, clone(p, arg))),
+							fields: fields,
+							el: el.map(arg => cloneData(p, arg, clone(p, arg))),
+							argNames: argNames
+						))
+				}
 			case Unop(op, postfix, e): {
-				return cloneData(p, node, Node.Unop(
-					op: op,
-					postfix: postfix,
-					e: cloneData(p, e, clone(p, e))
-				))
-			}
+					return cloneData(p, node, Node.Unop(
+							op: op,
+							postfix: postfix,
+							e: cloneData(p, e, clone(p, e))
+						))
+				}
 			case Await(e): {
-				return cloneData(p, node, Node.Await(
-					e: cloneData(p, e, clone(p, e))
-				))
-			}
+					return cloneData(p, node, Node.Await(
+							e: cloneData(p, e, clone(p, e))
+						))
+				}
 			case Arrow(expr, vars, retType): {
-				return cloneData(p, node, Node.Arrow(
-					expr: cloneData(p, expr, clone(p, expr)),
-					vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
-					retType: retType
-				))
-			}
+					return cloneData(p, node, Node.Arrow(
+							expr: cloneData(p, expr, clone(p, expr)),
+							vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
+							retType: retType
+						))
+				}
 			case Cascade(expr, names, keys, values):
 				return cloneData(p, node, Node.Cascade(
-					cloneData(p, expr, clone(p, expr)),
-					names,
-					keys.map(arg => cloneData(p, arg, clone(p, arg))),
-					values.map(arg => cloneData(p, arg, clone(p, arg)))
-				))
+						cloneData(p, expr, clone(p, expr)),
+						names,
+						keys.map(arg => cloneData(p, arg, clone(p, arg))),
+						values.map(arg => cloneData(p, arg, clone(p, arg)))
+					))
 			case Guard(conditions, otherwise):
 				return cloneData(p, node, Node.Guard(
-					conditions.map(arg => cloneData(p, arg, clone(p, arg))),
-					cloneData(p, otherwise, clone(p, otherwise))
-				))
+						conditions.map(arg => cloneData(p, arg, clone(p, arg))),
+						cloneData(p, otherwise, clone(p, otherwise))
+					))
 			case Return(e): {
 				if let e = e {
 					return cloneData(p, node, Node.Return(cloneData(p, e, clone(p, e))))
+					if let e = e {
+						return cloneData(p, node, Node.Return(cloneData(p, e, clone(p, e))))
+					}
+					return cloneData(p, node, Node.Return(null))
 				}
 				return cloneData(p, node, Node.Return(null))
 			}
 			case Block(el): {
-				return cloneData(p, node, Node.Block(
-					el: el.map(arg => cloneData(p, arg, clone(p, arg)))
-				))
-			}
+					return cloneData(p, node, Node.Block(
+							el: el.map(arg => cloneData(p, arg, clone(p, arg)))
+						))
+				}
 			case If(econd, eif, eelse, ternary): {
-				return cloneData(p, node, Node.If(
-					econd: econd.map(arg => cloneData(p, arg, clone(p, arg))),
-					eif: cloneData(p, eif, clone(p, eif)),
-					eelse: eelse != null ? cloneData(p, eelse, clone(p, eelse)) : null,
-					ternary: ternary
-				))
-			}
+					return cloneData(p, node, Node.If(
+							econd: econd.map(arg => cloneData(p, arg, clone(p, arg))),
+							eif: cloneData(p, eif, clone(p, eif)),
+							eelse: eelse != null ? cloneData(p, eelse, clone(p, eelse)) : null,
+							ternary: ternary
+						))
+				}
 			case Var(name, t, expr, const, external): {
-				return cloneData(p, node, Node.Var(
 					name: name,
 					t: t,
-					expr: cloneData(p, expr, clone(p, expr)),
 					const: const,
 					external: external
-				))
-			}
+					return cloneData(p, node, Node.Var(
+							name: name,
+							t: t,
+							expr: cloneData(p, expr, clone(p, expr)),
+							const: const,
+							external: external
+						))
+				}
 			case Function(name, body, vars, retType, external, variadic): {
-				return cloneData(p, node, Node.Function(
-					name: name,
-					body: cloneData(p, body, clone(p, body)),
-					vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
-					// TODO vars: `[Node]`, somehow valid? Array of what? Fix
-					retType: retType,
-					external: external,
-					variadic: variadic
-				))
-			}
+					return cloneData(p, node, Node.Function(
+							name: name,
+							body: cloneData(p, body, clone(p, body)),
+							vars: vars.map(arg => cloneData(p, arg, clone(p, arg))),
+							// TODO vars: `[Node]`, somehow valid? Array of what? Fix
+							retType: retType,
+							external: external,
+							variadic: variadic
+						))
+				}
 			case Class(t, extend, implement, fields, external, kind):
 				return cloneData(p, node, Node.Class(
-					t: t,
 					extend: extend,
 					implement: implement,
-					fields: fields.map(arg => cloneData(p, arg, clone(p, arg))),
-					external: external,
-					kind: kind
-				))
+						t: t,
+						extend: extend,
+						implement: implement,
+						fields: fields.map(arg => cloneData(p, arg, clone(p, arg))),
+						external: external,
+						kind: kind
+					))
 			case Underscore: return cloneData(p, node, Node.Underscore)
 			case Break: return cloneData(p, node, Node.Break)
 				// TODO for <T> no need to copy those? just pass as is?
