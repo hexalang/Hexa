@@ -475,12 +475,6 @@ struct Any_ {
 	struct AnyValue_ let_(struct String_* name_) { return AnyValue_{this}; }
 	// Field set (`obj.field = value`)
 	void $set(struct String_* name_, struct Any_* value_) { }
-	// JS-truthiness conversions (D7 — TODO real tables)
-	uint8_t _toBool() { return 1; }
-	int32_t _toInt() { return 0; }
-	double _toFloat() { return 0.0; }
-	// JS `ToString` (D7 — TODO real reflection)
-	struct String_* toString_() { return nullptr; }
 	// Dynamic call (`fn(...)` where `fn` is an `Any` value)
 	template <typename... A> struct AnyValue_ operator()(A... args) { return AnyValue_{this}; }
 };
@@ -777,7 +771,7 @@ struct AnyTrue { const void* _; int32_t rc_; };
 struct AnyTrue _true;
 struct AnyFalse { const void* _; int32_t rc_; };
 struct AnyFalse _false;
-struct Any_* _bool[3] = {(struct Any_*)&_false, (struct Any_*)&_true, nullptr};
+struct Any_* _bool[3] = {(struct Any_*)&_false, (struct Any_*)&_true, (struct Any_*)&HexaNone_};
 struct Any_* Any_fromBool(const uint8_t this_) {
 	return _bool[this_];
 }
