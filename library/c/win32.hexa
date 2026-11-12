@@ -153,6 +153,7 @@ fun winHandleFailed(handle: HANDLE): Bool {
 // Absolute path of the running module (exe dir seeds session/icons later)
 fun winExePath(): String {
 	var buf ArrayByValue<ClangWideChar, 512> = [0]
+
 	for i in 512 { buf[i] = 0 }
 	let n = getModuleFileNameW(null, buf as!ArrayPointer<ClangWideChar>, 512u32)
 	if n == 0u32 { return '' }
@@ -163,6 +164,7 @@ fun winCommandLineArgs(): [String] {
 	var out [String] = []
 	var argcBox ArrayByValue<Int32, 1> = [0]
 	let argv = commandLineToArgvW(getCommandLineW(), argcBox as!ArrayPointer<Int32>)
+
 	if argv as!UInt64 == 0u64 { return out }
 	let argc = (argcBox as!ArrayPointer<Int32>)[0]
 	var i = 0
@@ -186,6 +188,7 @@ fun readU32LE(buf: ArrayPointer<UInt8>, off: Int): UInt32 {
 }
 fun readI32LE(buf: ArrayPointer<UInt8>, off: Int): Int32 {
 	let u = readU32LE(buf, off)
+
 	if u >= 2147483648u32 { return (u - 2147483648u32) as!Int32 - 2147483647 - 1 }
 	return u as!Int32
 }
@@ -255,8 +258,8 @@ class StartupInfoW {
 	var dwThreadId: UInt32
 }
 let handleFlagInherit UInt32 = 1u32
-let startfUseStdHandles UInt32 = 1u32
-let startfUseShowWindow UInt32 = 1u32
+let startfUseStdHandles UInt32 = 0x00000100u32
+let startfUseShowWindow UInt32 = 0x00000001u32
 let createNoWindow UInt32 = 0x08000000u32
 let infiniteTimeout UInt32 = 0xFFFFFFFFu32
 let waitObject0 UInt32 = 0u32
@@ -330,6 +333,7 @@ let wsaWouldBlock Int32 = 10035
 @dllImport('GetTimeZoneInformation') declare fun getTimeZoneInformationWin(info: LPTIME_ZONE_INFORMATION): UInt32
 fun winTimezoneBiasMinutes(): Int {
 	var blob ArrayByValue<UInt8, 172> = [0]
+
 	for i in 172 { blob[i] = 0 }
 	getTimeZoneInformationWin(blob as!LPTIME_ZONE_INFORMATION)
 	return readI32LE(blob as!ArrayPointer<UInt8>, 0) as!Int
@@ -344,10 +348,13 @@ fun winTimezoneBiasMinutes(): Int {
 // Two-call shape: size query first, then the real fetch (avoids truncation).
 fun winGetEnv(name: String): String {
 	let need = getEnvironmentVariableWin(name.utf16(), null, 0u32)
+
 	if need == 0u32 { return '' }
 	var buf ArrayByValue<ClangWideChar, 32768> = [0]
+
 	for i in 32768 { buf[i] = 0 }
 	let n = getEnvironmentVariableWin(name.utf16(), buf as!ArrayPointer<ClangWideChar>, 32768u32)
+
 	if n == 0u32 or n >= 32768u32 { return '' }
 	return String.fromUTF16zUpTo(buf as!ConstArrayPointer<UInt16>, n as!Int)
 }
