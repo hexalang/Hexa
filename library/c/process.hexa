@@ -341,6 +341,10 @@ fun buildCmdlineBuf(parts: [String]): ArrayPointer<ClangWideChar> {
 		if i > 0 { cmd = cmd + ' ' }
 		cmd = cmd + winQuoteArg(parts[i])
 	}
+	return wideBufFromString(cmd)
+}
+// Raw command line (no quoting of `cmd`) — the SHELL payload form.
+fun wideBufFromString(cmd: String): ArrayPointer<ClangWideChar> {
 	let units = cmd.length + 1
 	let mem = malloc((units * 2 + 2) as!UInt64)
 	let dst = mem as!ArrayPointer<UInt8>
@@ -441,23 +445,34 @@ fun spawnImpl(command: String, args: [String], cwd: String?, stdio: Any?, showWi
 	let proc = ChildProc()
 	var file = command
 	var argv [String] = []
+	var shellPayload = ''
 
 	if shell {
-		argv.push('/d')
-		argv.push('/s')
-		argv.push('/c')
-		argv.push(command)
+		// `cmd.exe /d /s /c "<command>"` with the command text VERBATIM — the
+		// shape Node's `exec`/`spawn({shell:true})` produces. Pushing it through
+		// winQuoteArg escaped the command's OWN quotes (`\"status\"`), and cmd
+		// then handed the child literal quotes: `exec('git "status" --porcelain …')`
+		// failed with `'"status"' is not a git command` while the identical call
+		// works on the js target. Only the shell exe is quoted.
+		shellPayload = command
 
-		for a in args { argv.push(a) }
+		for a in args { shellPayload = shellPayload + ' ' + a }
 		file = 'cmd.exe'
 	} else {
 		for a in args { argv.push(a) }
 	}
 	let exe = resolveExePath(file, cwd)
-	var parts [String] = [exe]
+	var cmdText = ''
 
-	for a in argv { parts.push(a) }
-	let cmdBuf = buildCmdlineBuf(parts)
+	if shell {
+		cmdText = winQuoteArg(exe) + ' /d /s /c "' + shellPayload + '"'
+	} else {
+		var parts [String] = [winQuoteArg(exe)]
+
+		for a in argv { parts.push(winQuoteArg(a)) }
+		cmdText = parts.join(' ')
+	}
+	let cmdBuf = wideBufFromString(cmdText)
 	let attrs = inheritableAttrs()
 	// Stdio handles for the child (parent ends closed right after spawn).
 	var childIn: HANDLE = null
@@ -894,27 +909,39 @@ fun spawnSyncImpl(command: String, argv: [String], options: Any?): Any {
 		if input != null { proc.stdin.write(input) }
 	} catch e Error { }
 	proc.stdin.forceClose()
-	let waitMs = timeoutMs > 0 ? timeoutMs as!UInt32 : infiniteTimeout
-	let st = waitForSingleObjectWin(proc.hProcess, waitMs)
+	// Poll-drain while waiting. `waitForSingleObject(INFINITE)` followed by a
+	// single drain DEADLOCKED whenever the child produced more than one pipe
+	// buffer (a big `git status`, a chatty build): the child blocks writing,
+	// the parent blocks waiting, neither moves. Node's spawnSync loops on the
+	// same (wait slice → read → check deadline) shape.
 	var status: Any? = null
 	var signal: Any? = null
 	var err: Any? = null
-	if st == waitObject0 {
-		var codeBox ArrayByValue<DWORD, 1> = [0]
-		getExitCodeProcessWin(proc.hProcess, codeBox as!LPDWORD)
-		let code = (codeBox as!ArrayPointer<DWORD>)[0] as!Int
-		if code == (stillActive as!Int) {
+	var deadline: Float = 0.0
+
+	if timeoutMs > 0 { deadline = hexaTickMs() + (timeoutMs as!Float) }
+	var done = false
+
+	while not done {
+		let st = waitForSingleObjectWin(proc.hProcess, 20u32)
+		drainProcPipes(proc)
+
+		if st == waitObject0 {
+			var codeBox ArrayByValue<DWORD, 1> = [0]
+			getExitCodeProcessWin(proc.hProcess, codeBox as!LPDWORD)
+			let code = (codeBox as!ArrayPointer<DWORD>)[0] as!Int
+
+			if code == (stillActive as!Int) { continue }
+			status = code
+			done = true
+		} else if deadline > 0.0 and hexaTickMs() >= deadline {
 			terminateProcessWin(proc.hProcess, 1u32)
 			signal = 'SIGTERM'
 			err = { message: 'spawnSync timeout', code: 'ETIMEDOUT', killed: true, signal: signal }
-		} else {
-			status = code
+			done = true
 		}
-	} else {
-		terminateProcessWin(proc.hProcess, 1u32)
-		signal = 'SIGTERM'
-		err = { message: 'spawnSync timeout', code: 'ETIMEDOUT', killed: true, signal: signal }
 	}
+	// Final drain: the tail the child wrote between the last poll and exit.
 	drainProcPipes(proc)
 	// Cap + decode collected output (truncate past maxBuffer like Node).
 	var outBuf = Buffer.concat(proc.outChunks)
