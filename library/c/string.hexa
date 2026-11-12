@@ -203,6 +203,10 @@ class String {
 	// `s[i]` sugar lowers here on native (genC has no address-of-char form —
 	// `&s[i]` was struct-pointer garbage). OOB → ''.
 	static fun stringAt(s: String, i: Int): String { return s.charAt(i) }
+	fun get(index: Int): String? {
+		if index < 0 or index >= length { return null }
+		return this.substring(index, index + 1)
+	}
 	fun indexOf(@weak str: String, startIndex: Int? = 0): Int {
 		var start = 0
 
@@ -681,16 +685,15 @@ class String {
 	// Seti icon lookup (`replaceRegExp(/^\x5c+/, '')` + `parseInt(hex, 16)`).
 	// `$&` = whole match, `$1`..`$9` = groups, `$$` = literal '$'.
 	fun replaceRegExp(what: RegExp, withString: String): String {
+		if what.global { return this.replaceAllRegExp(what, withString) }
 		let m = what.exec(this)
 
 		if m == null { return this }
-		// `exec` advanced `lastIndex` for /g patterns — a single replace must
-		// not leave the regex mid-scan for the next caller.
 		what.lastIndex = 0
 		return rxReplaceOne(this, m !, withString)
 	}
 	fun replaceAllRegExp(what: RegExp, withString: String): String {
-		var out = ''
+		var parts [String] = []
 		var start = 0
 		what.lastIndex = 0
 		var m = what.exec(this)
@@ -705,7 +708,8 @@ class String {
 				m = what.exec(this)
 				continue
 			}
-			out = out + this.substring(start, mm.index) + rxExpandReplacement(mm, withString)
+			parts.push(this.substring(start, mm.index))
+			parts.push(rxExpandReplacement(mm, withString))
 			start = mm.index + mm.get(0).length
 
 			if mm.get(0).length == 0 {
@@ -713,13 +717,14 @@ class String {
 					break
 				}
 				start++
-				out = out + this.substring(start - 1, start)
+				parts.push(this.substring(start - 1, start))
 			}
 			what.lastIndex = start
 			m = what.exec(this)
 		}
 		what.lastIndex = 0
-		return out + this.substring(start, this.length)
+		parts.push(this.substring(start, this.length))
+		return parts.join('')
 	}
 	fun match(regexp: RegExp): RegExpMatch? {
 		regexp.lastIndex = 0
