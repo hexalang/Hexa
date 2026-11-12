@@ -498,6 +498,9 @@ class FetchResponse {
 	}
 }
 fun fetch(url: String, options: Any? = null): Any {
+	return Promise.resolve(fetchSync(url, options))
+}
+fun fetchSync(url: String, options: Any? = null): FetchResponse {
 	var method = 'GET'
 	var headers: Any? = null
 	var bodyBuf: Buffer? = null
@@ -2954,7 +2957,7 @@ declare class Reflect { // TODO non-declare!!!
 }
 
 declare fun require(package: String): Any
-let __dirname: String = '.'
+let __dirname: String = nativeExeDir()
 declare let __filename: String
 
 class Buffer /*implements ArrayAccess<T>*/ {
@@ -3434,8 +3437,7 @@ fun utf8EncodeString(s: String): [Int] {
 	return out
 }
 // Single-intern build from UTF-16 code units (avoids O(n^2) `+`
-// prefixes: one malloc + one fromUTF16z instead of one interned
-// String per prefix).
+// prefixes: one malloc + one intern instead of one interned String per prefix).
 fun stringFromCodeUnits(units: [Int]): String {
 	var n = units.length
 	if n <= 0 { return '' }
@@ -3443,9 +3445,7 @@ fun stringFromCodeUnits(units: [Int]): String {
 	for k in n {
 		buf[k] = units[k] as!UInt16
 	}
-	buf[n] = 0
-	let s = String.fromUTF16z(buf as!ConstArrayPointer<UInt16>)
-	free(buf as!RuntimeAllocated)
+	let s = String.fromUTF16Own(buf, n)
 	return s
 }
 // Lenient UTF-8 decoder (bad runs → U+FFFD, never throws)
