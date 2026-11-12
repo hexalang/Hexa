@@ -344,6 +344,20 @@ class GenCxx {
 	let noneSlotInitLines: [String] = []
 	let types: [String] = []
 	let dllExports: [String] = []
+	/// Symbol surface: the emitted names that stay EXTERNALLY visible.
+	let hostVisible: [String] = [
+		// GUI entry point (`/DHEXA_MAIN=hexaMain`)
+		'HEXA_MAIN',
+		'hexaMain',
+		'String_$fromUTF16z_',
+	]
+
+	fun staticPrefix(emittedName: String): String {
+		if hostVisible.indexOf(emittedName) >= 0 {
+			return ''
+		}
+		return 'static '
+	}
 	// TODO Docs
 	/// Sets `__link` prefix for `_link` names
 	/// Workaround for LLVM 32-bit linker
@@ -442,12 +456,12 @@ class GenCxx {
 					case Var(name, expr, dataType):
 						// types.push('\n\tstatic void* ' + name + '_;')
 						// types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
+						globalVariables.push('static \(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						// if (expr != null) out.push(' = ' + printExpression(expr))
 					case Const(name, expr, dataType):
 						// types.push('\n\tstatic void* ' + name + '_;')
 						// types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
+						globalVariables.push('static \(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						// out.push(' = ' + printExpression(expr))
 				} }
 
@@ -463,13 +477,13 @@ class GenCxx {
 
 			for v in e.staticMethods { switch v {
 					case Function(name, expr, args, defaults, funcType, variadic, isAsync):
-						forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+						forwardFunctions.push(linkagePrefix(isAsync, e.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						forwardFunctions.push(' ' + e.name + '_$' + name + '_')
 						forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 						forwardFunctions.push(';\n')
 
 						// TODO cache `printFunctionReturnType` here etc to not print twice
-						out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+						out.push(linkagePrefix(isAsync, e.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						out.push(' ' + e.name + '_$' + name + '_')
 						out.push(printFunctionArguments(args, funcType, variadic))
 						let _currentReturnType = currentReturnType
@@ -542,12 +556,12 @@ class GenCxx {
 					case Var(name, expr, dataType):
 						// types.push('\n\tstatic void* ' + name + '_;')
 						// types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
+						globalVariables.push('static \(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						// if (expr != null) out.push(' = ' + printExpression(expr))
 					case Const(name, expr, dataType):
 						// types.push('\n\tstatic void* ' + name + '_;')
 						// types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
+						globalVariables.push('static \(stringifyType(dataType)) ' + e.name + '_$' + name + '_;\n')
 						// out.push(' = ' + printExpression(expr))
 				} }
 
@@ -559,12 +573,12 @@ class GenCxx {
 						// types.push(printFunctionArguments(args, funcType, true))
 						// types.push(';')
 
-						forwardFunctions.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+						forwardFunctions.push(linkagePrefix(isAsync, e.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						forwardFunctions.push(' ' + e.name + '_$' + name + '_')
 						forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 						forwardFunctions.push(';\n')
 
-						out.push(linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
+						out.push(linkagePrefix(isAsync, e.name + '_$' + name + '_') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						out.push(' ' + e.name + '_$' + name + '_')
 						out.push(printFunctionArguments(args, funcType, variadic))
 
@@ -650,9 +664,9 @@ class GenCxx {
 				// stubs to `Any_*` (see `stringifyType` `Generic` case)
 				for v in c.staticVars { switch v {
 						case Var(name, expr, dataType):
-							globalVariables.push('\(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
+							globalVariables.push('static \(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
 						case Const(name, expr, dataType):
-							globalVariables.push('\(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
+							globalVariables.push('static \(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
 					} }
 
 				for v in c.staticMethods { switch v {
@@ -899,14 +913,14 @@ class GenCxx {
 							// forward.push('\n\tstatic ' + c.name + '_* new_')
 							// forward.push(printFunctionArguments(args, funcType))
 							// forward.push(';')
-							forwardFunctions.push(c.name + '_* ' + c.name + '_$new_')
+							forwardFunctions.push('static ' + c.name + '_* ' + c.name + '_$new_')
 							forwardFunctions.push(printFunctionArguments(args, funcType, variadic))
 							forwardFunctions.push(';\n')
 							// TODO cache printFunctionArguments to local var here
 
 							// Init
 							// out.push('void ' + c.name + '_::this_() \{\n')
-							out.push(c.name + '_* ' + c.name + '_$this_')
+							out.push('static ' + c.name + '_* ' + c.name + '_$this_')
 							thisArgument = c.name + '_* $this'
 							out.push(printFunctionArguments(args, funcType, variadic))
 							thisArgument = null
@@ -984,7 +998,7 @@ class GenCxx {
 
 							// Alloc
 							// out.push(c.name + '_* ' + c.name + '_$new_() \{\n')
-							out.push(c.name + '_* ' + c.name + '_$new_')
+							out.push('static ' + c.name + '_* ' + c.name + '_$new_')
 							out.push(printFunctionArguments(args, funcType, variadic))
 							out.push(' \{\n')
 							// out.push('\tprintf("\(c.name).new_()\\n");fflush(stdout);\n')
@@ -1122,7 +1136,7 @@ class GenCxx {
 			}
 
 			if not hasToString {
-				out.push('String_* ' + c.name + '_$toString_(\(c.name)_* this_) \{ return ')
+				out.push('static String_* ' + c.name + '_$toString_(\(c.name)_* this_) \{ return ')
 				out.push(printExpression(Expression.String('[object Object]')))
 				out.push('; \};\n\n')
 			}
@@ -1131,13 +1145,13 @@ class GenCxx {
 			for v in c.staticVars { switch v {
 					case Var(name, expr, dataType):
 						// types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
+						globalVariables.push('static \(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
 						// types.push('\n\tstatic void* ' + name + '_;')
 						// if (expr != null) out.push(' = ' + printExpression(expr))
 					case Const(name, expr, dataType):
 						// types.push('\n\tstatic void* ' + name + '_;')
 						// types.push('\n\tstatic \(stringifyType(dataType)) ' + name + '_;')
-						globalVariables.push('\(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
+						globalVariables.push('static \(stringifyType(dataType)) ' + c.name + '_$' + name + '_;\n')
 						// out.push(' = ' + printExpression(expr))
 				} }
 
@@ -1193,39 +1207,39 @@ class GenCxx {
 
 				if c.name == 'String' {
 					hiddenToBool = '&String_hiddenToBool_'
-					forwardFunctions.push('uint8_t String_hiddenToBool_(void*)')
+					forwardFunctions.push('static uint8_t String_hiddenToBool_(void*)')
 					forwardFunctions.push(';\n')
-					out.push('uint8_t String_hiddenToBool_(void* self_) ' + hlb + hnl)
+					out.push('static uint8_t String_hiddenToBool_(void* self_) ' + hlb + hnl)
 					out.push('\tif (self_ == nullptr) return (uint8_t)0;' + hnl)
 					out.push('\treturn (uint8_t)(((String_*)(self_))->length_ != (int32_t)0);' + hnl)
 					out.push(hrb + '\n\n')
 				}
-				forwardFunctions.push('const char* ' + c.name + '_hiddenClassName_(void)')
+				forwardFunctions.push('static const char* ' + c.name + '_hiddenClassName_(void)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('Any_* ' + c.name + '_hiddenDynGet_(void*, String_*)')
+				forwardFunctions.push('static Any_* ' + c.name + '_hiddenDynGet_(void*, String_*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('void ' + c.name + '_hiddenDynSet_(void*, String_*, Any_*)')
+				forwardFunctions.push('static void ' + c.name + '_hiddenDynSet_(void*, String_*, Any_*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('uint8_t ' + c.name + '_hiddenHas_(void*, String_*)')
+				forwardFunctions.push('static uint8_t ' + c.name + '_hiddenHas_(void*, String_*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('void ' + c.name + '_hiddenDelete_(void*, String_*)')
+				forwardFunctions.push('static void ' + c.name + '_hiddenDelete_(void*, String_*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('String_* ' + c.name + '_hiddenKeyAt_(void*, int32_t)')
+				forwardFunctions.push('static String_* ' + c.name + '_hiddenKeyAt_(void*, int32_t)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('int32_t ' + c.name + '_hiddenKeyCount_(void*)')
+				forwardFunctions.push('static int32_t ' + c.name + '_hiddenKeyCount_(void*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('Any_* ' + c.name + '_hiddenIndexGet_(void*, int32_t)')
+				forwardFunctions.push('static Any_* ' + c.name + '_hiddenIndexGet_(void*, int32_t)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('void ' + c.name + '_hiddenIndexSet_(void*, int32_t, Any_*)')
+				forwardFunctions.push('static void ' + c.name + '_hiddenIndexSet_(void*, int32_t, Any_*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('int32_t ' + c.name + '_hiddenIndexCount_(void*)')
+				forwardFunctions.push('static int32_t ' + c.name + '_hiddenIndexCount_(void*)')
 				forwardFunctions.push(';\n')
-				forwardFunctions.push('void ' + c.name + '_hiddenReflect_(void*, HexaReflectOp_*)')
+				forwardFunctions.push('static void ' + c.name + '_hiddenReflect_(void*, HexaReflectOp_*)')
 				forwardFunctions.push(';\n')
-				out.push('const char* ' + c.name + '_hiddenClassName_(void) ' + hlb + hnl)
+				out.push('static const char* ' + c.name + '_hiddenClassName_(void) ' + hlb + hnl)
 				out.push('\treturn "' + c.name + '";' + hnl)
 				out.push(hrb + '\n\n')
-				out.push('Any_* ' + c.name + '_hiddenDynGet_(void* self_, String_* k_) ' + hlb + hnl)
+				out.push('static Any_* ' + c.name + '_hiddenDynGet_(void* self_, String_* k_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				// D2: an unknown field / null receiver is `null` = the sentinel
 				// OBJECT, never a raw `nullptr` (a raw zero reads as "present"
@@ -1297,7 +1311,7 @@ class GenCxx {
 					out.push('\treturn (Any_*)(size_t)(&HexaNone_);' + hnl)
 				}
 				out.push(hrb + '\n\n')
-				out.push('void ' + c.name + '_hiddenDynSet_(void* self_, String_* k_, Any_* v_) ' + hlb + hnl)
+				out.push('static void ' + c.name + '_hiddenDynSet_(void* self_, String_* k_, Any_* v_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				out.push('\tif (self == nullptr || k_ == nullptr) return;' + hnl)
 
@@ -1347,7 +1361,7 @@ class GenCxx {
 					out.push('\t' + parent + '_hiddenDynSet_(self_, k_, v_);' + hnl)
 				}
 				out.push(hrb + '\n\n')
-				out.push('uint8_t ' + c.name + '_hiddenHas_(void* self_, String_* k_) ' + hlb + hnl)
+				out.push('static uint8_t ' + c.name + '_hiddenHas_(void* self_, String_* k_) ' + hlb + hnl)
 				out.push('\t(void)self_;' + hnl)
 				out.push('\tif (k_ == nullptr) return (uint8_t)0;' + hnl)
 
@@ -1362,14 +1376,14 @@ class GenCxx {
 					out.push('\treturn (uint8_t)0;' + hnl)
 				}
 				out.push(hrb + '\n\n')
-				out.push('void ' + c.name + '_hiddenDelete_(void* self_, String_* k_) ' + hlb + hnl)
+				out.push('static void ' + c.name + '_hiddenDelete_(void* self_, String_* k_) ' + hlb + hnl)
 				out.push('\t(void)self_; (void)k_;' + hnl)
 
 				if let parent = c.extend {
 					out.push('\t' + parent + '_hiddenDelete_(self_, k_);' + hnl)
 				}
 				out.push(hrb + '\n\n')
-				out.push('String_* ' + c.name + '_hiddenKeyAt_(void* self_, int32_t i_) ' + hlb + hnl)
+				out.push('static String_* ' + c.name + '_hiddenKeyAt_(void* self_, int32_t i_) ' + hlb + hnl)
 				out.push('\t(void)self_;' + hnl)
 				out.push('\tif (i_ < (int32_t)0) return nullptr;' + hnl)
 
@@ -1383,7 +1397,7 @@ class GenCxx {
 				}
 				out.push('\treturn nullptr;' + hnl)
 				out.push(hrb + '\n\n')
-				out.push('int32_t ' + c.name + '_hiddenKeyCount_(void* self_) ' + hlb + hnl)
+				out.push('static int32_t ' + c.name + '_hiddenKeyCount_(void* self_) ' + hlb + hnl)
 				out.push('\t(void)self_;' + hnl)
 
 				if let parent = c.extend {
@@ -1461,7 +1475,7 @@ class GenCxx {
 						case _:
 					} }
 
-				out.push('Any_* ' + c.name + '_hiddenIndexGet_(void* self_, int32_t i_) ' + hlb + hnl)
+				out.push('static Any_* ' + c.name + '_hiddenIndexGet_(void* self_, int32_t i_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				out.push('\t(void)self_; (void)i_;' + hnl)
 
@@ -1477,7 +1491,7 @@ class GenCxx {
 					}
 				}
 				out.push(hrb + '\n\n')
-				out.push('void ' + c.name + '_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + hlb + hnl)
+				out.push('static void ' + c.name + '_hiddenIndexSet_(void* self_, int32_t i_, Any_* v_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				out.push('\t(void)self_; (void)i_; (void)v_;' + hnl)
 
@@ -1490,7 +1504,7 @@ class GenCxx {
 					}
 				}
 				out.push(hrb + '\n\n')
-				out.push('int32_t ' + c.name + '_hiddenIndexCount_(void* self_) ' + hlb + hnl)
+				out.push('static int32_t ' + c.name + '_hiddenIndexCount_(void* self_) ' + hlb + hnl)
 				out.push('\t' + c.name + '_* self = (' + c.name + '_*)self_;' + hnl)
 				out.push('\t(void)self_;' + hnl)
 
@@ -1507,7 +1521,7 @@ class GenCxx {
 
 				// One `reflect_` slot per class: a universal `code_`-dispatched
 				// op table (no layout change when new ops land — only new codes).
-				out.push('void ' + c.name + '_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + hlb + hnl)
+				out.push('static void ' + c.name + '_hiddenReflect_(void* self_, HexaReflectOp_* op_) ' + hlb + hnl)
 				out.push('\tif (self_ == nullptr || op_ == nullptr) return;' + hnl)
 				out.push('\tswitch (op_->code_) ' + hlb + hnl)
 				out.push('\tcase (int32_t)1: op_->resultInt_ = (int32_t)Hexa_ToBoolTrue_(self_); break;' + hnl)
@@ -1610,7 +1624,13 @@ class GenCxx {
 					var customHeader: String? = null
 					var spec = ''
 					var name = name + '_'
+					// `exports` = `@dllExport` (keeps external linkage; `spec`
+					// carries the `__declspec(dllexport)`).
 					var exports = false
+					// `imported` = `@dllImport`: a foreign symbol DECLARED here.
+					// `__declspec(dllimport)` requires external linkage, so a
+					// `static` prefix is rejected (C2201).
+					var imported = false
 
 					if let link = link {
 						// if link.convention == CallingConvention.FastCall {
@@ -1638,6 +1658,7 @@ class GenCxx {
 							spec += '__declspec(dllimport) '
 							// types.push('__declspec(dllimport) ')
 							shouldEmitHeader = true
+							imported = true
 						}
 
 						// if let aligned = link.aligned {
@@ -1675,7 +1696,7 @@ class GenCxx {
 						types.push(customHeader)
 						types.push('\n')
 					} else if expr != null or shouldEmitHeader {
-						types.push(linkagePrefixFor(isAsync, name) + spec)
+						types.push(linkagePrefixFor(isAsync, name, exports or imported) + spec)
 						types.push((isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType)))
 						types.push(' ' + name)
 						types.push(printFunctionArguments(args, funcType, variadic))
@@ -1711,7 +1732,7 @@ class GenCxx {
 						// We have `link.convention = Default` if `link` is present
 						// out. types.push(defaultCallingConvention)
 						// }
-						let returns = linkagePrefixFor(isAsync, name) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
+						let returns = linkagePrefixFor(isAsync, name, exports or imported) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 						out.push(returns)
 						out.push(' ' + name)
 						out.push(printFunctionArguments(args, funcType, variadic))
@@ -1855,7 +1876,7 @@ class GenCxx {
 		// without branches). `== null` tests the code-ptr half only; `==`
 		// tests both halves. F2 unifies this with the full sentinel family.
 		globalVariables.push('alignas(4096) static uint8_t hexaSentinelEnvStore_[4096];\n')
-		globalVariables.push('void* hexaSentinelEnv_ = (void*)hexaSentinelEnvStore_;\n')
+		globalVariables.push('static void* hexaSentinelEnv_ = (void*)hexaSentinelEnvStore_;\n')
 
 		for g in project.globalVars {
 			var defaults = true
@@ -1903,7 +1924,7 @@ class GenCxx {
 										}
 									}
 
-									globalVariables.push('\(stringifyType(generics[0])) ' + name + '_' + arraySize)
+									globalVariables.push((exports? '' : staticPrefix(name + '_')) + '\(stringifyType(generics[0])) ' + name + '_' + arraySize)
 
 									if let link = link, let linkName = link.linkName {
 										if exports and extraUnderscore and linkName.startsWith('_') {
@@ -1931,6 +1952,7 @@ class GenCxx {
 
 									defaults = false
 								} else if classType.name == 'ByValue' {
+									globalVariables.push((exports? '' : staticPrefix(name + '_')))
 									globalVariables.push(stringifyType(dataType))
 									globalVariables.push(' ' + name + '_')
 									globalVariables.push(';\n')
@@ -1944,6 +1966,7 @@ class GenCxx {
 						// `void* name$env_`). Linkage suffixes ride the ptr half only.
 						if isFatValueType(dataType) {
 							let ptrType = stringifyType(dataType)
+							globalVariables.push((exports? '' : staticPrefix(name + '$ptr_')))
 							globalVariables.push(ptrType)
 							globalVariables.push(' ' + name + '$ptr_')
 
@@ -1959,7 +1982,7 @@ class GenCxx {
 							}
 
 							globalVariables.push(';\n')
-							globalVariables.push('void* ' + name + '$env_;\n')
+							globalVariables.push((exports? '' : staticPrefix(name + '$env_')) + 'void* ' + name + '$env_;\n')
 
 							if expr != null {
 								out.push('\t' + name + '$ptr_ = ' + fatPtrAs(expr, dataType) + ';\n')
@@ -1969,6 +1992,7 @@ class GenCxx {
 							defaults = false
 						} else {
 							// types.push('void* ' + name + '_;\n')
+							globalVariables.push((exports? '' : staticPrefix(name + '_')))
 							globalVariables.push(stringifyType(dataType))
 							globalVariables.push(' ' + name + '_') // TODO respect `@rename`
 
@@ -2035,20 +2059,35 @@ class GenCxx {
 					// TODO maybe not useful
 					// else out.push(' = null')
 				case Const(name, expr, dataType):
+					var exports = false
+
+					if let link = project.globalLink.get(g) {
+						if link.dllExport {
+							exports = true
+							dllExports.push(link.linkName ?? name)
+						}
+					}
 					// S3b F1.6: `let`-bound function-typed globals double up too.
 					if isFatValueType(dataType) {
 						let ptrType = stringifyType(dataType)
+						globalVariables.push((exports? '' : staticPrefix(name + '$ptr_')))
 						globalVariables.push(ptrType)
-						globalVariables.push(' ' + name + '$ptr_;\\n')
-						globalVariables.push('void* ' + name + '$env_;\\n')
+						globalVariables.push(' ' + name + '$ptr_;
+')
+						globalVariables.push((exports? '' : staticPrefix(name + '$env_')) + 'void* ' + name + '$env_;
+')
 
 						if expr != null {
-							out.push('\t' + name + '$ptr_ = ' + fatPtrAs(expr, dataType) + ';\n')
-							out.push('\t' + name + '$env_ = ' + fatEnvStr(expr) + ';\n')
+							out.push('	' + name + '$ptr_ = ' + fatPtrAs(expr, dataType) + ';
+')
+							out.push('	' + name + '$env_ = ' + fatEnvStr(expr) + ';
+')
 						}
 					} else {
+						globalVariables.push((exports? '' : staticPrefix(name + '_')))
 						globalVariables.push(stringifyType(dataType))
-						globalVariables.push(' ' + name + '_;\n')
+						globalVariables.push(' ' + name + '_;
+')
 
 						if expr != null {
 							let savedMbConst = metaBlock
@@ -2086,7 +2125,7 @@ class GenCxx {
 			// strings.push('\tString_Strings[\(id)] = String_$fromUTF16z_((const uint16_t*)L"\(declarationsOfStrings[id])");\n')
 			strings.push('\tString_\(id) = String_$fromUTF16z_((const uint16_t*)String_\(id)_);\n')
 			// TODO ^ add predefined known bytes length? like sizeof
-			forward.push('String_* String_\(id); static const wchar_t *String_\(id)_ = L"\(declarationsOfStrings[id])";')
+			forward.push('static String_* String_\(id); static const wchar_t *String_\(id)_ = L"\(declarationsOfStrings[id])";')
 			// strings.push('\twprintf(L"\(declarationsOfStrings[id])");\n')
 		}
 		out.push('\t')
@@ -2634,7 +2673,7 @@ class GenCxx {
 				currentReturnType = getFunctionReturnType(funcType)
 
 				let temp = tempId++
-				let rt = linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
+				let rt = linkagePrefix(isAsync, '_$') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 				forwardFunctions.push(rt)
 				forwardFunctions.push(' _$\(temp)')
 				forwardFunctions.push(printFunctionArguments(args, funcType))
@@ -4502,7 +4541,7 @@ class GenCxx {
 		let lb = String.fromCharCode(123)
 		let rb = String.fromCharCode(125)
 		let nl = String.fromCharCode(10)
-		var body = 'HEXA_C ' + retS + ' ' + bid + '_(' + sig.join(', ') + ') ' + lb + nl
+		var body = 'static ' + retS + ' ' + bid + '_(' + sig.join(', ') + ') ' + lb + nl
 
 		for s in setup {
 			body += ' ' + s + ';' + nl
@@ -4678,7 +4717,7 @@ class GenCxx {
 		}
 		let wrapper = funcName + '$thin_'
 		thinWrapperCache.set(funcName, wrapper)
-		globalFunctions.push(retName + ' ' + wrapper + '(' + params.join(', ') + ') \{ return ' + funcName + '_(' + fwd.join(', ') + '); \}\n')
+		globalFunctions.push('static ' + retName + ' ' + wrapper + '(' + params.join(', ') + ') \{ return ' + funcName + '_(' + fwd.join(', ') + '); \}\n')
 		return wrapper
 	}
 
@@ -5060,7 +5099,7 @@ class GenCxx {
 		// F10.5: the dispatcher passes the PAIR, not the bare env — the
 		// `argvapply$N_` adapter needs both halves (`impl_` + `env_`) to
 		// reconstruct the statically typed fat value it is adapting.
-		var r = 'Any_* ' + thunk + '(struct FatPair_* self_, Any_** argv_, int32_t argc_) \{\n'
+		var r = 'static Any_* ' + thunk + '(struct FatPair_* self_, Any_** argv_, int32_t argc_) \{\n'
 
 		for st in thunkPre {
 			r += '\t' + st + ';\n'
@@ -5240,15 +5279,15 @@ class GenCxx {
 		var r = ''
 
 		for i in dynFatTypes.length {
-			r += 'HEXA_C ' + dynFatSignatureStr(i) + ';' + nl
+			r += 'static ' + dynFatSignatureStr(i) + ';' + nl
 		}
 
 		for i in argvApplyTypes.length {
-			r += 'HEXA_C ' + argvApplySignatureStr(i) + ';' + nl
+			r += 'static ' + argvApplySignatureStr(i) + ';' + nl
 		}
 
 		for i in argvApplyNoEnvTypes.length {
-			r += 'HEXA_C ' + argvApplyNoEnvSignatureStr(i) + ';' + nl
+			r += 'static ' + argvApplyNoEnvSignatureStr(i) + ';' + nl
 		}
 		return r
 	}
@@ -5317,7 +5356,7 @@ class GenCxx {
 				frets = fr
 		}
 		let retT = stringifyType(frets)
-		var r = 'HEXA_C ' + dynFatSignatureStr(idx) + ' ' + lb + nl
+		var r = 'static ' + dynFatSignatureStr(idx) + ' ' + lb + nl
 		r += '\tFatPair_* fp_ = (FatPair_*)env_;' + nl
 		// No registry: the box site named this pair's `call_` at compile time.
 		r += '\tAny_* (*fc_)(struct FatPair_*, Any_**, int32_t) = (fp_ != nullptr) ? fp_->call_ : nullptr;' + nl
@@ -5459,7 +5498,7 @@ class GenCxx {
 			callArgs.push(unboxAnyToStr('((argc_ > ' + k + ') ? argv_[' + k + '] : nullptr)', fargs[k].dataType))
 		}
 		let call = '(' + fatFnTypeStrNoEnv(t) + '(size_t)(fp_->impl_))(' + callArgs.join(', ') + ')'
-		var r = 'HEXA_C ' + argvApplyNoEnvSignatureStr(idx) + ' ' + lb + nl
+		var r = 'static ' + argvApplyNoEnvSignatureStr(idx) + ' ' + lb + nl
 		r += '\tFatPair_* fp_ = (FatPair_*)self_;' + nl
 		r += '\tif (fp_ == nullptr) return nullptr;' + nl
 
@@ -5549,7 +5588,7 @@ class GenCxx {
 			callArgs.push(unboxAnyToStr('((argc_ > ' + k + ') ? argv_[' + k + '] : nullptr)', fargs[k].dataType))
 		}
 		let call = '(' + fatFnTypeStr(t) + '(size_t)(fp_->impl_))(' + callArgs.join(', ') + ')'
-		var r = 'HEXA_C ' + argvApplySignatureStr(idx) + ' ' + lb + nl
+		var r = 'static ' + argvApplySignatureStr(idx) + ' ' + lb + nl
 		r += '	FatPair_* fp_ = (FatPair_*)self_;' + nl
 		r += '	if (fp_ == nullptr) return nullptr;' + nl
 
@@ -5618,12 +5657,12 @@ class GenCxx {
 		// `call_`. Only the forward declarations of the thunk bodies remain
 		// (they are emitted later, in `printFatPairGlobalThunks`).
 		for n in fatPairImpls {
-			r += 'Any_* ' + n + '$call_(struct FatPair_*, Any_**, int32_t);\n'
+			r += 'static Any_* ' + n + '$call_(struct FatPair_*, Any_**, int32_t);\n'
 		}
 
 		// Bare global functions boxed into `Any` (F10.3): same forward decls.
 		for n in fatPairGlobalNames {
-			r += 'Any_* ' + n + '$call_(struct FatPair_*, Any_**, int32_t);\n'
+			r += 'static Any_* ' + n + '$call_(struct FatPair_*, Any_**, int32_t);\n'
 		}
 		return r
 	}
@@ -5841,12 +5880,14 @@ class GenCxx {
 		r += 'HEXA_FORCEINLINE int32_t hexaFreeSlots(void** slots, size_t count) ' + lb + ' if (slots == nullptr) return (int32_t)0; for (size_t i_ = (size_t)0; i_ < count; i_++) hexaUnref(slots[i_]); HEXA_FREE(slots, (size_t)0); return (int32_t)count; ' + rb + nl
 		r += 'HEXA_FORCEINLINE int32_t hexaFreeAnySlots(struct Any_** slots, size_t count) ' + lb + ' if (slots == nullptr) return (int32_t)0; for (size_t i_ = (size_t)0; i_ < count; i_++) if (slots[i_] != nullptr) hexaUnref(slots[i_]); HEXA_FREE(slots, (size_t)0); return (int32_t)count; ' + rb + nl
 		r += '#ifdef __cplusplus' + nl
-		r += 'extern "C++" ' + lb + nl
+		r += rb + ' // leave the outer extern "C" (C++ guard classes)' + nl
+		r += 'namespace ' + lb + nl
 		r += 'struct HexaDeferCountedDec_ ' + lb + ' void* o_; HEXA_FORCEINLINE HexaDeferCountedDec_(void* o): o_(o) ' + lb + ' ' + rb + ' HEXA_FORCEINLINE ~HexaDeferCountedDec_() ' + lb + ' if (o_ != nullptr) hexaUnref(o_); ' + rb + ' ' + rb + ';' + nl
 		// Pointer-captured twin (Ident operands): live-value release — see
 		// HexaDeferDecPtr_ in the compile prologue (double-release fix).
 		r += 'struct HexaDeferCountedDecPtr_ ' + lb + ' void** p_; HEXA_FORCEINLINE HexaDeferCountedDecPtr_(void** p): p_(p) ' + lb + ' ' + rb + ' HEXA_FORCEINLINE ~HexaDeferCountedDecPtr_() ' + lb + ' void* v_ = *p_; if (v_ != nullptr) hexaUnref(v_); ' + rb + ' ' + rb + ';' + nl
-		r += rb + ' // extern "C++"' + nl
+		r += rb + ' // namespace' + nl
+		r += 'extern "C" ' + lb + ' // reopen the outer block' + nl
 		r += '#endif' + nl
 		r += 'void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; hexaRef((void*)v); if (old_ != nullptr) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; hexaRef((void*)v); o->count_++; ' + rb + nl
 		r += 'Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
@@ -5938,9 +5979,9 @@ class GenCxx {
 		r += 'uint32_t Hexa_AddRef_(void* self) ' + lb + ' if (self == nullptr) return (uint32_t)0; hexaRef(self); return (uint32_t)(((struct HexaHeader_*)(self))->rc_); ' + rb + nl
 		r += 'uint32_t Hexa_Release_(void* self) ' + lb + ' if (self == nullptr) return (uint32_t)0; uint32_t rc = (uint32_t)(((struct HexaHeader_*)(self))->rc_); hexaUnref(self); return rc > (uint32_t)0 ? rc - (uint32_t)1 : (uint32_t)0; ' + rb + nl
 		r += 'static inline struct HexaReflect_* HexaReflectFor_(const void* tag) ' + lb + ' return (struct HexaReflect_*)((char*)tag - sizeof(struct HexaReflect_)); ' + rb + nl
-		r += 'HEXA_C uint8_t hexaAnyIsArray_(struct Any_* v_);' + nl
-		r += 'HEXA_C int32_t hexaAnyArrayCount_(struct Any_* v_);' + nl
-		r += 'HEXA_C struct Any_* hexaAnyArrayGet_(struct Any_* v_, int32_t i_);' + nl
+		r += 'static uint8_t hexaAnyIsArray_(struct Any_* v_);' + nl
+		r += 'static int32_t hexaAnyArrayCount_(struct Any_* v_);' + nl
+		r += 'static struct Any_* hexaAnyArrayGet_(struct Any_* v_, int32_t i_);' + nl
 		return r
 	}
 
@@ -5963,7 +6004,7 @@ class GenCxx {
 		// `struct String__` is complete) — a single sentinel cannot be shaped
 		// like every class, so it is shaped like the one class JS coerces.
 		r += 'static void* HexaNone_stringStub_(void);' + nl
-		r += 'HEXA_C void hexaInstallNone_(void);' + nl
+		r += 'static void hexaInstallNone_(void);' + nl
 		r += 'static uint8_t HexaNone_hiddenToBool_(void* self_) ' + lb + ' (void)self_; return (uint8_t)0; ' + rb + nl
 		r += 'static const char* HexaNone_hiddenClassName_(void) ' + lb + ' return "Null"; ' + rb + nl
 		r += 'static struct Any_* HexaNone_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' (void)k_; return (struct Any_*)(self_); ' + rb + nl
@@ -6007,7 +6048,7 @@ class GenCxx {
 		r += '_Static_assert(sizeof(struct HexaReflect_) / sizeof(void*) == 15, "reflect: head must stay 15 slots");' + nl
 		r += '_Static_assert(sizeof(struct String__) / sizeof(void*) <= 64, "reflect: HexaNone_ needs more method slots");' + nl
 		r += 'static void* HexaNone_stringStub_(void) ' + lb + ' return (void*)String_1; ' + rb + nl
-		r += 'HEXA_C void hexaInstallNone_(void) ' + lb + ' memcpy(&(HexaNone_vt$_[0]), &HexaNone_hidden_, sizeof(struct HexaReflect_)); size_t n_ = sizeof(struct String__) / sizeof(void*); void** s_ = (void**)(&(HexaNone_vt$_[15])); for (size_t i_ = (size_t)0; i_ < n_; i_++) s_[i_] = (void*)(&HexaNone_stringStub_); HexaNone_._ = (const void*)(&HexaNone__$); _true._ = (const void*)(&AnyTrue__$); _false._ = (const void*)(&AnyFalse__$); ' + rb + nl
+		r += 'static void hexaInstallNone_(void) ' + lb + ' memcpy(&(HexaNone_vt$_[0]), &HexaNone_hidden_, sizeof(struct HexaReflect_)); size_t n_ = sizeof(struct String__) / sizeof(void*); void** s_ = (void**)(&(HexaNone_vt$_[15])); for (size_t i_ = (size_t)0; i_ < n_; i_++) s_[i_] = (void*)(&HexaNone_stringStub_); HexaNone_._ = (const void*)(&HexaNone__$); _true._ = (const void*)(&AnyTrue__$); _false._ = (const void*)(&AnyFalse__$); ' + rb + nl
 		return r
 	}
 
@@ -6061,11 +6102,11 @@ class GenCxx {
 		r += 'if (v_ == (struct Any_*)(&_true) || v_ == (struct Any_*)(&_false)) return nullptr; '
 		r += 'const void* tag_ = ((const void**)v_)[0]; if (tag_ == nullptr) return nullptr; '
 		r += 'for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayCtorTags_)/sizeof(hexaArrayCtorTags_[0]); i_++) ' + lb + ' if (hexaArrayCtorTags_[i_] != nullptr && hexaArrayCtorTags_[i_] == tag_) return tag_; ' + rb + ' return nullptr; ' + rb + nl
-		r += 'HEXA_C uint8_t hexaAnyIsArray_(struct Any_* v_) ' + lb + ' return (uint8_t)(hexaArrayTagOf_(v_) != nullptr); ' + rb + nl
-		r += 'HEXA_C int32_t hexaAnyArrayCount_(struct Any_* v_) ' + lb
+		r += 'static uint8_t hexaAnyIsArray_(struct Any_* v_) ' + lb + ' return (uint8_t)(hexaArrayTagOf_(v_) != nullptr); ' + rb + nl
+		r += 'static int32_t hexaAnyArrayCount_(struct Any_* v_) ' + lb
 		r += ' const void* tag_ = hexaArrayTagOf_(v_); if (tag_ == nullptr) return (int32_t)0; '
 		r += 'struct HexaReflect_* rf_ = HexaReflectFor_(tag_); return rf_->index_count_ != nullptr ? rf_->index_count_((void*)v_) : (int32_t)0; ' + rb + nl
-		r += 'HEXA_C struct Any_* hexaAnyArrayGet_(struct Any_* v_, int32_t i_) ' + lb
+		r += 'static struct Any_* hexaAnyArrayGet_(struct Any_* v_, int32_t i_) ' + lb
 		r += ' const void* tag_ = hexaArrayTagOf_(v_); if (tag_ == nullptr) return (struct Any_*)(size_t)(&HexaNone_); '
 		r += 'struct HexaReflect_* rf_ = HexaReflectFor_(tag_); '
 		r += 'if (rf_->index_get_ == nullptr) return (struct Any_*)(size_t)(&HexaNone_); '
@@ -6092,16 +6133,16 @@ class GenCxx {
 		// the sweep's own sweeping_ guard makes nested triggers (user
 		// @destructors that allocate) safe no-ops. Mode 4 (off) still pays
 		// a scan per interval — acceptable for a manual triage mode.
-		r += 'void hexaSweep(void);' + nl
+		r += 'static void hexaSweep(void);' + nl
 		r += 'static uint8_t hexaSweepVerbose_ = (uint8_t)0;' + nl
 		// Pressure trigger: 65536 births (was 8192). Each sweep is O(live list)
 		// and the live list reaches ~400k, so a tight trigger means sweeps run
 		// dozens of times per second inside ordinary allocation — that is a
 		// multi-second stall, not a saving.
 		r += 'static size_t hexaAllocSinceSweep_ = 0;' + nl
-		r += 'void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)65536) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
-		r += 'size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
-		r += 'void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
+		r += 'static void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)65536) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
+		r += 'static size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
+		r += 'static void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
 		return r
 	}
 
@@ -6223,8 +6264,8 @@ class GenCxx {
 			r += rows.join(', ')
 		}
 		r += rb + ';' + nl
-		r += 'HEXA_C uint8_t hexaTagIsArray_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayTags_)/sizeof(hexaArrayTags_[0]); i_++) ' + lb + ' if (hexaArrayTags_[i_] != nullptr && hexaArrayTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
-		r += 'void hexaSweep(void) ' + lb + nl
+		r += 'static uint8_t hexaTagIsArray_(const void* tag_) ' + lb + ' for (size_t i_ = (size_t)0; i_ < sizeof(hexaArrayTags_)/sizeof(hexaArrayTags_[0]); i_++) ' + lb + ' if (hexaArrayTags_[i_] != nullptr && hexaArrayTags_[i_] == tag_) return (uint8_t)1; ' + rb + ' return (uint8_t)0; ' + rb + nl
+		r += 'static void hexaSweep(void) ' + lb + nl
 		r += 'static uint8_t sweeping_ = 0;' + nl
 		r += 'if (sweeping_ != (uint8_t)0) return;' + nl
 		r += 'sweeping_ = 1;' + nl
@@ -6462,30 +6503,17 @@ class GenCxx {
 				return 'void'
 		} }
 
-	/// F9 linkage: async funs are C++ (coroutines; `co_await`/`co_return`
-	/// require C++ linkage — `extern "C"` coroutines are ill-formed), rest
-	/// stay C (direct host links without pragma aliasing — pragma only covers
-	/// `__imp_` DLL thunks). Outer `extern "C" {` wrapper is retained for
-	/// variables/prototypes; functions carry explicit linkage (inner wins).
-	/// Callers resolve via updated forwards (mangled→mangled match); C++ async
-	/// calling C sync (via outer-C protos) and C calling C++ async (via C++
-	/// forwards) are both legal. No host changes (host only calls C entry
-	/// points: `HEXA_MAIN`, sync `__onNative*`).
-	/// REDESIGN NOTE (#7, as-is for now): when C++ coroutines go, async funs
-	/// become plain `HEXA_C` functions again and this prefix collapses.
-	fun linkagePrefix(isAsync: Bool): String {
-		if isAsync { return 'HEXA_CPP ' }
-		return 'HEXA_C '
+	/// Linkage/visibility prefix for a function DECLARATION or DEFINITION.
+	fun linkagePrefix(isAsync: Bool, emittedName: String): String {
+		return staticPrefix(emittedName)
 	}
 
-	fun linkagePrefixFor(isAsync: Bool, emittedName: String): String {
-		if isAsync { return 'HEXA_CPP ' }
-
+	fun linkagePrefixFor(isAsync: Bool, emittedName: String, alwaysVisible: Bool = false): String {
 		if project.inlineFuncs.get(emittedName) == true {
-			return 'HEXA_C HEXA_FORCEINLINE '
+			return (alwaysVisible? '' : staticPrefix(emittedName)) + 'HEXA_FORCEINLINE '
 		}
 
-		return 'HEXA_C '
+		return alwaysVisible? '' : staticPrefix(emittedName)
 	}
 
 	/// F9: `async fun f(): T` emits `Promise<T>* f()` (C++ coroutine returning
@@ -6529,7 +6557,7 @@ class GenCxx {
 				return stringifyType(promiseOf(project.typer.typeVoid))
 		} }
 
-	/// F9: one inner `extern "C++"` block after Types (structs complete for
+	/// F9: one `extern "C++"` region after Types (structs complete for
 	/// `sizeof`, before async funs needing traits). Per collected `Promise_X_`:
 	/// global `operator co_await`, `HexaPromiseType_X` (vtable init, settled
 	/// `return_value(Any_*)`/`return_void()`), `std::coroutine_traits` partial
@@ -6540,18 +6568,19 @@ class GenCxx {
 		let rb = String.fromCharCode(125)
 		let nl = String.fromCharCode(10)
 		var r = '#ifdef __cplusplus' + nl
+		r += rb + ' // leave the outer extern "C" (coroutines are C++)' + nl
 		r += 'extern "C++" ' + lb + nl
-		r += 'HEXA_C void hexaThrowAwaitReason_(struct Any_* reason_) ' + lb + nl
+		r += 'static void hexaThrowAwaitReason_(struct Any_* reason_) ' + lb + nl
 		r += '  HEXA_ASSERT(reason_ != nullptr, "await: rejected promise without a reason");' + nl
 		r += '  if (reason_ == nullptr) return;' + nl
 		r += '  throw (struct Error_*)reason_;' + nl
 		r += rb + nl
-		r += 'HEXA_C uint8_t hexaPromiseCatch_(void* promise_) ' + lb + nl
+		r += 'static uint8_t hexaPromiseCatch_(void* promise_) ' + lb + nl
 		r += '  try ' + lb + ' throw; ' + rb + nl
 		r += '  catch (struct Error_* e_) ' + lb + ' HexaPromiseBase* pb_ = (HexaPromiseBase*)promise_; pb_->reason_ = (struct Any_*)e_; pb_->state_ = 2; return (uint8_t)1; ' + rb + nl
 		r += '  catch (...) ' + lb + ' return (uint8_t)0; ' + rb + nl
 		r += rb + nl
-		r += 'inline bool hexaIsPromiseTag_(const void* tag_) ' + lb + nl
+		r += 'static inline bool hexaIsPromiseTag_(const void* tag_) ' + lb + nl
 		r += '  if (tag_ == nullptr) return false;' + nl
 
 		for s in promiseStructs {
@@ -6559,7 +6588,7 @@ class GenCxx {
 		}
 		r += '  return false;' + nl
 		r += rb + nl
-		r += 'inline HexaAwaiter hexaAwaitAny_(struct Any_* p_) ' + lb + nl
+		r += 'static inline HexaAwaiter hexaAwaitAny_(struct Any_* p_) ' + lb + nl
 		r += '  if (p_ != nullptr) ' + lb + nl
 		r += '    int64_t v_ = (int64_t)p_;' + nl
 		r += '    if (v_ < (int64_t)-65536 || v_ > (int64_t)65536) ' + lb + nl
@@ -6575,6 +6604,7 @@ class GenCxx {
 			}
 		}
 		r += rb + ' // extern "C++"' + nl
+		r += 'extern "C" ' + lb + ' // reopen the outer block' + nl
 		r += '#endif' + nl
 		return r
 	}
@@ -6913,7 +6943,7 @@ class GenCxx {
 		for i in keys.length {
 			let fn = keys[i]
 			let sname = fn.substring(13, fn.length)
-			r += 'HEXA_C ' + sname + '* ' + fn + '(Any_* v_);' + nl
+			r += 'static ' + sname + '* ' + fn + '(Any_* v_);' + nl
 		}
 
 		for i in keys.length {
@@ -6921,7 +6951,7 @@ class GenCxx {
 			let sname = fn.substring(13, fn.length)
 			let names = (anyToStructNames.get(fn) as![String])
 			let types = (anyToStructTypes.get(fn) as![Type])
-			r += 'HEXA_C ' + sname + '* ' + fn + '(Any_* v_) ' + lb + nl
+			r += 'static ' + sname + '* ' + fn + '(Any_* v_) ' + lb + nl
 			r += ' if (v_ == nullptr) return nullptr;' + nl
 			r += ' if (((const void**)v_)[0] == (const void*)(&String__$) || hexaTagIsArray_(((const void**)v_)[0])) ' + lb + ' HEXA_ASSERT(0, "Any_toStruct: got a string/array payload - upstream Any-to-struct conversion gap"); return nullptr; ' + rb + nl
 			// Headered payloads (bags, class instances, interface structs —
@@ -8662,9 +8692,8 @@ class GenCxx {
 			prev = rcOffsets[i]
 			fieldTableDefs.push('_Static_assert(offsetof(struct ' + c.name + '_, ' + rcMembers[i] + ') == ' + rcOffsets[i] + ', "fields-table: manual offset mismatch for ' + c.name + '.' + rcMembers[i] + '");')
 		}
-		forwardOut.push('extern const uint8_t hexaFields_' + c.name + '[];')
 		let body = deltas.length > 0 ? (deltas.join(', ') + ', 0') : '0'
-		fieldTableDefs.push('const uint8_t hexaFields_' + c.name + '[] = ' + lb + ' ' + body + ' ' + rb + ';')
+		forwardOut.push('static const uint8_t hexaFields_' + c.name + '[] = ' + lb + ' ' + body + ' ' + rb + ';')
 	}
 	/// Whether a call callee must go through the `AnyValue_` call proxy:
 	/// an `Any_*`-SHAPED callee is a raw pointer and `ptr(args)` is not valid
@@ -10506,7 +10535,7 @@ class GenCxx {
 				currentReturnType = getFunctionReturnType(funcType)
 
 				let temp = tempId++
-				let rt = linkagePrefix(isAsync) + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
+				let rt = linkagePrefix(isAsync, '_$') + (isAsync? printAsyncReturnType(funcType) : printFunctionReturnType(funcType))
 				forwardFunctions.push(rt)
 				// TODO This must be re-think-ed
 				if defaultCallingConvention != '' {
