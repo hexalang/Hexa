@@ -131,18 +131,6 @@
 #endif
 int HEXA_MAIN(int, char **);
 
-// Per-function linkage (F9: async funs are C++ for coroutines, rest stay C
-// for direct host links without pragma aliasing — pragma only covers
-// `__imp_` DLL thunks, NOT same-TU Hexa<->host symbols, so `extern "C"`
-// DOES work (prevents mangling). Outer `extern "C" {` wrapper is retained
-// for variables/prototypes; functions carry explicit linkage (inner wins).
-#ifdef __cplusplus
-	#define HEXA_C extern "C"
-	#define HEXA_CPP extern "C++"
-#else
-	#define HEXA_C
-	#define HEXA_CPP
-#endif
 
 // Small-runtime-helper inlining. The Hexa TU is compiled `/Od` (see
 // `build_msvc_hexa.bat`), where plain `inline` means nothing and every helper
@@ -201,14 +189,17 @@ int HEXA_MAIN(int, char **);
 #endif
 static size_t hexaAllocCount_[HEXA_ALLOC_TRACK_MAX_LINE];
 static size_t hexaAllocBytes_[HEXA_ALLOC_TRACK_MAX_LINE];
-HEXA_C void* HexaTrackAlloc(size_t z, int line) {
+static void* HexaTrackAlloc(size_t z, int line) {
 	if (line >= 0 && line < HEXA_ALLOC_TRACK_MAX_LINE) {
 		hexaAllocCount_[line]++;
 		hexaAllocBytes_[line] += z;
 	}
 	return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z);
 }
-HEXA_C void HexaDumpAllocTop(const char* path) {
+#ifdef __cplusplus
+extern "C"
+#endif
+void HexaDumpAllocTop(const char* path) {
 	FILE* f = fopen(path, "w");
 	if (!f) return;
 	fprintf(f, "%s%c", "# Hexa native alloc top (HEXA_NEW __LINE__ in hexa-native.cpp; totals allocated, no frees on Phase-1 so totals == live)", 10);
@@ -303,8 +294,8 @@ struct HexaPromiseBase {
 	struct Any_* value_;
 	struct Any_* reason_;
 };
-HEXA_C void hexaThrowAwaitReason_(struct Any_* reason_);
-HEXA_C uint8_t hexaPromiseCatch_(void* promise_);
+static void hexaThrowAwaitReason_(struct Any_* reason_);
+static uint8_t hexaPromiseCatch_(void* promise_);
 struct HexaAwaiter {
 	void* promise_;
 	struct Any_* passthrough_;
@@ -327,11 +318,11 @@ struct HexaAwaiter {
 // re-arm it replaces); each resume returns to the pump (no deep recursion:
 // a resume either suspends again or completes via `final_suspend=never`).
 struct HexaPendingAwait { void* promise_; std::coroutine_handle<> handle_; };
-inline std::vector<HexaPendingAwait>& hexaPendingAwaits() {
+static inline std::vector<HexaPendingAwait>& hexaPendingAwaits() {
 	static std::vector<HexaPendingAwait> v;
 	return v;
 }
-inline void HexaAwaiter_await_suspend_impl(void* promise_, std::coroutine_handle<> h) noexcept {
+static inline void HexaAwaiter_await_suspend_impl(void* promise_, std::coroutine_handle<> h) noexcept {
 	hexaPendingAwaits().push_back(HexaPendingAwait{promise_, h});
 }
 inline void HexaAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
@@ -533,7 +524,13 @@ inline Any_* AnyValue_::operator->() const {
 #define HEXA_ASSERT(cond, reason) do { static int _ha_hits_ = 0; if (!(cond)) { if (_ha_hits_ < 16) { _ha_hits_++; fprintf(stderr, "HEXA_ASSERT %s:%d in %s: %s\n", __FILE__, __LINE__, __func__, (reason)); fflush(stderr); } } } while (0)
 // Emitted later by the sweep section (C linkage so the earlier dynGet/
 // dynSet asserts below can use it — was `static`, which would clash here).
-HEXA_C uint8_t hexaTagIsArray_(const void* tag_);
+#ifdef __cplusplus
+extern "C" {
+#endif
+static uint8_t hexaTagIsArray_(const void* tag_);
+#ifdef __cplusplus
+}
+#endif
 struct HexaHeader_ { const void* _; int32_t rc_; };
 // Owner is a plain counter: EVERY counted slot holds a real header, because
 // `null` is an object (the `HexaNone_` sentinel, emitted in the Forward
@@ -558,17 +555,17 @@ struct HexaHeader_ { const void* _; int32_t rc_; };
 // `null` receiver (`String.bytes_` sits at offset 40), so a mis-shaped field
 // read on a sentinel stays in-bounds and yields 0 instead of adjacent .data.
 struct HexaNone_ { const void* _; int32_t rc_; int32_t pad_[20]; };
-HEXA_C struct HexaNone_ HexaNone_ = { nullptr, (int32_t)0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
+static struct HexaNone_ HexaNone_ = { nullptr, (int32_t)0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
 // Fill `count` pointer slots with the sentinel — the Hexa-aware `calloc`.
 // Used for every storage class whose unset slots are observable:
 // `ArrayByValue<T?, N>` (BSS and stack) and raw pointer tables.
-HEXA_C void hexaFillNone_(void** slots, size_t count) {
+static void hexaFillNone_(void** slots, size_t count) {
 	void* f_ = (void*)&HexaNone_;
 	for (size_t i_ = 0; i_ < count; i_++) slots[i_] = f_;
 }
 // Sentinel-filling slot allocation (malloc under the hood) — the replacement
 // for `calloc` wherever slots hold nullable managed values.
-HEXA_C void* hexaSlotsAlloc(size_t count) {
+static void* hexaSlotsAlloc(size_t count) {
 	void** p_ = (void**)(malloc(count * sizeof(void*)));
 	if (p_ == nullptr) return nullptr;
 	hexaFillNone_(p_, count);
@@ -580,7 +577,7 @@ HEXA_C void* hexaSlotsAlloc(size_t count) {
 // references move with it (same array, no ownership transfer, so no counter
 // traffic). `realloc` failure keeps the old block (leak-safe, never a dangling
 // array).
-HEXA_C void* hexaResizeSlots(void** p, size_t oldCount, size_t newCount) {
+static void* hexaResizeSlots(void** p, size_t oldCount, size_t newCount) {
 	void** q_ = (void**)(realloc((void*)(p), newCount * sizeof(void*)));
 	if (q_ == nullptr) return (void*)(p);
 	if (newCount > oldCount) hexaFillNone_(q_ + oldCount, newCount - oldCount);
@@ -588,13 +585,13 @@ HEXA_C void* hexaResizeSlots(void** p, size_t oldCount, size_t newCount) {
 }
 // By-value slots: same contract, zero-filled tail (what `calloc` handed the
 // first block); the element size comes from the call site.
-HEXA_C void* hexaResizeScalar(void* p, size_t elemSize, size_t oldCount, size_t newCount) {
+static void* hexaResizeScalar(void* p, size_t elemSize, size_t oldCount, size_t newCount) {
 	void* q_ = realloc(p, newCount * elemSize);
 	if (q_ == nullptr) return p;
 	if (newCount > oldCount) memset((char*)(q_) + (oldCount * elemSize), 0, (newCount - oldCount) * elemSize);
 	return q_;
 }
-HEXA_C HEXA_FORCEINLINE uint64_t hexaHashSeed(void) { return (uint64_t)2166136261; }
+static HEXA_FORCEINLINE uint64_t hexaHashSeed(void) { return (uint64_t)2166136261; }
 // ── rc triage (opt-in: /DHEXA_RC_TRACE) ────────────────────────────────────
 // Nothing below is part of the ownership contract; it only NAMES the site when
 // the contract is already broken. Shipping builds compile it out entirely (no
@@ -607,22 +604,25 @@ HEXA_C HEXA_FORCEINLINE uint64_t hexaHashSeed(void) { return (uint64_t)216613626
 #else
 	#define HEXA_SITE_ADDR() ((void*)0)
 #endif
-// host-provided reporters (Perfide's main-hexa.cpp); other hosts may stub them
-HEXA_C void Perfide_OnUnrefZero(void* p, void* caller);
-HEXA_C void Perfide_OnUnrefNeg(void* p, void* caller);
+#ifdef __cplusplus
+extern "C" {
+#endif
 // Emitted later in the TU (`genC.printTagNames`, where `String__$` exists).
 // D2/F11: interned `String`s are RETIRED by the sweep (never destroyed), so a
 // String's counter is advisory: the intern walk borrows bucket neighbours and
 // legitimately drives it below 0. Keep the assert meaningful for everything
 // else by exempting strings here — triage only.
-HEXA_C uint8_t hexaTagIsString_(const void* tag_);
+static uint8_t hexaTagIsString_(const void* tag_);
 // Static / non-sweepable singletons (`_true`/`_false`, `HexaNone_`, the
 // 4096-byte env-sentinel store, the BSS int/float box caches — defined later
 // in the TU, where their addresses exist): their counters are ADVISORY
 // (never registered, never freed), so triage must not report rczero/rcneg on
 // them — same policy as the string-tag exemption below.
-HEXA_C uint8_t hexaAddrIsImmortal_(const void* p_);
-HEXA_C void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
+static uint8_t hexaAddrIsImmortal_(const void* p_);
+#ifdef __cplusplus
+}
+#endif
+static void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
 	if (hexaAddrIsImmortal_((const void*)p) != (uint8_t)0) return;
 	if (rc_after_ < (int32_t)0) {
 		if (hexaTagIsString_(((const void**)p)[0]) == (uint8_t)0) {
@@ -644,6 +644,7 @@ HEXA_C void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
 // non-throwing ctor keeps the inc-to-guard window empty by construction.
 // C++ only: pure-C targets use the inline best-effort form (F4.4).
 #ifdef __cplusplus
+namespace {
 struct HexaDeferDec_ { void* o_; HEXA_FORCEINLINE HexaDeferDec_(void* o): o_(o) {} HEXA_FORCEINLINE ~HexaDeferDec_() { hexaUnref(o_); } };
 // Pointer-captured guard (genC prints it for plain Ident operands): releases
 // the value the VARIABLE holds at scope exit, not the construction snapshot.
@@ -653,6 +654,7 @@ struct HexaDeferDec_ { void* o_; HEXA_FORCEINLINE HexaDeferDec_(void* o): o_(o) 
 // objects) while the LAST value leaked. Fields/exps keep the snapshot form
 // (an overwritten field's old share is what must die).
 struct HexaDeferDecPtr_ { void** p_; HEXA_FORCEINLINE HexaDeferDecPtr_(void** p): p_(p) {} HEXA_FORCEINLINE ~HexaDeferDecPtr_() { hexaUnref(*p_); } };
+} // namespace (ARC scope guards are TU-internal C++)
 #endif
 
 // COM interop DEL
@@ -768,11 +770,11 @@ struct IUnknown_ {
 //AnyFalse* _false = new AnyFalse();
 
 struct AnyTrue { const void* _; int32_t rc_; };
-struct AnyTrue _true;
+static struct AnyTrue _true;
 struct AnyFalse { const void* _; int32_t rc_; };
-struct AnyFalse _false;
-struct Any_* _bool[3] = {(struct Any_*)&_false, (struct Any_*)&_true, (struct Any_*)&HexaNone_};
-struct Any_* Any_fromBool(const uint8_t this_) {
+static struct AnyFalse _false;
+static struct Any_* _bool[3] = {(struct Any_*)&_false, (struct Any_*)&_true, (struct Any_*)&HexaNone_};
+static struct Any_* Any_fromBool(const uint8_t this_) {
 	return _bool[this_];
 }
 
@@ -930,7 +932,7 @@ struct Null$Float32 {
 typedef struct Null$Float32 Null$Float32;
 
 // TODO static + att visibility(hidden)
-uint8_t equalNull$Float32(Null$Float32 a, Null$Float32 b) {
+static uint8_t equalNull$Float32(Null$Float32 a, Null$Float32 b) {
 	if (a.has_ && b.has_ && a.value_ == b.value_) return 1;
 	if ((a.has_ + b.has_) == 0) return 1;
 	return 0;
@@ -944,7 +946,7 @@ typedef struct Null$UInt64 Null$UInt64;
 
 // TODO unit test this carefully
 // TODO move this to `class UInt64`? Or, create new `@keep @struct @byValue class NullUInt64`
-uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
+static uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
 	// if (a.has_ == 0 && b.has_ == 0) return 1;
 	//if (a.has_ != b.has_) return 1;
 	// TODO short-circuit version `(a.has_ + b.has_ + (uint8_t)(a.value_ == b.value_)) == 3` + cache `a.has_ + b.has_`
@@ -956,8 +958,8 @@ uint8_t equalNull$UInt64(Null$UInt64 a, Null$UInt64 b) {
 
 // This is done to not evaluate `value` twice (also useful for ABI)
 // TODO consider adding meta-block unroll
-Null$UInt64 toNull$UInt64(uint64_t value) {
 	return (Null$UInt64){value, (uint8_t)(value != 0)};
+static Null$UInt64 toNull$UInt64(uint64_t value) {
 	// NOTE no compound literal `(Null$UInt64){...}` — C4576 in C++ mode
 	Null$UInt64 result;
 	result.value_ = value;
@@ -1013,11 +1015,11 @@ typedef struct Null$Int64 Null$Int64;
 //};
 // name, value, name, value
 // NOTE returns `Any_*` — object literals are passed around as `Any`
-struct Any_* Object_from(void* stub, ...) {
+static struct Any_* Object_from(void* stub, ...) {
 	return (struct Any_*)0;
 };
 // key, value, key, value
-struct Any_* Map_from(void* stub, ...) {
+static struct Any_* Map_from(void* stub, ...) {
 	return (struct Any_*)0;
 };
 
@@ -1070,13 +1072,13 @@ struct Any_* Map_from(void* stub, ...) {
 //#define Bool$Null_true 1
 //#define Bool$Null_false 0
 //#define Bool$Null_null 2
-struct Any_* Any_fromInt(const int32_t this_) {
+static struct Any_* Any_fromInt(const int32_t this_) {
 	// Cache special cases like 0 1 -1
 	return (struct Any_*)0;
 }
 
 // `Float` as `Any` boxing (Phase 1: no-op placeholder per D2/F2)
-struct Any_* Any_fromFloat(const double this_) {
+static struct Any_* Any_fromFloat(const double this_) {
 	return (struct Any_*)0;
 }
 //#define String_op String_* operator + (String_ *right) { return $null; }
