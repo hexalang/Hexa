@@ -169,12 +169,46 @@ int HEXA_MAIN(int, char **);
 			#define HEXA_UNREACHABLE(where) {}
 			// TODO ^
 		#endif
+struct HexaHeader_ { const void* _; int32_t rc_; };
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+static void hexaRegisterLive_(void* p);
+#ifdef __cplusplus
+}
+#endif
+
+#ifndef HEXA_NO_PLATFORM_INCLUDES
+	#ifdef _WIN32
+		#define HEXA_UNREACHABLE_PRESENT 1
 	#else
 		#define HEXA_NEW(z) malloc(z)
 		#define HEXA_UNREACHABLE_PRESENT 0
 		#define HEXA_UNREACHABLE(where) {}
 		// TODO ^
 	#endif
+#else
+	#define HEXA_UNREACHABLE_PRESENT 0
+	#define HEXA_UNREACHABLE(where) {}
+#endif
+
+static void* hexaPlatformRawAlloc(size_t z) {
+	#ifdef _WIN32
+		// TODO cache GetProcessHeap !
+		return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (unsigned long long)z);
+	#else
+		void* p_ = malloc(z);
+		if (p_ != nullptr) memset(p_, 0, z);
+		return p_;
+	#endif
+}
+
+static void* hexaRawNewAt(size_t z, int line);
+static void* hexaCountedNewAt(size_t z, int line);
+#define HEXA_RAW_NEW(z) hexaRawNewAt((size_t)(z), __LINE__)
+#define HEXA_NEW(z)     hexaCountedNewAt((size_t)(z), __LINE__)
+
 #endif
 
 // OOM diagnosis: HEXA_NEW call-site tracking (watchdog dumps top 10).
@@ -194,7 +228,7 @@ static void* HexaTrackAlloc(size_t z, int line) {
 		hexaAllocCount_[line]++;
 		hexaAllocBytes_[line] += z;
 	}
-	return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, z);
+	return hexaPlatformRawAlloc(z);
 }
 #ifdef __cplusplus
 extern "C"
@@ -224,10 +258,24 @@ void HexaDumpAllocTop(const char* path) {
 	}
 	fclose(f);
 }
-#undef HEXA_NEW
-#define HEXA_NEW(z) HexaTrackAlloc(z, __LINE__)
 #endif
 #endif
+static void* hexaRawNewAt(size_t z, int line) {
+	#ifdef HEXA_ALLOC_TRACK
+		return HexaTrackAlloc(z, line);
+	#else
+		(void)line;
+		return hexaPlatformRawAlloc(z);
+	#endif
+}
+static void* hexaCountedNewAt(size_t z, int line) {
+	void* p_ = hexaRawNewAt(z, line);
+	if (p_ == nullptr) return nullptr;
+	((struct HexaHeader_*)p_)->rc_ = (int32_t)1;
+	hexaRegisterLive_(p_);
+	return p_;
+}
+
 //#define Array_$Null$int32_t$_ Array_$int32_t$_
 //#define Array_$int32_t$_ Array_$int32_t_
 //#define Array_$int32_t$_$new_ Array_$int32_t_$new_
@@ -255,9 +303,9 @@ void HexaDumpAllocTop(const char* path) {
 template <typename T, typename... A>
 static inline T* hexaItems(A... a) {
 	if constexpr (sizeof...(A) == 0) {
-		return (T*)(HEXA_NEW(sizeof(T)));
+		return (T*)(HEXA_RAW_NEW(sizeof(T)));
 	} else {
-		T* buffer = (T*)(HEXA_NEW(sizeof(T) * sizeof...(A)));
+		T* buffer = (T*)(HEXA_RAW_NEW(sizeof(T) * sizeof...(A)));
 		T items[] = {(T)a...};
 		for (size_t i = 0; i < sizeof...(A); i++) buffer[i] = items[i];
 		return buffer;
@@ -363,7 +411,15 @@ extern "C" inline void hexaPumpResumes() noexcept {
 // void `co_return;` is emitted as `co_return (Any_*)nullptr` by genC).
 // `operator co_await(S&)` takes a class-type reference (C2803 rejects `S*`
 // pointer params); genC emits `co_await (*p)` (deref).
-#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; HexaPromiseBase* pb_ = (HexaPromiseBase*)mem; pb_->rc_ = 1; pb_->state_ = 0; pb_->value_ = nullptr; pb_->reason_ = nullptr; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } std::suspend_never final_suspend() noexcept { return {}; } void unhandled_exception() noexcept { if (!hexaPromiseCatch_(promise_)) ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
+static void hexaUnrefPromise_(void* p_);
+template <typename S>
+struct HexaFinalUnref_ {
+	S* promise_;
+	bool await_ready() const noexcept { return true; }
+	void await_suspend(std::coroutine_handle<>) const noexcept {}
+	void await_resume() const noexcept { hexaUnrefPromise_((void*)promise_); }
+};
+#define HEXA_PROMISE_CORO(S) struct HexaPromiseType_##S { S* promise_; S* get_return_object() noexcept { void** mem = (void**)HEXA_NEW(sizeof(S)); mem[0] = (void*)&S##_$; HexaPromiseBase* pb_ = (HexaPromiseBase*)mem; pb_->rc_ = 2; pb_->state_ = 0; pb_->value_ = nullptr; pb_->reason_ = nullptr; promise_ = (S*)mem; return promise_; } std::suspend_never initial_suspend() noexcept { return {}; } HexaFinalUnref_<S> final_suspend() noexcept { return HexaFinalUnref_<S>{promise_}; } void unhandled_exception() noexcept { if (!hexaPromiseCatch_(promise_)) ExitProcess(3); } void return_value(Any_* v) noexcept { promise_->value_ = v; promise_->state_ = 1; } }; HexaAwaiter operator co_await(S& p) noexcept { return HexaAwaiter{(void*)&p}; } namespace std { template<typename... A> struct coroutine_traits<S*, A...> { using promise_type = HexaPromiseType_##S; }; }
 #endif
 /*
 #ifdef __cplusplus
@@ -531,7 +587,6 @@ static uint8_t hexaTagIsArray_(const void* tag_);
 #ifdef __cplusplus
 }
 #endif
-struct HexaHeader_ { const void* _; int32_t rc_; };
 // Owner is a plain counter: EVERY counted slot holds a real header, because
 // `null` is an object (the `HexaNone_` sentinel, emitted in the Forward
 // D2 producers are converted: `Array<T>` slot clears (`data[i] = null`),
@@ -638,6 +693,7 @@ static void hexaRcCheck_(void* p, int32_t rc_after_, void* caller_) {
 // #define hexaUnref(p) do { void* _hu_ = (void*)(p); int32_t _hr_ = --(((struct HexaHeader_*)_hu_)->rc_); hexaRcCheck_(_hu_, _hr_, HEXA_SITE_ADDR()); } while (0)
 #define hexaUnref(p) { void* _hu_ = (void*)(p); int32_t _hr_ = --(((struct HexaHeader_*)_hu_)->rc_); hexaRcCheck_(_hu_, _hr_, HEXA_SITE_ADDR()); }
 #endif // HEXA_RC_TRACE
+static void hexaUnrefPromise_(void* p_) { hexaUnref(p_); }
 // D4 scope guard: `DeferRefDec` lowers to one of these per retained value
 // (constructed where ArcInserter put the Defer, destructs at block exit —
 // normal returns AND C++ unwinding both release, D5). Trivial
