@@ -522,9 +522,9 @@ class GenCxx {
 						].join(', '))
 					out.push(') \{\n')
 					// out.push('\tprintf("\(e.name).\(name)_()\\n");fflush(stdout);\n')
-					out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
+					out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_RAW_NEW(sizeof(' + e.name + '_)));\n')
 					out.push('\t_->length_ = \(e.constructors[i].length);\n')
-					out.push('\t_->enum_ = (Any_**)(HEXA_NEW(sizeof(Any_*) * \(e.constructors[i].length)));\n')
+					out.push('\t_->enum_ = (Any_**)(HEXA_RAW_NEW(sizeof(Any_*) * \(e.constructors[i].length)));\n')
 					out.push('\t_->is_ = \(i);\n')
 
 					for c in e.constructors[i].length {
@@ -541,7 +541,7 @@ class GenCxx {
 
 					out.push(e.name + '_* ' + e.name + '_$' + name + '_() \{\n')
 					// out.push('\tprintf("\(e.name).\(name)_()\\n");fflush(stdout);\n')
-					out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_NEW(sizeof(' + e.name + '_)));\n')
+					out.push('\t' + e.name + '_* _ = (' + e.name + '_*)(HEXA_RAW_NEW(sizeof(' + e.name + '_)));\n')
 					out.push('\t_->length_ = 0;\n')
 					out.push('\t_->is_ = \(i);\n')
 					out.push('\treturn _;\n')
@@ -1002,7 +1002,11 @@ class GenCxx {
 							out.push(printFunctionArguments(args, funcType, variadic))
 							out.push(' \{\n')
 							// out.push('\tprintf("\(c.name).new_()\\n");fflush(stdout);\n')
-							out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
+							if isStruct or c.api == ClassBinaryInterface.StructureNoVirtual {
+								out.push('\tvoid** $_ = (void**)(HEXA_RAW_NEW(sizeof(' + c.name + '_)));\n')
+							} else {
+								out.push('\tvoid** $_ = (void**)(HEXA_NEW(sizeof(' + c.name + '_)));\n')
+							}
 							// TODO why so complicated? Just assign `_` v table pointer, makes also type-safer
 							if c.api == ClassBinaryInterface.StructureNoVirtual {
 							} else {
@@ -1060,6 +1064,8 @@ class GenCxx {
 							out.push('	return _;
 ')
 							out.push('\};\n\n')
+							out.push(String.fromCharCode(9) + 'return _;' + String.fromCharCode(10))
+							out.push(String.fromCharCode(125) + ';' + String.fromCharCode(10) + String.fromCharCode(10))
 						} else {
 							thisArgument = c.name + '_* $this'
 							vtable.push('\n\t')
@@ -2497,6 +2503,7 @@ class GenCxx {
 	}
 
 	var metaBlock: [String] = []
+	var guardedBagTemps: [String] = []
 	var tempId = 0
 	/// S3b: Nice base name (`closure$N`) of the fat impl currently being
 	/// printed (for self-recursion via `$env`) — set around global-func
@@ -2730,10 +2737,14 @@ class GenCxx {
 						return 'co_return (Any_*)nullptr'
 					}
 					// Struct-typed literal: construct, then box the pointer.
+					let bagMarkStruct = guardedBagTemps.length
+
 					if let s = printObjectAs(currentReturnType, e) {
-						return 'co_return ' + printToAnyConverter(s, currentReturnType)
+						return transferRetainPrefix(bagMarkStruct) + 'co_return ' + printToAnyConverter(s, currentReturnType)
 					}
-					return 'co_return ' + printToAnyConverter(printExpression(e), valueType(e))
+					let bagMarkAsync = guardedBagTemps.length
+					let coValue = printToAnyConverter(printExpression(e), valueType(e))
+					return transferRetainPrefix(bagMarkAsync) + 'co_return ' + coValue
 				}
 				let keyword = 'return'
 
@@ -2742,11 +2753,15 @@ class GenCxx {
 				}
 
 				// Struct-typed literal: real construction (see printObjectAs).
+				let bagMarkStruct = guardedBagTemps.length
+
 				if let s = printObjectAs(currentReturnType, e) {
-					return keyword + ' ' + s
+					return transferRetainPrefix(bagMarkStruct) + keyword + ' ' + s
 				}
 
-				return keyword + ' ' + forcedCast(currentReturnType, printTypeConverter(printExpression(e), valueType(e), currentReturnType))
+				let bagMark = guardedBagTemps.length
+				let retValue = forcedCast(currentReturnType, printTypeConverter(printExpression(e), valueType(e), currentReturnType))
+				return transferRetainPrefix(bagMark) + keyword + ' ' + retValue
 
 			case If(econd, eif, eelse):
 				var r = '\n\(tabs)if (' + printCondition(econd) + ') ' + printBlock(eif)
@@ -5643,7 +5658,7 @@ class GenCxx {
 		r += 'const struct FatPair_vt FatPair_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &FatPair_hiddenClassName_, &FatPair_hiddenDynGet_, &FatPair_hiddenDynSet_, &FatPair_hiddenHas_, &FatPair_hiddenDelete_, &FatPair_hiddenKeyAt_, &FatPair_hiddenKeyCount_, &FatPair_hiddenIndexGet_, &FatPair_hiddenIndexSet_, &FatPair_hiddenIndexCount_, &FatPair_hiddenReflect_, hexaFieldsEmpty_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
 		r += '#define FatPair__$ (FatPair_vt$.public_)' + nl
 		r += '_Static_assert(offsetof(struct FatPair_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
-		r += 'static Any_* Any_boxFatPairFlag_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t), int32_t owned) \{ if (impl == nullptr) return (Any_*)(size_t)(&HexaNone_); hexaFpNote_(HEXA_RET_ADDR(), nullptr); FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; p->owned_ = owned; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); hexaRegisterLive_((void*)p); return (Any_*)(p); \}\n'
+		r += 'static Any_* Any_boxFatPairFlag_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t), int32_t owned) \{ if (impl == nullptr) return (Any_*)(size_t)(&HexaNone_); hexaFpNote_(HEXA_RET_ADDR(), nullptr); FatPair_* p = (FatPair_*)(HEXA_NEW(sizeof(FatPair_))); p->_ = &FatPair__$; p->rc_ = (int32_t)1; p->impl_ = impl; p->env_ = env; p->call_ = call; p->owned_ = owned; if (env != nullptr && !((int64_t)(env) >= (int64_t)-65535 && (int64_t)(env) <= (int64_t)65535)) hexaRef(env); return (Any_*)(p); \}\n'
 		r += 'static Any_* Any_boxFatPair_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ return Any_boxFatPairFlag_(impl, env, call, (int32_t)0); \}\n'
 		r += 'static Any_* Any_boxFatPairOwned_(void (*impl)(), void* env, Any_* (*call)(struct FatPair_*, Any_**, int32_t)) \{ return Any_boxFatPairFlag_(impl, env, call, (int32_t)1); \}\n'
 		r += 'static uint8_t Any_isFatPair_(Any_* p) \{ if (p == nullptr) return (uint8_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (uint8_t)0; return (uint8_t)(((const void**)(p))[0] == (const void*)(&FatPair__$)) ? 1 : 0; \}\n'
@@ -5812,8 +5827,8 @@ class GenCxx {
 		r += 'static AnyFloat_ hexaFltCache_[131072];' + nl
 		r += 'static void hexaInitBoxCache_(void);' + nl
 		r += 'static void hexaInitBoxCache_(void) ' + lb + ' for (int32_t i_ = (int32_t)0; i_ < (int32_t)131072; i_++) ' + lb + ' int64_t v_ = (int64_t)i_ - (int64_t)65536; hexaIntCache_[i_]._ = &AnyInt__$; hexaIntCache_[i_].rc_ = (int32_t)0; hexaIntCache_[i_].v_ = v_; hexaFltCache_[i_]._ = &AnyFloat__$; hexaFltCache_[i_].rc_ = (int32_t)0; hexaFltCache_[i_].v_ = (double)v_; ' + rb + ' ' + rb + nl
-		r += 'static Any_* Any_boxInt_(int64_t v) \{ if (v >= (int64_t)-65535 && v <= (int64_t)65535) return (Any_*)(&hexaIntCache_[(size_t)((int64_t)v + (int64_t)65536)]); AnyInt_* b = (AnyInt_*)(HEXA_NEW(sizeof(AnyInt_))); b->_ = &AnyInt__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
-		r += 'static Any_* Any_boxFloat_(double v) \{ double iv_ = (double)(int64_t)v; if (iv_ == v && v >= (double)-65535.0 && v <= (double)65535.0) return (Any_*)(&hexaFltCache_[(size_t)(((int64_t)v) + (int64_t)65536)]); AnyFloat_* b = (AnyFloat_*)(HEXA_NEW(sizeof(AnyFloat_))); b->_ = &AnyFloat__$; b->rc_ = (int32_t)1; b->v_ = v; hexaRegisterLive_((void*)b); return (Any_*)(b); \}\n'
+		r += 'static Any_* Any_boxInt_(int64_t v) \{ if (v >= (int64_t)-65535 && v <= (int64_t)65535) return (Any_*)(&hexaIntCache_[(size_t)((int64_t)v + (int64_t)65536)]); AnyInt_* b = (AnyInt_*)(HEXA_NEW(sizeof(AnyInt_))); b->_ = &AnyInt__$; b->rc_ = (int32_t)1; b->v_ = v; return (Any_*)(b); \}\n'
+		r += 'static Any_* Any_boxFloat_(double v) \{ double iv_ = (double)(int64_t)v; if (iv_ == v && v >= (double)-65535.0 && v <= (double)65535.0) return (Any_*)(&hexaFltCache_[(size_t)(((int64_t)v) + (int64_t)65536)]); AnyFloat_* b = (AnyFloat_*)(HEXA_NEW(sizeof(AnyFloat_))); b->_ = &AnyFloat__$; b->rc_ = (int32_t)1; b->v_ = v; return (Any_*)(b); \}\n'
 		r += 'static HEXA_FORCEINLINE int32_t Any_unboxInt_(Any_* p) \{ if (p == nullptr) return (int32_t)0; if (p == (Any_*)(&_true)) return (int32_t)1; if (p == (Any_*)(&_false)) return (int32_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int32_t)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (int32_t)(((AnyInt_*)(p))->v_); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int32_t)(((AnyFloat_*)(p))->v_); return (int32_t)0; \}\n'
 		r += 'static HEXA_FORCEINLINE int64_t Any_unboxInt64_(Any_* p) \{ if (p == nullptr) return (int64_t)0; if (p == (Any_*)(&_true)) return (int64_t)1; if (p == (Any_*)(&_false)) return (int64_t)0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return ((AnyInt_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return (int64_t)(((AnyFloat_*)(p))->v_); return (int64_t)0; \}\n'
 		r += 'static HEXA_FORCEINLINE double Any_unboxFloat_(Any_* p) \{ if (p == nullptr) return (double)0.0; if (p == (Any_*)(&_true)) return (double)1.0; if (p == (Any_*)(&_false)) return (double)0.0; if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return (double)(int64_t)(p); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return ((AnyFloat_*)(p))->v_; if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return (double)(((AnyInt_*)(p))->v_); return (double)0.0; \}\n'
@@ -5821,6 +5836,8 @@ class GenCxx {
 		r += 'static String_* String_$combine_(String_*, String_*);\n'
 		r += 'static String_* String_$fromInt32_(int32_t);\n'
 		r += 'static String_* String_$fromFloat_(double);\n'
+		r += 'static struct String_* Hexa_GenericToString_(void* self);\n'
+		r += 'static String_* Any_$toString_(Any_* value_) ' + lb + ' if (value_ == nullptr) return String_1; if ((int64_t)(value_) >= (int64_t)-65535 && (int64_t)(value_) <= (int64_t)65535) return String_$fromInt32_((int32_t)(int64_t)(value_)); const void* tag_ = ((const void**)(value_))[0]; if (tag_ == nullptr) return String_1; if (tag_ == (const void*)(&String__$)) return (String_*)(value_); if (tag_ == (const void*)(&AnyTrue__$)) return String_$fromBool_((Bool_)1); if (tag_ == (const void*)(&AnyFalse__$)) return String_$fromBool_((Bool_)0); if (tag_ == (const void*)(&AnyInt__$)) return String_$fromInt32_((int32_t)(((AnyInt_*)(value_))->v_)); if (tag_ == (const void*)(&AnyFloat__$)) return String_$fromFloat_((double)(((AnyFloat_*)(value_))->v_)); return Hexa_GenericToString_((void*)(value_)); ' + rb + nl
 		r += 'static HEXA_FORCEINLINE String_* Any_unboxString_(Any_* p) \{ if (p == nullptr) return Any_$toString_(p); if (p == (Any_*)(&_true)) return Any_$toString_(p); if (p == (Any_*)(&_false)) return Any_$toString_(p); if ((int64_t)(p) >= -65535 && (int64_t)(p) <= 65535) return String_$fromInt32_((int32_t)(int64_t)(p)); if (((const void**)(p))[0] == (const void*)(&String__$)) return (String_*)(p); if (((const void**)(p))[0] == (const void*)(&AnyInt__$)) return String_$fromInt32_((int32_t)(((AnyInt_*)(p))->v_)); if (((const void**)(p))[0] == (const void*)(&AnyFloat__$)) return String_$fromFloat_((double)(((AnyFloat_*)(p))->v_)); return Any_$toString_(p); \}\n'
 		return r
 	}
@@ -5849,9 +5866,9 @@ class GenCxx {
 		r += 'static const char* AnyObject_hiddenClassName_(void);' + nl
 		r += 'static const char* AnyObject_hiddenClassName_(void) ' + lb + ' return "Object"; ' + rb + nl
 		r += 'static Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_);' + nl
-		r += 'static Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) return o_->entries_[at_].v_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
+		r += 'static Any_* AnyObject_hiddenDynGet_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) ' + lb + ' Any_* v_ = o_->entries_[at_].v_; hexaRef((void*)(v_)); return v_; ' + rb + ' return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'static void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_);' + nl
-		r += 'static void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) ' + lb + ' Any_* old_ = o_->entries_[at_].v_; o_->entries_[at_].v_ = v_; hexaRef((void*)v_); if (old_ != nullptr) hexaUnref((void*)old_); return; ' + rb + ' if (o_->count_ >= o_->cap_) ' + lb + ' int32_t ncap_ = o_->cap_ <= (int32_t)0 ? (int32_t)4 : o_->cap_ * (int32_t)2; struct AnyObjectEntry_* ne_ = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap_)); for (int32_t i_ = (int32_t)0; i_ < o_->count_; i_++) ' + lb + ' ne_[i_].k_ = o_->entries_[i_].k_; ne_[i_].v_ = o_->entries_[i_].v_; ' + rb + ' o_->entries_ = ne_; o_->cap_ = ncap_; ' + rb + ' o_->entries_[o_->count_].k_ = k_; hexaRef((void*)(k_)); o_->entries_[o_->count_].v_ = v_; hexaRef((void*)v_); o_->count_++; ' + rb + nl
+		r += 'static void AnyObject_hiddenDynSet_(void* self_, struct String_* k_, Any_* v_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return; AnyObject_* o_ = (AnyObject_*)(self_); int32_t at_ = Any_objectFind_(o_, k_); if (at_ >= (int32_t)0) ' + lb + ' Any_* old_ = o_->entries_[at_].v_; o_->entries_[at_].v_ = v_; hexaRef((void*)v_); if (old_ != nullptr) hexaUnref((void*)old_); return; ' + rb + ' if (o_->count_ >= o_->cap_) ' + lb + ' int32_t ncap_ = o_->cap_ <= (int32_t)0 ? (int32_t)4 : o_->cap_ * (int32_t)2; struct AnyObjectEntry_* ne_ = (struct AnyObjectEntry_*)(HEXA_RAW_NEW(sizeof(struct AnyObjectEntry_) * ncap_)); for (int32_t i_ = (int32_t)0; i_ < o_->count_; i_++) ' + lb + ' ne_[i_].k_ = o_->entries_[i_].k_; ne_[i_].v_ = o_->entries_[i_].v_; ' + rb + ' o_->entries_ = ne_; o_->cap_ = ncap_; ' + rb + ' o_->entries_[o_->count_].k_ = k_; hexaRef((void*)(k_)); o_->entries_[o_->count_].v_ = v_; hexaRef((void*)v_); o_->count_++; ' + rb + nl
 		r += 'static uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_);' + nl
 		r += 'static uint8_t AnyObject_hiddenHas_(void* self_, struct String_* k_) ' + lb + ' if (self_ == nullptr || k_ == nullptr) return (uint8_t)0; return (uint8_t)(Any_objectFind_((AnyObject_*)(self_), k_) >= (int32_t)0); ' + rb + nl
 		r += 'static void AnyObject_hiddenDelete_(void* self_, struct String_* k_);' + nl
@@ -5872,9 +5889,9 @@ class GenCxx {
 		r += 'const struct AnyObject_vt AnyObject_vt$ = ' + lb + ' ' + lb + 'nullptr, &Hexa_ToBoolTrue_, &Hexa_GenericToString_, &AnyObject_hiddenClassName_, &AnyObject_hiddenDynGet_, &AnyObject_hiddenDynSet_, &AnyObject_hiddenHas_, &AnyObject_hiddenDelete_, &AnyObject_hiddenKeyAt_, &AnyObject_hiddenKeyCount_, &AnyObject_hiddenIndexGet_, &AnyObject_hiddenIndexSet_, &AnyObject_hiddenIndexCount_, &AnyObject_hiddenReflect_, hexaFieldsEmpty_' + rb + ', ' + lb + '&Hexa_QI_, &Hexa_AddRef_, &Hexa_Release_' + rb + ' ' + rb + ';' + nl
 		r += '#define AnyObject__$ (AnyObject_vt$.public_)' + nl
 		r += '_Static_assert(offsetof(struct AnyObject_vt, public_) == sizeof(struct HexaReflect_), "reflect: public must follow hidden");' + nl
-		r += 'static Any_* Any_objectNew_() ' + lb + ' hexaFpNote_(HEXA_RET_ADDR(), nullptr); AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; hexaRegisterLive_((void*)o); return (Any_*)(o); ' + rb + nl
+		r += 'static Any_* Any_objectNew_() ' + lb + ' hexaFpNote_(HEXA_RET_ADDR(), nullptr); AnyObject_* o = (AnyObject_*)(HEXA_NEW(sizeof(AnyObject_))); o->_ = &AnyObject__$; o->rc_ = (int32_t)1; o->count_ = (int32_t)0; o->cap_ = (int32_t)0; o->entries_ = nullptr; return (Any_*)(o); ' + rb + nl
 		r += 'static uint8_t Any_objectStringEquals_(String_* a, String_* b) ' + lb + ' if (a == b) return (uint8_t)1; if (a == nullptr || b == nullptr) return (uint8_t)0; if (a->length_ != b->length_) return (uint8_t)0; for (int32_t i = (int32_t)0; i < a->length_; i++) ' + lb + ' if (a->bytes_[i] != b->bytes_[i]) return (uint8_t)0; ' + rb + ' return (uint8_t)1; ' + rb + nl
-		r += 'static int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; HEXA_ASSERT(o->count_ <= o->cap_, "Any_objectFind_: count exceeds cap - corrupt bag (entries_ overrun)"); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
+		r += 'static int32_t Any_objectFind_(AnyObject_* o, String_* k) ' + lb + ' if (o == nullptr || k == nullptr) return (int32_t)-1; if (o->count_ > o->cap_ || o->count_ < (int32_t)0) ' + lb + ' fprintf(stderr, "BAGCORRUPT bag=%p count=%d cap=%d entries=%p tag=%p\\n", (void*)(o), (int)o->count_, (int)o->cap_, (void*)(o->entries_), (void*)(((const void**)(o))[0])); fflush(stderr); ' + rb + ' HEXA_ASSERT(o->count_ <= o->cap_, "Any_objectFind_: count exceeds cap - corrupt bag (entries_ overrun)"); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' if (Any_objectStringEquals_(o->entries_[i].k_, k)) return i; ' + rb + ' return (int32_t)-1; ' + rb + nl
 		r += 'static HEXA_FORCEINLINE void Any_refCounted_(Any_* p) ' + lb + ' hexaRef((void*)p); ' + rb + nl
 		r += 'static HEXA_FORCEINLINE void Any_unrefCounted_(Any_* p) ' + lb + ' if (p != nullptr) hexaUnref((void*)p); ' + rb + nl
 		r += 'static HEXA_FORCEINLINE int32_t hexaFreeSlots(void** slots, size_t count) ' + lb + ' if (slots == nullptr) return (int32_t)0; for (size_t i_ = (size_t)0; i_ < count; i_++) hexaUnref(slots[i_]); HEXA_FREE(slots, (size_t)0); return (int32_t)count; ' + rb + nl
@@ -5889,7 +5906,7 @@ class GenCxx {
 		r += rb + ' // namespace' + nl
 		r += 'extern "C" ' + lb + ' // reopen the outer block' + nl
 		r += '#endif' + nl
-		r += 'static void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; hexaRef((void*)v); if (old_ != nullptr) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; hexaRef((void*)v); o->count_++; ' + rb + nl
+		r += 'static void Any_objectSet_(Any_* p, String_* k, Any_* v) ' + lb + ' if (p == nullptr) return; HEXA_ASSERT(k != nullptr, "Any_objectSet_: null key - the field write is silently dropped"); HEXA_ASSERT(((const void**)(p))[0] == (const void*)(&AnyObject__$), "Any_objectSet_: receiver is not a bag - the field write is silently dropped (convert at the Any boundary)"); if (k == nullptr || ((const void**)(p))[0] != (const void*)(&AnyObject__$)) return; AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) ' + lb + ' Any_* old_ = o->entries_[at].v_; o->entries_[at].v_ = v; hexaRef((void*)v); if (old_ != nullptr) hexaUnref((void*)old_); return; ' + rb + ' if (o->count_ >= o->cap_) ' + lb + ' int32_t ncap = o->cap_ <= (int32_t)0 ? (int32_t)4 : o->cap_ * (int32_t)2; struct AnyObjectEntry_* ne = (struct AnyObjectEntry_*)(HEXA_RAW_NEW(sizeof(struct AnyObjectEntry_) * ncap)); for (int32_t i = (int32_t)0; i < o->count_; i++) ' + lb + ' ne[i].k_ = o->entries_[i].k_; ne[i].v_ = o->entries_[i].v_; ' + rb + ' o->entries_ = ne; o->cap_ = ncap; ' + rb + ' o->entries_[o->count_].k_ = k; hexaRef((void*)(k)); o->entries_[o->count_].v_ = v; hexaRef((void*)v); o->count_++; ' + rb + nl
 		r += 'static Any_* Any_objectGet_(Any_* p, String_* k) ' + lb + ' if (p == nullptr || k == nullptr) return (Any_*)(size_t)(&HexaNone_); if (((const void**)(p))[0] != (const void*)(&AnyObject__$)) return (Any_*)(size_t)(&HexaNone_); AnyObject_* o = (AnyObject_*)(p); int32_t at = Any_objectFind_(o, k); if (at >= (int32_t)0) return o->entries_[at].v_; return (Any_*)(size_t)(&HexaNone_); ' + rb + nl
 		r += 'static HEXA_FORCEINLINE uint8_t Any_isObject_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&AnyObject__$)) ? 1 : 0); ' + rb + nl
 		r += 'static HEXA_FORCEINLINE uint8_t Any_isString_(Any_* p) ' + lb + ' if (p == nullptr) return (uint8_t)0; return (uint8_t)((((const void**)(p))[0] == (const void*)(&String__$)) ? 1 : 0); ' + rb + nl
@@ -5970,7 +5987,8 @@ class GenCxx {
 		r += 'static uint8_t Hexa_ToBoolTrue_(void* self);' + nl
 		r += 'static uint8_t Hexa_ToBoolTrue_(void* self) ' + lb + ' (void)self; return (uint8_t)1; ' + rb + nl
 		r += 'static struct String_* Hexa_GenericToString_(void* self);' + nl
-		r += 'static struct String_* Hexa_GenericToString_(void* self) ' + lb + ' (void)self; return nullptr; ' + rb + nl
+		r += 'struct String_* String_$fromUTF16z_(const uint16_t*);' + nl
+		r += 'static struct String_* Hexa_GenericToString_(void* self) ' + lb + ' (void)self; static struct String_* s_ = nullptr; if (s_ == nullptr) s_ = String_$fromUTF16z_(hexaStrObjectObject_); return s_; ' + rb + nl
 		r += 'uint8_t HexaHasReflect_(const void* tag_);' + nl
 		r += 'static int32_t Hexa_QI_(void* self, void* riid, void** out);' + nl
 		r += 'static uint32_t Hexa_AddRef_(void* self);' + nl
@@ -6140,7 +6158,7 @@ class GenCxx {
 		// dozens of times per second inside ordinary allocation — that is a
 		// multi-second stall, not a saving.
 		r += 'static size_t hexaAllocSinceSweep_ = 0;' + nl
-		r += 'static void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)65536) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
+		r += 'static void hexaRegisterLive_(void* p) ' + lb + ' if (p == nullptr) return; if (hexaLiveNum_ >= hexaLiveCap_) ' + lb + ' size_t ncap = hexaLiveCap_ == (size_t)0 ? (size_t)4096 : hexaLiveCap_ * (size_t)2; void** nn = (void**)(HEXA_RAW_NEW(sizeof(void*) * ncap)); for (size_t i = (size_t)0; i < hexaLiveNum_; i++) nn[i] = hexaLiveList_[i]; if (hexaLiveList_ != nullptr) HEXA_FREE(hexaLiveList_, sizeof(void*) * hexaLiveCap_); hexaLiveList_ = nn; hexaLiveCap_ = ncap; ' + rb + ' hexaLiveList_[hexaLiveNum_] = p; hexaLiveNum_++; if (++hexaAllocSinceSweep_ >= (size_t)65536) ' + lb + ' hexaAllocSinceSweep_ = 0; hexaSweep(); ' + rb + rb + nl
 		r += 'static size_t hexaLiveCount_(void) ' + lb + ' return hexaLiveNum_; ' + rb + nl
 		r += 'static void hexaSweepCensus(void) ' + lb + ' size_t live_ = hexaLiveNum_; size_t zero_ = (size_t)0; size_t null_ = (size_t)0; size_t stringLive_ = (size_t)0; size_t stringBytes_ = (size_t)0; for (size_t i_ = (size_t)0; i_ < hexaLiveNum_; i_++) ' + lb + ' void* p_ = hexaLiveList_[i_]; if (p_ == nullptr) continue; int64_t v_ = (int64_t)p_; if (v_ >= (int64_t)-65535 && v_ <= (int64_t)65535) continue; const void* tag_ = ((const void**)(p_))[0]; if (tag_ == nullptr) ' + lb + ' null_++; continue; ' + rb + ' if (tag_ == (const void*)(&String__$)) ' + lb + ' stringLive_++; stringBytes_ += (size_t)(((String_*)(p_))->bytesLength_); ' + rb + ' if (((const struct HexaHeader_*)(p_))->rc_ == (int32_t)0) zero_++; ' + rb + ' FILE* f_ = fopen("sweep-census.log", "a"); if (f_ != nullptr) ' + lb + ' fprintf(f_, "sweep-census live=%llu zero=%llu nullTag=%llu stringLive=%llu stringBytes=%llu", (unsigned long long)live_, (unsigned long long)zero_, (unsigned long long)null_, (unsigned long long)stringLive_, (unsigned long long)stringBytes_); fputc(10, f_); fclose(f_); ' + rb + rb + nl
 		return r
@@ -6306,7 +6324,7 @@ class GenCxx {
 		r += 'if (tag_ == (const void*)(&String__$)) ' + lb + ' hexaLiveNum_--; if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_]; continue; ' + rb + nl
 		r += 'if (mode_ == 2 && hexaTagIsArray_(tag_)) ' + lb + ' i_++; continue; ' + rb + nl
 		r += 'if (mode_ == 3) ' + lb + ' void (*dd_)(void*) = HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->destroy_ : HexaDestroyLookup_(tag_); if (dd_ != nullptr) ' + lb + ' i_++; continue; ' + rb + ' ' + rb + nl
-		r += 'if (victims_ < 64) ' + lb + ' victims_++; if (hexaSweepVerbose_ != (uint8_t)0) ' + lb + ' FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", (HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->className_() : hexaTagName_(tag_)), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d head=", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, "%04x ", (unsigned)(s_->bytes_[k_])); int32_t bi_ = (int32_t)(s_->bytesHash_ % 65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; uint8_t inb_ = (uint8_t)0; uint8_t ishead_ = (uint8_t)0; String_* cur_ = stringBuckets_[bi_]; if (cur_ == s_) ishead_ = (uint8_t)1; int32_t guard_ = (int32_t)0; while (cur_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (cur_ == s_) ' + lb + ' inb_ = (uint8_t)1; break; ' + rb + ' cur_ = cur_->next_; guard_++; ' + rb + ' fprintf(vf_, " inbucket=%d ishead=%d", (int)inb_, (int)ishead_); HEXA_ASSERT(inb_ == (uint8_t)0, "sweep: freeing an interned String still linked in stringBuckets_ - unlink the weak intern link before free (D6)"); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + ' ' + rb + nl
+		r += 'if (victims_ < 64) ' + lb + ' victims_++; if (hexaSweepVerbose_ != (uint8_t)0) ' + lb + ' FILE* vf_ = fopen("sweep-census.log", "a"); if (vf_ != nullptr) ' + lb + ' fprintf(vf_, "sweep-victim %s %p", (HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->className_() : hexaTagName_(tag_)), p_); if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); fprintf(vf_, " len=%d", (int)s_->length_); int32_t n_ = s_->length_ < (int32_t)12 ? s_->length_ : (int32_t)12; for (int32_t k_ = (int32_t)0; k_ < n_; k_++) fprintf(vf_, " %04x", (unsigned)(s_->bytes_[k_])); ' + rb + ' fputc(10, vf_); fclose(vf_); ' + rb + ' ' + rb + ' ' + rb + nl
 		r += 'const uint8_t* fw_ = HexaReflectFor_(tag_)->fields_; void* fc_ = (void*)p_; uint8_t fd_ = (uint8_t)0;' + nl
 		r += 'while ((fd_ = *fw_++) != (uint8_t)0) ' + lb + ' fc_ = (void*)((char*)fc_ + (size_t)fd_); void* slot_ = *(void**)fc_; if (slot_ != nullptr) hexaUnref(slot_); ' + rb + nl
 		r += 'if (tag_ == (const void*)(&AnyObject__$)) ' + lb + ' AnyObject_* o_ = (AnyObject_*)(p_); if (o_->entries_ != nullptr) ' + lb + ' for (size_t j_ = (size_t)0; j_ < (size_t)o_->count_; j_++) ' + lb + ' if (o_->entries_[j_].k_ != nullptr) hexaUnref((void*)(o_->entries_[j_].k_)); if (o_->entries_[j_].v_ != nullptr) hexaUnref((void*)(o_->entries_[j_].v_)); ' + rb + ' HEXA_FREE(o_->entries_, 0); ' + rb + ' ' + rb + ' else if (tag_ == (const void*)(&FatPair__$)) ' + lb + ' FatPair_* fp_ = (FatPair_*)(p_); if (fp_->env_ != nullptr && !((int64_t)(fp_->env_) >= (int64_t)-65535 && (int64_t)(fp_->env_) <= (int64_t)65535)) hexaUnref(fp_->env_); ' + rb + ' else ' + lb + ' void (*d_)(void*) = HexaHasReflect_(tag_) ? HexaReflectFor_(tag_)->destroy_ : HexaDestroyLookup_(tag_); if (d_ != nullptr) d_(p_); ' + rb + nl
@@ -6315,7 +6333,6 @@ class GenCxx {
 		// pointer, so a freed-but-linked bucket head corrupts every later
 		// intern (the victim-block `HEXA_ASSERT(inb_ == 0)` above stays as the
 		// tripwire proving the unlink ran: it checks pre-unlink state).
-		r += 'if (tag_ == (const void*)(&String__$)) ' + lb + ' String_* s_ = (String_*)(p_); int32_t bi_ = (int32_t)(s_->bytesHash_ % (int32_t)65536); if (bi_ < (int32_t)0) bi_ += (int32_t)65536; String_** link_ = &stringBuckets_[bi_]; int32_t guard_ = (int32_t)0; while (*link_ != nullptr && guard_ < (int32_t)1000000) ' + lb + ' if (*link_ == s_) ' + lb + ' *link_ = s_->next_; break; ' + rb + ' link_ = &((*link_)->next_); guard_++; ' + rb + ' ' + rb + nl
 		r += 'HEXA_FREE(p_, 0);' + nl
 		r += 'hexaLiveNum_--;' + nl
 		r += 'if (i_ < hexaLiveNum_) hexaLiveList_[i_] = hexaLiveList_[hexaLiveNum_];' + nl
@@ -6777,6 +6794,7 @@ class GenCxx {
 				if guarded { metaBlock.push(gcc) }
 				if not inStaticInit {
 					metaBlock.push('HexaDeferCountedDecPtr_ _$sbg' + tid + '((void**)&(' + tmp + '))')
+					guardedBagTemps.push(tmp)
 				}
 				return tmp
 			case _:
@@ -6963,7 +6981,7 @@ class GenCxx {
 			// is the same path). Only a genuinely headerless legacy struct
 			// passes through raw.
 			r += ' if (((const void**)(v_))[0] != (const void*)(&AnyObject__$) && !HexaHasReflect_(((const void**)v_)[0])) return /*PASS-THROUGH (#6: headerless legacy struct stays raw)*/ (' + sname + '*)(size_t)(v_);' + nl
-			r += ' ' + sname + '* s_ = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')));' + nl
+			r += ' ' + sname + '* s_ = (' + sname + '*)(HEXA_RAW_NEW(sizeof(' + sname + ')));' + nl
 
 			for j in names.length {
 				let fieldT = types[j]
@@ -9588,7 +9606,6 @@ class GenCxx {
 		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
 		metaBlock.push('((void**)' + tmp + ')[0] = (void*)&' + className + '__$')
 		metaBlock.push(tmp + '->rc_ = 1')
-		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
 		pushOmittedFieldFill(tmp, names, ftypes, onames)
 
 		for i in names.length {
@@ -9654,25 +9671,26 @@ class GenCxx {
 			}
 			metaBlock.push('Any_objectSet_(' + tmp + ', ' + printExpression(Expression.String(names[i])) + ', ' + vstr + ')')
 		}
+		guardedBagTemps.push(tmp)
 		return tmp
 	}
 
-	fun registerString(string: String): Int {
-		declarationsOfStrings.push(string)
-		return declarationsOfStrings.length - 1
+	fun transferRetainPrefix(bagMark: Int): String {
+		if bagMark < 0 or guardedBagTemps.length <= bagMark {
+			return ''
+		}
+		return 'hexaRef(' + guardedBagTemps[guardedBagTemps.length - 1] + '); '
+	}
+
 	/// F10.2 dynamic member read: `AnyObject` bags read real fields, every
 	/// other shape keeps the legacy `let_` proxy (observably identical).
 	fun anyDynGetStr(recv: String, name: String): String {
-		let q = String.fromCharCode(34)
-		return 'Any_dynGet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '))'
 		return 'Any_dynGet_((Any_*)(' + recv + '), ' + printExpression(Expression.String(name)) + ')'
 	}
 
 	/// F10.2 dynamic member write: `AnyObject` bags store real fields, every
 	/// other shape keeps the legacy `$set` stub.
 	fun anyDynSetStr(recv: String, name: String, val: String): String {
-		let q = String.fromCharCode(34)
-		return 'Any_dynSet_((Any_*)(' + recv + '), String_$fromUTF16z_((const uint16_t*)L' + q + wideLitEsc(name) + q + '), ' + val + ')'
 		return 'Any_dynSet_((Any_*)(' + recv + '), ' + printExpression(Expression.String(name)) + ', ' + val + ')'
 	}
 
@@ -9691,7 +9709,7 @@ class GenCxx {
 		let sname = omitPointer(stringifyType(Type.Struct(names, fieldTypes)))
 		let tid = tempId++
 		let tmp = '_$struct\(tid)'
-		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_NEW(sizeof(' + sname + ')))')
+		metaBlock.push(sname + '* ' + tmp + ' = (' + sname + '*)(HEXA_RAW_NEW(sizeof(' + sname + ')))')
 		pushOmittedFieldFill(tmp, names, fieldTypes, onames)
 
 		for i in names.length {
@@ -9779,7 +9797,6 @@ class GenCxx {
 		// `void**` exactly as `$new_` does, or MSVC rejects it (C2166).
 		metaBlock.push('((void**)' + tmp + ')[0] = (void*)&' + className + '__$')
 		metaBlock.push(tmp + '->rc_ = 1')
-		metaBlock.push('hexaRegisterLive_((void*)' + tmp + ')')
 		pushOmittedFieldFill(tmp, names, ftypes, onames)
 
 		for i in names.length {
@@ -9966,7 +9983,6 @@ class GenCxx {
 
 					for a in el {
 						if isBoxableFat(a) {
-							parts.push('Any_boxFatPair_((void(*)())(' + fatPtrStr(a) + '), ' + fatEnvStr(a) + ')')
 							parts.push(boxFatPair(a))
 						} else {
 							parts.push(printTypeConverter(printExpression(a), valueType(a), project.typer.typeAny))
@@ -9983,7 +9999,6 @@ class GenCxx {
 		// (composites have no addressable pair — see isBoxableFat).
 		// Single funnel: `boxFatPair` (see #5).
 		if isBoxableFat(v), stringifyType(ofType) == 'Any_*' {
-			return 'Any_boxFatPair_((void(*)())(' + fatPtrStr(v) + '), ' + fatEnvStr(v) + ')'
 			return boxFatPair(v)
 		}
 		if stringifyType(ofType) == 'Any_*' {
@@ -10583,11 +10598,11 @@ class GenCxx {
 								if shouldInit {
 									if args.length > 0 {
 										// TODO should not wrap into ( )
-										return name + '$this_((\(name)*)HEXA_NEW(sizeof(\(name))), ' + printCallArguments(args) + ')'
+										return name + '$this_((\(name)*)HEXA_RAW_NEW(sizeof(\(name))), ' + printCallArguments(args) + ')'
 									}
-									return name + '$this_((\(name)*)HEXA_NEW(sizeof(\(name))))'
+									return name + '$this_((\(name)*)HEXA_RAW_NEW(sizeof(\(name))))'
 								}
-								return '(\(name)*)HEXA_NEW(sizeof(\(name)))'
+								return '(\(name)*)HEXA_RAW_NEW(sizeof(\(name)))'
 							}
 							// if let params = params, params.length == 1 {
 							// switch params[0] {
