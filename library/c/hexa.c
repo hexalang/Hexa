@@ -18,9 +18,6 @@ extern "C" {
 	#endif
 #endif
 
-static String_* Any_$toString_(Any_* value_) {
-	return String_1;
-}
 
 #ifdef __cplusplus
 }
