@@ -662,7 +662,7 @@ class ArcInserter {
 										els.spliceAndInsert(i, 0, Statement.RefInc([expr]))
 										arcReturnRetains++
 										i += 1 // Skip inserted
-									} else if not this.isFreshOwned(expr) {
+									} else if this.isGuardedBagLiteral(expr) or not this.isFreshOwned(expr) {
 										let tempRet = this.unique('temp_ret')
 										let nt = Expression.Ident(tempRet, retType)
 										els.spliceAndInsert(i, 0, Statement.Const(tempRet, expr, retType))
@@ -681,7 +681,7 @@ class ArcInserter {
 							// share too, and the catcher below guards the same set.
 							// Null-safe like Return (typeless throws ride `Any`).
 							if expr != null {
-								if not this.isLvalueExpr(expr) and not this.isFreshOwned(expr) {
+								if not this.isLvalueExpr(expr) and (this.isGuardedBagLiteral(expr) or not this.isFreshOwned(expr)) {
 									var throwType = this.niceTypeOf(expr) ?? this.getType(expr)
 
 									if throwType == null {
@@ -1341,6 +1341,26 @@ class ArcInserter {
 	/// would free live once the sweep lands).
 	fun isFreshOwned(e: Expression): Bool {
 		return this.isOwnedInit(e) and not this.isLvalueExpr(e)
+	}
+
+	fun isGuardedBagLiteral(e: Expression): Bool {
+		if e == null {
+			return false
+		}
+
+		switch e {
+			case Object(_, _, _):
+				let t = this.niceTypeOf(e) ?? this.getType(e)
+
+				if t == null {
+					return false
+				}
+				return t == this.typer.typeAny
+			case Parenthesis(inner):
+				return this.isGuardedBagLiteral(inner)
+			case _:
+				return false
+		}
 	}
 
 	/// Pure index shapes: re-evaluation duplicates no effects.
